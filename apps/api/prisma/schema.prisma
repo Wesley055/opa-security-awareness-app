@@ -1,0 +1,66 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  RESPONDER
+  ADMIN
+}
+
+enum IncidentStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  CANCELLED
+}
+
+enum IncidentTrigger {
+  SOS_BUTTON
+  VOICE_HELP_HELP
+  TRUSTED_CONTACT
+  SYSTEM_TEST
+}
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  email        String     @unique
+  phoneNumber  String     @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  role         UserRole   @default(USER)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  incidents    Incident[]
+
+  @@index([phoneNumber])
+}
+
+model Incident {
+  id             String          @id @default(uuid()) @db.Uuid
+  userId         String          @db.Uuid
+  user           User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  trigger        IncidentTrigger
+  status         IncidentStatus  @default(OPEN)
+  latitude       Decimal         @db.Decimal(9, 6)
+  longitude      Decimal         @db.Decimal(9, 6)
+  address        String?
+  voicePhrase    String?
+  trustedContact Json?
+  metadata       Json?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  resolvedAt     DateTime?
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+// TEST

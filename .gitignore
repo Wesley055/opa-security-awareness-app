@@ -1,0 +1,14 @@
+.dart_tool/
+.env
+.env.*
+!.env.example
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+coverage/
+dist/
+node_modules/
+pubspec.lock
+*.iml
+*.log

@@ -1,0 +1,20 @@
+{
+  "name": "opa",
+  "private": true,
+  "version": "0.0.1",
+  "description": "OPA Nigerian emergency safety platform monorepo",
+  "workspaces": [
+    "apps/api"
+  ],
+  "scripts": {
+    "api:dev": "npm --workspace apps/api run start:dev",
+    "api:test": "npm --workspace apps/api run test",
+    "api:lint": "npm --workspace apps/api run lint",
+    "prisma:generate": "npm --workspace apps/api run prisma:generate",
+    "prisma:migrate": "npm --workspace apps/api run prisma:migrate"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  }
+}

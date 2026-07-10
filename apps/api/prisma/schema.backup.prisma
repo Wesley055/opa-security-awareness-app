@@ -28,19 +28,17 @@ enum IncidentTrigger {
 }
 
 model User {
-  id                String             @id @default(uuid()) @db.Uuid
-  email             String             @unique
-  phoneNumber       String             @unique
-  passwordHash      String
-  firstName         String
-  lastName          String
-  role              UserRole           @default(USER)
-  isActive          Boolean            @default(true)
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
-
-  incidents         Incident[]
-  emergencyContacts EmergencyContact[]
+  id           String     @id @default(uuid()) @db.Uuid
+  email        String     @unique
+  phoneNumber  String     @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  role         UserRole   @default(USER)
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  incidents    Incident[]
 
   @@index([phoneNumber])
 }
@@ -65,23 +63,4 @@ model Incident {
   @@index([status, createdAt])
 }
 
-model EmergencyContact {
-  id           String   @id @default(uuid()) @db.Uuid
-
-  userId       String   @db.Uuid
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  firstName    String
-  lastName     String
-  relationship String
-  phoneNumber  String
-  email        String?
-
-  isPrimary    Boolean  @default(false)
-  isActive     Boolean  @default(true)
-
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  @@index([userId])
-}
+// TEST

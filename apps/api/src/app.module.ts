@@ -1,6 +1,7 @@
 ﻿import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
+
 import { AuthModule } from './modules/auth/auth.module';
 import { EmergencyContactsModule } from './modules/emergency-contacts/emergency-contacts.module';
 import { EmergencyDetectionModule } from './modules/emergency-detection/emergency-detection.module';
@@ -8,7 +9,9 @@ import { EmergencyIntelligenceModule } from './modules/emergency-intelligence/em
 import { IncidentOrchestratorModule } from './modules/incident-orchestrator/incident-orchestrator.module';
 import { IncidentsModule } from './modules/incidents/incidents.module';
 import { NotificationModule } from './modules/notifications/notification.module';
+import { RefreshTokenModule } from './modules/refresh-token/refresh-token.module';
 import { UsersModule } from './modules/users/users.module';
+
 import { PrismaModule } from './prisma/prisma.module';
 import { validateEnv } from './shared/config/env.validation';
 
@@ -18,12 +21,14 @@ import { validateEnv } from './shared/config/env.validation';
       isGlobal: true,
       validate: validateEnv,
     }),
+
     ThrottlerModule.forRoot([
       {
         ttl: 60000,
         limit: 60,
       },
     ]),
+
     PrismaModule,
     AuthModule,
     UsersModule,
@@ -33,6 +38,7 @@ import { validateEnv } from './shared/config/env.validation';
     EmergencyIntelligenceModule,
     EmergencyDetectionModule,
     IncidentOrchestratorModule,
+    RefreshTokenModule,
   ],
 })
 export class AppModule {}

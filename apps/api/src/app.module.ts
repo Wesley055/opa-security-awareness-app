@@ -5,6 +5,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { EmergencyContactsModule } from './modules/emergency-contacts/emergency-contacts.module';
 import { EmergencyDetectionModule } from './modules/emergency-detection/emergency-detection.module';
 import { EmergencyIntelligenceModule } from './modules/emergency-intelligence/emergency-intelligence.module';
+import { IncidentOrchestratorModule } from './modules/incident-orchestrator/incident-orchestrator.module';
 import { IncidentsModule } from './modules/incidents/incidents.module';
 import { NotificationModule } from './modules/notifications/notification.module';
 import { UsersModule } from './modules/users/users.module';
@@ -31,6 +32,7 @@ import { validateEnv } from './shared/config/env.validation';
     NotificationModule,
     EmergencyIntelligenceModule,
     EmergencyDetectionModule,
+    IncidentOrchestratorModule,
   ],
 })
 export class AppModule {}

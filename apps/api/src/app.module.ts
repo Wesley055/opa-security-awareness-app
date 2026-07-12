@@ -1,4 +1,8 @@
-﻿import { Module } from '@nestjs/common';
+﻿import {
+  MiddlewareConsumer,
+  Module,
+  NestModule,
+} from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 
@@ -14,6 +18,8 @@ import { UsersModule } from './modules/users/users.module';
 
 import { PrismaModule } from './prisma/prisma.module';
 import { validateEnv } from './shared/config/env.validation';
+import { CorrelationIdMiddleware } from './shared/middleware/correlation-id.middleware';
+import { RequestLoggingMiddleware } from './shared/middleware/request-logging.middleware';
 
 @Module({
   imports: [
@@ -21,14 +27,12 @@ import { validateEnv } from './shared/config/env.validation';
       isGlobal: true,
       validate: validateEnv,
     }),
-
     ThrottlerModule.forRoot([
       {
         ttl: 60000,
         limit: 60,
       },
     ]),
-
     PrismaModule,
     AuthModule,
     UsersModule,
@@ -41,4 +45,13 @@ import { validateEnv } from './shared/config/env.validation';
     RefreshTokenModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer): void {
+    consumer
+      .apply(
+        CorrelationIdMiddleware,
+        RequestLoggingMiddleware,
+      )
+      .forRoutes('*');
+  }
+}

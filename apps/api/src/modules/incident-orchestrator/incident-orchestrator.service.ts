@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { IncidentTrigger } from '@prisma/client';
 import { EmergencyContactsService } from '../emergency-contacts/emergency-contacts.service';
 import {
@@ -12,6 +12,7 @@ import {
   NotificationChannel,
 } from '../notifications/dto/send-notification.dto';
 import { NotificationService } from '../notifications/notification.service';
+import { UsersService } from '../users/users.service';
 import type { CreateIncidentRequestDto } from './dto/create-incident-request.dto';
 
 @Injectable()
@@ -22,6 +23,7 @@ export class IncidentOrchestratorService {
     private readonly incidentsService: IncidentsService,
     private readonly emergencyContactsService: EmergencyContactsService,
     private readonly notificationService: NotificationService,
+    private readonly usersService: UsersService,
   ) {}
 
   async createCoordinatedIncident(
@@ -65,6 +67,17 @@ export class IncidentOrchestratorService {
 
     /*
      * Step 2:
+     * Load the real user, needed for personalized alert text below.
+     * Fetched once here rather than per-notification.
+     */
+    const user = await this.usersService.findById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found for this incident.');
+    }
+    const personName = `${user.firstName} ${user.lastName}`.trim();
+
+    /*
+     * Step 3:
      * Build emergency intelligence from location and device data.
      */
     const intelligence =
@@ -83,7 +96,7 @@ export class IncidentOrchestratorService {
       });
 
     /*
-     * Step 3:
+     * Step 4:
      * Create the incident.
      */
     const incident = await this.incidentsService.create(userId, {
@@ -95,7 +108,7 @@ export class IncidentOrchestratorService {
     });
 
     /*
-     * Step 4:
+     * Step 5:
      * Load active emergency contacts.
      */
     const contacts =
@@ -106,7 +119,7 @@ export class IncidentOrchestratorService {
     );
 
     /*
-     * Step 5:
+     * Step 6:
      * Send short, readable alerts.
      *
      * The complete emergency details remain available
@@ -131,7 +144,7 @@ export class IncidentOrchestratorService {
           contactType: contact.relationship,
           recipient: contact.phoneNumber,
           channel: NotificationChannel.SMS,
-          personName: 'OPA user',
+          personName,
           location: locationSummary,
           trackingUrl,
         });
@@ -153,7 +166,7 @@ export class IncidentOrchestratorService {
             contactType: contact.relationship,
             recipient: contact.email,
             channel: NotificationChannel.EMAIL,
-            personName: 'OPA user',
+            personName,
             location: locationSummary,
             trackingUrl,
           });
@@ -169,7 +182,7 @@ export class IncidentOrchestratorService {
     }
 
     /*
-     * Step 6:
+     * Step 7:
      * Return the complete coordinated result.
      */
     return {

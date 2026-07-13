@@ -5,6 +5,7 @@ import { EmergencyDetectionService } from '../emergency-detection/emergency-dete
 import { EmergencyIntelligenceService } from '../emergency-intelligence/emergency-intelligence.service';
 import { IncidentsService } from '../incidents/incidents.service';
 import { NotificationService } from '../notifications/notification.service';
+import { UsersService } from '../users/users.service';
 import { IncidentOrchestratorService } from './incident-orchestrator.service';
 
 describe('IncidentOrchestratorService', () => {
@@ -28,6 +29,10 @@ describe('IncidentOrchestratorService', () => {
 
   const notificationService = {
     sendEmergencyAlert: jest.fn(),
+  };
+
+  const usersService = {
+    findById: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -56,6 +61,10 @@ describe('IncidentOrchestratorService', () => {
           provide: NotificationService,
           useValue: notificationService,
         },
+        {
+          provide: UsersService,
+          useValue: usersService,
+        },
       ],
     }).compile();
 
@@ -73,6 +82,12 @@ describe('IncidentOrchestratorService', () => {
         confidenceScore: 75,
         confidenceLevel: 'HIGH',
       },
+    });
+
+    usersService.findById.mockResolvedValue({
+      id: 'user-123',
+      firstName: 'Test',
+      lastName: 'User',
     });
 
     emergencyIntelligenceService.buildLocationIntelligence.mockResolvedValue({
@@ -93,6 +108,7 @@ describe('IncidentOrchestratorService', () => {
         id: 'contact-1',
         firstName: 'Grace',
         lastName: 'Wesley',
+        relationship: 'FAMILY',
         phoneNumber: '+2348012345678',
         email: 'grace@example.com',
         isActive: true,
@@ -101,6 +117,7 @@ describe('IncidentOrchestratorService', () => {
         id: 'contact-2',
         firstName: 'Inactive',
         lastName: 'Contact',
+        relationship: 'FRIEND',
         phoneNumber: '+2348099999999',
         email: null,
         isActive: false,
@@ -143,7 +160,7 @@ describe('IncidentOrchestratorService', () => {
     expect(result.status).toBe('INCIDENT_ACTIVATED');
     expect(result.contactsNotified).toBe(1);
     expect(result.coordination?.silentMode).toBe(true);
-expect(result.incident?.id).toBe('incident-123');
+    expect(result.incident?.id).toBe('incident-123');
 
     expect(incidentsService.create).toHaveBeenCalledTimes(1);
     expect(notificationService.sendEmergencyAlert).toHaveBeenCalledTimes(2);

@@ -184,13 +184,22 @@ export class IncidentOrchestratorService {
     /*
      * Step 7:
      * Return the complete coordinated result.
+     *
+     * contactsNotified counts unique contacts reached at least once,
+     * not total successful message attempts — a contact with both SMS
+     * and email succeeding still counts once, matching what the field
+     * name actually implies.
      */
     return {
       status: 'INCIDENT_ACTIVATED',
       incident,
       detection,
       intelligence,
-      contactsNotified: activeContacts.length,
+      contactsNotified: new Set(
+        notifications
+          .filter((n) => n.result.success)
+          .map((n) => n.contactId),
+      ).size,
       notifications,
       coordination: {
         trackingUrl,

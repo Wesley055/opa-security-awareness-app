@@ -27,6 +27,24 @@ enum IncidentTrigger {
   SYSTEM_TEST
 }
 
+enum NotificationChannel {
+  PUSH
+  SMS
+  WHATSAPP
+  VOICE
+  EMAIL
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENDING
+  SENT
+  DELIVERED
+  ACKNOWLEDGED
+  FAILED
+  CANCELLED
+}
+
 model User {
   id                String             @id @default(uuid()) @db.Uuid
   email             String             @unique
@@ -60,6 +78,9 @@ model Incident {
   updatedAt      DateTime        @updatedAt
   resolvedAt     DateTime?
 
+  timelineEvents IncidentTimelineEvent[]
+  notifications  IncidentNotification[]
+
   @@index([userId, createdAt])
   @@index([status, createdAt])
 }
@@ -79,4 +100,59 @@ model EmergencyContact {
   updatedAt    DateTime @updatedAt
 
   @@index([userId])
+}
+
+model IncidentTimelineEvent {
+  id            String   @id @default(uuid()) @db.Uuid
+  incidentId    String   @db.Uuid
+  incident      Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  sequence      Int
+  type          String
+  payload       Json?
+  source        String
+  actorUserId   String?  @db.Uuid
+  correlationId String?
+
+  occurredAt    DateTime
+  recordedAt    DateTime @default(now())
+
+  previousHash  String?
+  hash          String
+
+  @@unique([incidentId, sequence])
+  @@index([incidentId, occurredAt])
+  @@index([incidentId, type, occurredAt])
+  @@index([correlationId])
+}
+
+model IncidentNotification {
+  id                String              @id @default(uuid()) @db.Uuid
+  incidentId        String              @db.Uuid
+  incident          Incident            @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  contactId         String?             @db.Uuid
+  contactName       String
+  contactType       String
+  recipient         String
+  channel           NotificationChannel
+  status            NotificationStatus
+
+  provider          String?
+  providerMessageId String?
+  attemptCount      Int                 @default(0)
+  lastError         String?
+
+  queuedAt          DateTime            @default(now())
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  acknowledgedAt    DateTime?
+  failedAt          DateTime?
+  cancelledAt       DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  @@index([incidentId, queuedAt])
+  @@index([status, queuedAt])
+  @@index([providerMessageId])
 }

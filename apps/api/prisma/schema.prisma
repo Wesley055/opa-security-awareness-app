@@ -11,6 +11,7 @@ enum UserRole {
   USER
   RESPONDER
   ADMIN
+  HOSPITAL_STAFF
 }
 
 enum IncidentStatus {
@@ -45,6 +46,32 @@ enum NotificationStatus {
   CANCELLED
 }
 
+enum FacilityType {
+  HOSPITAL
+  POLICE_STATION
+  FIRE_STATION
+  SECURITY_PROVIDER
+  NGO
+  GOVERNMENT_AGENCY
+  OTHER
+}
+
+enum EvidenceType {
+  AUDIO
+  VIDEO
+  IMAGE
+  GPS_LOG
+  DOCUMENT
+}
+
+enum EvidenceStatus {
+  PENDING
+  UPLOADING
+  STORED
+  FAILED
+  DELETED
+}
+
 model User {
   id                String             @id @default(uuid()) @db.Uuid
   email             String             @unique
@@ -59,7 +86,11 @@ model User {
   incidents         Incident[]
   emergencyContacts EmergencyContact[]
 
+  facilityId        String?            @db.Uuid
+  facility          Facility?          @relation("FacilityStaff", fields: [facilityId], references: [id])
+
   @@index([phoneNumber])
+  @@index([facilityId])
 }
 
 model Incident {
@@ -78,11 +109,16 @@ model Incident {
   updatedAt      DateTime        @updatedAt
   resolvedAt     DateTime?
 
+  facilityId     String?         @db.Uuid
+  facility       Facility?       @relation(fields: [facilityId], references: [id])
+
   timelineEvents IncidentTimelineEvent[]
   notifications  IncidentNotification[]
+  evidence       Evidence[]
 
   @@index([userId, createdAt])
   @@index([status, createdAt])
+  @@index([facilityId, status])
 }
 
 model EmergencyContact {
@@ -155,4 +191,47 @@ model IncidentNotification {
   @@index([incidentId, queuedAt])
   @@index([status, queuedAt])
   @@index([providerMessageId])
+}
+
+model Facility {
+  id          String       @id @default(uuid()) @db.Uuid
+  name        String
+  type        FacilityType
+  address     String?
+  phoneNumber String?
+  latitude    Decimal?     @db.Decimal(9, 6)
+  longitude   Decimal?     @db.Decimal(9, 6)
+  isVerified  Boolean      @default(false)
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  staff       User[]       @relation("FacilityStaff")
+  incidents   Incident[]
+
+  @@index([type, isActive])
+  @@index([latitude, longitude])
+}
+
+model Evidence {
+  id              String         @id @default(uuid()) @db.Uuid
+  incidentId      String         @db.Uuid
+  incident        Incident       @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  type            EvidenceType
+  status          EvidenceStatus @default(PENDING)
+  storageKey      String?
+  mimeType        String?
+  sizeBytes       BigInt?
+  sha256          String?
+  encryptionKeyId String?
+
+  capturedAt      DateTime?
+  uploadedAt      DateTime?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([incidentId, createdAt])
+  @@index([status, createdAt])
+  @@unique([incidentId, sha256])
 }

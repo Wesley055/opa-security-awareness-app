@@ -125,6 +125,10 @@ export class IncidentOrchestratorService {
     for (const contact of activeContacts) {
       const smsResult =
         await this.notificationService.sendEmergencyAlert({
+          incidentId: incident.id,
+          contactId: contact.id,
+          contactName: `${contact.firstName} ${contact.lastName}`.trim(),
+          contactType: contact.relationship,
           recipient: contact.phoneNumber,
           channel: NotificationChannel.SMS,
           personName: 'OPA user',
@@ -143,6 +147,10 @@ export class IncidentOrchestratorService {
       if (contact.email) {
         const emailResult =
           await this.notificationService.sendEmergencyAlert({
+            incidentId: incident.id,
+            contactId: contact.id,
+            contactName: `${contact.firstName} ${contact.lastName}`.trim(),
+            contactType: contact.relationship,
             recipient: contact.email,
             channel: NotificationChannel.EMAIL,
             personName: 'OPA user',

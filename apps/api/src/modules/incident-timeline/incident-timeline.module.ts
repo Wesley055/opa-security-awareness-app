@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
+import { IncidentAccessGuard } from '../../shared/guards/incident-access.guard';
 import { IncidentTimelineController } from './incident-timeline.controller';
 import { IncidentTimelineService } from './incident-timeline.service';
-import { IncidentAccessGuard } from './guards/incident-access.guard';
 
 @Module({
   imports: [PrismaModule],

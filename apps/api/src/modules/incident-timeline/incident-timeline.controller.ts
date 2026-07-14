@@ -1,6 +1,6 @@
 import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { IncidentAccessGuard } from './guards/incident-access.guard';
+import { IncidentAccessGuard } from '../../shared/guards/incident-access.guard';
 import { IncidentTimelineService } from './incident-timeline.service';
 
 @UseGuards(JwtAuthGuard, IncidentAccessGuard)

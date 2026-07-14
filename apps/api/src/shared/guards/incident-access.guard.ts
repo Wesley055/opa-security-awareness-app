@@ -6,16 +6,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { PrismaService } from '../../../prisma/prisma.service';
-import type { JwtPayload } from '../../auth/jwt.strategy';
+import { PrismaService } from '../../prisma/prisma.service';
+import type { JwtPayload } from '../../modules/auth/jwt.strategy';
 
 type AuthenticatedRequest = Request & { user: JwtPayload };
 
 /**
- * An incident's timeline is visible to: the incident's own owner,
- * HOSPITAL_STAFF assigned to the facility the incident was routed to,
- * or ADMIN. Re-reads current role/facilityId from the database, same
- * reasoning as FacilityStaffGuard — a JWT can be stale.
+ * An incident is visible to: the incident's own owner, HOSPITAL_STAFF
+ * assigned to the facility the incident was routed to, or ADMIN.
+ * Shared by IncidentTimelineModule and EvidenceModule — both need
+ * identical access rules, so this lives in one place rather than two
+ * copies that could quietly drift apart.
  */
 @Injectable()
 export class IncidentAccessGuard implements CanActivate {

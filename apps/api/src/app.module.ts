@@ -5,22 +5,20 @@
 } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
-
 import { AuthModule } from './modules/auth/auth.module';
 import { EmergencyContactsModule } from './modules/emergency-contacts/emergency-contacts.module';
 import { EmergencyDetectionModule } from './modules/emergency-detection/emergency-detection.module';
 import { EmergencyIntelligenceModule } from './modules/emergency-intelligence/emergency-intelligence.module';
+import { FacilitiesModule } from './modules/facilities/facilities.module';
 import { IncidentOrchestratorModule } from './modules/incident-orchestrator/incident-orchestrator.module';
 import { IncidentsModule } from './modules/incidents/incidents.module';
 import { NotificationModule } from './modules/notifications/notification.module';
 import { RefreshTokenModule } from './modules/refresh-token/refresh-token.module';
 import { UsersModule } from './modules/users/users.module';
-
 import { PrismaModule } from './prisma/prisma.module';
 import { validateEnv } from './shared/config/env.validation';
 import { CorrelationIdMiddleware } from './shared/middleware/correlation-id.middleware';
 import { RequestLoggingMiddleware } from './shared/middleware/request-logging.middleware';
-
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -43,6 +41,7 @@ import { RequestLoggingMiddleware } from './shared/middleware/request-logging.mi
     EmergencyDetectionModule,
     IncidentOrchestratorModule,
     RefreshTokenModule,
+    FacilitiesModule,
   ],
 })
 export class AppModule implements NestModule {

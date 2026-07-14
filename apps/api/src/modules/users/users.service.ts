@@ -24,6 +24,7 @@ export class UsersService {
         firstName: true,
         lastName: true,
         role: true,
+        facilityId: true,
         isActive: true,
         createdAt: true,
       },

@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 describe('AuthService', () => {
   const usersService = {
     findByEmail: jest.fn(),
+    findByPhone: jest.fn(),
     create: jest.fn(),
   };
   const jwtService = {
@@ -31,6 +32,7 @@ describe('AuthService', () => {
 
   it('registers a user with a hashed password', async () => {
     usersService.findByEmail.mockResolvedValue(null);
+    usersService.findByPhone.mockResolvedValue(null);
     usersService.create.mockResolvedValue({
       id: 'user-id',
       email: 'ada@example.com',
@@ -38,7 +40,6 @@ describe('AuthService', () => {
       lastName: 'Okafor',
       role: 'USER',
     });
-
     const service = new AuthService(usersService as never, jwtService as unknown as JwtService, config as never);
     const result = await service.register({
       email: 'Ada@Example.com',
@@ -47,19 +48,32 @@ describe('AuthService', () => {
       firstName: 'Ada',
       lastName: 'Okafor',
     });
-
     expect(usersService.create).toHaveBeenCalledWith(expect.objectContaining({ email: 'ada@example.com' }));
     expect(usersService.create.mock.calls[0][0].passwordHash).not.toBe('StrongPassword123!');
     expect(result.accessToken).toBe('access');
   });
 
-  it('rejects duplicate registration', async () => {
+  it('rejects duplicate email registration', async () => {
     usersService.findByEmail.mockResolvedValue({ id: 'existing' });
     const service = new AuthService(usersService as never, jwtService as unknown as JwtService, config as never);
-
     await expect(
       service.register({
         email: 'ada@example.com',
+        phoneNumber: '+2348012345678',
+        password: 'StrongPassword123!',
+        firstName: 'Ada',
+        lastName: 'Okafor',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('rejects duplicate phone number registration', async () => {
+    usersService.findByEmail.mockResolvedValue(null);
+    usersService.findByPhone.mockResolvedValue({ id: 'existing' });
+    const service = new AuthService(usersService as never, jwtService as unknown as JwtService, config as never);
+    await expect(
+      service.register({
+        email: 'newemail@example.com',
         phoneNumber: '+2348012345678',
         password: 'StrongPassword123!',
         firstName: 'Ada',
@@ -76,7 +90,6 @@ describe('AuthService', () => {
       isActive: true,
     });
     const service = new AuthService(usersService as never, jwtService as unknown as JwtService, config as never);
-
     await expect(service.login({ email: 'ada@example.com', password: 'WrongPassword123!' })).rejects.toBeInstanceOf(
       UnauthorizedException,
     );

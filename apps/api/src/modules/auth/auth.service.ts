@@ -29,12 +29,17 @@ export class AuthService {
   async register(dto: RegisterDto) {
     const normalizedEmail = dto.email.toLowerCase();
 
-    const existing =
-      await this.usersService.findByEmail(normalizedEmail);
-
-    if (existing) {
+    const existingEmail = await this.usersService.findByEmail(normalizedEmail);
+    if (existingEmail) {
       throw new ConflictException(
         'An account already exists for this email.',
+      );
+    }
+
+    const existingPhone = await this.usersService.findByPhone(dto.phoneNumber);
+    if (existingPhone) {
+      throw new ConflictException(
+        'An account already exists for this phone number.',
       );
     }
 
@@ -42,7 +47,6 @@ export class AuthService {
       dto.password,
       this.config.getOrThrow<number>('BCRYPT_ROUNDS'),
     );
-
     const user = await this.usersService.create({
       email: normalizedEmail,
       phoneNumber: dto.phoneNumber,
@@ -50,7 +54,6 @@ export class AuthService {
       firstName: dto.firstName.trim(),
       lastName: dto.lastName.trim(),
     });
-
     return this.issueTokens(user);
   }
 
@@ -58,20 +61,16 @@ export class AuthService {
     const user = await this.usersService.findByEmail(
       dto.email.toLowerCase(),
     );
-
     if (!user || !user.isActive) {
       throw new UnauthorizedException('Invalid credentials.');
     }
-
     const isValid = await bcrypt.compare(
       dto.password,
       user.passwordHash,
     );
-
     if (!isValid) {
       throw new UnauthorizedException('Invalid credentials.');
     }
-
     return this.issueTokens(user);
   }
 
@@ -82,34 +81,22 @@ export class AuthService {
       role: user.role,
       tokenType: 'access',
     };
-
     const refreshPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
       tokenType: 'refresh',
     };
-
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(accessPayload, {
-        secret:
-          this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
-        expiresIn:
-          this.config.getOrThrow<string>(
-            'JWT_ACCESS_EXPIRES_IN',
-          ),
+        secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
+        expiresIn: this.config.getOrThrow<string>('JWT_ACCESS_EXPIRES_IN'),
       }),
-
       this.jwtService.signAsync(refreshPayload, {
-        secret:
-          this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
-        expiresIn:
-          this.config.getOrThrow<string>(
-            'JWT_REFRESH_EXPIRES_IN',
-          ),
+        secret: this.config.getOrThrow<string>('JWT_REFRESH_SECRET'),
+        expiresIn: this.config.getOrThrow<string>('JWT_REFRESH_EXPIRES_IN'),
       }),
     ]);
-
     return {
       accessToken,
       refreshToken,

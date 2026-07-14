@@ -14,6 +14,10 @@ export class UsersService {
     return this.prisma.user.findUnique({ where: { email: email.toLowerCase() } });
   }
 
+  findByPhone(phoneNumber: string) {
+    return this.prisma.user.findUnique({ where: { phoneNumber } });
+  }
+
   findById(id: string) {
     return this.prisma.user.findUnique({
       where: { id },

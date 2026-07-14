@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { EmergencyContactsService } from '../emergency-contacts/emergency-contacts.service';
 import { EmergencyDetectionService } from '../emergency-detection/emergency-detection.service';
 import { EmergencyIntelligenceService } from '../emergency-intelligence/emergency-intelligence.service';
+import { IncidentTimelineService } from '../incident-timeline/incident-timeline.service';
 import { IncidentsService } from '../incidents/incidents.service';
 import { NotificationService } from '../notifications/notification.service';
 import { UsersService } from '../users/users.service';
@@ -35,6 +36,10 @@ describe('IncidentOrchestratorService', () => {
     findById: jest.fn(),
   };
 
+  const timelineService = {
+    recordEvent: jest.fn(),
+  };
+
   beforeEach(async () => {
     jest.clearAllMocks();
 
@@ -64,6 +69,10 @@ describe('IncidentOrchestratorService', () => {
         {
           provide: UsersService,
           useValue: usersService,
+        },
+        {
+          provide: IncidentTimelineService,
+          useValue: timelineService,
         },
       ],
     }).compile();
@@ -102,6 +111,8 @@ describe('IncidentOrchestratorService', () => {
       userId: 'user-123',
       status: 'OPEN',
     });
+
+    timelineService.recordEvent.mockResolvedValue({});
 
     emergencyContactsService.listForUser.mockResolvedValue([
       {
@@ -164,6 +175,7 @@ describe('IncidentOrchestratorService', () => {
 
     expect(incidentsService.create).toHaveBeenCalledTimes(1);
     expect(notificationService.sendEmergencyAlert).toHaveBeenCalledTimes(2);
+    expect(timelineService.recordEvent).toHaveBeenCalled();
   });
 
   it('should not create an incident when detection does not activate', async () => {
@@ -194,6 +206,7 @@ describe('IncidentOrchestratorService', () => {
 
     expect(incidentsService.create).not.toHaveBeenCalled();
     expect(notificationService.sendEmergencyAlert).not.toHaveBeenCalled();
+    expect(timelineService.recordEvent).not.toHaveBeenCalled();
   });
 
   it('should return confirmation required when the trigger needs confirmation', async () => {

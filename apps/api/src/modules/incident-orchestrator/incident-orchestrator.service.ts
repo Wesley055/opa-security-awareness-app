@@ -7,6 +7,7 @@ import {
 } from '../emergency-detection/dto/trigger-request.dto';
 import { EmergencyDetectionService } from '../emergency-detection/emergency-detection.service';
 import { EmergencyIntelligenceService } from '../emergency-intelligence/emergency-intelligence.service';
+import { IncidentTimelineService } from '../incident-timeline/incident-timeline.service';
 import { IncidentsService } from '../incidents/incidents.service';
 import {
   NotificationChannel,
@@ -24,6 +25,7 @@ export class IncidentOrchestratorService {
     private readonly emergencyContactsService: EmergencyContactsService,
     private readonly notificationService: NotificationService,
     private readonly usersService: UsersService,
+    private readonly timelineService: IncidentTimelineService,
   ) {}
 
   async createCoordinatedIncident(
@@ -52,6 +54,7 @@ export class IncidentOrchestratorService {
     /*
      * If the trigger does not activate an emergency,
      * return the evaluation without creating an incident.
+     * Nothing to timeline here — no incident exists yet.
      */
     if (!detection.outcome.shouldActivate) {
       return {
@@ -68,7 +71,6 @@ export class IncidentOrchestratorService {
     /*
      * Step 2:
      * Load the real user, needed for personalized alert text below.
-     * Fetched once here rather than per-notification.
      */
     const user = await this.usersService.findById(userId);
     if (!user) {
@@ -108,6 +110,34 @@ export class IncidentOrchestratorService {
     });
 
     /*
+     * The timeline begins here — the incident now exists and has an
+     * id to attach events to.
+     */
+    await this.timelineService.recordEvent({
+      incidentId: incident.id,
+      type: 'INCIDENT_CREATED',
+      source: 'INCIDENT_ORCHESTRATOR',
+      actorUserId: userId,
+      payload: {
+        trigger: dto.triggerType,
+        confidenceScore: detection.outcome.confidenceScore,
+        confidenceLevel: detection.outcome.confidenceLevel,
+        silentMode: detection.outcome.isSilent,
+      },
+    });
+
+    await this.timelineService.recordEvent({
+      incidentId: incident.id,
+      type: 'LOCATION_ATTACHED',
+      source: 'INCIDENT_ORCHESTRATOR',
+      actorUserId: userId,
+      payload: {
+        address: intelligence.location.address,
+        crossStreet: intelligence.location.crossStreet,
+      },
+    });
+
+    /*
      * Step 5:
      * Load active emergency contacts.
      */
@@ -121,9 +151,6 @@ export class IncidentOrchestratorService {
     /*
      * Step 6:
      * Send short, readable alerts.
-     *
-     * The complete emergency details remain available
-     * through the secure incident link.
      */
     const trackingUrl =
       `https://opasafety.com/incidents/${incident.id}`;
@@ -157,6 +184,18 @@ export class IncidentOrchestratorService {
         result: smsResult,
       });
 
+      await this.timelineService.recordEvent({
+        incidentId: incident.id,
+        type: 'CONTACT_NOTIFIED',
+        source: 'INCIDENT_ORCHESTRATOR',
+        payload: {
+          contactId: contact.id,
+          contactName: `${contact.firstName} ${contact.lastName}`.trim(),
+          channel: 'SMS',
+          success: smsResult.success,
+        },
+      });
+
       if (contact.email) {
         const emailResult =
           await this.notificationService.sendEmergencyAlert({
@@ -178,17 +217,24 @@ export class IncidentOrchestratorService {
           channel: NotificationChannel.EMAIL,
           result: emailResult,
         });
+
+        await this.timelineService.recordEvent({
+          incidentId: incident.id,
+          type: 'CONTACT_NOTIFIED',
+          source: 'INCIDENT_ORCHESTRATOR',
+          payload: {
+            contactId: contact.id,
+            contactName: `${contact.firstName} ${contact.lastName}`.trim(),
+            channel: 'EMAIL',
+            success: emailResult.success,
+          },
+        });
       }
     }
 
     /*
      * Step 7:
      * Return the complete coordinated result.
-     *
-     * contactsNotified counts unique contacts reached at least once,
-     * not total successful message attempts — a contact with both SMS
-     * and email succeeding still counts once, matching what the field
-     * name actually implies.
      */
     return {
       status: 'INCIDENT_ACTIVATED',

@@ -11,6 +11,7 @@ import { EmergencyDetectionModule } from './modules/emergency-detection/emergenc
 import { EmergencyIntelligenceModule } from './modules/emergency-intelligence/emergency-intelligence.module';
 import { FacilitiesModule } from './modules/facilities/facilities.module';
 import { IncidentOrchestratorModule } from './modules/incident-orchestrator/incident-orchestrator.module';
+import { IncidentTimelineModule } from './modules/incident-timeline/incident-timeline.module';
 import { IncidentsModule } from './modules/incidents/incidents.module';
 import { NotificationModule } from './modules/notifications/notification.module';
 import { RefreshTokenModule } from './modules/refresh-token/refresh-token.module';
@@ -42,6 +43,7 @@ import { RequestLoggingMiddleware } from './shared/middleware/request-logging.mi
     IncidentOrchestratorModule,
     RefreshTokenModule,
     FacilitiesModule,
+    IncidentTimelineModule,
   ],
 })
 export class AppModule implements NestModule {

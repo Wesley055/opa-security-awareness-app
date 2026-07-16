@@ -12,6 +12,9 @@ export function Footer() {
           <Link href="/privacy" className="font-mono text-xs text-muted-2 hover:text-ink">
             Privacy
           </Link>
+          <Link href="/terms" className="font-mono text-xs text-muted-2 hover:text-ink">
+            Terms
+          </Link>
         </div>
         <p className="font-mono text-xs text-muted-2">
           OPA Emergency Intelligence &amp; Coordination Platform. Nigeria first, global by design.

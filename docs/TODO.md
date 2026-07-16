@@ -54,10 +54,7 @@ this project.
 - [ ] **No medical information fields anywhere in the schema** — confirmed
       by reading the real `schema.prisma`: no `bloodType`, `allergies`,
       or `knownConditions` field exists on `User`, `EmergencyContact`, or
-      anywhere else. This is a different, earlier-stage gap than mobile
-      evidence capture — there's no database field to build a mobile
-      screen against yet, so this needs a schema migration first, not
-      just a UI. Was briefly drafted for the Hospitals page and
+      anywhere else. Was briefly drafted for the Hospitals page and
       correctly removed once the schema was checked.
 - [ ] **Logo/brand mark** — explored two rounds of concepts, neither
       landed. Deliberately shelved, not being pursued right now.
@@ -74,27 +71,51 @@ this project.
 - [x] `docs/future/ussd-fallback.md` — confirmed saved
 - [ ] ADRs (`docs/adr/`) — good practice, zero urgency, not started
 
+## Real mailboxes confirmed to exist (Microsoft 365)
+
+hello@, info@, partnerships@, sales@, support@, security@, privacy@,
+media@, legal@, careers@ — all confirmed real via direct screenshots
+of the mailbox admin panel. `info@` is the sitewide primary public
+address; `hello@` remains active but is not used as the primary
+anywhere on the site.
+
 ## Website — actively in progress
 
 - [x] Next.js scaffold, TypeScript + Tailwind v4 + App Router, locked to port 3001
 - [x] Design tokens (`globals.css`), real fonts, title template
 - [x] `Navbar`, `Footer`, `Container` — shared across every page
 - [x] Complete homepage: Hero, How It Works, Hospital, Security, CTA — every claim checked against what's real
-- [x] Icons added (lucide-react) to How It Works, Hospital, and Security cards
+- [x] Icons added (lucide-react) across How It Works, Hospital, Security, and Contact cards
 - [x] Security section: strengthened intro, "Powered by" technology strip
 - [x] About page — real mission, vision, guiding principles, linked from Navbar
-- [x] CTA reworked — nationally scoped, honest pilot-partnership language, real mailbox
+- [x] CTA reworked — nationally scoped, honest pilot-partnership language, `info@` address, real mailbox
 - [x] Hospitals page — capability cards checked directly against the real
       schema, medical-info card correctly removed, real partnerships
-      mailbox, honest disclaimer footer
-- [ ] Confirm Hospitals page is linked from the Navbar
-- [ ] Contact page
+      mailbox, honest disclaimer footer, linked from Navbar
+- [x] Contact page — nine department cards (all real mailboxes),
+      response-time commitments, confirmed real business hours, company
+      footer. Took an unusually large number of attempts to get one
+      `<a>` tag to actually save via Notepad — see note below.
+- [x] Navbar links to About, How it works, Privacy & security, For
+      hospitals, and Contact — all confirmed present
 - [ ] Privacy policy page
 - [ ] Terms of service page
 - [ ] **Dedicated Pilot Partnership page** (future) — who we're looking
       for, what partners receive, pilot expectations, a structured
       inquiry form instead of just a mailto link
 - [ ] Restrained scroll/hover animations — not yet added
+
+## A technique worth remembering
+
+When a specific single line in a file repeatedly refuses to save
+correctly via Notepad copy-paste (happened three times in a row on the
+Contact page's `<a>` tag), stop retrying the same paste-and-save cycle.
+Instead, use PowerShell directly:
+`(Get-Content <path> -Raw).Replace('<exact text>', '<replacement>') | Set-Content <path>`
+This bypasses Notepad and the browser-clipboard path entirely, and
+worked immediately where three manual attempts hadn't. Verify with
+`Select-String -Path <path> -Pattern "<exact text>"` afterward — it
+gives an unambiguous yes/no unlike scanning a full pasted file by eye.
 
 ## Mobile — the actual critical path, still not started
 
@@ -104,10 +125,8 @@ this project.
 
 ## Where we stopped this session
 
-Website: complete homepage, About page, and Hospitals page all live,
-verified, and checked line-by-line against real backend code — several
-real overclaims caught and corrected along the way, including one
-(medical information fields) that turned out not to exist in the
-database at all once actually checked. Remaining: Contact, Privacy,
-Terms pages, then either Azure hosting or the mobile SOS screen per
-tomorrow's plan.
+Website: complete homepage, About, Hospitals, and Contact pages all
+live, verified, and checked line-by-line against real backend code and
+real mailbox records. Several real overclaims caught and corrected
+along the way. Remaining: Privacy and Terms pages, then either Azure
+hosting or the mobile SOS screen per tomorrow's plan.

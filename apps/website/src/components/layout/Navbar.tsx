@@ -13,6 +13,7 @@ export function Navbar() {
           <Link href="/#how-it-works" className="hover:text-ink">How it works</Link>
           <Link href="/#trust" className="hover:text-ink">Privacy &amp; security</Link>
           <Link href="/hospitals" className="hover:text-ink">For hospitals</Link>
+          <Link href="/contact" className="hover:text-ink">Contact</Link>
         </nav>
         <Link
           href="/#pilot"

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "expo-router/entry",
   "dependencies": {
+    "@react-navigation/native": "^7.3.8",
     "axios": "^1.18.1",
     "expo": "^54.0.8",
     "expo-constants": "~18.0.13",

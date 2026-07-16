@@ -1,0 +1,20 @@
+@import "tailwindcss";
+
+@theme {
+  --color-base: #0A0E12;
+  --color-panel: #10161C;
+  --color-panel-2: #151D24;
+  --color-line: #232E36;
+  --color-ink: #F5F7F6;
+  --color-muted: #8896A0;
+  --color-muted-2: #5B6B76;
+  --color-signal: #2BC26E;
+  --color-flare: #FF5A36;
+}
+
+@theme inline {
+  --font-display: var(--font-archivo);
+  --font-sans: var(--font-plex-sans);
+  --font-mono: var(--font-plex-mono);
+}
+

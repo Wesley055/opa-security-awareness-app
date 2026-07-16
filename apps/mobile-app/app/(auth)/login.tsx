@@ -7,6 +7,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  View,
 } from 'react-native';
 import { router } from 'expo-router';
 import { useAuthStore } from '../../src/store/authStore';
@@ -14,6 +15,7 @@ import { useAuthStore } from '../../src/store/authStore';
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const login = useAuthStore((state) => state.login);
@@ -68,18 +70,29 @@ export default function LoginScreen() {
         textContentType="emailAddress"
         editable={!isSubmitting}
       />
-      <TextInput
-        style={styles.input}
-        placeholder="Password"
-        placeholderTextColor="#8B949E"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-        textContentType="password"
-        editable={!isSubmitting}
-        returnKeyType="done"
-        onSubmitEditing={handleLogin}
-      />
+      <View style={styles.passwordWrapper}>
+        <TextInput
+          style={styles.passwordInput}
+          placeholder="Password"
+          placeholderTextColor="#8B949E"
+          value={password}
+          onChangeText={setPassword}
+          secureTextEntry={!showPassword}
+          textContentType="password"
+          editable={!isSubmitting}
+          returnKeyType="done"
+          onSubmitEditing={handleLogin}
+        />
+        <TouchableOpacity
+          style={styles.showToggle}
+          onPress={() => setShowPassword((prev) => !prev)}
+          disabled={isSubmitting}
+        >
+          <Text style={styles.showToggleText}>
+            {showPassword ? 'Hide' : 'Show'}
+          </Text>
+        </TouchableOpacity>
+      </View>
       <TouchableOpacity
         style={[styles.button, isSubmitting && styles.buttonDisabled]}
         onPress={handleLogin}
@@ -140,6 +153,30 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     marginBottom: 12,
     fontSize: 15,
+  },
+  passwordWrapper: {
+    position: 'relative',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  passwordInput: {
+    backgroundColor: '#151D24',
+    borderWidth: 1,
+    borderColor: '#232E36',
+    borderRadius: 8,
+    padding: 14,
+    paddingRight: 60,
+    color: '#FFFFFF',
+    fontSize: 15,
+  },
+  showToggle: {
+    position: 'absolute',
+    right: 14,
+  },
+  showToggleText: {
+    color: '#17C964',
+    fontSize: 13,
+    fontWeight: '600',
   },
   button: {
     backgroundColor: '#17C964',

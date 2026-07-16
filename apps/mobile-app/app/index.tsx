@@ -1,4 +1,5 @@
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { router } from 'expo-router';
 import { useAuthStore } from '../src/store/authStore';
 
 export default function HomeScreen() {
@@ -20,6 +21,13 @@ export default function HomeScreen() {
       </Text>
       <TouchableOpacity style={styles.button} onPress={() => logout()}>
         <Text style={styles.buttonText}>Log out</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={styles.contactsButton}
+        onPress={() => router.push('/contacts')}
+      >
+        <Text style={styles.contactsButtonText}>Emergency Contacts</Text>
       </TouchableOpacity>
     </View>
   );
@@ -56,5 +64,16 @@ const styles = StyleSheet.create({
   buttonText: {
     color: '#FFFFFF',
     fontWeight: '600',
+  },
+  contactsButton: {
+    backgroundColor: '#17C964',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    marginTop: 12,
+  },
+  contactsButtonText: {
+    color: '#08111A',
+    fontWeight: '700',
   },
 });

@@ -4,14 +4,6 @@
 done — verify against real files/tests, same as everything else in
 this project.
 
-## In progress right now
-
-- [ ] **Applying the corrected CTA.tsx** — keeps the real hospital pilot
-      claim as the primary headline, reframes the broader audience
-      (NGOs, corporate security, government) as an honest low-key
-      invitation rather than an active-pilot claim. About to save and
-      verify.
-
 ## Backend — still unconfirmed, don't assume done
 
 - [ ] **Confirm the parallel-notifications orchestrator refactor actually builds and passes tests.**
@@ -41,8 +33,7 @@ this project.
 - [ ] Voice's webhook becomes testable only once the API has a public URL
 - [ ] **Website: deploy to Azure Static Web Apps, connect opasafety.com,
       HTTPS, DNS, analytics, GitHub Actions CI/CD** — deliberately held
-      for a dedicated session, not squeezed in at the end of a long day,
-      given how error-prone infrastructure work has been tonight
+      for a dedicated session, not squeezed in at the end of a long day
 
 ## Real, known gaps — not urgent, not forgotten
 
@@ -58,10 +49,16 @@ this project.
       the website, even as "Planned," until genuinely built.
 - [ ] **Mobile evidence capture (audio/video/photo)** — backend Evidence
       API is real; mobile client to record/upload it doesn't exist.
-      This exact feature has now been proposed for the website four
-      separate times and correctly declined each time — do not add it
-      to any page until a real mobile client exists and a real upload
-      has been tested end-to-end.
+      This exact feature has now been proposed for the website multiple
+      separate times and correctly declined each time.
+- [ ] **No medical information fields anywhere in the schema** — confirmed
+      by reading the real `schema.prisma`: no `bloodType`, `allergies`,
+      or `knownConditions` field exists on `User`, `EmergencyContact`, or
+      anywhere else. This is a different, earlier-stage gap than mobile
+      evidence capture — there's no database field to build a mobile
+      screen against yet, so this needs a schema migration first, not
+      just a UI. Was briefly drafted for the Hospitals page and
+      correctly removed once the schema was checked.
 - [ ] **Logo/brand mark** — explored two rounds of concepts, neither
       landed. Deliberately shelved, not being pursued right now.
 
@@ -86,16 +83,17 @@ this project.
 - [x] Icons added (lucide-react) to How It Works, Hospital, and Security cards
 - [x] Security section: strengthened intro, "Powered by" technology strip
 - [x] About page — real mission, vision, guiding principles, linked from Navbar
-- [x] Committed and pushed (commit b563db2)
-- [ ] Applying the corrected CTA.tsx (in progress, see top of this file)
-- [ ] Hospitals page
+- [x] CTA reworked — nationally scoped, honest pilot-partnership language, real mailbox
+- [x] Hospitals page — capability cards checked directly against the real
+      schema, medical-info card correctly removed, real partnerships
+      mailbox, honest disclaimer footer
+- [ ] Confirm Hospitals page is linked from the Navbar
 - [ ] Contact page
 - [ ] Privacy policy page
 - [ ] Terms of service page
 - [ ] **Dedicated Pilot Partnership page** (future) — who we're looking
       for, what partners receive, pilot expectations, a structured
-      inquiry form instead of just a mailto link. Correctly scoped as
-      later work, linked from the homepage CTA once it exists.
+      inquiry form instead of just a mailto link
 - [ ] Restrained scroll/hover animations — not yet added
 
 ## Mobile — the actual critical path, still not started
@@ -103,18 +101,13 @@ this project.
 - [ ] **SOS activation screen** — the entire reason OPA exists. Login,
       register, and emergency contacts are all real and tested; nothing
       on the phone calls `POST /incident-orchestrator/activate` yet.
-      This remains the single most important unbuilt thing in the
-      entire project, ahead of every website or backend polish item
-      above it.
 
 ## Where we stopped this session
 
-Mobile auth and contacts work from earlier tonight is committed. The
-website's full homepage and About page are live, verified, and
-committed. Currently applying one more correction to the CTA (broadening
-the invited audience honestly, without overclaiming active pilots with
-organizations OPA hasn't actually engaged). Long session in progress —
-after the CTA fix, next candidates are: remaining website pages
-(Hospitals/Contact/Privacy/Terms), or switching to the mobile SOS
-screen, which remains the highest-leverage unbuilt piece of the whole
-project.
+Website: complete homepage, About page, and Hospitals page all live,
+verified, and checked line-by-line against real backend code — several
+real overclaims caught and corrected along the way, including one
+(medical information fields) that turned out not to exist in the
+database at all once actually checked. Remaining: Contact, Privacy,
+Terms pages, then either Azure hosting or the mobile SOS screen per
+tomorrow's plan.

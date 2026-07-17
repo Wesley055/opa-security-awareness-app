@@ -16,6 +16,13 @@ import { NotificationService } from '../notifications/notification.service';
 import { UsersService } from '../users/users.service';
 import type { CreateIncidentRequestDto } from './dto/create-incident-request.dto';
 
+export interface NotificationTaskResult {
+  contactId: string;
+  contactName: string;
+  channel: NotificationChannel;
+  result: { success: boolean; provider?: string; messageId?: string; error?: string };
+}
+
 @Injectable()
 export class IncidentOrchestratorService {
   constructor(
@@ -32,10 +39,6 @@ export class IncidentOrchestratorService {
     userId: string,
     dto: CreateIncidentRequestDto,
   ) {
-    /*
-     * Step 1:
-     * Evaluate the trigger.
-     */
     const detection = this.emergencyDetectionService.evaluate({
       triggerType: dto.triggerType,
       mode: dto.mode,
@@ -51,11 +54,6 @@ export class IncidentOrchestratorService {
       confirmationSeconds: dto.confirmationSeconds,
     });
 
-    /*
-     * If the trigger does not activate an emergency,
-     * return the evaluation without creating an incident.
-     * Nothing to timeline here — no incident exists yet.
-     */
     if (!detection.outcome.shouldActivate) {
       return {
         status: detection.outcome.requiresConfirmation
@@ -68,20 +66,12 @@ export class IncidentOrchestratorService {
       };
     }
 
-    /*
-     * Step 2:
-     * Load the real user, needed for personalized alert text below.
-     */
     const user = await this.usersService.findById(userId);
     if (!user) {
       throw new NotFoundException('User not found for this incident.');
     }
     const personName = `${user.firstName} ${user.lastName}`.trim();
 
-    /*
-     * Step 3:
-     * Build emergency intelligence from location and device data.
-     */
     const intelligence =
       await this.emergencyIntelligenceService.buildLocationIntelligence({
         latitude: dto.latitude,
@@ -97,10 +87,6 @@ export class IncidentOrchestratorService {
         timestamp: dto.timestamp,
       });
 
-    /*
-     * Step 4:
-     * Create the incident.
-     */
     const incident = await this.incidentsService.create(userId, {
       trigger: this.mapIncidentTrigger(dto.triggerType),
       latitude: dto.latitude,
@@ -109,10 +95,6 @@ export class IncidentOrchestratorService {
       voicePhrase: dto.detectedPhrase,
     });
 
-    /*
-     * The timeline begins here — the incident now exists and has an
-     * id to attach events to.
-     */
     await this.timelineService.recordEvent({
       incidentId: incident.id,
       type: 'INCIDENT_CREATED',
@@ -132,15 +114,11 @@ export class IncidentOrchestratorService {
       source: 'INCIDENT_ORCHESTRATOR',
       actorUserId: userId,
       payload: {
-        address: intelligence.location.address,
-        crossStreet: intelligence.location.crossStreet,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
       },
     });
 
-    /*
-     * Step 5:
-     * Load active emergency contacts.
-     */
     const contacts =
       await this.emergencyContactsService.listForUser(userId);
 
@@ -148,94 +126,78 @@ export class IncidentOrchestratorService {
       (contact) => contact.isActive,
     );
 
-    /*
-     * Step 6:
-     * Send short, readable alerts.
-     */
-    const trackingUrl =
-      `https://opasafety.com/incidents/${incident.id}`;
+    const trackingUrl = `https://opasafety.com/incidents/${incident.id}`;
 
-    const locationSummary =
-      intelligence.location.crossStreet ??
-      intelligence.location.address ??
-      `${dto.latitude}, ${dto.longitude}`;
+    // intelligence.location.crossStreet/address currently come from a
+    // confirmed-mock GeocodingProvider (returns the same fabricated
+    // address for every coordinate — see
+    // docs/architecture/emergency-intelligence-engine.md). Using the
+    // real GPS coordinates as a tappable map link instead, until that
+    // provider is replaced with a real integration.
+    const locationSummary = `https://maps.google.com/?q=${dto.latitude},${dto.longitude}`;
 
-    const notifications = [];
-
-    for (const contact of activeContacts) {
-      const smsResult =
-        await this.notificationService.sendEmergencyAlert({
+    const sendOne = async (
+      contact: (typeof activeContacts)[number],
+      channel: NotificationChannel,
+      recipient: string,
+    ): Promise<NotificationTaskResult> => {
+      const contactName = `${contact.firstName} ${contact.lastName}`.trim();
+      try {
+        const result = await this.notificationService.sendEmergencyAlert({
           incidentId: incident.id,
           contactId: contact.id,
-          contactName: `${contact.firstName} ${contact.lastName}`.trim(),
+          contactName,
           contactType: contact.relationship,
-          recipient: contact.phoneNumber,
-          channel: NotificationChannel.SMS,
+          recipient,
+          channel,
           personName,
           location: locationSummary,
           trackingUrl,
         });
+        return { contactId: contact.id, contactName, channel, result };
+      } catch (error) {
+        return {
+          contactId: contact.id,
+          contactName,
+          channel,
+          result: {
+            success: false,
+            error:
+              error instanceof Error ? error.message : 'Unknown notification error',
+          },
+        };
+      }
+    };
 
-      notifications.push({
-        contactId: contact.id,
-        contactName:
-          `${contact.firstName} ${contact.lastName}`.trim(),
-        channel: NotificationChannel.SMS,
-        result: smsResult,
-      });
+    const notificationTasks: Promise<NotificationTaskResult>[] = activeContacts.flatMap(
+      (contact) => {
+        const tasks = [
+          sendOne(contact, NotificationChannel.SMS, contact.phoneNumber),
+          sendOne(contact, NotificationChannel.WHATSAPP, contact.phoneNumber),
+        ];
+        if (contact.email) {
+          tasks.push(sendOne(contact, NotificationChannel.EMAIL, contact.email));
+        }
+        return tasks;
+      },
+    );
 
+    const notifications = await Promise.all(notificationTasks);
+
+    for (const notification of notifications) {
       await this.timelineService.recordEvent({
         incidentId: incident.id,
         type: 'CONTACT_NOTIFIED',
         source: 'INCIDENT_ORCHESTRATOR',
         payload: {
-          contactId: contact.id,
-          contactName: `${contact.firstName} ${contact.lastName}`.trim(),
-          channel: 'SMS',
-          success: smsResult.success,
+          contactId: notification.contactId,
+          contactName: notification.contactName,
+          channel: notification.channel,
+          success: notification.result.success,
         },
       });
-
-      if (contact.email) {
-        const emailResult =
-          await this.notificationService.sendEmergencyAlert({
-            incidentId: incident.id,
-            contactId: contact.id,
-            contactName: `${contact.firstName} ${contact.lastName}`.trim(),
-            contactType: contact.relationship,
-            recipient: contact.email,
-            channel: NotificationChannel.EMAIL,
-            personName,
-            location: locationSummary,
-            trackingUrl,
-          });
-
-        notifications.push({
-          contactId: contact.id,
-          contactName:
-            `${contact.firstName} ${contact.lastName}`.trim(),
-          channel: NotificationChannel.EMAIL,
-          result: emailResult,
-        });
-
-        await this.timelineService.recordEvent({
-          incidentId: incident.id,
-          type: 'CONTACT_NOTIFIED',
-          source: 'INCIDENT_ORCHESTRATOR',
-          payload: {
-            contactId: contact.id,
-            contactName: `${contact.firstName} ${contact.lastName}`.trim(),
-            channel: 'EMAIL',
-            success: emailResult.success,
-          },
-        });
-      }
     }
 
-    /*
-     * Step 7:
-     * Return the complete coordinated result.
-     */
     return {
       status: 'INCIDENT_ACTIVATED',
       incident,

@@ -19,16 +19,28 @@ export default function HomeScreen() {
       <Text style={styles.welcome}>
         Welcome, {user?.firstName ?? 'there'}
       </Text>
-      <TouchableOpacity style={styles.button} onPress={() => logout()}>
-        <Text style={styles.buttonText}>Log out</Text>
-      </TouchableOpacity>
 
       <TouchableOpacity
-        style={styles.contactsButton}
-        onPress={() => router.push('/contacts')}
+        style={styles.sosButton}
+        onPress={() => router.push('/sos')}
+        activeOpacity={0.85}
       >
-        <Text style={styles.contactsButtonText}>Emergency Contacts</Text>
+        <Text style={styles.sosButtonText}>SOS</Text>
       </TouchableOpacity>
+      <Text style={styles.sosHint}>Tap to activate an emergency</Text>
+
+      <View style={styles.secondaryActions}>
+        <TouchableOpacity
+          style={styles.contactsButton}
+          onPress={() => router.push('/contacts')}
+        >
+          <Text style={styles.contactsButtonText}>Emergency Contacts</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={styles.button} onPress={() => logout()}>
+          <Text style={styles.buttonText}>Log out</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -39,6 +51,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#08111A',
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 24,
   },
   text: {
     color: '#FFFFFF',
@@ -48,18 +61,47 @@ const styles = StyleSheet.create({
     fontSize: 40,
     fontWeight: '900',
     color: '#17C964',
-    marginBottom: 16,
+    marginBottom: 8,
   },
   welcome: {
     fontSize: 18,
     color: '#FFFFFF',
-    marginBottom: 32,
+    marginBottom: 48,
+  },
+  sosButton: {
+    width: 180,
+    height: 180,
+    borderRadius: 90,
+    backgroundColor: '#FF5A36',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#FF5A36',
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 10,
+  },
+  sosButtonText: {
+    color: '#FFFFFF',
+    fontSize: 36,
+    fontWeight: '900',
+    letterSpacing: 2,
+  },
+  sosHint: {
+    color: '#8B949E',
+    fontSize: 13,
+    marginTop: 16,
+    marginBottom: 48,
+  },
+  secondaryActions: {
+    width: '100%',
+    gap: 12,
   },
   button: {
     backgroundColor: '#232E36',
     borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
+    paddingVertical: 14,
+    alignItems: 'center',
   },
   buttonText: {
     color: '#FFFFFF',
@@ -68,9 +110,8 @@ const styles = StyleSheet.create({
   contactsButton: {
     backgroundColor: '#17C964',
     borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    marginTop: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
   },
   contactsButtonText: {
     color: '#08111A',

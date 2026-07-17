@@ -174,7 +174,7 @@ describe('IncidentOrchestratorService', () => {
     expect(result.incident?.id).toBe('incident-123');
 
     expect(incidentsService.create).toHaveBeenCalledTimes(1);
-    expect(notificationService.sendEmergencyAlert).toHaveBeenCalledTimes(2);
+    expect(notificationService.sendEmergencyAlert).toHaveBeenCalledTimes(3);
     expect(timelineService.recordEvent).toHaveBeenCalled();
   });
 

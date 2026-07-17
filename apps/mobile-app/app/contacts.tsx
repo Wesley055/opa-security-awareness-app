@@ -27,10 +27,6 @@ interface EmergencyContact {
   isActive: boolean;
 }
 
-// Emergency contacts can be international (@IsPhoneNumber() on the
-// backend, no country restriction) — default to Nigerian formatting
-// for a bare local number (the common case), while respecting an
-// explicit international number typed with its own country code.
 function normalizePhoneNumber(raw: string): string {
   const cleaned = raw.trim().replace(/[\s()-]/g, '');
 
@@ -268,3 +264,121 @@ export default function ContactsScreen() {
                 style={styles.cancelButton}
                 onPress={() => {
                   setIsModalVisible(false);
+                  resetForm();
+                }}
+                disabled={isSubmitting}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.saveButton, isSubmitting && styles.buttonDisabled]}
+                onPress={handleCreate}
+                disabled={isSubmitting}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator color="#08111A" />
+                ) : (
+                  <Text style={styles.saveButtonText}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#08111A' },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 16,
+  },
+  backLink: { color: '#8B949E', fontSize: 15 },
+  title: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
+  addLink: { color: '#17C964', fontSize: 15, fontWeight: '600' },
+  loading: { marginTop: 40 },
+  empty: { padding: 32, alignItems: 'center' },
+  emptyText: { color: '#8B949E', textAlign: 'center', fontSize: 14, lineHeight: 20 },
+  list: { padding: 16 },
+  card: {
+    backgroundColor: '#151D24',
+    borderWidth: 1,
+    borderColor: '#232E36',
+    borderRadius: 10,
+    padding: 16,
+    marginBottom: 10,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  cardInfo: { flex: 1 },
+  cardNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  cardName: { color: '#FFFFFF', fontSize: 16, fontWeight: '600' },
+  primaryBadge: {
+    backgroundColor: '#17C964',
+    borderRadius: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginLeft: 8,
+  },
+  primaryBadgeText: {
+    color: '#08111A',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  cardDetail: { color: '#8B949E', fontSize: 13, marginBottom: 2 },
+  cardActions: { justifyContent: 'space-between', alignItems: 'flex-end' },
+  actionLink: { color: '#17C964', fontSize: 12, marginBottom: 8 },
+  deleteLink: { color: '#FF5A36', fontSize: 12 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#0F1720',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    padding: 24,
+  },
+  modalTitle: { color: '#FFFFFF', fontSize: 18, fontWeight: '700', marginBottom: 16 },
+  error: { color: '#FF5A36', fontSize: 13, marginBottom: 12 },
+  input: {
+    backgroundColor: '#151D24',
+    borderWidth: 1,
+    borderColor: '#232E36',
+    borderRadius: 8,
+    padding: 14,
+    color: '#FFFFFF',
+    marginBottom: 10,
+    fontSize: 15,
+  },
+  modalActions: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  cancelButton: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#232E36',
+    alignItems: 'center',
+  },
+  cancelButtonText: { color: '#8B949E', fontWeight: '600' },
+  saveButton: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 8,
+    backgroundColor: '#17C964',
+    alignItems: 'center',
+  },
+  buttonDisabled: { opacity: 0.6 },
+  saveButtonText: { color: '#08111A', fontWeight: '700' },
+});

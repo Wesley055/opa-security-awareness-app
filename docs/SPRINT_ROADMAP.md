@@ -2,21 +2,51 @@
 
 
 
-\*\*This is the authoritative source of truth for sprint status,
+\*\*This is the authoritative source of truth for sprint status.\*\*
 
-replacing informal "Sprint 5/6" references used inconsistently
+Every status below was checked against real code, a real test run, or
 
-earlier in the project.\*\* Every status below was checked against real
+a real live confirmation — not assumed. Cross-reference with
 
-code, a real test run, or a real live confirmation — not assumed.
-
-Cross-reference with `docs/TODO.md` for granular open items.
+`docs/TODO.md` for granular open items.
 
 
 
 Status key: ✅ Complete \& verified · 🟡 Partial / code real but not
 
 fully functional · ⬜ Not started
+
+
+
+\---
+
+
+
+\## A lesson from this session, worth reading before anything else
+
+
+
+Tonight's live SOS test discovered that `sms.provider.ts` — real,
+
+tested, and committed weeks ago — had \*\*silently reverted to its
+
+original fake stub\*\*, along with the `africastalking` npm package
+
+being missing entirely. This wasn't caught by any build or test,
+
+because the stub was itself valid, passing code — it just did the
+
+wrong thing. \*\*A file being committed once is not the same as a file
+
+staying correct.\*\* Before trusting any previously-verified file
+
+tonight, this session, or in the future — especially anything on the
+
+SOS activation path — re-read the real file with `Get-Content` first,
+
+the same discipline used everywhere else in this project, rather than
+
+trusting an old status.
 
 
 
@@ -34,11 +64,7 @@ NestJS, PostgreSQL + Prisma, JWT auth foundation, Docker, Swagger,
 
 config validation, structured logging, correlation IDs, global
 
-exception filter. Confirmed real by reading `main.ts`/`app.module.ts`
-
-directly. Basic rate limiting (`ThrottlerModule`, 60 req/60s) is also
-
-confirmed real — previously mislabeled as not started.
+exception filter, basic rate limiting (`ThrottlerModule`, 60 req/60s).
 
 
 
@@ -54,35 +80,79 @@ toggle.
 
 
 
-\*\*Sprint 3 — Emergency Contacts\*\* ✅ (one gap)
+\*\*Sprint 3 — Emergency Contacts\*\* ✅ (two gaps)
 
-Full CRUD, set-primary, phone normalization (Nigerian + international),
+Full CRUD, set-primary, phone normalization, tested live. \*\*Gaps:\*\* no
 
-tested live. \*\*Gap:\*\* no edit screen — only add/remove/set-primary
+edit screen (add/remove/set-primary only); phone normalization
 
-exist.
+defaults any unrecognized-prefix number to +234, which can silently
+
+mis-normalize a foreign number typed without its country code — a
+
+real, small bug, not yet fixed.
 
 
 
-\*\*Sprint 4 — Notification Engine\*\* 🟡 — corrected framing
+\*\*Sprint 4 — Notification Engine\*\* 🟡 — updated with tonight's findings
 
-SMS, Push, and Email are \*\*live and tested\*\* with real delivery. Voice
+SMS, Push, and Email dispatch code is real. WhatsApp is coded but
 
-and WhatsApp are \*\*coded correctly but non-functional today\*\* — this is
+non-functional (no approved Meta template). Voice is coded but
 
-one unfinished feature, not "integration complete, activation
+non-functional (no public webhook endpoint).
 
-pending." WhatsApp needs an approved Meta template; Voice needs a
 
-public webhook endpoint (blocked on deployment). Also open: the
 
-parallel-notifications orchestrator refactor was written once in chat
+\*\*Confirmed tonight:\*\* the parallel-notifications orchestrator refactor
 
-and never confirmed applied to the real file — treat as not done until
+(SMS + WhatsApp + Email sent concurrently, not sequentially) is real
 
-verified. Delivery receipts, retry engine, and idempotency protection
+and tested — proven by a live test failure that expected the old
 
-are not built.
+sequential call count, then corrected. This item can move from
+
+"unconfirmed" to genuinely done.
+
+
+
+\*\*Also discovered and fixed tonight:\*\* `sms.provider.ts` had reverted
+
+to a fake stub (see lesson above) — restored to the real Africa's
+
+Talking integration. The `africastalking` npm package was missing
+
+entirely — installed. \*\*SMS is coded correctly again, but still not
+
+actually delivering\*\* — `AFRICASTALKING\_API\_KEY`/`AFRICASTALKING\_USERNAME`
+
+are not set; the Africa's Talking account has not been created yet.
+
+This is genuinely external account setup, not a code task — see Sprint
+
+20 for the Sender ID dependency on CAC completion specifically (a
+
+working API key/basic sending does not require full CAC completion;
+
+only a custom branded Sender ID does).
+
+
+
+\*\*Also discovered and fixed tonight:\*\* `EmergencyIntelligenceService`'s
+
+fake `GeocodingProvider` cross-street/address text was being sent
+
+inside real SMS/email messages to real emergency contacts. Fixed —
+
+messages now include a real, tappable Google Maps link built from
+
+actual GPS coordinates instead.
+
+
+
+Delivery receipts, retry engine, and idempotency protection are still
+
+not built.
 
 
 
@@ -96,35 +166,27 @@ orchestrator, `verify()` endpoint tested to actually catch tampering.
 
 \*\*Sprint 6 — Evidence Engine\*\* ✅ backend / ⬜ mobile
 
-Azure Blob Storage, SHA-256 hashing at upload, short-lived signed
+Azure Blob Storage, SHA-256 hashing, short-lived signed download URLs
 
-download URLs — all real and tested. Mobile capture (camera, audio,
-
-video) does not exist; nothing on the phone calls this API yet.
+— real and tested. Mobile capture does not exist.
 
 
 
-\*\*Sprint 7 — Incident Orchestrator\*\* ✅
+\*\*Sprint 7 — Incident Orchestrator\*\* ✅ (strengthened tonight)
 
-Full coordinated flow: detection → intelligence → incident creation →
+Full coordinated flow, real and tested. Tonight's fixes (real SMS
 
-timeline → parallel notification dispatch. Real, tested.
+provider restored, fake location text removed) both live inside this
+
+sprint's code.
 
 
 
-\*\*Sprint 8 — Website\*\* ✅ v1 / corrected from prior draft
+\*\*Sprint 8 — Website\*\* ✅ v1
 
-\*\*Actually complete:\*\* Homepage (Hero, How It Works, Hospital,
+Six pages live and linked. Remaining: Pilot Partnership page, expanded
 
-Security, CTA), About, Hospitals, Contact, Privacy Policy (draft),
-
-Terms of Service (draft) — six pages, fully linked, verified live.
-
-\*\*Actually remaining:\*\* dedicated Pilot Partnership page with a
-
-structured form, expanded standalone Security page, FAQ, Cookie
-
-Policy, restrained animations, Azure deployment/DNS/HTTPS/analytics/CI-CD.
+Security page, FAQ, Cookie Policy, animations, Azure deployment.
 
 
 
@@ -136,223 +198,33 @@ Policy, restrained animations, Azure deployment/DNS/HTTPS/analytics/CI-CD.
 
 
 
-\*\*Sprint 9 — Emergency Activation\*\* ⬜ \*\*← TODAY\*\*
+\*\*Sprint 9 — Emergency Activation\*\* 🟡 \*\*← Pass 1 built and live-tested once\*\*
 
-SOS button, confirmation/countdown UI, cancel action, GPS capture,
 
-wiring to `POST /incident-orchestrator/activate`. The single most
 
-important unbuilt piece of the entire project.
+\- \*\*Pass 1 (button):\*\* 🟡 Built, verified structurally (`tsc` clean),
+
+&#x20; and \*\*run live once, successfully\*\* — real countdown, real GPS
+
+&#x20; permission and capture, real API call, real incident created in the
+
+&#x20; database with a real ID, real notification pipeline triggered.
+
+&#x20; \*\*Not yet tested:\*\* the Cancel path during countdown, error-handling
+
+&#x20; paths (denied permission, network failure), and repeated/back-to-back
+
+&#x20; activations. \*\*Blocked from full end-to-end proof:\*\* actual SMS
+
+&#x20; delivery, pending Africa's Talking credentials (see Sprint 4).
+
+\- \*\*Pass 2 (voice, default phrase):\*\* ⬜ not started.
+
+\- \*\*Pass 3 (custom phrases):\*\* ⬜ not started.
 
 
 
 \*\*Sprint 10 — Live Incident View\*\* ⬜
 
-Post-activation status screen, timeline view for the active incident.
-
-
-
-\*\*Sprint 11 — Evidence Capture\*\* ⬜
-
-Camera, audio, video, GPS snapshots, offline upload queue against the
-
-real (already-tested) backend Evidence API.
-
-
-
-\*\*Sprint 12 — User Profile\*\* ⬜
-
-\*\*Important correction:\*\* medical profile fields (blood type,
-
-allergies, conditions) do not exist anywhere in the database schema.
-
-This sprint needs a schema migration before any mobile UI, not just a
-
-screen.
-
-
-
-\---
-
-
-
-\## Phase 3 — Command Center
-
-
-
-\*\*Sprint 13 — Dashboard Foundation\*\* ⬜
-
-\*\*Sprint 14 — Incident Management UI\*\* ⬜
-
-Backend `Facility` model and access guards are real and tested; no
-
-dashboard UI is currently connected to them.
-
-
-
-\---
-
-
-
-\## Phase 4 — Deployment
-
-
-
-\*\*Sprint 15 — Production Infrastructure\*\* ⬜
-
-\*\*Sprint 16 — Production Hardening\*\* ⬜
-
-Deliberately deferred to its own dedicated session, not squeezed into
-
-other work.
-
-
-
-\---
-
-
-
-\## Phase 5 — Security Hardening
-
-
-
-\*\*Sprint 17\*\* ⬜ (basic rate limiting already real, see Sprint 1)
-
-Penetration testing, MFA, session security, security headers, CSP,
-
-dependency audit — none started.
-
-
-
-\---
-
-
-
-\## Phase 6 — Pilot
-
-
-
-\*\*Sprint 18 — Pilot Execution\*\* ⬜
-
-\*\*Sprint 19 — Pilot Operations\*\* ⬜
-
-Pilot proposal document exists and is current; no outreach has been
-
-sent yet, no hospital has agreed.
-
-
-
-\---
-
-
-
-\## Phase 7 — Business Operations
-
-
-
-\*\*Sprint 20 — Legal\*\* 🟡
-
-CAC registration \*\*in progress\*\* — "OPA Technology Limited" name
-
-verified, Private Company Limited by Shares, ₦1,000,000 share capital,
-
-registration ongoing. Privacy Policy and Terms of Service drafted, both
-
-explicitly marked pending real legal review. Contracts and insurance:
-
-not started.
-
-
-
-\*\*Sprint 21 — Sales Operations\*\* ⬜
-
-Pricing strategy exists conceptually (free individual tier,
-
-institutional TBD, diaspora premium) from earlier strategic work; no
-
-pricing page, quotation system, or CRM implementation.
-
-
-
-\*\*Sprint 22 — Marketing Assets\*\* 🟡
-
-Pitch deck exists. Demo video \*\*script\*\* exists (not a produced video).
-
-Case study \*\*template\*\* exists, deliberately empty pending a real
-
-pilot. Brochure/one-pager: not started. Website is built but not
-
-deployed publicly yet.
-
-
-
-\---
-
-
-
-\## Phase 8 — App Store
-
-
-
-\*\*Sprint 23\*\* ⬜ — not started, depends on Sprint 9 shipping first.
-
-
-
-\---
-
-
-
-\## Phase 9 — Market-Ready Documentation
-
-
-
-\*\*Sprint 24\*\* 🟡
-
-Company Profile, Architecture Guide, and Security Overview are built
-
-(the Enterprise Kit). User Manual, Admin Guide, Hospital Deployment
-
-Guide, API docs, Ops Manual, DR Plan: correctly not started — these
-
-would document features and processes that don't exist yet.
-
-
-
-\---
-
-
-
-\## Deliberately deferred — not near-term
-
-
-
-Journey Risk Intelligence, Safe Walk/Trip mode, Family Dashboard,
-
-enterprise analytics, AI-based risk detection, international
-
-expansion, government/FRSC data integration, USSD fallback, wearables,
-
-drone/CCTV integration, insurance partnerships.
-
-
-
-\---
-
-
-
-\## Critical path to a real pilot, in order
-
-
-
-1\. \*\*Sprint 9 — Emergency Activation\*\* (today)
-
-2\. Sprint 10 — Live Incident View
-
-3\. Sprint 6 completion — mobile Evidence Capture
-
-4\. Sprint 15/16 — Deployment (unblocks Voice webhook too)
-
-5\. Sprint 13/14 — Command Center reconnected to real backend
-
-6\. Sprint 18 — Pilot outreach actually sent
+10A (continuous tracking) and 10B (the
 

@@ -1,127 +1,128 @@
-﻿# OPA - Working To-Do List
+# OPA — Working To-Do List
 
 **Last updated:** this session. Read this before assuming anything is
-done - verify against real files/tests, same as everything else in
-this project.
+done — verify against real files/tests, same as everything else in
+this project. **Tonight's session proved this matters even for
+previously-verified files — see the lesson at the top of
+`docs/SPRINT_ROADMAP.md`.**
 
-## Backend - still unconfirmed, don't assume done
+## Immediate — unblocks real SMS delivery
 
-- [ ] **Confirm the parallel-notifications orchestrator refactor actually builds and passes tests.**
-      Confirmed via `git status` that `apps/api` has zero uncommitted
-      changes - meaning this was never actually pasted into the real
-      file. Still just written in chat. Needs to be applied fresh,
-      built, tested, and committed before it's real.
-- [ ] **WhatsApp Business (Meta) registration** - steps: create Business
-      app at developers.facebook.com -> add WhatsApp product -> test with
-      the 5 free registered numbers using `hello_world` -> submit
-      `opa_emergency_alert` template under **Utility** category -> complete
-      business verification (2-10 business days) -> generate a permanent
-      System User token -> add `WHATSAPP_ACCESS_TOKEN` and
-      `WHATSAPP_PHONE_NUMBER_ID` to `.env`.
+- [ ] **Sign up for Africa's Talking, get a real API key/username.**
+      Confirmed tonight: does NOT require CAC completion — only a
+      custom branded Sender ID does (a separate, later step). Add
+      `AFRICASTALKING_API_KEY` and `AFRICASTALKING_USERNAME` to
+      `.env` once obtained.
+- [ ] **Test the SOS screen's Cancel path** — never tested yet, only
+      the full-countdown-to-activation path has been verified live.
+- [ ] **Test SOS error-handling paths** — denied location permission,
+      network failure during activation, repeated activations.
 
-## Deployment - separate future session, not tonight
+## Confirmed real tonight — no longer open items
+
+- [x] Parallel-notifications orchestrator refactor (SMS + WhatsApp +
+      Email sent concurrently) — was "written in chat, never
+      confirmed" for a while; now proven real by a live test failure
+      that correctly expected the old sequential count, then fixed.
+- [x] Mobile SOS activation screen (Sprint 9 Pass 1) — built,
+      structurally verified, and run live once successfully end to
+      end: real countdown, real GPS, real API call, real incident
+      created, real notification pipeline triggered.
+
+## Real bugs found and fixed tonight
+
+- [x] **`sms.provider.ts` had silently reverted to its original fake
+      stub** despite being replaced with real Africa's Talking code
+      weeks ago. The `africastalking` npm package was also missing
+      entirely. Both restored/installed, verified with a clean build
+      and full passing test suite.
+- [x] **Fake `GeocodingProvider` location text was leaking into real
+      SMS/email messages** sent to real emergency contacts (a
+      hardcoded, wrong street name). Fixed — messages now use a real,
+      tappable Google Maps link built from actual GPS coordinates.
+
+## Backend — still open
+
+- [ ] **WhatsApp Business (Meta) registration** — create Business app
+      at developers.facebook.com → add WhatsApp product → test with
+      the 5 free registered numbers → submit `opa_emergency_alert`
+      template under Utility category → complete business
+      verification (2–10 business days) → generate a System User
+      token → add `WHATSAPP_ACCESS_TOKEN`/`WHATSAPP_PHONE_NUMBER_ID`.
+- [ ] Voice webhook endpoint — blocked on deployment (needs a public URL).
+
+## Deployment — separate future session, not tonight
 
 - [ ] Provision Azure App Service (or Container Apps) for the API
-- [ ] Provision Azure Database for PostgreSQL (managed) - expect
-      `?sslmode=require`, which local dev never needed
-- [ ] Generate real production `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET`
-      - current values are named "change-later," don't carry them into production
-- [ ] Run `prisma migrate deploy` against the new production database
-- [ ] Update `ALLOWED_ORIGINS` / CORS for the real API URL
-- [ ] Point the mobile app's `API_BASE_URL` at the deployed URL, re-test
-      login -> contacts live against it
-- [ ] Voice's webhook becomes testable only once the API has a public URL
-- [ ] **Website: deploy to Azure Static Web Apps, connect opasafety.com,
-      HTTPS, DNS, analytics, GitHub Actions CI/CD** - deliberately held
-      for a dedicated session, not squeezed in at the end of a long day
+- [ ] Provision Azure Database for PostgreSQL (managed)
+- [ ] Generate real production `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET`
+- [ ] Run `prisma migrate deploy` against production
+- [ ] Update `ALLOWED_ORIGINS`/CORS for the real API URL
+- [ ] Point mobile app's `API_BASE_URL` at the deployed URL
+- [ ] Website: deploy to Azure Static Web Apps, DNS, HTTPS, analytics, CI/CD
 
-## Real, known gaps - not urgent, not forgotten
+## Real, known gaps — not urgent, not forgotten
 
-- [ ] **Idempotency protection against duplicate notification sends**
-- [ ] **No edit screen for emergency contacts** (create/list/delete/set-primary work; editing doesn't)
-- [ ] **Register screen has no show/hide password toggle** - login has one, register still doesn't
-- [ ] **Nigeria-only account registration** - deliberately left as-is
-      until non-Nigerian SMS delivery has a real answer
-- [ ] **Family Dashboard / parent-monitoring** - needs its own consent/linking design, not written up yet
-- [ ] **Direction-of-travel / movement intelligence** - `PlacesProvider`
-      is an explicit self-labeled mock; see
-      docs/architecture/emergency-intelligence-engine.md. Never add to
-      the website, even as "Planned," until genuinely built.
-- [ ] **Mobile evidence capture (audio/video/photo)** - backend Evidence
-      API is real; mobile client to record/upload it doesn't exist.
-      This exact feature has now been proposed for the website multiple
-      separate times and correctly declined each time.
-- [ ] **No medical information fields anywhere in the schema** - confirmed
-      by reading the real `schema.prisma`: no `bloodType`, `allergies`,
-      or `knownConditions` field exists on `User`, `EmergencyContact`, or
-      anywhere else. Was briefly drafted for the Hospitals page and
-      correctly removed once the schema was checked.
-- [ ] **Logo/brand mark** - explored two rounds of concepts, neither
-      landed. Deliberately shelved, not being pursued right now.
+- [ ] Idempotency protection against duplicate notification sends
+- [ ] No edit screen for emergency contacts
+- [ ] Register screen has no show/hide password toggle
+- [ ] Phone normalization in `contacts.tsx` defaults any unrecognized
+      number to +234 — can mis-normalize a foreign number typed
+      without its country code. Real, small bug, caught in review, not
+      yet fixed.
+- [ ] `isLoading` in `contacts.tsx` never resets to `true` on
+      re-focus/refresh — minor UX gap, caught in review, not yet fixed.
+- [ ] Nigeria-only account registration — deliberately left as-is
+- [ ] Family Dashboard / parent-monitoring — not written up yet
+- [ ] Direction-of-travel / movement intelligence — architecture
+      exists, all three underlying providers (`PlacesProvider`,
+      `GeocodingProvider`, `RoutingProvider`) confirmed fake/mock.
+- [ ] Mobile evidence capture (audio/video/photo) — backend real, no mobile client
+- [ ] No medical information fields anywhere in the schema
+- [ ] Logo/brand mark — shelved
 
 ## Documentation status
 
-- [x] `docs/architecture/system-overview.md` - confirmed saved
-- [x] `docs/architecture/incident-lifecycle.md` - confirmed saved
-- [ ] `docs/architecture/notification-engine.md` - written in chat, never saved
-- [ ] `docs/architecture/survival-timeline.md` - written in chat, never saved
-- [ ] `docs/architecture/evidence-engine.md` - written in chat, never saved
-- [ ] `docs/architecture/journey-risk-intelligence.md` - saved once, never re-confirmed
-- [x] `docs/architecture/emergency-intelligence-engine.md` - confirmed saved
-- [x] `docs/future/ussd-fallback.md` - confirmed saved
-- [ ] ADRs (`docs/adr/`) - good practice, zero urgency, not started
+- [x] `docs/architecture/system-overview.md`
+- [x] `docs/architecture/incident-lifecycle.md`
+- [x] `docs/architecture/emergency-intelligence-engine.md` — confirms
+      all three location providers are fake, and documents tonight's
+      fix
+- [x] `docs/SPRINT_ROADMAP.md` — the real source of truth for sprint status
+- [ ] `docs/architecture/notification-engine.md` — never saved
+- [ ] `docs/architecture/survival-timeline.md` — never saved
+- [ ] `docs/architecture/evidence-engine.md` — never saved
+- [ ] `docs/architecture/journey-risk-intelligence.md` — saved once, never re-confirmed
+- [x] `docs/future/ussd-fallback.md`
+- [ ] ADRs — not started
 
-## Real mailboxes confirmed to exist (Microsoft 365)
+## Website — v1 complete
 
-hello@, info@, partnerships@, sales@, support@, security@, privacy@,
-media@, legal@, careers@ - all confirmed real via direct screenshots
-of the mailbox admin panel. `info@` is the sitewide primary public
-address; `hello@` remains active but is not used as the primary
-anywhere on the site.
-
-## Website - v1 complete
-
-- [x] Next.js scaffold, TypeScript + Tailwind v4 + App Router, locked to port 3001
-- [x] Design tokens (`globals.css`), real fonts, title template
-- [x] `Navbar`, `Footer`, `Container` - shared across every page
-- [x] Homepage: Hero, How It Works, Hospital, Security, CTA
-- [x] Icons (lucide-react) across How It Works, Hospital, Security, Contact
-- [x] About page
-- [x] Hospitals page - checked against real schema
-- [x] Contact page - nine real department mailboxes
-- [x] Privacy Policy page - accurate to real data practices, flagged for legal review
-- [x] Terms of Service page - includes explicit "not a replacement for calling
-      emergency services" disclaimer, flagged for legal review
-- [x] Footer links to Privacy and Terms; Navbar links to About, How it works,
-      Privacy & security, For hospitals, Contact
-- [ ] **Dedicated Pilot Partnership page** (future) - structured inquiry form
-- [ ] Restrained scroll/hover animations - not yet added
-- [ ] Azure deployment, DNS, HTTPS, analytics, CI/CD - separate future session
+Six pages live, linked, verified. Remaining: Pilot Partnership page,
+expanded Security page, FAQ, Cookie Policy, animations, Azure deployment.
 
 ## A technique worth remembering
 
-When a specific single line in a file repeatedly refuses to save
-correctly via Notepad copy-paste, stop retrying the same paste-and-save
-cycle. Instead, use PowerShell directly:
+When a specific line or file repeatedly refuses to save correctly via
+Notepad, use PowerShell directly:
 `(Get-Content <path> -Raw).Replace('<exact text>', '<replacement>') | Set-Content <path>`
-This bypasses Notepad and the browser-clipboard path entirely. Verify
-with `Select-String -Path <path> -Pattern "<exact text>"` afterward.
+Verify with `Select-String -Path <path> -Pattern "<exact text>"`.
 
-Separately: when writing a full file's content via PowerShell, a
-here-string (@'...'@) pasted as one block is more reliable than
-Notepad copy-paste for long files - it avoids clipboard truncation.
-
-## Mobile - the actual critical path, still not started
-
-- [ ] **SOS activation screen** - the entire reason OPA exists. Login,
-      register, and emergency contacts are all real and tested; nothing
-      on the phone calls `POST /incident-orchestrator/activate` yet.
+**New tonight:** never assume a previously-verified file is still
+correct. Re-read critical files with `Get-Content` before trusting
+their status, especially anything on the SOS/notification path — files
+can silently revert between sessions with no build or test catching it
+if the reverted version still compiles and type-checks.
 
 ## Where we stopped this session
 
-Website v1 is complete: six real pages (Home, About, Hospitals, Contact,
-Privacy, Terms), fully linked, every claim checked against actual code,
-schema, or confirmed mailboxes. Both legal pages are explicitly marked
-as drafts pending real attorney review. Next real work: Azure deployment
-or the mobile SOS activation screen, per tomorrow's plan - SOS remains
-the single most important unbuilt piece of the entire project.
+The mobile SOS activation screen (Sprint 9 Pass 1) is built and was
+run live, successfully, once — the first real end-to-end proof of
+OPA's core promise. That same test surfaced two genuine production
+bugs (a reverted fake SMS provider, fake location text in real
+messages), both found and fixed tonight, verified by a clean build and
+full passing test suite. Real SMS delivery is still blocked on
+creating an Africa's Talking account — external setup, not a code
+task, and confirmed not blocked by CAC completion. Next real work:
+Africa's Talking signup, testing SOS's Cancel/error paths, then either
+Sprint 10B (live-tracking page) or Sprint 9 Pass 2 (voice trigger).

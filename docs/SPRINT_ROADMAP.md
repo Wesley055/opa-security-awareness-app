@@ -12,9 +12,7 @@ a real live confirmation — not assumed. Cross-reference with
 
 
 
-Status key: ✅ Complete \& verified · 🟡 Partial / code real but not
-
-fully functional · ⬜ Not started
+Status key: ✅ Complete \& verified · 🟡 Partial · 🚧 Planned, not started · ⬜ Not started · ⚠️ Needs re-verification
 
 
 
@@ -28,25 +26,55 @@ fully functional · ⬜ Not started
 
 Tonight's live SOS test discovered that `sms.provider.ts` — real,
 
-tested, and committed weeks ago — had \*\*silently reverted to its
+tested, and committed weeks ago — had silently reverted to its
 
-original fake stub\*\*, along with the `africastalking` npm package
+original fake stub, and the `africastalking` npm package was missing
 
-being missing entirely. This wasn't caught by any build or test,
+entirely. Both were restored and verified. \*\*A file being committed
 
-because the stub was itself valid, passing code — it just did the
+once is not the same as a file staying correct.\*\* Re-read critical
 
-wrong thing. \*\*A file being committed once is not the same as a file
+files with `Get-Content` before trusting their status, especially
 
-staying correct.\*\* Before trusting any previously-verified file
+anything on the SOS activation path.
 
-tonight, this session, or in the future — especially anything on the
 
-SOS activation path — re-read the real file with `Get-Content` first,
 
-the same discipline used everywhere else in this project, rather than
+\## Verified during this session — a permanent audit trail
 
-trusting an old status.
+
+
+Confirmed through live testing, on a real device, against the real backend:
+
+\- ✅ Device GPS capture and accuracy
+
+\- ✅ Incident creation
+
+\- ✅ SMS delivery through Africa's Talking Sandbox — a real message arrived on a real phone with correct content
+
+\- ✅ Google Maps navigation using real coordinates (replacing a previously fabricated address)
+
+
+
+Identified during the same session:
+
+\- ❌ `GeocodingProvider` — confirmed mock, was leaking fabricated
+
+&#x20; location text into real SMS messages; fixed
+
+\- ❌ `PlacesProvider` — confirmed mock
+
+\- ⚠️ `RoutingProvider` — confirmed mock (called with zero arguments)
+
+\- ⚠️ Push notifications and Email — fired in parallel with the SMS
+
+&#x20; that was verified, but not individually confirmed delivered; treat
+
+&#x20; as unverified until checked directly
+
+\- ⚠️ Incident portal — does not exist; `trackingUrl` currently points
+
+&#x20; at nothing
 
 
 
@@ -60,133 +88,19 @@ trusting an old status.
 
 \*\*Sprint 1 — Project Foundation\*\* ✅
 
-NestJS, PostgreSQL + Prisma, JWT auth foundation, Docker, Swagger,
+\*\*Sprint 2 — Authentication\*\* ✅ (register screen still has no show/hide toggle)
 
-config validation, structured logging, correlation IDs, global
+\*\*Sprint 3 — Emergency Contacts\*\* ✅ (no edit screen; phone normalization defaults unrecognized numbers to +234)
 
-exception filter, basic rate limiting (`ThrottlerModule`, 60 req/60s).
-
-
-
-\*\*Sprint 2 — Authentication\*\* ✅ (one small gap)
-
-Registration, login, refresh tokens, logout, bcrypt hashing,
-
-validation, secure mobile token storage with auto-refresh, show/hide
-
-password on login. \*\*Gap:\*\* register screen still has no show/hide
-
-toggle.
-
-
-
-\*\*Sprint 3 — Emergency Contacts\*\* ✅ (two gaps)
-
-Full CRUD, set-primary, phone normalization, tested live. \*\*Gaps:\*\* no
-
-edit screen (add/remove/set-primary only); phone normalization
-
-defaults any unrecognized-prefix number to +234, which can silently
-
-mis-normalize a foreign number typed without its country code — a
-
-real, small bug, not yet fixed.
-
-
-
-\*\*Sprint 4 — Notification Engine\*\* 🟡 — updated with tonight's findings
-
-SMS, Push, and Email dispatch code is real. WhatsApp is coded but
-
-non-functional (no approved Meta template). Voice is coded but
-
-non-functional (no public webhook endpoint).
-
-
-
-\*\*Confirmed tonight:\*\* the parallel-notifications orchestrator refactor
-
-(SMS + WhatsApp + Email sent concurrently, not sequentially) is real
-
-and tested — proven by a live test failure that expected the old
-
-sequential call count, then corrected. This item can move from
-
-"unconfirmed" to genuinely done.
-
-
-
-\*\*Also discovered and fixed tonight:\*\* `sms.provider.ts` had reverted
-
-to a fake stub (see lesson above) — restored to the real Africa's
-
-Talking integration. The `africastalking` npm package was missing
-
-entirely — installed. \*\*SMS is coded correctly again, but still not
-
-actually delivering\*\* — `AFRICASTALKING\_API\_KEY`/`AFRICASTALKING\_USERNAME`
-
-are not set; the Africa's Talking account has not been created yet.
-
-This is genuinely external account setup, not a code task — see Sprint
-
-20 for the Sender ID dependency on CAC completion specifically (a
-
-working API key/basic sending does not require full CAC completion;
-
-only a custom branded Sender ID does).
-
-
-
-\*\*Also discovered and fixed tonight:\*\* `EmergencyIntelligenceService`'s
-
-fake `GeocodingProvider` cross-street/address text was being sent
-
-inside real SMS/email messages to real emergency contacts. Fixed —
-
-messages now include a real, tappable Google Maps link built from
-
-actual GPS coordinates instead.
-
-
-
-Delivery receipts, retry engine, and idempotency protection are still
-
-not built.
-
-
+\*\*Sprint 4 — Notification Engine\*\* 🟡 — see Feature Readiness Matrix for per-channel status
 
 \*\*Sprint 5 — Survival Timeline\*\* ✅
 
-Hash-chained, append-only timeline engine, wired into the real
-
-orchestrator, `verify()` endpoint tested to actually catch tampering.
-
-
-
 \*\*Sprint 6 — Evidence Engine\*\* ✅ backend / ⬜ mobile
 
-Azure Blob Storage, SHA-256 hashing, short-lived signed download URLs
-
-— real and tested. Mobile capture does not exist.
-
-
-
-\*\*Sprint 7 — Incident Orchestrator\*\* ✅ (strengthened tonight)
-
-Full coordinated flow, real and tested. Tonight's fixes (real SMS
-
-provider restored, fake location text removed) both live inside this
-
-sprint's code.
-
-
+\*\*Sprint 7 — Incident Orchestrator\*\* ✅
 
 \*\*Sprint 8 — Website\*\* ✅ v1
-
-Six pages live and linked. Remaining: Pilot Partnership page, expanded
-
-Security page, FAQ, Cookie Policy, animations, Azure deployment.
 
 
 
@@ -198,33 +112,81 @@ Security page, FAQ, Cookie Policy, animations, Azure deployment.
 
 
 
-\*\*Sprint 9 — Emergency Activation\*\* 🟡 \*\*← Pass 1 built and live-tested once\*\*
+\*\*Sprint 9 — Emergency Activation\*\* 🟡
 
 
 
-\- \*\*Pass 1 (button):\*\* 🟡 Built, verified structurally (`tsc` clean),
+\- \*\*Pass 1 (SOS Button):\*\* ✅ Verified — real countdown, real GPS,
 
-&#x20; and \*\*run live once, successfully\*\* — real countdown, real GPS
+&#x20; real API call, real incident created, real SMS delivered and
 
-&#x20; permission and capture, real API call, real incident created in the
+&#x20; confirmed received. \*\*Not yet tested:\*\* the Cancel path during
 
-&#x20; database with a real ID, real notification pipeline triggered.
+&#x20; countdown, permission-denied and network-failure error paths,
 
-&#x20; \*\*Not yet tested:\*\* the Cancel path during countdown, error-handling
+&#x20; repeated/back-to-back activations.
 
-&#x20; paths (denied permission, network failure), and repeated/back-to-back
+\- \*\*Pass 2 (Voice — "Help Help"):\*\* ⬜ Not started.
 
-&#x20; activations. \*\*Blocked from full end-to-end proof:\*\* actual SMS
-
-&#x20; delivery, pending Africa's Talking credentials (see Sprint 4).
-
-\- \*\*Pass 2 (voice, default phrase):\*\* ⬜ not started.
-
-\- \*\*Pass 3 (custom phrases):\*\* ⬜ not started.
+\- \*\*Pass 3 (Custom trigger phrase):\*\* ⬜ Not started.
 
 
 
-\*\*Sprint 10 — Live Incident View\*\* ⬜
+\*\*Deliverables in Pass 1, all confirmed working:\*\*
 
-10A (continuous tracking) and 10B (the
+SOS button, confirmation countdown, device GPS + accuracy, incident
+
+creation, SMS delivery, Google Maps navigation link using real
+
+coordinates.
+
+
+
+\*\*Deliberately not in Pass 1, by design:\*\*
+
+address/cross-street/landmark (Sprint 10C), movement/compass direction
+
+(Sprint 10B), live incident page (Sprint 10A).
+
+
+
+\---
+
+
+
+\### Sprint 10A — Incident Portal 🚧
+
+
+
+The first step toward making OPA's own page the responder's primary
+
+destination, not a bare map link.
+
+
+
+\*\*Build:\*\* a public page at `https://opasafety.com/incidents/{id}`
+
+showing only verified information — incident status, activation time,
+
+trigger type, latitude/longitude, GPS accuracy, last-update timestamp,
+
+incident ID, and an "Open in Google Maps" button. No placeholders, no
+
+estimated address, no fake movement.
+
+
+
+\*\*Reliability requirement:\*\* critical incident information (status,
+
+location, time) must be server-rendered, not dependent on client-side
+
+JavaScript loading successfully. A responder or family member opening
+
+this under stress, possibly on a weak connection, must see the basic
+
+facts immediately regardless of script load success.
+
+
+
+\*\*Notification format once this ships:\*\*
 

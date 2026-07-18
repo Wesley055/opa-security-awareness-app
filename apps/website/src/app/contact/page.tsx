@@ -15,7 +15,7 @@ import type { LucideIcon } from "lucide-react";
 export const metadata: Metadata = {
   title: "Contact",
   description:
-    "Contact OPA Technology Limited for hospital partnerships, enterprise sales, technical support, media inquiries, privacy, security, and general information.",
+    "Contact OPA Technologies Limited for hospital partnerships, enterprise sales, technical support, media inquiries, privacy, security, and general information.",
 };
 
 const contactOptions: {
@@ -155,7 +155,7 @@ export default function ContactPage() {
 
       <div className="mt-16 rounded-xl border border-line bg-panel p-8 sm:p-10">
         <h2 className="font-display text-2xl font-bold text-ink">
-          OPA Technology Limited
+          OPA Technologies Limited
         </h2>
         <p className="mt-4 max-w-3xl text-muted">
           Building trusted emergency coordination technology for
@@ -185,7 +185,7 @@ export default function ContactPage() {
         </div>
 
         <p className="mt-10 border-t border-line pt-6 text-xs text-muted-2">
-          &copy; {new Date().getFullYear()} OPA Technology Limited. All rights reserved.
+          &copy; {new Date().getFullYear()} OPA Technologies Limited. All rights reserved.
         </p>
       </div>
     </div>

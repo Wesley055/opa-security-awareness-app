@@ -111,7 +111,7 @@ export default function TermsPage() {
           <p className="mt-3 text-muted">
             OPA is provided on an &ldquo;as is&rdquo; basis while the
             platform is in active development. To the fullest extent
-            permitted by law, OPA Technology Limited disclaims liability
+            permitted by law, OPA Technologies Limited disclaims liability
             for indirect, incidental, or consequential damages arising
             from use of, or inability to use, the platform, including
             failure or delay of any notification.

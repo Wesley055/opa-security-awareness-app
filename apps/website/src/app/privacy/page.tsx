@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
-  description: "How OPA Technology Limited collects, uses, and protects your information.",
+  description: "How OPA Technologies Limited collects, uses, and protects your information.",
 };
 
 export default function PrivacyPage() {
@@ -34,7 +34,7 @@ export default function PrivacyPage() {
             Who we are
           </h2>
           <p className="mt-3 text-muted">
-            OPA Technology Limited (&ldquo;OPA,&rdquo; &ldquo;we,&rdquo;
+            OPA Technologies Limited (&ldquo;OPA,&rdquo; &ldquo;we,&rdquo;
             &ldquo;us&rdquo;) operates the OPA emergency coordination
             platform. This policy applies to the OPA mobile application,
             the OPA website, and related services.

@@ -199,3 +199,14 @@ pinned (observable-only, sequenced after Sprint 10B, explicit
 out-of-scope list recorded with reasoning). Next real work: verify
 Push/Email delivery individually, test SOS's Cancel/error paths, then
 Sprint 10A (the incident portal) or Sprint 9 Pass 2 (voice trigger).
+
+**New lesson from tonight's SPRINT_ROADMAP.md recovery:** a large
+single here-string paste into PowerShell can silently choke or
+truncate without any error - the terminal just stops receiving input
+mid-paste. Write and verify long files in small chunks (Set-Content
+for the first piece, Add-Content for each piece after), checking line
+count after every single chunk. Also: do not trust a "file looks
+complete" confirmation based on a document attachment - attachments
+were unreliable multiple times tonight (some came through completely
+empty). Always verify long file content via plain-text paste directly
+in the chat.

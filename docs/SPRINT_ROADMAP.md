@@ -155,7 +155,11 @@ Production verification:
 - [ ] Confirm no localhost references remain
 - [ ] Confirm no placeholder content remains
 
-Milestone: public website ready for hospital outreach.
+Milestone: public website ready for hospital outreach - ACHIEVED.
+opasafety.com is live on Vercel, DNS connected via one clean CNAME
+record (Microsoft 365 email records confirmed untouched), verified
+working on mobile data, all six pages confirmed, mailto button
+confirmed working. Achieved this session.
 
 ### Phase B - Production API, before the first real pilot
 
@@ -231,3 +235,4 @@ Enterprise fleet monitoring (concept only).
 8. Sprint 10B - Live tracking
 9. Phase B - Production API deployment
 10. Sprint 13/14 - Command Center reconnected
+

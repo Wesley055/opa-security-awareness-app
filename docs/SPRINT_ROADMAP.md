@@ -214,7 +214,7 @@ Enterprise fleet monitoring (concept only).
 | Google Maps navigation | DONE - live tested |
 | Push notifications | VERIFY - fired in parallel, not individually confirmed |
 | Email delivery | VERIFY - fired in parallel, not individually confirmed |
-| WhatsApp delivery | PLANNED - blocked on Meta template approval |
+| WhatsApp delivery | PARTIAL - real test message sent and confirmed received via Meta app dashboard; still needs real business phone number registration, business verification, and the opa_emergency_alert template approved before it works through the actual product code |
 | Voice delivery | PLANNED - blocked on a public webhook |
 | Diaspora SMS (non-Nigerian numbers) | NOT STARTED - Africa's Talking Sandbox confirmed rejecting a US number; Twilio identified as the real fix, see Phase 4 |
 | Incident portal | PLANNED - Sprint 10A |
@@ -235,4 +235,5 @@ Enterprise fleet monitoring (concept only).
 8. Sprint 10B - Live tracking
 9. Phase B - Production API deployment
 10. Sprint 13/14 - Command Center reconnected
+
 

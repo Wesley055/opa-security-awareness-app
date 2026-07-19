@@ -210,3 +210,65 @@ complete" confirmation based on a document attachment - attachments
 were unreliable multiple times tonight (some came through completely
 empty). Always verify long file content via plain-text paste directly
 in the chat.
+
+## OPA Prevention (Future)
+
+Status: Concept, not started. Depends on Sprint 10B, same as Journey
+Intelligence - both are siblings, not sequential to each other.
+
+### Architecture
+
+Journey Session (started -> active -> ended) is the shared base.
+Used directly by: SafeWalk, SafeDrive, SafeRide.
+Journey Intelligence builds on the same Journey Session, adding
+traffic and incident awareness on top.
+
+Build the shared session concept once (started -> active -> ended
+state), not four times.
+
+- SafeDrive speed checks reuse the existing location and speed
+  telemetry captured during an active Journey Session, compared
+  against a user-configurable threshold - a simple rule evaluator,
+  explicitly not AI, matching the observable-facts-only discipline
+  already established for Journey Intelligence.
+- SafeRide's "notify a trusted contact" reuses EmergencyContactsService
+  and NotificationService - both real, tested, proven with a live SMS.
+- Live-location sharing reuses whatever Sprint 10B builds for live
+  tracking - built once, not per feature.
+- Road-type-aware, jurisdiction-aware speed limit comparison needs
+  Sprint 10C's real geocoding/places data (currently confirmed mock).
+  A flat, user-set threshold is realistic launch scope; legal-limit
+  awareness is a later refinement once 10C is real.
+
+### Possible capabilities
+
+- SafeDrive speed awareness (user-configurable threshold, not hardcoded)
+- Driving behavior reminders (harsh braking, rapid acceleration, phone
+  use, fatigue on long trips)
+- SafeRide assistance - "Would you like OPA to help you get home
+  safely?" leading with the offer, not a question about drinking
+- Trusted contact assistance (call, share location, send an "I'm
+  heading home" message)
+- Ride service integration (future) through a provider abstraction that
+  supports Uber, Lyft, Bolt, inDrive, local taxi providers, and future
+  regional partners
+- Long-trip wellness reminders
+
+### Design principles
+
+- Advisory, not enforcement - OPA is a coach, not an enforcer
+- User consent required, opt-in only
+- Configurable thresholds where appropriate, never hardcoded
+- Prevention complements emergency response; it does not replace it
+- No unsupported claims about impairment detection
+
+### Explicit rule - never claim
+
+- "OPA detects drunk drivers."
+- "OPA prevents DUIs."
+- "OPA knows if you're intoxicated."
+
+These would overstate the product's capabilities without validated
+technology to support them. Correct messaging: "OPA encourages safer
+decisions," "OPA offers support when users choose to use it," "OPA
+can help connect you with trusted contacts or transportation."

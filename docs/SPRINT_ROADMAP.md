@@ -5,6 +5,11 @@ Every status below was checked against real code, a real test run, or
 a real live confirmation - not assumed. Cross-reference with
 docs/TODO.md for granular open items.
 
+> **See "MASTER EXECUTION ROADMAP"** near the end of this document.
+> It contains the primary phased execution plan (Phase A-K),
+> including entry criteria, exit criteria, launch gates, and
+> execution order. Use it as the authoritative guide for daily work.
+
 Status key: DONE = Complete and verified - PARTIAL = Partial -
 PLANNED = Planned, not started - NOT STARTED - VERIFY = Needs re-verification
 
@@ -126,7 +131,7 @@ custom branded Sender ID does.
 
 **Sprint 15 - Production Infrastructure** - PARTIAL, in progress
 
-### Phase A - Immediate, before hospital outreach
+### Deployment Phase A - Website Infrastructure (Immediate, before hospital outreach)
 
 Goal: make opasafety.com publicly accessible and professional.
 Backend deployment is not a dependency for this phase.
@@ -161,7 +166,7 @@ record (Microsoft 365 email records confirmed untouched), verified
 working on mobile data, all six pages confirmed, mailto button
 confirmed working. Achieved this session.
 
-### Phase B - Production API, before the first real pilot
+### Deployment Phase B - Production API (before the first real pilot)
 
 Goal: deploy the backend for real pilot usage. Not required to send
 outreach - only required once a hospital says yes.
@@ -236,4 +241,201 @@ Enterprise fleet monitoring (concept only).
 9. Phase B - Production API deployment
 10. Sprint 13/14 - Command Center reconnected
 
+
+
+
+---
+
+# MASTER EXECUTION ROADMAP
+
+**Status:** Primary execution roadmap
+
+This roadmap defines the order of execution for OPA development.
+
+The sprint details above remain the implementation backlog. This
+section is the authoritative source for:
+
+- Phase sequencing
+- Entry criteria
+- Exit criteria
+- Launch gates
+- Daily execution order
+
+Unless a task directly blocks the active phase, new work should be
+captured here and scheduled into the appropriate future phase rather
+than interrupting the current one.
+
+### Phase A - Production Foundation (Current)
+
+Objective: get OPA running in Azure with a working production backend.
+
+Infrastructure:
+- [x] Azure App Service provisioned
+- [x] Azure PostgreSQL provisioned
+- [x] Virtual Network configured
+- [x] Public website deployed
+- [ ] Configure DATABASE_URL
+- [ ] Configure production environment variables
+- [ ] Deploy NestJS API
+- [ ] Run prisma migrate deploy
+- [ ] Verify health endpoint
+- [ ] Verify database connectivity
+
+Exit criteria: backend reachable, database connected, health checks
+passing, production deployment repeatable.
+
+### Phase B - Sprint 9 Completion
+
+Objective: complete the MVP emergency workflow.
+
+Pass 1:
+- [ ] Cancel flow
+- [ ] Permission denied
+- [ ] Network failure
+- [ ] GPS verification
+- [ ] Error handling
+
+Pass 2:
+- [ ] Voice trigger
+- [ ] End-to-end verification
+- [ ] Production testing
+
+Exit criteria: SOS workflow verified, voice activation verified,
+production-ready emergency flow.
+
+### Phase C - Pilot Readiness
+
+Objective: prepare OPA for real users.
+
+Product:
+- [ ] End-to-end incident testing
+- [ ] Notification verification
+- [ ] Production logging
+- [ ] Security review
+
+Documentation:
+- [ ] Terms of Service (real legal review, currently draft)
+- [ ] Privacy Policy (real legal review, currently draft)
+- [ ] Safety Claims and Communications Standard (new, small, doable now)
+- [ ] Emergency Response Disclaimer
+
+Business:
+- [ ] Hospital outreach sent
+- [ ] Pilot agreements
+- [ ] Support email
+
+Launch gates: production deployment complete, notification provider
+verified for launch market (SMS via Africa's Talking already verified
+for Nigeria), core workflows validated, required legal documents
+complete.
+
+### Phase D - Nigeria Launch (Primary Commercial Launch)
+
+Focus: hospitals, universities, employers, security organizations,
+trusted contacts.
+
+Goals: active users, pilot customers, revenue, product validation.
+
+### Phase E - US Validation Launch
+
+Status: limited validation, not a nationwide consumer launch.
+
+Prerequisites:
+- [ ] Nigeria launch operational
+- [ ] Notification provider verified for US users (Twilio or
+      equivalent - Africa's Talking confirmed rejecting a US number
+      in live testing)
+- [ ] Country-specific phone handling implemented (contacts.tsx
+      currently defaults unrecognized numbers to +234 - known bug)
+- [ ] Country configuration work started
+
+Goals: early adopters, enterprise pilots, product feedback,
+reliability validation.
+
+### Phase F - Sprint 10A (Incident Portal)
+
+- Timeline
+- Evidence
+- Portal UI
+- Incident management
+
+### Phase G - Sprint 10B (Live Tracking)
+
+- Continuous GPS
+- Poll -> Compare -> Notify
+- Live map
+- Journey Session primitive
+
+Exit criteria: continuous tracking working, Journey Session available
+for reuse.
+
+### Phase H - Journey Intelligence
+
+Depends on Sprint 10B.
+
+Capabilities: route monitoring, ETA monitoring, incident awareness,
+traffic integration (future), weather integration (future).
+
+Design principle: reuse the Journey Session. Do not build a separate
+monitoring engine.
+
+### Phase I - OPA Prevention (Future)
+
+Status: target architecture, not yet implemented.
+
+Prerequisites:
+- [ ] Sprint 10B complete
+- [ ] Journey Session available
+- [ ] Production notification provider(s) for target markets
+- [ ] Provider abstractions where needed
+
+Shared Journey Session (started -> active -> ended), reused by
+SafeWalk, SafeDrive, SafeRide, and Journey Intelligence.
+
+SafeWalk: journey monitoring, missed check-ins, escalation.
+SafeDrive: user-configurable speed awareness, driving behavior
+reminders, fatigue reminders, phone distraction reminders.
+SafeRide: ride home assistance, trusted contact assistance, ride
+provider integration (future).
+
+Design principles: advisory not enforcement, opt-in only, observable
+facts only, no impairment detection claims, prevention complements
+emergency response rather than replacing it.
+
+Full detail already recorded in docs/TODO.md under "OPA Prevention (Future)".
+
+### Phase J - Multi-Country Platform
+
+Status: target architecture. Not representative of the current
+implementation.
+
+Goal: country-aware, not country-forked. One OPA platform, with
+country configuration selecting providers - not separate apps per
+country.
+
+Provider abstractions needed: notification, maps, ride services,
+payments, language.
+
+Known prerequisites:
+- [ ] Remove the +234 default phone assumption in contacts.tsx
+- [ ] Provider abstraction for SMS (Twilio alongside Africa's Talking)
+- [ ] Country-specific configuration system
+- [ ] Regional compliance work
+
+### Phase K - International Expansion
+
+Priority order: Nigeria (commercial launch), US (validation launch),
+Ghana, Kenya, South Africa.
+
+---
+
+## Guiding Principles
+
+- Build only what the current phase requires.
+- Distinguish current implementation from target architecture.
+- Use launch gates before expanding scope.
+- Reuse shared components instead of creating parallel systems.
+- Avoid country-specific forks; prefer configuration and provider
+  abstractions.
+- Never overstate product capabilities in marketing or documentation.
 

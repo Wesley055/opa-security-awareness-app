@@ -1,4 +1,4 @@
-﻿import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import {
   DocumentBuilder,
@@ -43,7 +43,7 @@ async function bootstrap(): Promise<void> {
     document,
   );
 
-  await app.listen(3000);
+  await app.listen(process.env.PORT || 3000);
 }
 
 void bootstrap();

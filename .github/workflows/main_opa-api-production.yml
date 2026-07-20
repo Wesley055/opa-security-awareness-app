@@ -14,15 +14,17 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Check out repository
+        uses: actions/checkout@v4
 
       - name: Set up Node.js version
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v4
         with:
           node-version: '22.x'
+          cache: npm
 
-      - name: Install dependencies (root, workspaces)
-        run: npm install
+      - name: Install dependencies
+        run: npm ci
 
       - name: Generate Prisma client
         run: npm run prisma:generate --workspace apps/api
@@ -30,14 +32,23 @@ jobs:
       - name: Build API
         run: npm run build --workspace apps/api
 
-      - name: Install production dependencies in apps/api
-        run: npm install --omit=dev --workspace apps/api --install-links
+      - name: Assemble standalone deploy folder
+        run: |
+          mkdir deploy
+          cp -r apps/api/dist deploy/dist
+          cp -r apps/api/prisma deploy/prisma
+          cp apps/api/package.json deploy/package.json
+          cd deploy
+          npm install --include=dev --no-package-lock
+          npx prisma generate
+          npm prune --omit=dev
 
-      - name: Upload artifact for deployment job
+      - name: Upload deployment artifact
         uses: actions/upload-artifact@v4
         with:
           name: node-app
-          path: apps/api
+          path: deploy
+          include-hidden-files: true
 
   deploy:
     runs-on: ubuntu-latest
@@ -47,7 +58,7 @@ jobs:
       contents: read
 
     steps:
-      - name: Download artifact from build job
+      - name: Download deployment artifact
         uses: actions/download-artifact@v4
         with:
           name: node-app
@@ -59,10 +70,10 @@ jobs:
           tenant-id: ${{ secrets.AZUREAPPSERVICE_TENANTID_5442CDA40E6841199C2D4BCC060D3372 }}
           subscription-id: ${{ secrets.AZUREAPPSERVICE_SUBSCRIPTIONID_24434C11F98B468A82D40CA557B76FCF }}
 
-      - name: 'Deploy to Azure Web App'
+      - name: Deploy to Azure Web App
         id: deploy-to-webapp
         uses: azure/webapps-deploy@v3
         with:
-          app-name: 'opa-api-production'
-          slot-name: 'Production'
+          app-name: opa-api-production
+          slot-name: Production
           package: .

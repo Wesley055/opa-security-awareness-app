@@ -1,4 +1,4 @@
-﻿# OPA - Sprint Roadmap
+# OPA - Sprint Roadmap
 
 **This is the authoritative source of truth for sprint status.**
 Every status below was checked against real code, a real test run, or
@@ -24,7 +24,74 @@ content via plain-text paste in chat, not attachments. Use a guarded
 PowerShell replace that checks find-text exists before writing. Write
 and paste large content in small chunks, not one giant block.
 
-## Verified during this session
+---
+
+## Production deployment session (recorded) - Phase A largely COMPLETE
+
+A dedicated deployment session took the backend from "crashing on every
+restart" to a live, migrated, secured production API on Azure. Verified
+at each step against real logs, not assumed:
+
+- NestJS API deployed to Azure App Service via GitHub Actions - DONE.
+  Corrected the monorepo build: install at workspace root, generate
+  Prisma client, build apps/api, assemble a self-contained deploy
+  folder with bundled node_modules (--include=dev, prisma generate,
+  npm prune --omit=dev, include-hidden-files). Artifact went from a
+  broken 234 KB to a healthy 112 MB, confirming dependencies bundled.
+- Startup path corrected - DONE. Build outputs to dist/src/main.js
+  (not dist/main.js); Azure startup command set to node dist/src/main.js.
+- PORT binding fixed - DONE. main.ts now listens on process.env.PORT.
+- DATABASE_URL configured - DONE. Password contained a $ that had to be
+  URL-encoded (%24). Later rotated (see below), new password chosen
+  alphanumeric to avoid encoding issues.
+- All production environment variables configured - DONE. Every
+  getOrThrow key mapped and set: JWT_ACCESS_SECRET, JWT_REFRESH_SECRET
+  (real production values generated, no longer "change-later"),
+  JWT_ACCESS_EXPIRES_IN, JWT_REFRESH_EXPIRES_IN, BCRYPT_ROUNDS,
+  AZURE_STORAGE_CONNECTION_STRING, AZURE_STORAGE_CONTAINER (opa-evidence),
+  ALLOWED_ORIGINS, NODE_ENV=production. REDIS_URL currently a valid-format
+  placeholder (redis://placeholder:6379) - nothing connects to Redis yet.
+- prisma migrate deploy run against the real production DB - DONE. All
+  six migrations applied. Because PostgreSQL is VNet-private (Private
+  DNS, no public access), the migration was run from INSIDE the VNet via
+  the App Service SSH console using an isolated Prisma CLI installed at
+  /home/prisma-tools (pinned to the exact deployed version 6.19.3). VNet
+  isolation was preserved throughout - public access was never enabled.
+- Database connectivity verified - DONE. App connects, Prisma module
+  initializes, "Nest application successfully started" confirmed in logs.
+- Database password rotated - DONE. The original DB password was exposed
+  in plaintext in terminal/chat output during the migration; it was
+  rotated on the flexible server, DATABASE_URL and AZURE_POSTGRESQL_PASSWORD
+  updated, app restarted and re-verified booting cleanly with the new
+  credentials. New password saved in Bitwarden. (Same discipline applied
+  earlier to the Azure Storage key.)
+
+Still open in Phase A (only one item remains):
+- Health endpoint NOT yet implemented (/health liveness, /health/ready
+  readiness). This is the single remaining Phase A exit-criteria item.
+- Not yet done (Phase A / Deployment Phase B scope): api.opasafety.com
+  custom domain + SSL, ALLOWED_ORIGINS confirmed actually wired in
+  main.ts (currently in schema only - CORS wiring UNVERIFIED), mobile
+  app API_BASE_URL pointed at the deployed backend and full
+  login -> contacts -> SOS flow re-tested live in production.
+
+Notes / cleanup flagged during this session (see docs/TODO.md):
+- AZURE_STORAGE_CONNECTION_STRING and AZURE_STORAGE_CONTAINER are read
+  via getOrThrow but are NOT in the Zod env schema - they fail late
+  (on module init) instead of fast (on validation). Add them to the schema.
+- Leftover files in apps/api/prisma: schema.backup.prisma, schema.prisma.txt
+  - remove from repo.
+- The six AZURE_POSTGRESQL_* app settings are unused by the app (it reads
+  DATABASE_URL). Harmless; optional cleanup.
+- Node 20 deprecation warnings in the workflow (setup-node bumped to v4;
+  other actions still warn) - cosmetic.
+- SMS provider config is NOT read via getOrThrow, so it will not crash
+  startup - meaning production SMS may be silently unconfigured. Verify
+  separately before relying on it in production.
+
+---
+
+## Verified during earlier session
 
 Confirmed through live testing, on a real device, against the real backend:
 - Device GPS capture and accuracy - DONE
@@ -130,6 +197,9 @@ custom branded Sender ID does.
 ## Phase 4 - Deployment
 
 **Sprint 15 - Production Infrastructure** - PARTIAL, in progress
+(backend now deployed and migrated this session - see "Production
+deployment session" near the top; remaining: custom domain + SSL,
+CORS wiring verification, mobile app pointed at production)
 
 ### Deployment Phase A - Website Infrastructure (Immediate, before hospital outreach)
 
@@ -137,28 +207,28 @@ Goal: make opasafety.com publicly accessible and professional.
 Backend deployment is not a dependency for this phase.
 
 Website hosting:
-- [ ] Deploy Next.js website to Vercel (Azure Static Web Apps ruled
+- [x] Deploy Next.js website to Vercel (Azure Static Web Apps ruled
       out - App Router support confirmed still in preview, with
       documented production failures)
-- [ ] Verify all six pages load publicly
-- [ ] Verify HTTPS certificate
-- [ ] Verify mobile responsiveness
-- [ ] Verify page titles and metadata
-- [ ] Verify all navigation links
-- [ ] Verify the mailto info@opasafety.com button opens correctly
+- [x] Verify all six pages load publicly
+- [x] Verify HTTPS certificate
+- [x] Verify mobile responsiveness
+- [x] Verify page titles and metadata
+- [x] Verify all navigation links
+- [x] Verify the mailto info@opasafety.com button opens correctly
 
 Domain:
-- [ ] Connect opasafety.com to Vercel
-- [ ] Preserve all Microsoft 365 DNS records (MX/SPF/DKIM/DMARC)
-- [ ] Verify DNS propagation
-- [ ] Verify www.opasafety.com redirects correctly
+- [x] Connect opasafety.com to Vercel
+- [x] Preserve all Microsoft 365 DNS records (MX/SPF/DKIM/DMARC)
+- [x] Verify DNS propagation
+- [x] Verify www.opasafety.com redirects correctly
 
 Production verification:
-- [ ] Test from an external network
-- [ ] Test on desktop
-- [ ] Test on mobile
-- [ ] Confirm no localhost references remain
-- [ ] Confirm no placeholder content remains
+- [x] Test from an external network
+- [x] Test on desktop
+- [x] Test on mobile
+- [x] Confirm no localhost references remain
+- [x] Confirm no placeholder content remains
 
 Milestone: public website ready for hospital outreach - ACHIEVED.
 opasafety.com is live on Vercel, DNS connected via one clean CNAME
@@ -171,25 +241,30 @@ confirmed working. Achieved this session.
 Goal: deploy the backend for real pilot usage. Not required to send
 outreach - only required once a hospital says yes.
 
-- [ ] Azure App Service provisioned for the backend API
-- [ ] Azure Database for PostgreSQL provisioned
-- [ ] Existing Azure Storage account confirmed live; verify production
-      application integration, access controls, and networking
-- [ ] Real production JWT_ACCESS_SECRET / JWT_REFRESH_SECRET generated
-      - current values are named "change-later"
-- [ ] All development secrets removed from production config
-- [ ] prisma migrate deploy run against the real production database
-- [ ] Database connectivity verified
-- [ ] NestJS API deployed
-- [ ] Health endpoint verified
-- [ ] Authentication verified end-to-end in production
+- [x] Azure App Service provisioned for the backend API
+- [x] Azure Database for PostgreSQL provisioned
+- [x] Existing Azure Storage account confirmed live; production
+      application integration configured (connection string + container
+      set as env vars; access controls/networking review still advisable)
+- [x] Real production JWT_ACCESS_SECRET / JWT_REFRESH_SECRET generated
+      - previous values were named "change-later"; now real
+- [x] All development secrets removed from production config
+- [x] prisma migrate deploy run against the real production database
+- [x] Database connectivity verified
+- [x] NestJS API deployed
+- [ ] Health endpoint verified (NOT DONE - only remaining core item)
+- [ ] Authentication verified end-to-end in production (register/login
+      not yet exercised against live API)
 - [ ] api.opasafety.com created and pointed at Azure App Service
 - [ ] SSL verified on api.opasafety.com
-- [ ] CORS / ALLOWED_ORIGINS updated for the real API URL
+- [ ] CORS / ALLOWED_ORIGINS updated for the real API URL (value set;
+      wiring in main.ts UNVERIFIED)
 - [ ] Mobile app's API_BASE_URL pointed at the deployed backend, full
       login -> contacts -> SOS flow re-tested live against it
 
-Milestone: production API available for pilot customers.
+Milestone: production API available for pilot customers. (Backend is
+deployed, migrated, and running; a few verification/wiring items remain
+before it's fully pilot-ready.)
 
 **Sprint 16 - Production Hardening** - NOT STARTED
 Full penetration testing, security headers, dependency audit,
@@ -225,20 +300,22 @@ Enterprise fleet monitoring (concept only).
 | Incident portal | PLANNED - Sprint 10A |
 | Live tracking | PLANNED - Sprint 10B |
 | Command Center | NOT STARTED - Sprint 13/14 |
+| Production backend (Azure) | DONE - deployed, migrated, running, DB-connected, secured (this session) |
 
 ---
 
 ## Critical path to a real pilot, in order
 
-1. Phase A - deploy website to Vercel, connect opasafety.com
-2. Send real hospital outreach (Lagoon Hospitals, Reddington, Eko, St. Nicholas - all confirmed in Lagos)
+1. Phase A - deploy website to Vercel, connect opasafety.com - DONE
+2. Send real hospital outreach (Lagoon Hospitals, Reddington, Eko, St. Nicholas - all confirmed in Lagos) - NOT YET SENT
 3. Verify Push and Email delivery individually
 4. Test SOS Cancel and error-handling paths
 5. Sprint 10A - Incident Portal
 6. Twilio integration for diaspora SMS
 7. Sprint 9 Pass 2 - Voice trigger
 8. Sprint 10B - Live tracking
-9. Phase B - Production API deployment
+9. Phase B - Production API deployment - DONE (deployed & migrated;
+   verification/wiring items remain)
 10. Sprint 13/14 - Command Center reconnected
 
 
@@ -265,7 +342,7 @@ Unless a task directly blocks the active phase, new work should be
 captured here and scheduled into the appropriate future phase rather
 than interrupting the current one.
 
-### Phase A - Production Foundation (Current)
+### Phase A - Production Foundation (Current - nearly complete)
 
 Objective: get OPA running in Azure with a working production backend.
 
@@ -274,15 +351,17 @@ Infrastructure:
 - [x] Azure PostgreSQL provisioned
 - [x] Virtual Network configured
 - [x] Public website deployed
-- [ ] Configure DATABASE_URL
-- [ ] Configure production environment variables
-- [ ] Deploy NestJS API
-- [ ] Run prisma migrate deploy
-- [ ] Verify health endpoint
-- [ ] Verify database connectivity
+- [x] Configure DATABASE_URL
+- [x] Configure production environment variables
+- [x] Deploy NestJS API
+- [x] Run prisma migrate deploy
+- [ ] Verify health endpoint (only remaining item - implement /health
+      + /health/ready, then set Azure Health check path)
+- [x] Verify database connectivity
 
 Exit criteria: backend reachable, database connected, health checks
-passing, production deployment repeatable.
+passing, production deployment repeatable. STATUS: all met except the
+health endpoint. Implementing it closes Phase A.
 
 ### Phase B - Sprint 9 Completion
 
@@ -328,6 +407,15 @@ Launch gates: production deployment complete, notification provider
 verified for launch market (SMS via Africa's Talking already verified
 for Nigeria), core workflows validated, required legal documents
 complete.
+
+> NOTE (open decision): A dedicated production-hardening / real Redis
+> dispatch architecture effort (outbox pattern, background worker,
+> idempotency, retry/backoff, dead-letter, failure-mode testing) has
+> been designed but not yet slotted into a phase. Decide whether it
+> expands Phase C or becomes its own phase, and whether it precedes or
+> follows Phase B (Sprint 9 completion). See docs/TODO.md and the
+> separate Launch & Registration roadmap. Not yet scheduled here to
+> avoid silently reordering the plan.
 
 ### Phase D - Nigeria Launch (Primary Commercial Launch)
 
@@ -438,4 +526,3 @@ Ghana, Kenya, South Africa.
 - Avoid country-specific forks; prefer configuration and provider
   abstractions.
 - Never overstate product capabilities in marketing or documentation.
-

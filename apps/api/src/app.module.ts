@@ -1,4 +1,4 @@
-﻿import {
+import {
   MiddlewareConsumer,
   Module,
   NestModule,
@@ -17,6 +17,7 @@ import { IncidentsModule } from './modules/incidents/incidents.module';
 import { NotificationModule } from './modules/notifications/notification.module';
 import { RefreshTokenModule } from './modules/refresh-token/refresh-token.module';
 import { UsersModule } from './modules/users/users.module';
+import { HealthModule } from './modules/health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { validateEnv } from './shared/config/env.validation';
 import { CorrelationIdMiddleware } from './shared/middleware/correlation-id.middleware';
@@ -34,6 +35,7 @@ import { RequestLoggingMiddleware } from './shared/middleware/request-logging.mi
       },
     ]),
     PrismaModule,
+    HealthModule,
     AuthModule,
     UsersModule,
     IncidentsModule,

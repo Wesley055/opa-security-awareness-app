@@ -11,6 +11,15 @@ import { GlobalExceptionFilter } from './shared/filters/global-exception.filter'
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
 
+  const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter((o) => o.length > 0);
+  app.enableCors({
+    origin: allowedOrigins.length > 0 ? allowedOrigins : false,
+    credentials: true,
+  });
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

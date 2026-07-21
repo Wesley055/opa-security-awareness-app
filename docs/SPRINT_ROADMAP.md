@@ -132,6 +132,15 @@ Identified during the same session:
 - Pass 2 (Voice - "Help Help") - NOT STARTED
 - Pass 3 (Custom trigger phrase) - NOT STARTED
 
+Sprint 9.5 (Voice Feasibility Study) - DONE. On-device keyword spotting
+(Picovoice Porcupine) confirmed feasible for React Native / on-device /
+offline. Strategic direction: Android-led voice; two-tier model (Standard
+voice iOS+Android at Levels 1-2; Advanced always-on Android-first at Level
+3). iOS background listening is fragile (call interruptions, App Store
+review risk). Performance numbers (accuracy, battery, latency) are
+ESTIMATES pending a device-tested measurement prototype - not verified,
+not for marketing yet. Full detail: docs/VOICE_ACTIVATION_FEASIBILITY_STUDY.md
+
 Deliberately not in Pass 1, by design: address/cross-street/landmark
 (Sprint 10C), movement/compass direction (Sprint 10B), live incident
 page (Sprint 10A).

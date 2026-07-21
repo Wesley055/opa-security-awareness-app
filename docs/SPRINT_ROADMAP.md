@@ -127,8 +127,10 @@ Identified during the same session:
 
 - Pass 1 (SOS Button) - DONE - real countdown, real GPS, real API
   call, real incident created, real SMS delivered and confirmed
-  received. Not yet tested: the Cancel path, permission-denied and
-  network-failure error paths, repeated activations.
+  received. Error paths now DONE and device-tested (committed 6196f8d):
+  Cancel path, permission-denied (incl. Android permanent-denial ->
+  Open Settings), network-failure, repeated activations, GPS timeout,
+  stale-fix refresh. Reusable acquireLocation fixed the retry bug.
 - Pass 2 (Voice - "Help Help") - NOT STARTED
 - Pass 3 (Custom trigger phrase) - NOT STARTED
 

@@ -272,3 +272,8 @@ These would overstate the product's capabilities without validated
 technology to support them. Correct messaging: "OPA encourages safer
 decisions," "OPA offers support when users choose to use it," "OPA
 can help connect you with trusted contacts or transportation."
+
+## SOS screen (sos.tsx) - deferred hardening (post Pass 1, committed 6196f8d)
+- [ ] Block hardware Back button while screenState === 'activating' (UX decision - currently only blocked during countdown)
+- [ ] Clear the GPS timeout when the location request succeeds (minor resource cleanup - orphaned timeout rejects into nothing)
+- [ ] Consider Location.getLastKnownPositionAsync() before the high-accuracy fix to reduce activation latency on devices with a recent location

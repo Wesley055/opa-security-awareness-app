@@ -5,14 +5,16 @@ import {
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
-  Alert,
   BackHandler,
+  Linking,
 } from 'react-native';
 import { router } from 'expo-router';
 import * as Location from 'expo-location';
 import { api } from '../src/services/api';
 
 const COUNTDOWN_SECONDS = 5;
+const LOCATION_TIMEOUT_MS = 15000;
+const MAX_LOCATION_AGE_MS = 60000;
 
 type ScreenState = 'countdown' | 'activating' | 'activated' | 'error';
 
@@ -22,41 +24,92 @@ interface ActivationResult {
   incident?: { id: string } | null;
 }
 
+interface FixedLocation {
+  latitude: number;
+  longitude: number;
+  accuracy: number | null;
+  acquiredAt: number;
+}
+
 export default function SosScreen() {
   const [screenState, setScreenState] = useState<ScreenState>('countdown');
   const [secondsLeft, setSecondsLeft] = useState(COUNTDOWN_SECONDS);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [result, setResult] = useState<ActivationResult | null>(null);
-
-  const locationRef = useRef<{ latitude: number; longitude: number; accuracy: number | null } | null>(null);
+  // True when the OS will no longer show the permission dialog (Android
+  // "don't ask again" after repeated denials). In this state "Try Again"
+  // cannot recover - the user must enable location in Settings.
+  const [permissionBlocked, setPermissionBlocked] = useState(false);
+  const locationRef = useRef<FixedLocation | null>(null);
   const cancelledRef = useRef(false);
+  const activatingRef = useRef(false);
+  const locationPromiseRef = useRef<Promise<void> | null>(null);
+  // Incremented on every retry. A location request tagged with an older
+  // generation will not overwrite locationRef, so a late-resolving stale
+  // request can't clobber a newer attempt.
+  const locationGenRef = useRef(0);
+  // True while this component is mounted. Guards against setState after
+  // the user has left the screen mid-request.
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // Acquire location. Reusable so it runs on mount AND on "Try Again".
+  // Returns a promise the activation step can await, so a fast countdown
+  // never fires before the location request has had a chance to resolve.
+  const acquireLocation = useCallback(async (): Promise<void> => {
+    const gen = locationGenRef.current;
+    try {
+      const { status, canAskAgain } = await Location.requestForegroundPermissionsAsync();
+      if (gen !== locationGenRef.current || !mountedRef.current) return;
+      if (status !== 'granted') {
+        if (!canAskAgain) {
+          // Android "don't ask again" - the dialog will never reappear,
+          // so retrying is pointless. Direct the user to Settings.
+          setPermissionBlocked(true);
+          setErrorMessage(
+            'Location permission is blocked. Please enable location for OPA in your device Settings to use SOS.',
+          );
+        } else {
+          setPermissionBlocked(false);
+          setErrorMessage('Location permission is required to activate an SOS.');
+        }
+        setScreenState('error');
+        return;
+      }
+      // Race the location request against a timeout so a device that
+      // never returns a fix fails cleanly instead of hanging forever.
+      const position = await Promise.race([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('location-timeout')), LOCATION_TIMEOUT_MS),
+        ),
+      ]);
+      // Ignore a result from a superseded (older) request, or if unmounted.
+      if (gen !== locationGenRef.current || !mountedRef.current) return;
+      locationRef.current = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        accuracy: position.coords.accuracy,
+        acquiredAt: Date.now(),
+      };
+    } catch {
+      if (gen !== locationGenRef.current || !mountedRef.current) return;
+      setErrorMessage('Could not get your location. Check that location services are enabled.');
+      setScreenState('error');
+    }
+  }, []);
 
   // Start fetching location immediately, in parallel with the countdown,
-  // so it's already available the moment the countdown completes —
-  // avoids adding location-fetch latency on top of the confirmation delay.
+  // so it's already available the moment the countdown completes.
   useEffect(() => {
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') {
-          setErrorMessage('Location permission is required to activate an SOS.');
-          setScreenState('error');
-          return;
-        }
-        const position = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.High,
-        });
-        locationRef.current = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude,
-          accuracy: position.coords.accuracy,
-        };
-      } catch {
-        setErrorMessage('Could not get your location. Check that location services are enabled.');
-        setScreenState('error');
-      }
-    })();
-  }, []);
+    locationPromiseRef.current = acquireLocation();
+  }, [acquireLocation]);
 
   // Prevent the hardware back button from silently leaving this screen
   // mid-countdown without an explicit cancel.
@@ -72,12 +125,50 @@ export default function SosScreen() {
   }, [screenState]);
 
   const activate = useCallback(async () => {
+    // Guard against a cancel that raced the countdown, and against
+    // double-firing if activate is somehow invoked more than once.
+    if (cancelledRef.current || activatingRef.current) {
+      return;
+    }
+    activatingRef.current = true;
     setScreenState('activating');
+
+    // If the location request is still in flight, wait for it rather
+    // than immediately failing because the countdown won the race.
+    if (!locationRef.current && locationPromiseRef.current) {
+      await locationPromiseRef.current;
+    }
+
+    // Re-check cancellation / mount after any await.
+    if (cancelledRef.current || !mountedRef.current) {
+      activatingRef.current = false;
+      return;
+    }
 
     if (!locationRef.current) {
       setErrorMessage('Location was not available in time. Please try again.');
       setScreenState('error');
+      activatingRef.current = false;
       return;
+    }
+
+    // If the fix is stale (activation was delayed), re-acquire before
+    // sending, so we never dispatch an old GPS position.
+    if (Date.now() - locationRef.current.acquiredAt > MAX_LOCATION_AGE_MS) {
+      locationRef.current = null;
+      locationGenRef.current += 1;
+      locationPromiseRef.current = acquireLocation();
+      await locationPromiseRef.current;
+      if (cancelledRef.current || !mountedRef.current) {
+        activatingRef.current = false;
+        return;
+      }
+      if (!locationRef.current) {
+        setErrorMessage('Could not refresh your location. Please try again.');
+        setScreenState('error');
+        activatingRef.current = false;
+        return;
+      }
     }
 
     try {
@@ -89,44 +180,66 @@ export default function SosScreen() {
         longitude: locationRef.current.longitude,
         accuracy: locationRef.current.accuracy ?? undefined,
       });
-
+      if (!mountedRef.current) return;
       setResult(data);
       setScreenState('activated');
     } catch (err: unknown) {
+      if (!mountedRef.current) return;
       const responseMessage =
         typeof err === 'object' && err !== null && 'response' in err
           ? (err as { response?: { data?: { message?: string | string[] } } }).response?.data
               ?.message
           : undefined;
-
       setErrorMessage(
         Array.isArray(responseMessage)
           ? responseMessage.join('\n')
           : responseMessage ?? 'Could not activate SOS. Check your connection and try again.',
       );
       setScreenState('error');
+    } finally {
+      activatingRef.current = false;
     }
   }, []);
 
   useEffect(() => {
     if (screenState !== 'countdown') return;
-
     if (secondsLeft <= 0) {
       activate();
       return;
     }
-
     const timer = setTimeout(() => setSecondsLeft((s) => s - 1), 1000);
     return () => clearTimeout(timer);
   }, [screenState, secondsLeft, activate]);
 
   const handleCancel = () => {
-    // Cancelling during the countdown never calls the API — the
+    // Cancelling during the countdown never calls the API - the
     // backend's own design treats a rejected/cancelled trigger as
     // something that should leave no trace, so there's nothing to
     // record here either.
     cancelledRef.current = true;
     router.back();
+  };
+
+  // "Try Again" resets state AND re-acquires location. The original bug
+  // was that retry reset the countdown without re-fetching location, so
+  // locationRef stayed null and every retry failed the same way.
+  // Bumping the generation invalidates any still-pending prior request.
+  const handleRetry = () => {
+    cancelledRef.current = false;
+    activatingRef.current = false;
+    locationRef.current = null;
+    locationGenRef.current += 1;
+    setPermissionBlocked(false);
+    setErrorMessage(null);
+    setSecondsLeft(COUNTDOWN_SECONDS);
+    setScreenState('countdown');
+    locationPromiseRef.current = acquireLocation();
+  };
+
+  // When permission is permanently blocked, the only path forward is the
+  // device Settings, where the user can re-enable location for OPA.
+  const handleOpenSettings = () => {
+    Linking.openSettings();
   };
 
   if (screenState === 'countdown') {
@@ -158,16 +271,15 @@ export default function SosScreen() {
       <View style={styles.container}>
         <Text style={styles.errorTitle}>Something went wrong</Text>
         <Text style={styles.errorMessage}>{errorMessage}</Text>
-        <TouchableOpacity
-          style={styles.retryButton}
-          onPress={() => {
-            setErrorMessage(null);
-            setSecondsLeft(COUNTDOWN_SECONDS);
-            setScreenState('countdown');
-          }}
-        >
-          <Text style={styles.retryButtonText}>Try Again</Text>
-        </TouchableOpacity>
+        {permissionBlocked ? (
+          <TouchableOpacity style={styles.retryButton} onPress={handleOpenSettings}>
+            <Text style={styles.retryButtonText}>Open Settings</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+            <Text style={styles.retryButtonText}>Try Again</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity onPress={() => router.back()}>
           <Text style={styles.backLink}>Back</Text>
         </TouchableOpacity>
@@ -261,6 +373,9 @@ const styles = StyleSheet.create({
   backLink: {
     color: '#8B949E',
     fontSize: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    textAlign: 'center',
   },
   activatedIcon: {
     color: '#17C964',

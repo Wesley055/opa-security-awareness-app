@@ -1,4 +1,4 @@
-﻿import { z } from 'zod';
+import { z } from 'zod';
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -11,6 +11,8 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRES_IN: z.string().default('30d'),
   BCRYPT_ROUNDS: z.coerce.number().int().min(10).max(14).default(12),
   ALLOWED_ORIGINS: z.string().min(1),
+  AZURE_STORAGE_CONNECTION_STRING: z.string().min(1),
+  AZURE_STORAGE_CONTAINER: z.string().min(1),
 });
 
 export function validateEnv(config: Record<string, unknown>) {

@@ -75,7 +75,7 @@ export function HowItWorks() {
             className="rounded-lg border border-line bg-panel p-6"
           >
             <div className="flex h-10 w-10 items-center justify-center rounded-md bg-panel-2">
-              <cluster.icon size={20} className="text-signal" />
+              <cluster.icon size={20} className="text-protection" />
             </div>
             <p className="mt-4 font-mono text-xs text-muted-2">{cluster.number}</p>
             <h3 className="mt-1 font-display text-lg font-bold text-ink">

@@ -308,3 +308,38 @@ can help connect you with trusted contacts or transportation."
       1 critical) across the full dependency tree â€” pre-existing, not from
       ioredis. Do a proper review as its own task. Do NOT run
       `npm audit fix --force` casually â€” it can introduce breaking changes.
+
+## Website â€” copy & design-system migration (in progress)
+
+### Hero copy â€” refine wording (design-system + honesty pass done)
+- [ ] Current hero is honest + forward-looking (alerting now, "building toward
+      coordinated response next"). REFINE the exact wording to reflect OPA's
+      direction: US launch for validation (real, near-term) + both audiences
+      (consumer + B2B/institutional). Needs founder input on the precise
+      framing. GUARDRAIL: present tense = only what the app does today
+      (alert trusted contacts with live location). Coordination / hospitals /
+      responders / operational picture = VISION, must be marked as future,
+      never stated as current fact. Same standard as the killed DUI claim.
+
+### Design-system migration across remaining components
+- [ ] Apply semantic tokens (protection=teal brand, emergency=orange,
+      success=green-only-for-safe-states) + focus-visible a11y rings to:
+      HowItWorks, HospitalSection, SecuritySection, CTA, Footer, and the
+      about/contact/hospitals/privacy/terms pages.
+- [ ] Audit each of those for the SAME two issues found in Hero:
+      (1) coordination/hospital/responder overclaims stated as present fact,
+      (2) green (signal) used as brand color where it should be teal.
+- [ ] Footer specifically: "Building trusted emergency coordination
+      technology" -> honest present-tense (alerting/personal safety), with
+      coordination as stated direction only.
+
+### Done this pass (committed separately)
+- globals.css: added semantic tokens (emergency/protection/success),
+  kept signal/flare aliases for non-breaking migration.
+- Navbar.tsx: teal brand dot, teal hovers, emergency CTA, focus-visible rings.
+- Hero.tsx: honest copy + design-system colors + focus states.
+
+### Logo (still to do)
+- [ ] Decide on and add the OPA badge logo to Navbar (currently a teal dot +
+      "OPA" wordmark). Badge at nav size may be muddy - consider a clean
+      small mark or keep refined wordmark. Also favicon + footer logo.

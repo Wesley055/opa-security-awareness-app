@@ -14,6 +14,7 @@ import {
 } from '../notifications/dto/send-notification.dto';
 import { NotificationService } from '../notifications/notification.service';
 import { UsersService } from '../users/users.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import type { CreateIncidentRequestDto } from './dto/create-incident-request.dto';
 
 export interface NotificationTaskResult {
@@ -33,6 +34,7 @@ export class IncidentOrchestratorService {
     private readonly notificationService: NotificationService,
     private readonly usersService: UsersService,
     private readonly timelineService: IncidentTimelineService,
+    private readonly prisma: PrismaService,
   ) {}
 
   async createCoordinatedIncident(

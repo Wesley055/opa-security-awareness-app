@@ -343,3 +343,153 @@ can help connect you with trusted contacts or transportation."
 - [ ] Decide on and add the OPA badge logo to Navbar (currently a teal dot +
       "OPA" wordmark). Badge at nav size may be muddy - consider a clean
       small mark or keep refined wordmark. Also favicon + footer logo.
+
+## Dispatch-hardening â€” Phase 1 design (analysis DONE, implementation NOT started)
+
+CONTEXT: Making OPA's emergency notifications durable (crash-safe) via an
+outbox pattern. The Redis foundation (committed 44ff065) is the future
+wake-up signal. This is the roadmap's "open decision" dispatch pass.
+
+### KEY FINDINGS (all verified against real code, not assumed)
+- USE THE EXISTING `IncidentNotification` MODEL as the durable outbox.
+  Do NOT create a new NotificationOutbox table. IncidentNotification already
+  has: status, attemptCount, lastError, provider, providerMessageId,
+  queuedAt/sentAt/deliveredAt/failedAt/cancelledAt, and index
+  [status, queuedAt]. It was designed for this.
+- NO SCHEMA MIGRATION NEEDED. Enum NotificationStatus already has the full
+  lifecycle: QUEUED, SENDING, SENT, DELIVERED, ACKNOWLEDGED, FAILED, CANCELLED.
+  QUEUED = pending job; SENDING = claimed/lock (prevents double-send).
+- The orchestrator (incident-orchestrator.service.ts) does NOT create the
+  incident directly and has NO $transaction. It DELEGATES to
+  `this.incidentsService.create(userId, {...})`.
+- THEREFORE: the transaction boundary must live in incidents.service.ts
+  (or incidentsService must expose a tx-accepting method the orchestrator
+  composes with). *** NEXT STEP: inspect incidents.service.ts create() to
+  see how the incident is created and whether it uses $transaction. ***
+- Current flow is synchronous/in-request: orchestrator builds sendOne()
+  tasks per contact/channel, fires Promise.all(...) to
+  notificationService.sendEmergencyAlert(), collects results. Fragile:
+  crash mid-send = lost notifications, no retry, no durable intent.
+
+### PHASE 1 PLAN (when implementing)
+1. Inspect incidents.service.ts create() â€” transaction or not?
+2. Wrap incident-creation + IncidentNotification row creation (status=QUEUED,
+   one per contact/channel) in ONE prisma.$transaction so they commit
+   atomically. Likely needs incidentsService.create() to accept an optional
+   tx handle, OR move the notification-row writes to where the incident tx is.
+3. KEEP the current synchronous sends running (safety net) â€” do NOT switch
+   them off until the worker (Phase 2) exists. No delivery gap.
+4. Keep the existing incident-orchestrator.service.spec.ts GREEN.
+
+### LATER PHASES
+- Phase 2: dispatch worker â€” SELECT status=QUEUED ORDER BY queuedAt (uses
+  existing index) -> UPDATE SENDING -> send via existing providers ->
+  UPDATE SENT/FAILED. Then REMOVE the synchronous in-request send.
+- Phase 3: Redis pub/sub wake-up (publish outbox:new after commit; worker
+  subscribes for near-instant dispatch; periodic reconciliation loop as
+  backstop if Redis down â€” Postgres stays source of truth).
+- Phase 4: retry/backoff, dead-letter, idempotency (providerMessageId),
+  metrics, rate limiting.
+
+### DISCIPLINE NOTE
+This is surgery on the MOST safety-critical path (SOS activation). Do it
+with full focus + careful testing, not rushed. Analysis was done at the end
+of a long session; implementation deliberately deferred to start fresh.
+
+### INSPECTION COMPLETE â€” incidents.service.ts create() (design now 100% ready)
+- create() is SIMPLE: a single `this.prisma.incident.create({data:{...}})`.
+  No transaction, no related-record writes, no timeline/notification here.
+  (Has the redisDispatchPrepared metadata placeholder flag.)
+- Contacts are NOT available in incidentsService â€” the ORCHESTRATOR resolves
+  activeContacts. So notification rows MUST be written at the orchestrator
+  layer, not inside incidentsService.create().
+
+### RESOLVED ARCHITECTURE (the fork is decided)
+Compose the transaction at the ORCHESTRATOR level, with a tx-aware create:
+1. Refactor `incidentsService.create(userId, dto, tx?)` to accept an optional
+   Prisma.TransactionClient. Use `const db = tx ?? this.prisma;` then
+   `db.incident.create(...)`. Existing callers + the spec keep working
+   (tx is optional) â€” backward compatible.
+2. In incident-orchestrator.service.ts, wrap in one transaction:
+     const incident = await this.prisma.$transaction(async (tx) => {
+       const inc = await this.incidentsService.create(userId, dto, tx);
+       await tx.incidentNotification.createMany({
+         data: activeContacts.flatMap(c => [
+           // one row per channel (SMS/WhatsApp/Email as today), each:
+           { incidentId: inc.id, contactId: c.id, contactName, contactType,
+             recipient, channel, status: NotificationStatus.QUEUED,
+             attemptCount: 0 }
+         ]),
+       });
+       return inc;
+     });
+3. AFTER the transaction commits, keep the CURRENT synchronous sendOne()/
+   Promise.all sends running as the safety net (Phase 2 worker replaces them).
+   Optionally update the matching rows QUEUED->SENDING->SENT/FAILED as they
+   send, so the records reflect reality even pre-worker (nice-to-have, not
+   required for Phase 1).
+4. Orchestrator needs PrismaService injected (check it isn't already).
+5. Keep incident-orchestrator.service.spec.ts GREEN â€” run it after.
+
+### IMPLEMENTATION ORDER NEXT SESSION
+a. Add optional tx param to incidentsService.create() (+ keep spec green).
+b. Inject PrismaService into orchestrator if not present.
+c. Wrap incident+notification createMany in $transaction (status QUEUED).
+d. Keep synchronous sends as-is (safety net).
+e. Build (npm run build --workspace apps/api) + run orchestrator spec.
+f. Local test: fire an SOS, confirm incident + QUEUED IncidentNotification
+   rows exist in DB, and notifications still actually send (safety net).
+g. Commit Phase 1 separately.
+
+### TWO FINAL REFINEMENTS (important â€” adopted)
+1. KEEP NETWORK CALLS OUT OF THE TRANSACTION. The $transaction must wrap
+   ONLY database work (incident create + IncidentNotification createMany).
+   Do the synchronous provider sends AFTER commit, never inside the tx.
+   Correct order:
+     Validate -> Load active contacts -> Build notification rows in memory
+     -> BEGIN TX { create incident; createMany QUEUED rows } COMMIT
+     -> (after commit) current synchronous send -> update rows SENT/FAILED
+   Holding a DB tx open during SMS/WhatsApp network calls = anti-pattern
+   (long locks, pool exhaustion). Keep the tx short.
+2. incidentsService.create() signature: prefer passing the prisma/tx client
+   as a param so it works with either this.prisma or tx without dup code,
+   e.g. create(db: Prisma.TransactionClient | PrismaService, userId, dto).
+   (Equivalent to the optional-tx approach; pick whichever keeps the spec
+   green with least churn â€” check how create() is currently called elsewhere
+   before changing the signature, so all callers are updated.)
+3. LATER cleanup (NOT Phase 1): the incident.metadata flags
+   redisDispatchPrepared / notificationFanoutPrepared become redundant once
+   real dispatch state lives in IncidentNotification. Remove them in a later
+   pass. Do NOT touch working code for this now.
+
+### CAUTION when changing create() signature
+create() is called by the orchestrator today as
+`this.incidentsService.create(userId, dto)`. If we change the signature to
+put the db client first, EVERY caller must be updated in the same change,
+and the spec (incidents.service.spec.ts if it exists) updated too. Grep for
+`incidentsService.create(` and `.create(userId` before editing. An OPTIONAL
+trailing tx param (create(userId, dto, tx?)) may cause less churn than a
+leading db param â€” decide based on the actual call sites.
+
+### FINAL refinement â€” pre-generate notification IDs (adopt in Phase 1)
+- createMany does NOT return inserted IDs. To let the post-commit synchronous
+  sends update the EXACT rows race-safely, generate each notification row's
+  UUID in app code BEFORE createMany (randomUUID()), and carry that id into
+  sendOne(). Then updates are `where: { id: notificationId }` â€” exact, no
+  fragile multi-field matching.
+- Row lifecycle in sendOne after commit: set SENDING + attemptCount increment,
+  then SENT (sentAt) or FAILED (lastError, failedAt).
+- Contacts (activeContacts) MUST be loaded BEFORE the transaction (orchestrator
+  resolves them; incidentsService doesn't know contacts).
+- Chosen signature: create(userId, dto, tx?) with `const db = tx ?? this.prisma`
+  â€” least-disruptive (trailing optional param).
+
+### PRE-IMPLEMENTATION CHECKS (first commands next session, before editing)
+- Call sites:  Get-ChildItem apps\api\src -Recurse -Filter *.ts |
+    Select-String -Pattern "incidentsService\.create\("
+- Orchestrator DI:  Get-Content <orchestrator>.ts |
+    Select-String -Pattern "constructor|PrismaService|IncidentsService" -Context 0,12
+  (Confirm PrismaService is injected into the orchestrator; add if missing.)
+
+*** DESIGN IS COMPLETE. Next session = implement, starting with the two
+checks above, then code. Do NOT redesign further. ***

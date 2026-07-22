@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 @theme {
+  /* Foundation */
   --color-base: #0A0E12;
   --color-panel: #10161C;
   --color-panel-2: #151D24;
@@ -8,6 +9,13 @@
   --color-ink: #F5F7F6;
   --color-muted: #8896A0;
   --color-muted-2: #5B6B76;
+
+  /* Semantic brand palette (OPA design system) */
+  --color-emergency: #FF5A36;   /* SOS, primary CTA, urgent - never decorative */
+  --color-protection: #17C9B2;  /* Brand identity, safety, journey */
+  --color-success: #2BC26E;     /* Safe, delivered, online, confirmed */
+
+  /* Legacy aliases (kept so existing classes don't break during migration) */
   --color-signal: #2BC26E;
   --color-flare: #FF5A36;
 }
@@ -17,4 +25,3 @@
   --font-sans: var(--font-plex-sans);
   --font-mono: var(--font-plex-mono);
 }
-

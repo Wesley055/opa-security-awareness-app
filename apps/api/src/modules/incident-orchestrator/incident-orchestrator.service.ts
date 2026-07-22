@@ -210,29 +210,32 @@ export class IncidentOrchestratorService {
     const locationSummary = `https://maps.google.com/?q=${dto.latitude},${dto.longitude}`;
 
     const sendOne = async (
-      contact: (typeof activeContacts)[number],
-      channel: NotificationChannel,
-      recipient: string,
+      row: QueuedNotification,
     ): Promise<NotificationTaskResult> => {
-      const contactName = `${contact.firstName} ${contact.lastName}`.trim();
       try {
         const result = await this.notificationService.sendEmergencyAlert({
+          notificationId: row.id,
           incidentId: incident.id,
-          contactId: contact.id,
-          contactName,
-          contactType: contact.relationship,
-          recipient,
-          channel,
+          contactId: row.contactId,
+          contactName: row.contactName,
+          contactType: row.contactType,
+          recipient: row.recipient,
+          channel: row.channel,
           personName,
           location: locationSummary,
           trackingUrl,
         });
-        return { contactId: contact.id, contactName, channel, result };
+        return {
+          contactId: row.contactId,
+          contactName: row.contactName,
+          channel: row.channel,
+          result,
+        };
       } catch (error) {
         return {
-          contactId: contact.id,
-          contactName,
-          channel,
+          contactId: row.contactId,
+          contactName: row.contactName,
+          channel: row.channel,
           result: {
             success: false,
             error:
@@ -242,18 +245,10 @@ export class IncidentOrchestratorService {
       }
     };
 
-    const notificationTasks: Promise<NotificationTaskResult>[] = activeContacts.flatMap(
-      (contact) => {
-        const tasks = [
-          sendOne(contact, NotificationChannel.SMS, contact.phoneNumber),
-          sendOne(contact, NotificationChannel.WHATSAPP, contact.phoneNumber),
-        ];
-        if (contact.email) {
-          tasks.push(sendOne(contact, NotificationChannel.EMAIL, contact.email));
-        }
-        return tasks;
-      },
-    );
+    // Drive sends from the same notificationRows we persisted as QUEUED, so
+    // each send updates its exact durable row (passing notificationId).
+    const notificationTasks: Promise<NotificationTaskResult>[] =
+      notificationRows.map((row) => sendOne(row));
 
     const notifications = await Promise.all(notificationTasks);
 

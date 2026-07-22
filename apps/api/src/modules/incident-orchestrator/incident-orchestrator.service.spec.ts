@@ -5,6 +5,7 @@ import { EmergencyDetectionService } from '../emergency-detection/emergency-dete
 import { EmergencyIntelligenceService } from '../emergency-intelligence/emergency-intelligence.service';
 import { IncidentTimelineService } from '../incident-timeline/incident-timeline.service';
 import { IncidentsService } from '../incidents/incidents.service';
+import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from '../notifications/notification.service';
 import { UsersService } from '../users/users.service';
 import { IncidentOrchestratorService } from './incident-orchestrator.service';
@@ -39,9 +40,17 @@ describe('IncidentOrchestratorService', () => {
   const timelineService = {
     recordEvent: jest.fn(),
   };
+  const prisma = {
+    $transaction: jest.fn(),
+    incidentNotification: { createMany: jest.fn() },
+  };
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    prisma.$transaction.mockImplementation(
+      async (callback: (tx: typeof prisma) => unknown) => callback(prisma),
+    );
+    prisma.incidentNotification.createMany.mockResolvedValue({ count: 3 });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -73,6 +82,10 @@ describe('IncidentOrchestratorService', () => {
         {
           provide: IncidentTimelineService,
           useValue: timelineService,
+        },
+        {
+          provide: PrismaService,
+          useValue: prisma,
         },
       ],
     }).compile();

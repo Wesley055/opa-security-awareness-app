@@ -493,3 +493,25 @@ leading db param â€” decide based on the actual call sites.
 
 *** DESIGN IS COMPLETE. Next session = implement, starting with the two
 checks above, then code. Do NOT redesign further. ***
+
+## SEQUENCING DECISION (locked)
+Founder's choice: OPTION A â€” complete ALL dispatch phases (1->2->3->4)
+before starting Sprint 10A. Preference: finish the dispatch-hardening pass
+completely rather than interleaving with feature work.
+
+Order:
+1. Dispatch Phase 1 â€” transactional QUEUED writes (design done, see above)
+2. Dispatch Phase 2 â€” worker: QUEUED -> SENDING -> SENT/FAILED via existing
+   providers; then REMOVE the synchronous in-request send.
+3. Dispatch Phase 3 â€” Redis pub/sub wake-up (publish after commit; worker
+   subscribes; periodic reconciliation loop backstop; Postgres = source of
+   truth).
+4. Dispatch Phase 4 â€” retry/backoff, dead-letter, idempotency
+   (providerMessageId), metrics, rate limiting.
+5. THEN Sprint 10A â€” Incident Portal (first user-visible feature after).
+
+Each phase is committed + verified independently (not one mega-change).
+Note: this is the longest path before anything user-visible ships â€” all
+backend until Phase 4 done. Accepted deliberately. If momentum flags,
+a visible feature (Sprint 10A) is the natural break point, but plan is
+to push through dispatch first.

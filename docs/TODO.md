@@ -515,3 +515,17 @@ Note: this is the longest path before anything user-visible ships â€” all
 backend until Phase 4 done. Accepted deliberately. If momentum flags,
 a visible feature (Sprint 10A) is the natural break point, but plan is
 to push through dispatch first.
+
+## TOMORROW'S PLAN (founder set â€” 10-12 hrs dedicated)
+Sequence (dependency-honest, revenue-aligned):
+1. DISPATCH HARDENING â€” Phases 1-4 (design complete, see dispatch notes above).
+   Start: grep `incidentsService.create(` call sites + check orchestrator
+   PrismaService DI, then code Phase 1 (tx-aware create + QUEUED writes,
+   keep synchronous sends as safety net), then Phases 2-4.
+2. SPRINT 10 â€” COMPLETELY (10A Incident Portal, 10B Live Tracking + Journey
+   Session primitive). This is the REVENUE FOUNDATION â€” Command Center needs
+   10A, SafeWalk needs 10B. Not a detour from revenue; it IS the path to it.
+3. THEN revenue priority: Command Center MVP (Release 1), SafeWalk MVP
+   (Release 2). See docs/COMMERCIAL_ROADMAP.md.
+
+Keep tonight's dispatch design + sequencing decision intact â€” no re-designing.

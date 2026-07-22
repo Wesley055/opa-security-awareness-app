@@ -19,6 +19,7 @@ import { RefreshTokenModule } from './modules/refresh-token/refresh-token.module
 import { UsersModule } from './modules/users/users.module';
 import { HealthModule } from './modules/health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { RedisModule } from './redis/redis.module';
 import { validateEnv } from './shared/config/env.validation';
 import { CorrelationIdMiddleware } from './shared/middleware/correlation-id.middleware';
 import { RequestLoggingMiddleware } from './shared/middleware/request-logging.middleware';
@@ -35,6 +36,7 @@ import { RequestLoggingMiddleware } from './shared/middleware/request-logging.mi
       },
     ]),
     PrismaModule,
+    RedisModule,
     HealthModule,
     AuthModule,
     UsersModule,

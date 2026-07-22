@@ -80,6 +80,7 @@ export class NotificationService {
   }
 
   async sendEmergencyAlert(params: {
+    notificationId?: string;
     incidentId: string;
     contactId?: string;
     contactName: string;
@@ -95,19 +96,29 @@ export class NotificationService {
       `Location: ${params.location}. ` +
       `Track live: ${params.trackingUrl}`;
 
-    const notification =
-      await this.prisma.incidentNotification.create({
-        data: {
-          incidentId: params.incidentId,
-          contactId: params.contactId,
-          contactName: params.contactName.trim(),
-          contactType: params.contactType.trim(),
-          recipient: params.recipient.trim(),
-          channel: this.toPrismaChannel(params.channel),
-          status: NotificationStatus.SENDING,
-          attemptCount: 1,
-        },
-      });
+      // If the orchestrator pre-created a durable QUEUED row (outbox
+      // pattern), update THAT row to SENDING instead of creating a second
+      // one. Falls back to create() for any legacy caller without an id.
+      const notification = params.notificationId
+        ? await this.prisma.incidentNotification.update({
+            where: { id: params.notificationId },
+            data: {
+              status: NotificationStatus.SENDING,
+              attemptCount: { increment: 1 },
+            },
+          })
+        : await this.prisma.incidentNotification.create({
+            data: {
+              incidentId: params.incidentId,
+              contactId: params.contactId,
+              contactName: params.contactName.trim(),
+              contactType: params.contactType.trim(),
+              recipient: params.recipient.trim(),
+              channel: this.toPrismaChannel(params.channel),
+              status: NotificationStatus.SENDING,
+              attemptCount: 1,
+            },
+          });
 
     try {
       const result = await this.send({

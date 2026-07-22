@@ -277,3 +277,34 @@ can help connect you with trusted contacts or transportation."
 - [ ] Block hardware Back button while screenState === 'activating' (UX decision - currently only blocked during countdown)
 - [ ] Clear the GPS timeout when the location request succeeds (minor resource cleanup - orphaned timeout rejects into nothing)
 - [ ] Consider Location.getLastKnownPositionAsync() before the high-accuracy fix to reduce activation latency on devices with a recent location
+
+## Redis â€” production + follow-ups (foundation committed 44ff065)
+
+### Production deployment (when dispatch features need Redis)
+- [ ] Provision Azure Cache for Redis (NOTE: has a monthly cost â€” smallest
+      Basic tier ~$16/mo, verify current pricing). Defer until a feature
+      actually uses Redis; local Docker Redis is fine for dev until then.
+- [ ] Set the PRODUCTION REDIS_URL (Azure App Service config) to point at
+      the Azure Cache instance. Keep it in Bitwarden / app settings, not code.
+- [ ] Code deploys as-is â€” NO code changes needed. Same RedisService,
+      RedisModule, health check. Only the REDIS_URL env value changes.
+- [ ] After pointing prod at Azure Redis, verify /health/ready on the
+      production URL shows redis: up.
+
+### Redis polish (trivial, non-blocking)
+- [ ] The "Redis error:" log message text is empty (ioredis error .message
+      is blank for ECONNREFUSED). Log the error .code or a fallback string
+      instead, so the log line is informative. Cosmetic only.
+
+### The dispatch pass (the work that USES Redis â€” separate, larger effort)
+- [ ] Outbox pattern, background worker, idempotency, retry/backoff,
+      dead-letter handling, move notification fanout from synchronous to
+      worker-driven. This is the real "why we added Redis" work. The
+      incidents.service.ts metadata flag `redisDispatchPrepared: true` is
+      a placeholder for this â€” nothing dispatches via Redis yet.
+
+### Dependency audit (whole tree, not Redis-specific)
+- [ ] `npm audit` shows 32 vulnerabilities (3 low, 15 moderate, 13 high,
+      1 critical) across the full dependency tree â€” pre-existing, not from
+      ioredis. Do a proper review as its own task. Do NOT run
+      `npm audit fix --force` casually â€” it can introduce breaking changes.

@@ -6,6 +6,7 @@ import { PushProvider } from './providers/push.provider';
 import { SmsProvider } from './providers/sms.provider';
 import { VoiceProvider } from './providers/voice.provider';
 import { WhatsAppProvider } from './providers/whatsapp.provider';
+import { NotificationDispatchWorker } from './notification-dispatch.worker';
 
 @Module({
   controllers: [NotificationController],
@@ -16,6 +17,7 @@ import { WhatsAppProvider } from './providers/whatsapp.provider';
     PushProvider,
     EmailProvider,
     VoiceProvider,
+    NotificationDispatchWorker,
   ],
   exports: [NotificationService],
 })

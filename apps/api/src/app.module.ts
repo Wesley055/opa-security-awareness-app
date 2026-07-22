@@ -4,6 +4,7 @@ import {
   NestModule,
 } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AuthModule } from './modules/auth/auth.module';
 import { EmergencyContactsModule } from './modules/emergency-contacts/emergency-contacts.module';
@@ -36,6 +37,7 @@ import { RequestLoggingMiddleware } from './shared/middleware/request-logging.mi
       },
     ]),
     PrismaModule,
+    ScheduleModule.forRoot(),
     RedisModule,
     HealthModule,
     AuthModule,

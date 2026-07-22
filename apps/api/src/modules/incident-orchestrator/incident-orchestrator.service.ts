@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { IncidentTrigger } from '@prisma/client';
+import { IncidentTrigger, NotificationStatus } from '@prisma/client';
 import { EmergencyContactsService } from '../emergency-contacts/emergency-contacts.service';
 import {
   EmergencyTriggerType,
@@ -14,6 +14,7 @@ import {
 } from '../notifications/dto/send-notification.dto';
 import { NotificationService } from '../notifications/notification.service';
 import { UsersService } from '../users/users.service';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { CreateIncidentRequestDto } from './dto/create-incident-request.dto';
 
@@ -89,12 +90,90 @@ export class IncidentOrchestratorService {
         timestamp: dto.timestamp,
       });
 
-    const incident = await this.incidentsService.create(userId, {
-      trigger: this.mapIncidentTrigger(dto.triggerType),
-      latitude: dto.latitude,
-      longitude: dto.longitude,
-      address: intelligence.location.address,
-      voicePhrase: dto.detectedPhrase,
+    // Load and filter contacts BEFORE the transaction so we can build the
+    // durable notification rows in memory (no network/IO inside the tx).
+    const contacts =
+      await this.emergencyContactsService.listForUser(userId);
+    const activeContacts = contacts.filter(
+      (contact) => contact.isActive,
+    );
+
+    // Pre-generate a UUID per notification row so, after commit, each
+    // synchronous send can update its EXACT row (race-safe, no matching).
+    type QueuedNotification = {
+      id: string;
+      contactId: string;
+      contactName: string;
+      contactType: string;
+      recipient: string;
+      channel: NotificationChannel;
+    };
+    const notificationRows: QueuedNotification[] = activeContacts.flatMap(
+      (contact) => {
+        const contactName = `${contact.firstName} ${contact.lastName}`.trim();
+        const rows: QueuedNotification[] = [
+          {
+            id: randomUUID(),
+            contactId: contact.id,
+            contactName,
+            contactType: contact.relationship,
+            recipient: contact.phoneNumber,
+            channel: NotificationChannel.SMS,
+          },
+          {
+            id: randomUUID(),
+            contactId: contact.id,
+            contactName,
+            contactType: contact.relationship,
+            recipient: contact.phoneNumber,
+            channel: NotificationChannel.WHATSAPP,
+          },
+        ];
+        if (contact.email) {
+          rows.push({
+            id: randomUUID(),
+            contactId: contact.id,
+            contactName,
+            contactType: contact.relationship,
+            recipient: contact.email,
+            channel: NotificationChannel.EMAIL,
+          });
+        }
+        return rows;
+      },
+    );
+
+    // Durable-intent write: incident + QUEUED notification rows commit
+    // atomically. If this commits, notifications will not be lost even if
+    // the process crashes before the synchronous send below runs.
+    const incident = await this.prisma.$transaction(async (tx) => {
+      const created = await this.incidentsService.create(
+        userId,
+        {
+          trigger: this.mapIncidentTrigger(dto.triggerType),
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          address: intelligence.location.address,
+          voicePhrase: dto.detectedPhrase,
+        },
+        tx,
+      );
+
+      await tx.incidentNotification.createMany({
+        data: notificationRows.map((row) => ({
+          id: row.id,
+          incidentId: created.id,
+          contactId: row.contactId,
+          contactName: row.contactName,
+          contactType: row.contactType,
+          recipient: row.recipient,
+          channel: row.channel,
+          status: NotificationStatus.QUEUED,
+          attemptCount: 0,
+        })),
+      });
+
+      return created;
     });
 
     await this.timelineService.recordEvent({
@@ -109,7 +188,6 @@ export class IncidentOrchestratorService {
         silentMode: detection.outcome.isSilent,
       },
     });
-
     await this.timelineService.recordEvent({
       incidentId: incident.id,
       type: 'LOCATION_ATTACHED',
@@ -120,13 +198,6 @@ export class IncidentOrchestratorService {
         longitude: dto.longitude,
       },
     });
-
-    const contacts =
-      await this.emergencyContactsService.listForUser(userId);
-
-    const activeContacts = contacts.filter(
-      (contact) => contact.isActive,
-    );
 
     const trackingUrl = `https://opasafety.com/incidents/${incident.id}`;
 

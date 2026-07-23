@@ -182,12 +182,20 @@ describe('IncidentOrchestratorService', () => {
     );
 
     expect(result.status).toBe('INCIDENT_ACTIVATED');
-    expect(result.contactsNotified).toBe(1);
+    expect(result.notifications).toEqual({ queued: 3, dispatched: false });
     expect(result.coordination?.silentMode).toBe(true);
     expect(result.incident?.id).toBe('incident-123');
 
     expect(incidentsService.create).toHaveBeenCalledTimes(1);
-    expect(notificationService.sendEmergencyAlert).toHaveBeenCalledTimes(3);
+    // The orchestrator only QUEUES: the dispatch worker sends. It must not
+    // call providers itself, or the queue would have two consumers.
+    expect(notificationService.sendEmergencyAlert).not.toHaveBeenCalled();
+    expect(prisma.incidentNotification.createMany).toHaveBeenCalledTimes(1);
+    const createManyArgs =
+      prisma.incidentNotification.createMany.mock.calls[0][0];
+    expect(createManyArgs.data).toHaveLength(3);
+    expect(createManyArgs.data[0].status).toBe('QUEUED');
+    expect(createManyArgs.data[0].payload.version).toBe(1);
     expect(timelineService.recordEvent).toHaveBeenCalled();
   });
 
@@ -215,7 +223,7 @@ describe('IncidentOrchestratorService', () => {
 
     expect(result.status).toBe('NOT_ACTIVATED');
     expect(result.incident).toBeNull();
-    expect(result.notifications).toEqual([]);
+    expect(result.notifications).toEqual({ queued: 0, dispatched: false });
 
     expect(incidentsService.create).not.toHaveBeenCalled();
     expect(notificationService.sendEmergencyAlert).not.toHaveBeenCalled();

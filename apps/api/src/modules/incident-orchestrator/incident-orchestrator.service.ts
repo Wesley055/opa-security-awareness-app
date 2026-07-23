@@ -69,7 +69,7 @@ export class IncidentOrchestratorService {
         detection,
         incident: null,
         intelligence: null,
-        notifications: [],
+        notifications: { queued: 0, dispatched: false },
       };
     }
 
@@ -226,74 +226,29 @@ export class IncidentOrchestratorService {
 
     const trackingUrl = buildTrackingUrl(incident.id);
 
-    const sendOne = async (
-      row: QueuedNotification,
-    ): Promise<NotificationTaskResult> => {
-      try {
-        const result = await this.notificationService.sendEmergencyAlert({
-          notificationId: row.id,
-          incidentId: incident.id,
-          contactId: row.contactId,
-          contactName: row.contactName,
-          contactType: row.contactType,
-          recipient: row.recipient,
-          channel: row.channel,
-          personName,
-          location: locationSummary,
-          trackingUrl,
-        });
-        return {
-          contactId: row.contactId,
-          contactName: row.contactName,
-          channel: row.channel,
-          result,
-        };
-      } catch (error) {
-        return {
-          contactId: row.contactId,
-          contactName: row.contactName,
-          channel: row.channel,
-          result: {
-            success: false,
-            error:
-              error instanceof Error ? error.message : 'Unknown notification error',
-          },
-        };
-      }
-    };
-
-    // Drive sends from the same notificationRows we persisted as QUEUED, so
-    // each send updates its exact durable row (passing notificationId).
-    const notificationTasks: Promise<NotificationTaskResult>[] =
-      notificationRows.map((row) => sendOne(row));
-
-    const notifications = await Promise.all(notificationTasks);
-
-    for (const notification of notifications) {
-      await this.timelineService.recordEvent({
-        incidentId: incident.id,
-        type: 'CONTACT_NOTIFIED',
-        source: 'INCIDENT_ORCHESTRATOR',
-        payload: {
-          contactId: notification.contactId,
-          contactName: notification.contactName,
-          channel: notification.channel,
-          success: notification.result.success,
-        },
-      });
-    }
+    // Notifications are dispatched exclusively by NotificationDispatchWorker,
+    // which claims the QUEUED rows written in the transaction above. The
+    // orchestrator no longer calls providers, so this request returns as soon
+    // as the emergency intent is durably persisted.
+    await this.timelineService.recordEvent({
+      incidentId: incident.id,
+      type: 'NOTIFICATIONS_QUEUED',
+      source: 'INCIDENT_ORCHESTRATOR',
+      actorUserId: userId,
+      payload: {
+        queued: notificationRows.length,
+      },
+    });
 
     return {
       status: 'INCIDENT_ACTIVATED',
       incident,
       detection,
       intelligence,
-      contactsNotified: new Set(
-        notifications
-          .filter((n) => n.result.success)
-          .map((n) => n.contactId),
-      ).size,
-      notifications,
+      notifications: {
+        queued: notificationRows.length,
+        dispatched: false,
+      },
       coordination: {
         trackingUrl,
         silentMode: detection.outcome.isSilent,

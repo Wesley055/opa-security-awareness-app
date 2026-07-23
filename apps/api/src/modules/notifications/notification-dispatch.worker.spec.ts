@@ -10,11 +10,18 @@ describe('NotificationDispatchWorker', () => {
     },
   };
 
+  const notificationService = {
+    dispatchNotification: jest.fn(),
+  };
+
   let worker: NotificationDispatchWorker;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    worker = new NotificationDispatchWorker(prisma as never);
+    worker = new NotificationDispatchWorker(
+      prisma as never,
+      notificationService as never,
+    );
   });
 
   // The claim method is private; reach it through a narrow cast rather than

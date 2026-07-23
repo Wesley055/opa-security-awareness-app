@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { type IncidentNotification, NotificationStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { NotificationService } from './notification.service';
 
 /**
  * Background worker that will consume durable QUEUED IncidentNotification
@@ -13,29 +14,40 @@ import { PrismaService } from '../../prisma/prisma.service';
 export class NotificationDispatchWorker {
   private readonly logger = new Logger(NotificationDispatchWorker.name);
   private running = false;
+  private readonly batchSize = Number(process.env.DISPATCH_BATCH_SIZE ?? 25);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notificationService: NotificationService,
+  ) {}
 
   @Interval(2000)
   async tick(): Promise<void> {
-    // Prevent overlapping ticks if a future (Phase 2c) tick runs longer
-    // than the 2s interval.
+    // Prevent overlapping ticks if a batch runs longer than the interval.
     if (this.running) {
       return;
     }
     this.running = true;
     try {
-      const queued = await this.prisma.incidentNotification.count({
-        where: { status: NotificationStatus.QUEUED },
-      });
-      if (queued > 0) {
-        this.logger.debug(
-          `Dispatch worker: ${queued} QUEUED notification(s) pending`,
+      let dispatched = 0;
+      // Bounded batch: never loop until the queue is empty, or one tick could
+      // monopolise the event loop under sustained load.
+      for (let i = 0; i < this.batchSize; i += 1) {
+        const claimed = await this.claimNextQueued();
+        if (!claimed) {
+          break;
+        }
+        await this.notificationService.dispatchNotification(claimed.id);
+        dispatched += 1;
+      }
+      if (dispatched > 0) {
+        this.logger.log(
+          `Dispatch worker: dispatched ${dispatched} notification(s)`,
         );
       }
     } catch (error) {
       this.logger.error(
-        'Failed to inspect notification dispatch queue.',
+        'Notification dispatch tick failed.',
         error instanceof Error ? error.stack : undefined,
       );
     } finally {

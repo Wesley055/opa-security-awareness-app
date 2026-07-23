@@ -76,3 +76,24 @@ export function buildNotificationPayload(params: {
     location: params.location,
   };
 }
+
+/**
+ * Runtime validation for a persisted payload. The worker must never trust a
+ * row blindly: rows written before this field existed are null, and a future
+ * payload version may not be dispatchable by this code path.
+ */
+export function isNotificationPayloadV1(
+  value: unknown,
+): value is NotificationPayloadV1 {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate.version === NOTIFICATION_PAYLOAD_VERSION &&
+    typeof candidate.channel === 'string' &&
+    typeof candidate.recipient === 'string' &&
+    typeof candidate.subject === 'string' &&
+    typeof candidate.message === 'string'
+  );
+}

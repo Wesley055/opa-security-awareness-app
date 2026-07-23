@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
 } from '@nestjs/common';
 import {
   NotificationChannel as PrismaNotificationChannel,
@@ -8,7 +9,10 @@ import {
 } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
-import { buildEmergencyMessage } from './notification-payload';
+import {
+  buildEmergencyMessage,
+  isNotificationPayloadV1,
+} from './notification-payload';
 import {
   NotificationChannel,
   SendNotificationDto,
@@ -29,6 +33,8 @@ export class NotificationService {
     NotificationChannel,
     NotificationProvider
   >;
+
+  private readonly logger = new Logger(NotificationService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -212,5 +218,108 @@ export class NotificationService {
     }
 
     return undefined;
+  }
+
+  /**
+   * Dispatch a notification row that the worker has ALREADY claimed.
+   *
+   * Contract (Phase 2c-2):
+   *  - The row must already be SENDING (claimNextQueued did the atomic
+   *    QUEUED -> SENDING transition and the attemptCount increment).
+   *  - This method NEVER creates a row and NEVER increments attemptCount.
+   *  - Everything needed to deliver is read from the durable payload, so no
+   *    Incident/User lookups happen here.
+   *  - It does not rethrow: a failing notification is marked FAILED and the
+   *    caller (the worker batch loop) continues with the next row.
+   */
+  async dispatchNotification(
+    notificationId: string,
+  ): Promise<NotificationResponse | null> {
+    const notification =
+      await this.prisma.incidentNotification.findUnique({
+        where: { id: notificationId },
+      });
+
+    if (!notification) {
+      this.logger.warn(
+        `dispatchNotification: notification ${notificationId} not found.`,
+      );
+      return null;
+    }
+
+    if (notification.status !== NotificationStatus.SENDING) {
+      this.logger.warn(
+        `dispatchNotification: ${notificationId} is ${notification.status}, expected SENDING. Skipping.`,
+      );
+      return null;
+    }
+
+    if (!isNotificationPayloadV1(notification.payload)) {
+      await this.prisma.incidentNotification.update({
+        where: { id: notificationId },
+        data: {
+          status: NotificationStatus.FAILED,
+          failedAt: new Date(),
+          lastError: 'Missing or unsupported notification payload.',
+        },
+      });
+      this.logger.error(
+        `dispatchNotification: ${notificationId} has no dispatchable payload.`,
+      );
+      return null;
+    }
+
+    const payload = notification.payload;
+
+    try {
+      const result = await this.send({
+        channel: payload.channel,
+        recipient: payload.recipient,
+        subject: payload.subject,
+        message: payload.message,
+      });
+
+      if (result.success) {
+        await this.prisma.incidentNotification.update({
+          where: { id: notificationId },
+          data: {
+            status: NotificationStatus.SENT,
+            provider: result.provider,
+            providerMessageId: result.messageId,
+            sentAt: new Date(),
+            failedAt: null,
+            lastError: null,
+          },
+        });
+      } else {
+        await this.prisma.incidentNotification.update({
+          where: { id: notificationId },
+          data: {
+            status: NotificationStatus.FAILED,
+            provider: result.provider,
+            providerMessageId: result.messageId,
+            failedAt: new Date(),
+            lastError:
+              this.getResponseError(result) ??
+              'Notification provider reported failure.',
+          },
+        });
+      }
+
+      return result;
+    } catch (error) {
+      await this.prisma.incidentNotification.update({
+        where: { id: notificationId },
+        data: {
+          status: NotificationStatus.FAILED,
+          failedAt: new Date(),
+          lastError:
+            error instanceof Error
+              ? error.message
+              : 'Unknown provider error',
+        },
+      });
+      return null;
+    }
   }
 }

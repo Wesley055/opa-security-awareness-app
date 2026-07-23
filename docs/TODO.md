@@ -529,3 +529,114 @@ Sequence (dependency-honest, revenue-aligned):
    (Release 2). See docs/COMMERCIAL_ROADMAP.md.
 
 Keep tonight's dispatch design + sequencing decision intact â€” no re-designing.
+
+## DISPATCH PHASE 2c â€” DESIGN (captured, implementation NOT started)
+
+STATUS: Phase 2a (scheduler + idle worker) and 2b (atomic claimNextQueued +
+tests) are DONE, committed, pushed (HEAD 1a58b84). Worker tick() is still
+READ-ONLY (counts QUEUED, sends nothing). Orchestrator still does the
+synchronous send (the safety net from Phase 1). Phase 2c is the cutover.
+
+### KEY DESIGN DECISION: durable JSON payload on the outbox row (Path 1)
+The worker only has the IncidentNotification row, but sending needs
+personName/location/trackingUrl/message â€” which today live only in the
+orchestrator's scope. So STORE them on the row at creation time.
+Chosen shape: add `payload Json?` to IncidentNotification (NOT a bare
+`message` column â€” JSON absorbs channel-specific fields + future templates/
+localization without more migrations). Payload holds at least:
+  { personName, location, trackingUrl, message }
+Rationale: an outbox job must be SELF-CONTAINED â€” no re-querying mutable
+tables (incident/user) at dispatch time. Content frozen at incident-time.
+
+### STAGED SEQUENCE (do NOT do as one big commit)
+Phase 2c-1 â€” Durable payload
+  - Add `payload Json?` to IncidentNotification in schema.prisma.
+  - Generate + apply Prisma migration (nullable = safe for existing rows).
+  - Orchestrator: when building notificationRows (Phase 1b block), render the
+    message + build the payload object, store it in the createMany data.
+    (The message string is already built in sendEmergencyAlert today:
+     `OPA ALERT: ${personName} may be in danger. Location: ${location}.
+      Track live: ${trackingUrl}` â€” replicate/extract that.)
+  - Keep synchronous send + worker read-only UNCHANGED. Build + test.
+Phase 2c-2 â€” Claimed-row dispatcher
+  - Add NotificationService.dispatchNotification(notificationId):
+    1. Load notification by id.
+    2. Require status === SENDING (it was claimed).
+    3. Validate payload exists + has required shape.
+    4. Map stored Prisma channel -> provider channel (toPrismaChannel inverse
+       or store the app-channel in payload).
+    5. Call existing provider dispatch (this.send({channel, recipient,
+       subject, message})).
+    6. Update SAME row -> SENT (sentAt, provider, providerMessageId) or
+       FAILED (failedAt, lastError).
+    7. NEVER create another row. NEVER increment attemptCount (claim already
+       did +1).
+  - Keep worker tick() read-only until this is unit-tested. Build + test.
+Phase 2c-3 â€” Atomic cutover (ONE commit)
+  - Worker tick(): claim + dispatch in a bounded loop.
+    *** MAX_PER_TICK = 25 *** â€” do NOT loop-until-empty unbounded (would
+    monopolize the event loop / run indefinitely under load).
+    Pattern: for up to MAX_PER_TICK: row = claimNextQueued(); if !row break;
+    await dispatchNotification(row.id).
+  - Move delivery-result timeline writes (CONTACT_NOTIFIED) into the worker/
+    dispatcher (they fire when the worker actually sends now).
+  - REMOVE the synchronous sendOne/Promise.all block from the orchestrator.
+  - Orchestrator response -> queue semantics, e.g.
+    { incidentId, status: 'INCIDENT_ACTIVATED', notificationsQueued: N }
+    (drop contactsNotified/notifications-as-sent â€” sends are async now).
+  - Update incident-orchestrator.service.spec.ts: sends no longer happen in
+    the orchestrator, so "sendEmergencyAlert called 3 times" becomes
+    "createMany called with 3 rows; sendEmergencyAlert NOT called from
+    orchestrator". contactsNotified assertion -> notificationsQueued.
+  - Build + ALL tests + commit.
+
+### MOBILE SAFETY (verified this session)
+Greps of apps/mobile-app/src for contactsNotified / INCIDENT_ACTIVATED /
+notifications / activate / orchestrator / coordinated returned NOTHING.
+Only api.ts + authStore.ts matched incident|sos|emergency|api, and api.ts's
+only hit was notifyForceLogout (auth). So the mobile app does NOT consume the
+orchestrator's notification-result fields -> the response contract change is
+safe backend-only. (A broader search / integration test is the best final
+safeguard before shipping, but current evidence is strong.)
+
+### CORRECTNESS NOTES (do not lose)
+- dispatchNotification must NOT increment attemptCount (claim did it).
+- Bounded batch per tick (MAX_PER_TICK=25).
+- Nullable payload keeps the migration safe for existing rows.
+- The claim (2b) already transitions QUEUED->SENDING conditionally; the
+  dispatcher assumes the row is already SENDING (claimed), so it does NOT
+  re-transition from QUEUED. sendEmergencyAlert's old unconditional
+  QUEUED->SENDING-by-id path is the LEGACY/synchronous path; dispatchNotification
+  is the new worker path. After cutover, reconcile: the synchronous path is
+  removed, so sendEmergencyAlert (create-or-update) is only used by any
+  remaining legacy caller â€” check incidents.controller isn't calling it.
+
+### DB CAVEAT
+Local runs need the dev terminal env (reachable DB); running from the wrong
+terminal hits the VNet-private Azure DB and fails P1001. Worker/claim logic
+is verified via UNIT TESTS (mocked Prisma), not live DB, which is fine.
+
+### REFINEMENTS (adopt in implementation)
+1. VERSION the payload: include `version: 1` so it can evolve safely.
+2. Payload is the CANONICAL dispatch request â€” store channel + recipient +
+   subject + message + trackingUrl + personName + location, e.g.:
+     { version:1, channel:"SMS", recipient:"...", subject:null,
+       message:"...", trackingUrl:"...", personName:"...", location:"..." }
+   Goal: dispatchNotification becomes a near-pure dispatcher, no DTO rebuild.
+3. EXTRACT ONE message formatter (REQUIRED, not optional): a single function
+   that produces the payload/message, used by BOTH the legacy synchronous
+   path (until it's removed in 2c-3) AND the worker path. Prevents the two
+   paths drifting while they coexist across 2c-1..2c-3.
+4. Batch limit CONFIGURABLE from the start:
+     const MAX_PER_TICK = Number(process.env.DISPATCH_BATCH_SIZE ?? 25);
+5. Timeline events: record NOTIFICATION_QUEUED when the tx commits, and
+   NOTIFICATION_DELIVERED (or CONTACT_NOTIFIED) when the provider succeeds in
+   the worker. Accurate audit trail of queue-vs-deliver.
+6. API response shape (future-proof):
+     { incidentId, status:'INCIDENT_ACTIVATED',
+       notifications: { queued: N, dispatched: false } }
+7. FUTURE (Phase 4, NOT 2c) â€” reclaim abandoned SENDING rows: a row stuck in
+   SENDING (worker crashed mid-dispatch) needs reclaim logic, e.g. requeue if
+   SENDING AND lastHeartbeat/updatedAt older than timeout AND
+   attemptCount < maxAttempts. Document now so it isn't forgotten; do NOT
+   build in 2c. (2b currently assumes SENDING = owned forever.)

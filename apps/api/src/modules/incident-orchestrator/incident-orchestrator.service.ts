@@ -167,7 +167,13 @@ export class IncidentOrchestratorService {
           trigger: this.mapIncidentTrigger(dto.triggerType),
           latitude: dto.latitude,
           longitude: dto.longitude,
-          address: intelligence.location.address,
+          // The geocoding implementation is currently a development mock and
+          // returns the same fabricated address for EVERY coordinate. Persisting
+          // it would attach a plausible but wrong street address to every
+          // incident, which the incident portal or a responder could later
+          // trust. Persist only the authoritative GPS coordinates below until a
+          // production geocoder is enabled.
+          // See docs/architecture/emergency-intelligence-engine.md
           voicePhrase: dto.detectedPhrase,
         },
         tx,

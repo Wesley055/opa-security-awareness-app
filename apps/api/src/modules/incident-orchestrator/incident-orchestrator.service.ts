@@ -13,6 +13,10 @@ import {
   NotificationChannel,
 } from '../notifications/dto/send-notification.dto';
 import { NotificationService } from '../notifications/notification.service';
+import {
+  buildNotificationPayload,
+  buildTrackingUrl,
+} from '../notifications/notification-payload';
 import { UsersService } from '../users/users.service';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -143,9 +147,19 @@ export class IncidentOrchestratorService {
       },
     );
 
+    // intelligence.location.crossStreet/address currently come from a
+    // confirmed-mock GeocodingProvider (returns the same fabricated
+    // address for every coordinate - see
+    // docs/architecture/emergency-intelligence-engine.md). Using the
+    // real GPS coordinates as a tappable map link instead, until that
+    // provider is replaced with a real integration.
+    const locationSummary = `https://maps.google.com/?q=${dto.latitude},${dto.longitude}`;
+
     // Durable-intent write: incident + QUEUED notification rows commit
     // atomically. If this commits, notifications will not be lost even if
-    // the process crashes before the synchronous send below runs.
+    // the process crashes before the synchronous send below runs. Each row
+    // carries a self-contained payload so the dispatch worker can deliver it
+    // without re-querying incident or user data.
     const incident = await this.prisma.$transaction(async (tx) => {
       const created = await this.incidentsService.create(
         userId,
@@ -159,6 +173,10 @@ export class IncidentOrchestratorService {
         tx,
       );
 
+      // The tracking URL needs the new incident id, so it is built here.
+      // Pure string work - no IO inside the transaction.
+      const incidentTrackingUrl = buildTrackingUrl(created.id);
+
       await tx.incidentNotification.createMany({
         data: notificationRows.map((row) => ({
           id: row.id,
@@ -170,6 +188,13 @@ export class IncidentOrchestratorService {
           channel: row.channel,
           status: NotificationStatus.QUEUED,
           attemptCount: 0,
+          payload: buildNotificationPayload({
+            channel: row.channel,
+            recipient: row.recipient,
+            personName,
+            location: locationSummary,
+            trackingUrl: incidentTrackingUrl,
+          }),
         })),
       });
 
@@ -199,15 +224,7 @@ export class IncidentOrchestratorService {
       },
     });
 
-    const trackingUrl = `https://opasafety.com/incidents/${incident.id}`;
-
-    // intelligence.location.crossStreet/address currently come from a
-    // confirmed-mock GeocodingProvider (returns the same fabricated
-    // address for every coordinate — see
-    // docs/architecture/emergency-intelligence-engine.md). Using the
-    // real GPS coordinates as a tappable map link instead, until that
-    // provider is replaced with a real integration.
-    const locationSummary = `https://maps.google.com/?q=${dto.latitude},${dto.longitude}`;
+    const trackingUrl = buildTrackingUrl(incident.id);
 
     const sendOne = async (
       row: QueuedNotification,

@@ -12,7 +12,7 @@ export const NOTIFICATION_PAYLOAD_VERSION = 1;
 
 export const EMERGENCY_ALERT_SUBJECT = 'OPA Emergency Alert';
 
-export interface NotificationPayloadV1 {
+export type NotificationPayloadV1 = {
   version: 1;
   channel: NotificationChannel;
   recipient: string;

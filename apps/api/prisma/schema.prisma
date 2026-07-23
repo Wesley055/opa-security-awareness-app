@@ -178,6 +178,7 @@ model IncidentNotification {
   providerMessageId String?
   attemptCount      Int                 @default(0)
   lastError         String?
+  payload           Json?
 
   queuedAt          DateTime            @default(now())
   sentAt            DateTime?

@@ -8,6 +8,7 @@ import {
 } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { buildEmergencyMessage } from './notification-payload';
 import {
   NotificationChannel,
   SendNotificationDto,
@@ -91,10 +92,11 @@ export class NotificationService {
     location: string;
     trackingUrl: string;
   }): Promise<NotificationResponse> {
-    const message =
-      `OPA ALERT: ${params.personName} may be in danger. ` +
-      `Location: ${params.location}. ` +
-      `Track live: ${params.trackingUrl}`;
+    const message = buildEmergencyMessage({
+      personName: params.personName,
+      location: params.location,
+      trackingUrl: params.trackingUrl,
+    });
 
       // If the orchestrator pre-created a durable QUEUED row (outbox
       // pattern), update THAT row to SENDING instead of creating a second

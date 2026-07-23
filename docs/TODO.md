@@ -640,3 +640,129 @@ is verified via UNIT TESTS (mocked Prisma), not live DB, which is fine.
    SENDING AND lastHeartbeat/updatedAt older than timeout AND
    attemptCount < maxAttempts. Document now so it isn't forgotten; do NOT
    build in 2c. (2b currently assumes SENDING = owned forever.)
+
+## ============================================================
+## GAP & TECHNICAL DEBT REGISTER (swept 23 July 2026)
+## ============================================================
+## Written after Dispatch Phase 2c completed and was verified live
+## end-to-end. Purpose: know what blocks Sprint 10 vs what can wait.
+## Codebase sweep found: ZERO stray TODO/FIXME markers, all modules
+## have specs, 25 tests green, build clean.
+
+### --- BLOCKS SPRINT 10A (must fix before the portal shows anything) ---
+
+[ ] MOCK INTELLIGENCE PROVIDERS - six providers return fabricated data:
+      emergency-intelligence/providers/geocoding.provider.ts
+      emergency-intelligence/providers/hospital.provider.ts
+      emergency-intelligence/providers/places.provider.ts
+      emergency-intelligence/providers/police.provider.ts
+      emergency-intelligence/providers/routing.provider.ts
+      emergency-intelligence/providers/safe-place.provider.ts
+    They return the SAME invented address/hospital/route for every
+    coordinate on earth. Currently harmless because nothing displays
+    them - but Sprint 10A (Incident Portal) is exactly the thing that
+    would. A responder shown "nearest hospital 2.8km north" that is
+    fabricated is a safety failure, not a cosmetic one.
+    Fix options: (a) integrate real providers, or (b) gate them so the
+    portal renders nothing rather than something false.
+    Already done 23 Jul: mock address is no longer PERSISTED on
+    Incident (commit 2d7eaee) - but it is still RETURNED in the API
+    response under intelligence.location.
+
+[ ] PROVIDER CONFIDENCE MARKER - tag every intelligence provider
+    response as MOCK | VERIFIED | PRODUCTION so any UI can refuse to
+    display non-production data. The provider name is already in the
+    response ("MockGeocodingProvider"), but an explicit status field is
+    far harder to ignore than a naming convention.
+
+[ ] FAIL-FAST CONFIG VALIDATION - refuse to boot when NODE_ENV is
+    production and any mock provider is wired. This is the systemic fix:
+    it makes the whole class of "mock data reached a real user" bug
+    impossible rather than merely documented.
+
+### --- BLOCKS PILOT / LAUNCH (not Sprint 10) ---
+
+[ ] Africa's Talking OPAALERT sender ID - TRANSACTIONAL bind. Awaiting
+    their Contact Persons Form + AT Letter draft template (the Drive
+    link 403s). ~2 week telco clock starts only on submission.
+    Without it, alerts do NOT reach DND-registered numbers, which is a
+    large share of Nigerian phones.
+[ ] Production SMS configuration unverified - the roadmap Day-3 flag
+    ("no getOrThrow key = may be unconfigured"). Confirm before pilot.
+[ ] NDPC registration - requirements received. DPO qualification still
+    unresolved (Asibor has no data-protection credentials; options are
+    certification or engaging a licensed DPCO).
+[ ] Data retention policy - define retention for location history,
+    incident evidence, and audio BEFORE building more storage. NDPC will
+    ask, and retrofitting retention is far more expensive than
+    designing it in.
+[ ] Redis is LOCAL ONLY - Azure Cache for Redis not provisioned. One
+    env-var change when needed.
+
+### --- DISPATCH: DEFERRED HARDENING (system works without these) ---
+
+[ ] Phase 3 - Redis pub/sub wake-up. Currently a 2s poll; this makes
+    dispatch near-instant. Postgres stays the source of truth, with the
+    poll as reconciliation backstop.
+[ ] Phase 4 - retry/backoff, dead-letter storage, idempotency.
+[ ] Phase 4 - RECLAIM STUCK SENDING ROWS. Today SENDING = owned
+    forever. If a worker crashes mid-dispatch, that row is stranded and
+    never retried. Needs: requeue if SENDING AND updatedAt older than
+    timeout AND attemptCount < max.
+[ ] Phase 2c-4 - worker-side delivery timeline events. CONTACT_NOTIFIED
+    was removed from the orchestrator during the cutover and has not
+    been re-added in the worker. Delivery state IS still fully recorded
+    on IncidentNotification (status/sentAt/failedAt/provider/
+    providerMessageId) - only the human-readable timeline lost it.
+
+### --- CODE CLEANUP (small, safe, no rush) ---
+
+[ ] Orchestrator still injects NotificationService but no longer uses
+    it post-cutover - dead dependency.
+[ ] NotificationTaskResult interface is likely now unused.
+[ ] sendEmergencyAlert legacy create-path has no callers after the
+    cutover. Decide: keep as fallback, or delete and make
+    notificationId required.
+[ ] incident.metadata still carries redisDispatchPrepared /
+    notificationFanoutPrepared - stale placeholder flags from before
+    real dispatch state existed on IncidentNotification.
+[ ] Prisma 6.19.3 -> 7.9.0 major upgrade available.
+[ ] 32 npm vulnerabilities outstanding. Do NOT run `npm audit fix
+    --force`.
+
+### --- ALREADY HALF-BUILT (cheap wins, schema is ready) ---
+
+[ ] RESPONDER ACKNOWLEDGEMENT - NotificationStatus already has
+    ACKNOWLEDGED and IncidentNotification already has acknowledgedAt.
+    Nothing sets them yet. Wiring this up enables escalation-when-
+    nobody-responds later, and the schema work is already done.
+
+### --- EXTERNAL / WAITING (no action available) ---
+
+[ ] D-U-N-S number (D&B) - submitted, tracking 10631953.
+[ ] Meta business verification - resubmitted after fixing address.
+[ ] Picovoice - awaiting PRODUCTION pricing + minimum purchase
+    commitment. Do NOT buy the $500 prototyping week until the feature
+    is about to be built AND production pricing is known.
+
+### --- IDEAS, NOT COMMITMENTS (explicitly unbuilt) ---
+## Kept deliberately separate so they never read as a plan. NONE of
+## these exist. Do not put any of them on the website, in a pitch, or
+## in a pilot agreement until built and tested.
+##   AI incident severity scoring; incident continuity engine;
+##   multi-language distress detection; offline recovery; dynamic
+##   responder prioritisation; community safety intelligence; live
+##   responder coordination; verified safe-place scoring; evidence
+##   vault; AI incident summaries; escalation when contacts do not
+##   respond; cross-border support; family coordination dashboard.
+##
+## Of these, the ones with a real near-term basis are:
+##   - escalation when contacts do not respond (ACKNOWLEDGED exists)
+##   - offline recovery (ussd-fallback.md exists)
+##   - multi-language triggers (language profiles exist)
+
+### --- SPRINT NUMBERING (authoritative - do not drift) ---
+##   Sprint 10A = Incident Portal
+##   Sprint 10B = Live Tracking (produces the Journey Session primitive)
+##   Sprint 13/14 = Command Center (revenue product)
+##   Phase I = SafeWalk (revenue product, requires 10B)

@@ -766,3 +766,76 @@ is verified via UNIT TESTS (mocked Prisma), not live DB, which is fine.
 ##   Sprint 10B = Live Tracking (produces the Journey Session primitive)
 ##   Sprint 13/14 = Command Center (revenue product)
 ##   Phase I = SafeWalk (revenue product, requires 10B)
+
+## ============================================================
+## MESSAGING CHANNEL ARCHITECTURE (decided 24 July 2026)
+## ============================================================
+## Where location intelligence belongs, by channel. Decided while
+## reviewing whether to enrich alerts with address / cross street /
+## landmark / nearest hospital once a real geocoder exists.
+
+### THE PRINCIPLE
+The rich context is not a message, it is a page. The SMS is the
+doorbell; the portal is the room.
+
+### SMS - optimise for one thing: getting someone to tap
+  - 160 characters per segment. The CURRENT message is ~174 chars, so
+    it already bills as TWO segments per contact per emergency.
+  - Keep to: name, one location link, one tracking link. Nothing else.
+  - Adding a verified street address must NOT simply be appended - it
+    would push toward a third segment.
+  - Target shape once short links exist:
+      OPA ALERT: [Name] may be in danger.
+      Location: https://maps.google.com/?q=<lat>,<lng>
+      Track: https://opasafety.com/i/<shortid>
+
+### WHATSAPP - richer, but still restrained
+  - No 160-char limit, formatting supported.
+  - Emoji/section formatting is fine here.
+  - STILL do not embed hospitals, landmarks, cross streets: those go
+    stale the moment the person moves. A message is a snapshot; an
+    emergency is not.
+
+### INCIDENT PORTAL - the authoritative, live source of truth
+  This is where ALL intelligence belongs, because it can update as the
+  incident evolves:
+    verified street address (real geocoder), GPS coordinates, live map,
+    movement trail, nearest landmark, cross streets, nearest hospital,
+    battery level, network status, event timeline, retriggers,
+    responder acknowledgements.
+
+### WHY THIS SCALES
+Adding more intelligence later enriches the PORTAL and requires no
+redesign of the messaging layer. Messages stay cheap and fast; context
+grows in one place.
+
+### ACTION ITEMS THIS CREATES
+[ ] SHORT INCIDENT LINKS (before Sprint 10A ships public links)
+    Current: https://opasafety.com/incidents/<36-char-uuid>  (~79 chars)
+    Target:  https://opasafety.com/i/<short-id>              (~30 chars)
+    Solves THREE problems at once:
+      1. Cost - likely brings SMS back to ONE segment, halving spend
+      2. Security - a UUID in a URL with no auth model is guessable-
+         adjacent; a short public id forces the auth question to be
+         answered deliberately (see portal auth, below)
+      3. Usability - a panicking family member can read it aloud
+[ ] SMS CHARACTER-COUNT VALIDATION - fail a build/test if the rendered
+    template exceeds one segment, so cost regressions are caught early.
+[ ] PORTAL AUTHENTICATION MODEL (Sprint 10A blocker)
+    /incidents/<id> currently has NO stated auth model. Decide before
+    the portal exists: public-but-unguessable, signed URL with expiry,
+    or authenticated. This governs whether a tracking link forwarded to
+    a WhatsApp group exposes someone's live location indefinitely.
+[ ] DECISION LOG - start docs/architecture/decision-log.md. Decisions
+    already made that are worth recording: worker owns dispatch; GPS is
+    authoritative until a production geocoder exists; mock providers
+    must never persist authoritative data; versioned notification
+    payloads; outbox pattern; incident origin coordinates are immutable
+    (abduction point) while movement belongs in a location stream.
+
+### DOCUMENTATION HYGIENE
+Do NOT use "12 Allen Avenue, Ikeja, Lagos" / "Allen Junction" in
+examples. Those are the MOCK geocoder's fabricated outputs, returned
+for every coordinate on earth. Using them as illustrations of future
+production behaviour blurs exactly the line this project has been
+careful to hold. Use obviously-fictional placeholders instead.

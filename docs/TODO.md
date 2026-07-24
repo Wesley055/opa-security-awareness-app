@@ -995,3 +995,95 @@ MUST be fixed BEFORE the endpoint ships:
       If the tracking page ever needs a link on retrigger, the answer is to
       look up the live token RECORD and issue a fresh token, not to store
       the raw value.
+
+## ============================================================
+## STRATEGIC PRINCIPLES (24 July 2026)
+## Principles and ideas. NOT roadmap commitments.
+## ============================================================
+
+### PRINCIPLE: OPA is an emergency EVENT platform, not a mobile app
+OPA's value begins AFTER the trigger. The orchestrator should not care
+whether an event came from an Android phone, an iPhone, a smartwatch, a BLE
+keyfob, a vehicle sensor, an estate panel or a hospital duress button.
+
+    Sensor event -> Incident -> Orchestrator -> Notifications
+                             -> Tracking -> Evidence
+
+ACTION: design Sprint 11's ingestion around "a sensor reported an event",
+not "the phone sent video". This costs nothing now and keeps every future
+hardware integration a matter of configuration rather than a rewrite. If
+Sprint 11 is built phone-first, every later integration is a rewrite.
+
+### PRINCIPLE: partner APIs come AFTER product-market fit, never before
+Correct sequence: pilot -> users -> reliability -> partners ask -> API.
+Building an SDK or public API now solves a problem nobody has asked to have
+solved. OPA currently has no pilot, no revenue, no public API, no third-party
+auth model, no docs and no operational history.
+
+### WHO WOULD ACTUALLY INTEGRATE
+Not competing safety apps - at least not until OPA owns something genuinely
+hard to rebuild. The realistic first integrations are things that HAVE A
+TRIGGER BUT NO BACKEND:
+  bluetooth panic buttons, smartwatches, elder-care pendants, vehicle crash
+  sensors, fleet telematics, estate panic buttons, school alarms, hotel and
+  hospital duress buttons.
+They have the trigger. OPA has everything after it.
+
+Note the Stripe/Twilio/Okta counterexample: competitors DO integrate with a
+provider that owns a difficult capability. So "never" is wrong; "not until
+OPA owns something difficult" is right. Orchestration - who to contact, in
+what order, on which channel, with what information, in which country, given
+what already failed - might become that. It is not that yet.
+
+### DO NOT RESELL SMS CAPACITY
+The transactional Sender ID reaching DND numbers is a real advantage, but
+routing another company's traffic through it is almost certainly a breach of
+Africa's Talking's terms and the telcos', and acting as a messaging
+intermediary in Nigeria carries its own NCC licensing exposure. Get legal
+advice before going anywhere near this. "We have a Sender ID" is also not a
+defensible moat.
+
+### IDEA: AI incident companion - RECORDED WITH ITS BLOCKERS
+Voice conversation during an incident: "are you safe", "have you reached
+somewhere safe", multi-source location validation, safe-arrival confirmation.
+Appealing, and NOT to be built before the core platform is proven. Two
+failure modes must be designed around from the start:
+
+  1. SPEAKING ALOUD CAN KILL SOMEONE. If a person is hiding and their phone
+     says "Charles, are you safe?", the attacker now knows where they are.
+     Designs that assume earbuds assume something most people will not have
+     in at the moment it matters.
+  2. VOICE IS NOT AUTHENTICATION. An attacker can say "yes, I'm fine". A
+     coerced person can say it with a knife at their throat. Any mechanism
+     that DE-ESCALATES based on a spoken answer has the same asymmetry as the
+     false-alarm detection already flagged: a false positive costs an
+     unnecessary alert, a false negative costs a life. Voice input may ADD
+     urgency. It must never reduce it.
+
+Also beware invented precision. "94% confidence, inside Shoprite" implies
+indoor positioning and a business-location database at a quality that does
+not exist for Nigeria. A confident wrong answer sent to responders is worse
+than "GPS says roughly here".
+
+SALVAGEABLE NOW, no AI required:
+  - Multi-source location (GPS + cell tower + wifi). Standard, real, improves
+    accuracy.
+  - Safe-arrival confirmation and route deviation - these are SafeWalk
+    (Phase I). Prevention is a different context from an active emergency:
+    "you've stopped, are you okay?" before anything has happened is safe.
+    Mid-abduction it is not.
+  - Silent distress input. The real need is signalling danger without
+    speaking or touching the screen. More a hardware and UX problem than an
+    AI one.
+
+### POSITIONING DISCIPLINE
+Recurring pressure to restore "OPA doesn't send an SOS. It coordinates your
+emergency." That line was removed for cause and must stay removed until it is
+true. There is no police integration, no hospital dispatch, no responder
+network. The orchestrator notifies trusted contacts.
+
+The ambition is legitimate and can be stated honestly:
+  "Today, one tap tells everyone who matters where you are. We're building
+   toward coordinated emergency response."
+Direction, clearly labelled as direction, costs nothing in honesty. A
+capability claim to someone in danger costs everything.

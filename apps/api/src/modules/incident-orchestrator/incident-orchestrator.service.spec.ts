@@ -42,6 +42,11 @@ describe('IncidentOrchestratorService', () => {
   };
   const prisma = {
     $transaction: jest.fn(),
+    $executeRaw: jest.fn(),
+    incident: {
+      findFirst: jest.fn(),
+      update: jest.fn(),
+    },
     incidentNotification: { createMany: jest.fn() },
   };
 
@@ -51,6 +56,9 @@ describe('IncidentOrchestratorService', () => {
       async (callback: (tx: typeof prisma) => unknown) => callback(prisma),
     );
     prisma.incidentNotification.createMany.mockResolvedValue({ count: 3 });
+    prisma.$executeRaw.mockResolvedValue(1);
+    // Default: no recent incident, so the normal creation path runs.
+    prisma.incident.findFirst.mockResolvedValue(null);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -254,5 +262,281 @@ describe('IncidentOrchestratorService', () => {
 
     expect(result.status).toBe('CONFIRMATION_REQUIRED');
     expect(result.incident).toBeNull();
+  });
+
+  describe('SOS deduplication', () => {
+    const primeActivation = () => {
+      emergencyDetectionService.evaluate.mockReturnValue({
+        outcome: {
+          shouldActivate: true,
+          requiresConfirmation: false,
+          isSilent: false,
+          confidenceScore: 80,
+          confidenceLevel: 'HIGH',
+        },
+      });
+      usersService.findById.mockResolvedValue({
+        id: 'user-123',
+        firstName: 'Test',
+        lastName: 'User',
+      });
+      emergencyIntelligenceService.buildLocationIntelligence.mockResolvedValue({
+        location: { address: '12 Allen Avenue, Ikeja, Lagos' },
+      });
+      timelineService.recordEvent.mockResolvedValue({});
+      emergencyContactsService.listForUser.mockResolvedValue([
+        {
+          id: 'contact-1',
+          firstName: 'Grace',
+          lastName: 'Wesley',
+          relationship: 'FAMILY',
+          phoneNumber: '+2348012345678',
+          email: 'grace@example.com',
+          isActive: true,
+        },
+      ]);
+    };
+
+    const activationDto = {
+      triggerType: 'SOS_BUTTON' as never,
+      mode: 'IMMEDIATE' as never,
+      latitude: 6.6018,
+      longitude: 3.3515,
+      userConfirmed: true,
+    };
+
+    it('creates a new incident when no recent incident exists', async () => {
+      primeActivation();
+      prisma.incident.findFirst.mockResolvedValue(null);
+      incidentsService.create.mockResolvedValue({
+        id: 'incident-new',
+        createdAt: new Date(),
+        retriggerCount: 0,
+      });
+
+      const result = await service.createCoordinatedIncident(
+        'user-123',
+        activationDto,
+      );
+
+      expect(result.status).toBe('INCIDENT_ACTIVATED');
+      expect(incidentsService.create).toHaveBeenCalledTimes(1);
+      expect(prisma.incidentNotification.createMany).toHaveBeenCalledTimes(1);
+      expect(prisma.incident.update).not.toHaveBeenCalled();
+    });
+
+    it('acquires a per-user advisory lock before checking for duplicates', async () => {
+      primeActivation();
+      prisma.incident.findFirst.mockResolvedValue(null);
+      incidentsService.create.mockResolvedValue({
+        id: 'incident-new',
+        createdAt: new Date(),
+        retriggerCount: 0,
+      });
+
+      await service.createCoordinatedIncident('user-123', activationDto);
+
+      expect(prisma.$executeRaw).toHaveBeenCalled();
+      // Ordering is the property that matters: if the lookup ran first, two
+      // concurrent taps could both see "no recent incident".
+      const lockOrder = prisma.$executeRaw.mock.invocationCallOrder[0] ?? 0;
+      const lookupOrder =
+        prisma.incident.findFirst.mock.invocationCallOrder[0] ?? 0;
+      expect(lockOrder).toBeLessThan(lookupOrder);
+    });
+
+    it('returns the existing incident when one was triggered within the window', async () => {
+      primeActivation();
+      const existing = {
+        id: 'incident-existing',
+        createdAt: new Date(Date.now() - 20_000),
+        retriggerCount: 0,
+      };
+      prisma.incident.findFirst.mockResolvedValue(existing);
+      prisma.incident.update.mockResolvedValue({
+        ...existing,
+        retriggerCount: 1,
+      });
+
+      const result = await service.createCoordinatedIncident(
+        'user-123',
+        activationDto,
+      );
+
+      expect(result.status).toBe('INCIDENT_RETRIGGERED');
+      expect(result.incident?.id).toBe('incident-existing');
+      expect(result.deduplicated).toBe(true);
+    });
+
+    it('does not create a second incident on retrigger', async () => {
+      primeActivation();
+      const existing = {
+        id: 'incident-existing',
+        createdAt: new Date(Date.now() - 20_000),
+        retriggerCount: 0,
+      };
+      prisma.incident.findFirst.mockResolvedValue(existing);
+      prisma.incident.update.mockResolvedValue({
+        ...existing,
+        retriggerCount: 1,
+      });
+
+      await service.createCoordinatedIncident('user-123', activationDto);
+
+      expect(incidentsService.create).not.toHaveBeenCalled();
+    });
+
+    it('does not queue duplicate notifications on retrigger', async () => {
+      primeActivation();
+      const existing = {
+        id: 'incident-existing',
+        createdAt: new Date(Date.now() - 20_000),
+        retriggerCount: 0,
+      };
+      prisma.incident.findFirst.mockResolvedValue(existing);
+      prisma.incident.update.mockResolvedValue({
+        ...existing,
+        retriggerCount: 1,
+      });
+
+      const result = await service.createCoordinatedIncident(
+        'user-123',
+        activationDto,
+      );
+
+      expect(prisma.incidentNotification.createMany).not.toHaveBeenCalled();
+      expect(result.notifications).toEqual({ queued: 0, dispatched: false });
+    });
+
+    it('increments retriggerCount and updates lastTriggeredAt', async () => {
+      primeActivation();
+      const existing = {
+        id: 'incident-existing',
+        createdAt: new Date(Date.now() - 20_000),
+        retriggerCount: 2,
+      };
+      prisma.incident.findFirst.mockResolvedValue(existing);
+      prisma.incident.update.mockResolvedValue({
+        ...existing,
+        retriggerCount: 3,
+      });
+
+      const result = await service.createCoordinatedIncident(
+        'user-123',
+        activationDto,
+      );
+
+      const updateArgs = prisma.incident.update.mock.calls[0][0];
+      expect(updateArgs.where).toEqual({ id: 'incident-existing' });
+      expect(updateArgs.data.retriggerCount).toEqual({ increment: 1 });
+      expect(updateArgs.data.lastTriggeredAt).toBeInstanceOf(Date);
+      expect(result.retriggerCount).toBe(3);
+    });
+
+    it('does NOT overwrite the incident origin coordinates on retrigger', async () => {
+      primeActivation();
+      const existing = {
+        id: 'incident-existing',
+        createdAt: new Date(Date.now() - 20_000),
+        retriggerCount: 0,
+      };
+      prisma.incident.findFirst.mockResolvedValue(existing);
+      prisma.incident.update.mockResolvedValue({
+        ...existing,
+        retriggerCount: 1,
+      });
+
+      await service.createCoordinatedIncident('user-123', {
+        ...activationDto,
+        latitude: 9.9999,
+        longitude: 9.9999,
+      });
+
+      const updateArgs = prisma.incident.update.mock.calls[0][0];
+      // The origin is where the emergency began (e.g. where an abduction
+      // started). New positions belong on the timeline, not smeared over it.
+      expect(updateArgs.data).not.toHaveProperty('latitude');
+      expect(updateArgs.data).not.toHaveProperty('longitude');
+    });
+
+    it('records exactly one SOS_RETRIGGERED timeline event with the new position', async () => {
+      primeActivation();
+      const existing = {
+        id: 'incident-existing',
+        createdAt: new Date(Date.now() - 20_000),
+        retriggerCount: 0,
+      };
+      prisma.incident.findFirst.mockResolvedValue(existing);
+      prisma.incident.update.mockResolvedValue({
+        ...existing,
+        retriggerCount: 1,
+      });
+
+      await service.createCoordinatedIncident('user-123', {
+        ...activationDto,
+        latitude: 7.1234,
+        longitude: 4.5678,
+      });
+
+      const retriggerEvents = timelineService.recordEvent.mock.calls.filter(
+        (call: unknown[]) =>
+          (call[0] as { type: string }).type === 'SOS_RETRIGGERED',
+      );
+      expect(retriggerEvents).toHaveLength(1);
+
+      const event = retriggerEvents[0][0] as {
+        incidentId: string;
+        payload: Record<string, unknown>;
+      };
+      expect(event.incidentId).toBe('incident-existing');
+      expect(event.payload).toEqual(
+        expect.objectContaining({
+          triggerMethod: activationDto.triggerType,
+          latitude: 7.1234,
+          longitude: 4.5678,
+          retriggerCount: 1,
+          dedupeWindowSeconds: 60,
+          retriggeredAt: expect.any(String),
+          secondsSinceInitialTrigger: expect.any(Number),
+        }),
+      );
+    });
+
+    it('scopes the duplicate lookup to the triggering user and OPEN incidents', async () => {
+      primeActivation();
+      prisma.incident.findFirst.mockResolvedValue(null);
+      incidentsService.create.mockResolvedValue({
+        id: 'incident-new',
+        createdAt: new Date(),
+        retriggerCount: 0,
+      });
+
+      await service.createCoordinatedIncident('user-123', activationDto);
+
+      const findArgs = prisma.incident.findFirst.mock.calls[0][0];
+      expect(findArgs.where.userId).toBe('user-123');
+      expect(findArgs.where.status).toBe('OPEN');
+      expect(findArgs.where.lastTriggeredAt.gte).toBeInstanceOf(Date);
+    });
+
+    it('creates a new incident when the previous trigger is outside the window', async () => {
+      primeActivation();
+      // findFirst applies the cutoff, so an out-of-window incident simply is
+      // not returned.
+      prisma.incident.findFirst.mockResolvedValue(null);
+      incidentsService.create.mockResolvedValue({
+        id: 'incident-second',
+        createdAt: new Date(),
+        retriggerCount: 0,
+      });
+
+      const result = await service.createCoordinatedIncident(
+        'user-123',
+        activationDto,
+      );
+
+      expect(result.status).toBe('INCIDENT_ACTIVATED');
+      expect(incidentsService.create).toHaveBeenCalledTimes(1);
+    });
   });
 });

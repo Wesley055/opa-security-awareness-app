@@ -86,36 +86,39 @@ model User {
   incidents         Incident[]
   emergencyContacts EmergencyContact[]
 
-  facilityId        String?            @db.Uuid
-  facility          Facility?          @relation("FacilityStaff", fields: [facilityId], references: [id])
+  facilityId String?   @db.Uuid
+  facility   Facility? @relation("FacilityStaff", fields: [facilityId], references: [id])
 
   @@index([phoneNumber])
   @@index([facilityId])
 }
 
 model Incident {
-  id             String          @id @default(uuid()) @db.Uuid
-  userId         String          @db.Uuid
-  user           User            @relation(fields: [userId], references: [id], onDelete: Restrict)
-  trigger        IncidentTrigger
-  status         IncidentStatus  @default(OPEN)
-  latitude       Decimal         @db.Decimal(9, 6)
-  longitude      Decimal         @db.Decimal(9, 6)
-  address        String?
-  voicePhrase    String?
-  trustedContact Json?
-  metadata       Json?
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  resolvedAt     DateTime?
+  id              String          @id @default(uuid()) @db.Uuid
+  userId          String          @db.Uuid
+  user            User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  trigger         IncidentTrigger
+  status          IncidentStatus  @default(OPEN)
+  latitude        Decimal         @db.Decimal(9, 6)
+  longitude       Decimal         @db.Decimal(9, 6)
+  address         String?
+  voicePhrase     String?
+  trustedContact  Json?
+  metadata        Json?
+  lastTriggeredAt DateTime?
+  retriggerCount  Int             @default(0)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  resolvedAt      DateTime?
 
-  facilityId     String?         @db.Uuid
-  facility       Facility?       @relation(fields: [facilityId], references: [id])
+  facilityId String?   @db.Uuid
+  facility   Facility? @relation(fields: [facilityId], references: [id])
 
   timelineEvents IncidentTimelineEvent[]
   notifications  IncidentNotification[]
   evidence       Evidence[]
 
+  @@index([userId, status, lastTriggeredAt])
   @@index([userId, createdAt])
   @@index([status, createdAt])
   @@index([facilityId, status])
@@ -139,22 +142,22 @@ model EmergencyContact {
 }
 
 model IncidentTimelineEvent {
-  id            String   @id @default(uuid()) @db.Uuid
-  incidentId    String   @db.Uuid
-  incident      Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  id         String   @id @default(uuid()) @db.Uuid
+  incidentId String   @db.Uuid
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
 
   sequence      Int
   type          String
   payload       Json?
   source        String
-  actorUserId   String?  @db.Uuid
+  actorUserId   String? @db.Uuid
   correlationId String?
 
-  occurredAt    DateTime
-  recordedAt    DateTime @default(now())
+  occurredAt DateTime
+  recordedAt DateTime @default(now())
 
-  previousHash  String?
-  hash          String
+  previousHash String?
+  hash         String
 
   @@unique([incidentId, sequence])
   @@index([incidentId, occurredAt])
@@ -163,31 +166,31 @@ model IncidentTimelineEvent {
 }
 
 model IncidentNotification {
-  id                String              @id @default(uuid()) @db.Uuid
-  incidentId        String              @db.Uuid
-  incident          Incident            @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  id         String   @id @default(uuid()) @db.Uuid
+  incidentId String   @db.Uuid
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
 
-  contactId         String?             @db.Uuid
-  contactName       String
-  contactType       String
-  recipient         String
-  channel           NotificationChannel
-  status            NotificationStatus
+  contactId   String?             @db.Uuid
+  contactName String
+  contactType String
+  recipient   String
+  channel     NotificationChannel
+  status      NotificationStatus
 
   provider          String?
   providerMessageId String?
-  attemptCount      Int                 @default(0)
+  attemptCount      Int     @default(0)
   lastError         String?
   payload           Json?
 
-  queuedAt          DateTime            @default(now())
-  sentAt            DateTime?
-  deliveredAt       DateTime?
-  acknowledgedAt    DateTime?
-  failedAt          DateTime?
-  cancelledAt       DateTime?
-  createdAt         DateTime            @default(now())
-  updatedAt         DateTime            @updatedAt
+  queuedAt       DateTime  @default(now())
+  sentAt         DateTime?
+  deliveredAt    DateTime?
+  acknowledgedAt DateTime?
+  failedAt       DateTime?
+  cancelledAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
 
   @@index([incidentId, queuedAt])
   @@index([status, queuedAt])
@@ -207,17 +210,17 @@ model Facility {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
-  staff       User[]       @relation("FacilityStaff")
-  incidents   Incident[]
+  staff     User[]     @relation("FacilityStaff")
+  incidents Incident[]
 
   @@index([type, isActive])
   @@index([latitude, longitude])
 }
 
 model Evidence {
-  id              String         @id @default(uuid()) @db.Uuid
-  incidentId      String         @db.Uuid
-  incident        Incident       @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  id         String   @id @default(uuid()) @db.Uuid
+  incidentId String   @db.Uuid
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
 
   type            EvidenceType
   status          EvidenceStatus @default(PENDING)
@@ -227,12 +230,12 @@ model Evidence {
   sha256          String?
   encryptionKeyId String?
 
-  capturedAt      DateTime?
-  uploadedAt      DateTime?
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  capturedAt DateTime?
+  uploadedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
+  @@unique([incidentId, sha256])
   @@index([incidentId, createdAt])
   @@index([status, createdAt])
-  @@unique([incidentId, sha256])
 }

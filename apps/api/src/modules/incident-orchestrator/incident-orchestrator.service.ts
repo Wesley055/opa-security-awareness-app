@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { IncidentTrigger, NotificationStatus } from '@prisma/client';
+import { IncidentStatus, IncidentTrigger, NotificationStatus } from '@prisma/client';
 import { EmergencyContactsService } from '../emergency-contacts/emergency-contacts.service';
 import {
   EmergencyTriggerType,
@@ -157,10 +157,59 @@ export class IncidentOrchestratorService {
 
     // Durable-intent write: incident + QUEUED notification rows commit
     // atomically. If this commits, notifications will not be lost even if
-    // the process crashes before the synchronous send below runs. Each row
-    // carries a self-contained payload so the dispatch worker can deliver it
-    // without re-querying incident or user data.
-    const incident = await this.prisma.$transaction(async (tx) => {
+    // the process crashes. Each row carries a self-contained payload so the
+    // dispatch worker can deliver it without re-querying incident or user
+    // data.
+    //
+    // DEDUPLICATION: a panicking user may tap SOS several times. Without a
+    // guard that creates several incidents and several full sets of alerts
+    // for ONE emergency. A per-user advisory lock serialises concurrent
+    // activations so two simultaneous taps cannot both pass the "is there a
+    // recent incident" check.
+    const dedupeWindowSeconds = Number(
+      process.env.SOS_DEDUPE_WINDOW_SECONDS ?? 60,
+    );
+
+    const activation = await this.prisma.$transaction(async (tx) => {
+      // Serialise activations for THIS user only. Different users never
+      // block each other.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+
+      const cutoff = new Date(Date.now() - dedupeWindowSeconds * 1000);
+      const recent = await tx.incident.findFirst({
+        where: {
+          userId,
+          status: IncidentStatus.OPEN,
+          lastTriggeredAt: { gte: cutoff },
+        },
+        orderBy: { lastTriggeredAt: 'desc' },
+      });
+
+      if (recent) {
+        // Re-trigger of an emergency already in flight. Do NOT create a
+        // second incident and do NOT queue duplicate notifications, but do
+        // record that it happened - repeated taps may signal rising distress.
+        //
+        // The incident's own latitude/longitude are deliberately NOT
+        // overwritten: they are the immutable origin of the emergency (where
+        // an abduction began). The new coordinates are recorded on the
+        // timeline instead, and continuous movement becomes a proper location
+        // stream in Sprint 10B.
+        const retriggeredAt = new Date();
+        const updated = await tx.incident.update({
+          where: { id: recent.id },
+          data: {
+            lastTriggeredAt: retriggeredAt,
+            retriggerCount: { increment: 1 },
+          },
+        });
+        return {
+          incident: updated,
+          deduplicated: true as const,
+          retriggeredAt,
+        };
+      }
+
       const created = await this.incidentsService.create(
         userId,
         {
@@ -204,8 +253,57 @@ export class IncidentOrchestratorService {
         })),
       });
 
-      return created;
+      return {
+        incident: created,
+        deduplicated: false as const,
+        retriggeredAt: null,
+      };
     });
+
+    const incident = activation.incident;
+
+    if (activation.deduplicated) {
+      const retriggeredAt = activation.retriggeredAt ?? new Date();
+      const secondsSinceInitialTrigger = Math.round(
+        (retriggeredAt.getTime() - incident.createdAt.getTime()) / 1000,
+      );
+
+      await this.timelineService.recordEvent({
+        incidentId: incident.id,
+        type: 'SOS_RETRIGGERED',
+        source: 'INCIDENT_ORCHESTRATOR',
+        actorUserId: userId,
+        payload: {
+          triggerMethod: dto.triggerType,
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          retriggerCount: incident.retriggerCount,
+          secondsSinceInitialTrigger,
+          dedupeWindowSeconds,
+          retriggeredAt: retriggeredAt.toISOString(),
+        },
+      });
+
+      return {
+        status: 'INCIDENT_RETRIGGERED',
+        incident,
+        detection,
+        intelligence,
+        deduplicated: true,
+        retriggerCount: incident.retriggerCount,
+        notifications: {
+          queued: 0,
+          dispatched: false,
+        },
+        coordination: {
+          trackingUrl: buildTrackingUrl(incident.id),
+          silentMode: detection.outcome.isSilent,
+          confidenceScore: detection.outcome.confidenceScore,
+          confidenceLevel: detection.outcome.confidenceLevel,
+          generatedAt: new Date().toISOString(),
+        },
+      };
+    }
 
     await this.timelineService.recordEvent({
       incidentId: incident.id,

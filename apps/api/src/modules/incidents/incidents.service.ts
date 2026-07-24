@@ -26,6 +26,8 @@ export class IncidentsService {
         longitude: dto.longitude,
         address: dto.address,
         voicePhrase: dto.voicePhrase,
+        // Initialised so the SOS dedupe window can find this incident.
+        lastTriggeredAt: new Date(),
         metadata: {
           redisDispatchPrepared: true,
           notificationFanoutPrepared: true,

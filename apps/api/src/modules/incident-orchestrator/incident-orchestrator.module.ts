@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { IncidentAccessModule } from '../incident-access/incident-access.module';
 import { EmergencyContactsModule } from '../emergency-contacts/emergency-contacts.module';
 import { EmergencyDetectionModule } from '../emergency-detection/emergency-detection.module';
 import { EmergencyIntelligenceModule } from '../emergency-intelligence/emergency-intelligence.module';
@@ -19,6 +20,7 @@ import { IncidentOrchestratorService } from './incident-orchestrator.service';
     NotificationModule,
     UsersModule,
     IncidentTimelineModule,
+    IncidentAccessModule,
   ],
   controllers: [IncidentOrchestratorController],
   providers: [IncidentOrchestratorService],

@@ -6,6 +6,7 @@ import { EmergencyIntelligenceService } from '../emergency-intelligence/emergenc
 import { IncidentTimelineService } from '../incident-timeline/incident-timeline.service';
 import { IncidentsService } from '../incidents/incidents.service';
 import { PrismaService } from '../../prisma/prisma.service';
+import { IncidentAccessTokenService } from '../incident-access/incident-access-token.service';
 import { NotificationService } from '../notifications/notification.service';
 import { UsersService } from '../users/users.service';
 import { IncidentOrchestratorService } from './incident-orchestrator.service';
@@ -40,6 +41,10 @@ describe('IncidentOrchestratorService', () => {
   const timelineService = {
     recordEvent: jest.fn(),
   };
+  const accessTokenService = {
+    issue: jest.fn(),
+  };
+
   const prisma = {
     $transaction: jest.fn(),
     $executeRaw: jest.fn(),
@@ -59,6 +64,10 @@ describe('IncidentOrchestratorService', () => {
     prisma.$executeRaw.mockResolvedValue(1);
     // Default: no recent incident, so the normal creation path runs.
     prisma.incident.findFirst.mockResolvedValue(null);
+    accessTokenService.issue.mockResolvedValue({
+      token: 'test-token-value',
+      record: { id: 'token-row-1' },
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -94,6 +103,10 @@ describe('IncidentOrchestratorService', () => {
         {
           provide: PrismaService,
           useValue: prisma,
+        },
+        {
+          provide: IncidentAccessTokenService,
+          useValue: accessTokenService,
         },
       ],
     }).compile();
@@ -308,6 +321,10 @@ describe('IncidentOrchestratorService', () => {
     it('creates a new incident when no recent incident exists', async () => {
       primeActivation();
       prisma.incident.findFirst.mockResolvedValue(null);
+    accessTokenService.issue.mockResolvedValue({
+      token: 'test-token-value',
+      record: { id: 'token-row-1' },
+    });
       incidentsService.create.mockResolvedValue({
         id: 'incident-new',
         createdAt: new Date(),
@@ -328,6 +345,10 @@ describe('IncidentOrchestratorService', () => {
     it('acquires a per-user advisory lock before checking for duplicates', async () => {
       primeActivation();
       prisma.incident.findFirst.mockResolvedValue(null);
+    accessTokenService.issue.mockResolvedValue({
+      token: 'test-token-value',
+      record: { id: 'token-row-1' },
+    });
       incidentsService.create.mockResolvedValue({
         id: 'incident-new',
         createdAt: new Date(),
@@ -505,6 +526,10 @@ describe('IncidentOrchestratorService', () => {
     it('scopes the duplicate lookup to the triggering user and OPEN incidents', async () => {
       primeActivation();
       prisma.incident.findFirst.mockResolvedValue(null);
+    accessTokenService.issue.mockResolvedValue({
+      token: 'test-token-value',
+      record: { id: 'token-row-1' },
+    });
       incidentsService.create.mockResolvedValue({
         id: 'incident-new',
         createdAt: new Date(),
@@ -524,6 +549,10 @@ describe('IncidentOrchestratorService', () => {
       // findFirst applies the cutoff, so an out-of-window incident simply is
       // not returned.
       prisma.incident.findFirst.mockResolvedValue(null);
+    accessTokenService.issue.mockResolvedValue({
+      token: 'test-token-value',
+      record: { id: 'token-row-1' },
+    });
       incidentsService.create.mockResolvedValue({
         id: 'incident-second',
         createdAt: new Date(),

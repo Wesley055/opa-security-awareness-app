@@ -28,8 +28,17 @@ export type NotificationPayloadV1 = {
  * orchestrator (inside the transaction, from the newly created incident id)
  * and anywhere else the link is needed.
  */
-export function buildTrackingUrl(incidentId: string): string {
-  return `https://opasafety.com/incidents/${incidentId}`;
+/**
+ * Branded so an incident id cannot be passed where a token is expected.
+ * Both are strings, and the compiler would otherwise accept either - which
+ * would silently produce tracking links that can never resolve.
+ */
+export type IncidentAccessTokenValue = string & {
+  readonly __brand: 'IncidentAccessToken';
+};
+
+export function buildTrackingUrl(accessToken: IncidentAccessTokenValue): string {
+  return `https://opasafety.com/i/${accessToken}`;
 }
 
 /**

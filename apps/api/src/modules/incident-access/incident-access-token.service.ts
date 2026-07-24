@@ -3,6 +3,7 @@ import { IncidentStatus, TrackingAccessScope } from '@prisma/client';
 import type { Incident, IncidentAccessToken, Prisma } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import type { IncidentAccessTokenValue } from '../notifications/notification-payload';
 
 /**
  * 128 bits of entropy, base64url encoded (~22 characters).
@@ -28,7 +29,7 @@ const RENEWAL_WINDOW_MS = 60 * 60 * 1000;
 
 export type TokenIssueResult = {
   /** The RAW token. Returned exactly once, for the outbound link. Never stored. */
-  token: string;
+  token: IncidentAccessTokenValue;
   record: IncidentAccessToken;
 };
 
@@ -79,7 +80,9 @@ export class IncidentAccessTokenService {
     tx?: Prisma.TransactionClient,
   ): Promise<TokenIssueResult> {
     const db = tx ?? this.prisma;
-    const token = randomBytes(TOKEN_BYTES).toString('base64url');
+    const token = randomBytes(TOKEN_BYTES).toString(
+      'base64url',
+    ) as IncidentAccessTokenValue;
     const now = Date.now();
 
     const record = await db.incidentAccessToken.create({

@@ -20,6 +20,7 @@ import {
 import { UsersService } from '../users/users.service';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { IncidentAccessTokenService } from '../incident-access/incident-access-token.service';
 import type { CreateIncidentRequestDto } from './dto/create-incident-request.dto';
 
 export interface NotificationTaskResult {
@@ -40,6 +41,7 @@ export class IncidentOrchestratorService {
     private readonly usersService: UsersService,
     private readonly timelineService: IncidentTimelineService,
     private readonly prisma: PrismaService,
+    private readonly accessTokenService: IncidentAccessTokenService,
   ) {}
 
   async createCoordinatedIncident(
@@ -207,6 +209,7 @@ export class IncidentOrchestratorService {
           incident: updated,
           deduplicated: true as const,
           retriggeredAt,
+          trackingUrl: null,
         };
       }
 
@@ -230,7 +233,16 @@ export class IncidentOrchestratorService {
 
       // The tracking URL needs the new incident id, so it is built here.
       // Pure string work - no IO inside the transaction.
-      const incidentTrackingUrl = buildTrackingUrl(created.id);
+      // Issue the capability token the tracking link will carry, inside the
+      // same transaction: if the incident commits, so does its tracking link.
+      // The RAW token is returned once here and never stored - only its hash
+      // is persisted, so it cannot be recovered later.
+      const { token: trackingToken } = await this.accessTokenService.issue(
+        created.id,
+        undefined,
+        tx,
+      );
+      const incidentTrackingUrl = buildTrackingUrl(trackingToken);
 
       await tx.incidentNotification.createMany({
         data: notificationRows.map((row) => ({
@@ -257,6 +269,7 @@ export class IncidentOrchestratorService {
         incident: created,
         deduplicated: false as const,
         retriggeredAt: null,
+        trackingUrl: incidentTrackingUrl,
       };
     });
 
@@ -296,7 +309,10 @@ export class IncidentOrchestratorService {
           dispatched: false,
         },
         coordination: {
-          trackingUrl: buildTrackingUrl(incident.id),
+          // No tracking URL on a retrigger: only the token HASH is stored, so
+          // the original link cannot be reconstructed. The family already has
+          // a working link and no new notification is being sent.
+          trackingUrl: null,
           silentMode: detection.outcome.isSilent,
           confidenceScore: detection.outcome.confidenceScore,
           confidenceLevel: detection.outcome.confidenceLevel,
@@ -328,7 +344,10 @@ export class IncidentOrchestratorService {
       },
     });
 
-    const trackingUrl = buildTrackingUrl(incident.id);
+    // The tracking link built from the token issued inside the transaction.
+    // The raw token exists only here and in the outbound message - it cannot
+    // be recovered from the database later.
+    const trackingUrl = activation.trackingUrl;
 
     // Notifications are dispatched exclusively by NotificationDispatchWorker,
     // which claims the QUEUED rows written in the transaction above. The

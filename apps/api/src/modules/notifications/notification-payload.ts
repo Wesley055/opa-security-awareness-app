@@ -56,7 +56,7 @@ export function buildEmergencyMessage(params: {
   return (
     `OPA ALERT: ${params.personName} may be in danger. ` +
     `Location: ${params.location}. ` +
-    `Track live: ${params.trackingUrl}`
+    `View alert: ${params.trackingUrl}`
   );
 }
 

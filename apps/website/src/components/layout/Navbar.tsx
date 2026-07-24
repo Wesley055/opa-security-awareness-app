@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LogoMark } from "../brand/Logo";
 
 export function Navbar() {
   return (
@@ -6,9 +7,9 @@ export function Navbar() {
       <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
         <Link
           href="/"
-          className="flex items-center gap-2 font-display text-lg font-extrabold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-protection focus-visible:ring-offset-2 focus-visible:ring-offset-base rounded-sm"
+          className="flex items-center gap-2.5 font-display text-lg font-extrabold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-protection focus-visible:ring-offset-2 focus-visible:ring-offset-base rounded-sm"
         >
-          <span className="h-2 w-2 rounded-full bg-protection" />
+          <LogoMark size={28} />
           OPA
         </Link>
         <nav className="hidden items-center gap-8 text-sm text-muted sm:flex">
@@ -16,6 +17,7 @@ export function Navbar() {
           <Link href="/#how-it-works" className="transition-colors hover:text-protection">How it works</Link>
           <Link href="/#trust" className="transition-colors hover:text-protection">Privacy &amp; security</Link>
           <Link href="/hospitals" className="transition-colors hover:text-protection">For hospitals</Link>
+          <Link href="/careers" className="transition-colors hover:text-protection">Careers</Link>
           <Link href="/contact" className="transition-colors hover:text-protection">Contact</Link>
         </nav>
         <Link

@@ -114,6 +114,7 @@ model Incident {
   facilityId String?   @db.Uuid
   facility   Facility? @relation(fields: [facilityId], references: [id])
 
+  accessTokens   IncidentAccessToken[]
   timelineEvents IncidentTimelineEvent[]
   notifications  IncidentNotification[]
   evidence       Evidence[]
@@ -238,4 +239,39 @@ model Evidence {
   @@unique([incidentId, sha256])
   @@index([incidentId, createdAt])
   @@index([status, createdAt])
+}
+
+enum TrackingAccessScope {
+  FAMILY_BEARER
+  VERIFIED_CONTACT
+  AUTHORIZED_RESPONDER
+}
+
+/// Capability token granting read-only access to an incident tracking page.
+/// Only the SHA-256 hash is stored - the raw token exists solely in the
+/// message sent to the recipient. See docs/architecture/decision-log.md
+/// ADR-008.
+model IncidentAccessToken {
+  id             String              @id @default(uuid()) @db.Uuid
+  incidentId     String              @db.Uuid
+  incident       Incident            @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  /// SHA-256 hex digest, always 64 characters.
+  tokenHash      String              @unique @db.VarChar(64)
+  scope          TrackingAccessScope @default(FAMILY_BEARER)
+  /// Extended by the renewal job while the incident is OPEN. NEVER extended
+  /// by page visits - that would let a leaked link stay alive by viewing it.
+  expiresAt      DateTime
+  /// Hard ceiling from issuance. Never extended, for any reason.
+  absoluteExpiry DateTime
+  revokedAt      DateTime?
+  /// Access telemetry, so an unusually widely-viewed link can be spotted and
+  /// revoked. Deliberately no IP or user agent here - that belongs in a
+  /// separate append-only access log if it is ever needed.
+  lastAccessedAt DateTime?
+  accessCount    Int                 @default(0)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([incidentId, revokedAt])
+  @@index([expiresAt])
 }

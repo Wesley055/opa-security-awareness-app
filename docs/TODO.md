@@ -895,3 +895,103 @@ careful to hold. Use obviously-fictional placeholders instead.
       URL with expiry, or authenticated.
   [ ] Short incident links - fixes SMS cost (currently 2 segments),
       readability, and forces the auth decision.
+
+## ============================================================
+## SPRINT 10A - TRACKING ENDPOINT: ARCHITECTURE + GAPS
+## Recorded 24 July 2026
+## ============================================================
+
+### DECIDED: transport architecture (extends ADR-008)
+NestJS owns the tracking JSON API. Next.js owns /i/[token] and calls NestJS
+SERVER-SIDE. The browser never calls Azure directly.
+
+    Family opens  https://opasafety.com/i/<token>
+        -> Next.js page (server-side fetch)
+            -> Azure NestJS  GET /public/tracking/<token>
+
+    Live polling  GET https://opasafety.com/api/tracking/<token>
+        -> Next.js Route Handler (server-side)
+            -> Azure NestJS
+
+Why not the alternatives:
+  - NestJS rendering HTML: mixes API and presentation, complicates
+    deployment, makes the tracking UI harder to build.
+  - Browser calling Azure directly: puts CORS configuration on the critical
+    emergency path, couples the API hostname to frontend code, requires
+    extra allowed origins for every preview deployment, and exposes
+    infrastructure detail through client-side polling.
+
+Server-to-server calls need no browser CORS at all.
+
+### DECIDED: response contract
+    GET /public/tracking/:token
+
+    VALID           -> incident payload
+    EXPIRED         -> incident: null
+    REVOKED         -> incident: null
+    INCIDENT_CLOSED -> closed incident summary
+    NOT_FOUND       -> 404, generic body, no detail
+
+State precedence, deliberately in this order:
+  1. not found
+  2. revoked      (an explicit access-control decision outranks everything)
+  3. incident closed  (a family opening an old link benefits more from
+                       learning the emergency ended than from "link expired")
+  4. expired
+  5. valid
+
+recordAccess() is called ONLY after a VALID result. Expired, revoked, closed
+and unknown links must not pollute access telemetry.
+
+Never expose: token records, token hashes, user ids, notification ids,
+internal notes, or raw database objects.
+
+### *** BLOCKER: raw tokens will be written to application logs ***
+The existing HTTP logging middleware logs the request path:
+    {"event":"http_request","path":"/incident-orchestrator/activate",...}
+
+Once /public/tracking/<token> exists, every request writes a WORKING
+capability token into the logs. Anyone with log access - Azure diagnostics,
+a support tool, a shipped log aggregator - would hold live tracking links to
+real emergencies.
+
+MUST be fixed BEFORE the endpoint ships:
+  [ ] Redact the token segment in the HTTP logger, e.g. log
+      /public/tracking/<redacted>, or exclude the route from path logging.
+  [ ] After resolution, log the token RECORD ID or incident id - never the
+      raw :token parameter.
+  [ ] Audit any other place request paths are captured (error handlers,
+      correlation-id middleware, Application Insights when enabled).
+
+### REQUIRED HTTP HEADERS on the tracking API and page
+  [ ] Cache-Control: no-store, private
+  [ ] Referrer-Policy: no-referrer
+        Without this, following any outbound link from the tracking page
+        leaks the token in the Referer header to a third party.
+  [ ] X-Robots-Tag: noindex, nofollow, noarchive
+        A tracking link pasted into a public forum must not be indexed.
+
+### BUILD ORDER
+  1. GET /public/tracking/:token in NestJS, with tests
+  2. Lock the public DTO and state behaviour
+  3. opasafety.com/i/[token] in Next.js
+  4. Same-origin Next.js Route Handler for browser polling
+  5. Azure API base URL as a SERVER-ONLY env var (not NEXT_PUBLIC_)
+
+### SMALLER GAPS FOUND THIS SESSION
+  [ ] Jest teardown warning: "A worker process has failed to exit
+      gracefully." Almost certainly NotificationDispatchWorker's
+      @Interval(2000) timer outliving the test run. Harmless now; fix with
+      .unref() or by stopping the scheduler in teardown.
+  [ ] SMS character-count guard. The alert message is currently 154 chars
+      with the name "Charles Haynes" - under the 160 single-segment limit,
+      but only just. A longer name pushes it to two segments and doubles the
+      cost silently. Add a test that fails if the rendered template exceeds
+      one segment for a realistic long name.
+  [ ] buildTrackingUrl doc comment still describes the old incident-id
+      behaviour; the CRLF replace missed it. Cosmetic.
+  [ ] Retrigger responses return trackingUrl: null by design - only the
+      token hash is stored, so the original link cannot be reconstructed.
+      If the tracking page ever needs a link on retrigger, the answer is to
+      look up the live token RECORD and issue a fresh token, not to store
+      the raw value.

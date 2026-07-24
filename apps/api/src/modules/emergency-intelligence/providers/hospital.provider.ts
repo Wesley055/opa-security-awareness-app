@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { DataConfidence } from '../data-confidence';
 
 export interface Hospital {
   id: string;
@@ -17,6 +18,7 @@ export interface Hospital {
 @Injectable()
 export class HospitalProvider {
   readonly providerName = 'MockHospitalProvider';
+  readonly dataConfidence: DataConfidence = 'MOCK';
 
   async findNearbyHospitals(
     latitude: number,

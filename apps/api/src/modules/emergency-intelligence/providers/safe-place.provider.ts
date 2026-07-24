@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { DataConfidence } from '../data-confidence';
 
 export type SafePlaceType =
   | 'POLICE_STATION'
@@ -27,6 +28,7 @@ export interface SafePlace {
 @Injectable()
 export class SafePlaceProvider {
   readonly providerName = 'MockSafePlaceProvider';
+  readonly dataConfidence: DataConfidence = 'MOCK';
 
   async findNearbySafePlaces(
     latitude: number,

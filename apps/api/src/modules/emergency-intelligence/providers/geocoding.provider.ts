@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { DataConfidence } from '../data-confidence';
 
 export interface GeocodingResult {
   latitude: number;
@@ -18,6 +19,7 @@ export interface GeocodingResult {
 @Injectable()
 export class GeocodingProvider {
   readonly providerName = 'MockGeocodingProvider';
+  readonly dataConfidence: DataConfidence = 'MOCK';
 
   async reverseGeocode(
     latitude: number,

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { DataConfidence } from '../data-confidence';
 
 export type CardinalDirection =
   | 'NORTH'
@@ -36,6 +37,7 @@ export interface NearbyPlace {
 @Injectable()
 export class PlacesProvider {
   readonly providerName = 'MockPlacesProvider';
+  readonly dataConfidence: DataConfidence = 'MOCK';
 
   async findNearbyPlaces(
     latitude: number,

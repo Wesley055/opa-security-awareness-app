@@ -8,6 +8,7 @@ import { PlacesProvider } from './providers/places.provider';
 import { PoliceProvider } from './providers/police.provider';
 import { RoutingProvider } from './providers/routing.provider';
 import { SafePlaceProvider } from './providers/safe-place.provider';
+import { ProviderConfidenceValidator } from './provider-confidence.validator';
 
 @Module({
   controllers: [EmergencyIntelligenceController],
@@ -20,6 +21,7 @@ import { SafePlaceProvider } from './providers/safe-place.provider';
     SafePlaceProvider,
     DeviceProvider,
     RoutingProvider,
+    ProviderConfidenceValidator,
   ],
   exports: [EmergencyIntelligenceService],
 })

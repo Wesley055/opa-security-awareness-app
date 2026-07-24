@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { DataConfidence } from '../data-confidence';
 
 export interface RouteOption {
   id: string;
@@ -19,6 +20,7 @@ export interface RouteOption {
 @Injectable()
 export class RoutingProvider {
   readonly providerName = 'MockRoutingProvider';
+  readonly dataConfidence: DataConfidence = 'MOCK';
 
   async buildSafeRoutes(): Promise<RouteOption[]> {
     return [

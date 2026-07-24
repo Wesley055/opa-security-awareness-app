@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import type { DataConfidence } from '../data-confidence';
 
 export interface DeviceIntelligence {
   batteryLevel?: number;
@@ -29,6 +30,7 @@ export interface DeviceIntelligenceInput {
 @Injectable()
 export class DeviceProvider {
   readonly providerName = 'DeviceTelemetryProvider';
+  readonly dataConfidence: DataConfidence = 'PRODUCTION';
 
   buildDeviceIntelligence(
     input: DeviceIntelligenceInput,

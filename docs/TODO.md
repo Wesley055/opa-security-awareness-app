@@ -839,3 +839,59 @@ examples. Those are the MOCK geocoder's fabricated outputs, returned
 for every coordinate on earth. Using them as illustrations of future
 production behaviour blurs exactly the line this project has been
 careful to hold. Use obviously-fictional placeholders instead.
+
+## ============================================================
+## PRE-SPRINT 10 INTEGRITY WORK - COMPLETE (24 July 2026)
+## ============================================================
+
+### DONE: SOS deduplication (commit 325d309)
+  - Incident gains lastTriggeredAt + retriggerCount, plus an index on
+    (userId, status, lastTriggeredAt).
+  - Per-user pg_advisory_xact_lock inside the transaction serialises
+    concurrent activations, so two simultaneous taps cannot both pass
+    the "is there a recent incident" check.
+  - Configurable window: SOS_DEDUPE_WINDOW_SECONDS (default 60).
+  - A retrigger updates the existing incident, records SOS_RETRIGGERED
+    with the NEW coordinates, and queues ZERO extra notifications.
+  - Incident origin coordinates are deliberately NOT overwritten: they
+    are where the emergency began (e.g. an abduction point). Movement
+    belongs in a location stream (Sprint 10B), not smeared over origin.
+  - Response distinguishes INCIDENT_RETRIGGERED from INCIDENT_ACTIVATED.
+  - 10 unit tests + LIVE verification against real Postgres: two
+    concurrent HTTP requests produced ONE incident, queued 4 then 0,
+    and dispatched 4 notifications total (was 2 incidents / 8 before).
+
+### DONE: Mock provider gating (commit 1a9c242)
+  - DataConfidence type (MOCK | VERIFIED | PRODUCTION) and an
+    IntelligenceProvider interface all providers implement, so a new
+    provider cannot silently omit its confidence level.
+  - All 7 providers declare it: 6 MOCK, DeviceTelemetryProvider
+    PRODUCTION.
+  - ProviderConfidenceValidator refuses to boot if any provider is MOCK
+    unless OPA_ALLOW_MOCK_PROVIDERS=true is explicitly set.
+  - Gated by an explicit opt-IN flag rather than NODE_ENV, because
+    staging / UAT / demo environments are shown to real pilot partners
+    and must be held to the same standard. Forgetting the flag fails
+    CLOSED.
+  - Verified both ways: warns and boots with the flag; refuses to start
+    and names all six offenders without it.
+
+### *** DEPLOYMENT CONSEQUENCE - READ BEFORE NEXT AZURE DEPLOY ***
+  .env is not tracked, so Azure has no OPA_ALLOW_MOCK_PROVIDERS.
+  THE NEXT PRODUCTION DEPLOY WILL REFUSE TO START. That is the guard
+  working as designed - six providers still return fabricated data.
+  This is deliberate and should NOT be "fixed" by setting the flag in
+  Azure. The correct fix is to replace the mock providers, or gate the
+  intelligence block out of the API response entirely, before the next
+  deploy. A deploy that fails loudly is far better than one that
+  quietly serves invented hospital locations to a pilot partner.
+
+### REMAINING BEFORE SPRINT 10A
+  [ ] Replace mock geocoder with a real provider (or gate intelligence
+      out of the response) - now enforced by the validator.
+  [ ] Portal authentication model - /incidents/<uuid> has no stated auth
+      model and the link is sent by SMS to family who will forward it.
+      Decide before the portal exists: public-but-unguessable, signed
+      URL with expiry, or authenticated.
+  [ ] Short incident links - fixes SMS cost (currently 2 segments),
+      readability, and forces the auth decision.

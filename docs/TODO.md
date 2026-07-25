@@ -344,7 +344,38 @@ can help connect you with trusted contacts or transportation."
       "OPA" wordmark). Badge at nav size may be muddy - consider a clean
       small mark or keep refined wordmark. Also favicon + footer logo.
 
-## Dispatch-hardening â€” Phase 1 design (analysis DONE, implementation NOT started)
+## Dispatch-hardening - STATUS CORRECTED 25 July 2026, verified against real code
+
+Phase 1 (transactional outbox + SOS dedup via advisory lock): DONE, confirmed
+in incident-orchestrator.service.ts - incident + QUEUED IncidentNotification
+rows created atomically, network calls correctly kept out of the tx.
+Phase 2a/2b (scheduler + atomic claimNextQueued): DONE, confirmed in
+notification-dispatch.worker.ts, with real unit tests.
+Phase 2c-1 (durable JSON payload on the outbox row): DONE, confirmed -
+orchestrator builds and stores payload via buildNotificationPayload() at
+incident-creation time.
+Phase 2c-2 (dispatchNotification() - the claimed-row dispatcher): DONE,
+confirmed in notification.service.ts:235, with an extensive real test file
+(notification.service.dispatch.spec.ts) covering missing notification,
+wrong status, missing payload, and success/failure paths.
+
+REMAINING - Phase 2c-3 ONLY (the final cutover, not yet done):
+  [ ] Remove the synchronous sendOne/Promise.all block from the orchestrator
+      - the worker + dispatchNotification() already do real dispatch; the
+        synchronous path is now a redundant safety net, not a placeholder.
+  [ ] Move CONTACT_NOTIFIED timeline writes into the worker/dispatcher path
+      (they should fire when the worker actually sends, not synchronously).
+  [ ] Update orchestrator response shape: notifications: { queued: N } only
+      - drop contactsNotified/notifications-as-sent, since sends are async.
+  [ ] Update incident-orchestrator.service.spec.ts: assert createMany with N
+      rows and that sendEmergencyAlert is NOT called from the orchestrator,
+      instead of asserting synchronous send counts.
+  [ ] Build + run full test suite + commit as its own change.
+
+CONSEQUENCE FOR REVENUE RELEASE 1 (Command Center MVP): both engineering
+gates (dispatch hardening, Sprint 10A) are now substantially satisfied.
+Sprint 10C (real location-intelligence providers) remains the genuine
+blocker to any production deployment - see SPRINT_ROADMAP.md.
 
 CONTEXT: Making OPA's emergency notifications durable (crash-safe) via an
 outbox pattern. The Redis foundation (committed 44ff065) is the future
@@ -1087,3 +1118,4 @@ The ambition is legitimate and can be stated honestly:
    toward coordinated emergency response."
 Direction, clearly labelled as direction, costs nothing in honesty. A
 capability claim to someone in danger costs everything.
+

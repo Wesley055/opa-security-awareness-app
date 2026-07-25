@@ -1,4 +1,4 @@
-# OPA - Sprint Roadmap
+﻿# OPA - Sprint Roadmap
 
 **This is the authoritative source of truth for sprint status.**
 Every status below was checked against real code, a real test run, or
@@ -138,7 +138,21 @@ page (Sprint 10A).
 
 ---
 
-### Sprint 10A - Incident Portal - PLANNED
+### Sprint 10A - Incident Portal - SUBSTANTIALLY BUILT, locally verified (25 July 2026)
+
+Backend: real capability-token endpoint, hashed 128-bit tokens, log
+redaction confirmed working, SOS deduplication done (325d309), 92
+tests passing across 10 suites. Website: /i/[token] page tested and
+confirmed working against a live local backend (invalid-token state
+verified end to end).
+
+Two real gaps remain: no decided authentication model for portal
+links (public-but-unguessable vs signed-URL-with-expiry vs
+authenticated), and SMS links are 2 segments (cost/readability,
+tied to the same auth decision).
+
+CANNOT GO LIVE IN PRODUCTION YET - see Sprint 10C note below. This
+is not a Sprint 10A gap; it is a real, separate, harder dependency.
 
 Build a public page at https://opasafety.com/incidents/{id} showing
 only verified information - incident status, activation time, trigger
@@ -154,7 +168,27 @@ Continuous GPS updates, last known location, automatic refresh, GPS
 history, movement detection, bearing calculation, compass conversion,
 route visualization, offline buffering synchronization.
 
-### Sprint 10C - Location Intelligence - PLANNED
+### Sprint 10C - Location Intelligence - CONFIRMED HARD BLOCKER to any
+production deployment (25 July 2026)
+
+Not just "planned" - the ProviderConfidenceValidator refuses to let
+the app start in production while any of six providers
+(GeocodingProvider, HospitalProvider, PlacesProvider, PoliceProvider,
+RoutingProvider, SafePlaceProvider) return mock data. Verified live
+tonight: real Azure Log Stream showed the exact error, twice, on
+real deployment attempts.
+
+Fixed today: EmergencyIntelligenceService (commit c7434b1) now omits
+fabricated sections instead of returning them, once real providers
+exist. This does NOT unblock production alone - the boot-time
+validator is a separate, correct, intentional gate and must stay in
+place. Do NOT set OPA_ALLOW_MOCK_PROVIDERS=true in production, ever
+- confirmed multiple times as the wrong fix, both in this session's
+reasoning and in prior documentation.
+
+Real unblock requires: actual provider integrations for geocoding,
+hospitals, police, safe places, and routing (Google/OpenStreetMap or
+similar) - genuinely unstarted, multi-session work.
 
 Only after PlacesProvider, GeocodingProvider, and RoutingProvider are
 replaced with real, validated production integrations.
@@ -526,3 +560,5 @@ Ghana, Kenya, South Africa.
 - Avoid country-specific forks; prefer configuration and provider
   abstractions.
 - Never overstate product capabilities in marketing or documentation.
+
+

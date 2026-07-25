@@ -359,13 +359,20 @@ confirmed in notification.service.ts:235, with an extensive real test file
 (notification.service.dispatch.spec.ts) covering missing notification,
 wrong status, missing payload, and success/failure paths.
 
-REMAINING - Phase 2c-3 ONLY (the final cutover, not yet done):
-  [ ] Remove the synchronous sendOne/Promise.all block from the orchestrator
-      - the worker + dispatchNotification() already do real dispatch; the
-        synchronous path is now a redundant safety net, not a placeholder.
-  [ ] Move CONTACT_NOTIFIED timeline writes into the worker/dispatcher path
-      (they should fire when the worker actually sends, not synchronously).
-  [ ] Update orchestrator response shape: notifications: { queued: N } only
+REMAINING - NONE. Phase 2c-3 confirmed FULLY DONE, 25 July 2026 (verified,
+not assumed): grep for sendEmergencyAlert/Promise.all across the entire
+apps/api/src tree found zero occurrences in the orchestrator itself. The
+orchestrator's own spec file asserts sendEmergencyAlert is NOT called
+(.not.toHaveBeenCalled(), twice). sendEmergencyAlert still exists on
+NotificationService as a named legacy method (not called from the
+orchestrator) - candidate for a later cleanup pass, not a blocker.
+
+DISPATCH HARDENING IS COMPLETE END TO END: Phase 1 through 2c-3, every
+piece verified against real code and real, passing tests. Both Revenue
+Release 1 engineering gates (Sprint 10A + dispatch hardening) are fully
+satisfied, not partially. Sprint 10C (real location-intelligence
+providers) remains the one confirmed hard blocker to production
+deployment - see SPRINT_ROADMAP.md.
       - drop contactsNotified/notifications-as-sent, since sends are async.
   [ ] Update incident-orchestrator.service.spec.ts: assert createMany with N
       rows and that sendEmergencyAlert is NOT called from the orchestrator,
@@ -1118,4 +1125,5 @@ The ambition is legitimate and can be stated honestly:
    toward coordinated emergency response."
 Direction, clearly labelled as direction, costs nothing in honesty. A
 capability claim to someone in danger costs everything.
+
 

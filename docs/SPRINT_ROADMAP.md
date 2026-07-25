@@ -127,21 +127,10 @@ Identified during the same session:
 
 - Pass 1 (SOS Button) - DONE - real countdown, real GPS, real API
   call, real incident created, real SMS delivered and confirmed
-  received. Error paths now DONE and device-tested (committed 6196f8d):
-  Cancel path, permission-denied (incl. Android permanent-denial ->
-  Open Settings), network-failure, repeated activations, GPS timeout,
-  stale-fix refresh. Reusable acquireLocation fixed the retry bug.
+  received. Not yet tested: the Cancel path, permission-denied and
+  network-failure error paths, repeated activations.
 - Pass 2 (Voice - "Help Help") - NOT STARTED
 - Pass 3 (Custom trigger phrase) - NOT STARTED
-
-Sprint 9.5 (Voice Feasibility Study) - DONE. On-device keyword spotting
-(Picovoice Porcupine) confirmed feasible for React Native / on-device /
-offline. Strategic direction: Android-led voice; two-tier model (Standard
-voice iOS+Android at Levels 1-2; Advanced always-on Android-first at Level
-3). iOS background listening is fragile (call interruptions, App Store
-review risk). Performance numbers (accuracy, battery, latency) are
-ESTIMATES pending a device-tested measurement prototype - not verified,
-not for marketing yet. Full detail: docs/VOICE_ACTIVATION_FEASIBILITY_STUDY.md
 
 Deliberately not in Pass 1, by design: address/cross-street/landmark
 (Sprint 10C), movement/compass direction (Sprint 10B), live incident

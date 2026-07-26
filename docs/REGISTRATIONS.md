@@ -37,10 +37,15 @@ these should be started now, not deferred.
 
 ## TIER 1 - Fire now, CAC is done
 
-**(not started) D-U-N-S Number** - highest-leverage item, unlocks both
-Apple and Google Developer Organization accounts. Free, ~1-2 week
-issuance. Apply immediately.
-- Owner: Charles | Next Action: Apply for D-U-N-S today.
+**(done) D-U-N-S Number** - 352294843, OPA Technologies Limited.
+Issued 26 July 2026, verified through the national registry (CAC
+RC 9697630) match. D&B noted allowing 2-3 business days before
+relying on it as fully active/queryable - do not submit Apple/Google
+applications before that window closes, to avoid a premature
+verification failure.
+- Owner: Charles | Next Action: Wait 2-3 business days, then begin
+  Apple Developer Program and Google Play Console organization
+  enrollment in parallel.
 
 **(not started) Business Banking** - open a corporate account using
 the real CAC certificate (RC 9697630).
@@ -158,3 +163,4 @@ risk-scoring, infrastructure architecture, deployment scripts.
 opasafety.com is secured. Consider a small number of closely related
 domains only if they genuinely reduce confusion.
 - Owner: Charles | Next Action: Low priority; revisit if budget allows.
+

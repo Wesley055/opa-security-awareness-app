@@ -1,0 +1,4 @@
+# Prisma stores a checksum of each applied migration.sql and re-verifies it
+# on every migrate dev/deploy. CRLF conversion changes the bytes and breaks
+# that check. Keep SQL as LF on every platform.
+*.sql text eol=lf

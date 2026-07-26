@@ -12,3 +12,6 @@ node_modules/
 pubspec.lock
 *.iml
 *.log
+
+# Committed intentionally: template only, no credentials.
+!.env.test.example

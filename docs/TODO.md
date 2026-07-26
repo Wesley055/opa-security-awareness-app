@@ -1127,3 +1127,33 @@ Direction, clearly labelled as direction, costs nothing in honesty. A
 capability claim to someone in danger costs everything.
 
 
+
+## Camera/Surveillance Integration (Future, Enterprise-tier only)
+
+Status: Concept, not started. Sits behind Command Center MVP shipping.
+
+OPA should NOT build cameras, computer vision, or CCTV hardware - that
+is a different business entirely. OPA should be the RECEIVING end: a
+camera vendor's own detection system calls into OPA via API, reusing
+the existing IncidentTrigger enum (add CAMERA_DETECTION) and the same
+incident-creation pipeline SOS_BUTTON already uses.
+
+API-push from the camera system, never OPA polling in - camera
+systems sit on private/firewalled networks; push is the only
+realistic integration direction.
+
+Every incoming camera event must carry confidenceScore, sourceSystem,
+and rawEventId - detection is a scored claim, not a fact, same
+guardrail as OPA Prevention's ban on claiming impairment detection.
+A misfire has real social cost cameras alone do not: a false
+"assault detected" claim could send security to the wrong person.
+
+Confidence threshold (e.g. below 0.7 = advisory only, no auto-created
+incident) is a PLACEHOLDER, not validated - needs real data from an
+actual camera vendor's scoring behavior before treating as settled.
+
+Separate open question, not yet solved: NDPA consent/lawful-basis
+implications of a camera detecting and creating an incident about a
+person who did not themselves activate anything - different privacy
+posture than a self-triggered SOS. Flag for legal review whenever a
+real building/campus integration is negotiated, not solved now.

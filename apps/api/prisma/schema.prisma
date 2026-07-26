@@ -85,6 +85,7 @@ model User {
   updatedAt         DateTime           @updatedAt
   incidents         Incident[]
   emergencyContacts EmergencyContact[]
+  journeySessions   JourneySession[]
 
   facilityId String?   @db.Uuid
   facility   Facility? @relation("FacilityStaff", fields: [facilityId], references: [id])
@@ -114,6 +115,9 @@ model Incident {
   facilityId String?   @db.Uuid
   facility   Facility? @relation(fields: [facilityId], references: [id])
 
+  journeySessionId String?         @db.Uuid
+  journeySession   JourneySession? @relation(fields: [journeySessionId], references: [id], onDelete: SetNull)
+
   accessTokens   IncidentAccessToken[]
   timelineEvents IncidentTimelineEvent[]
   notifications  IncidentNotification[]
@@ -123,6 +127,7 @@ model Incident {
   @@index([userId, createdAt])
   @@index([status, createdAt])
   @@index([facilityId, status])
+  @@index([journeySessionId])
 }
 
 model EmergencyContact {
@@ -274,4 +279,145 @@ model IncidentAccessToken {
 
   @@index([incidentId, revokedAt])
   @@index([expiresAt])
+}
+
+enum JourneyPurpose {
+  INCIDENT
+  SAFEWALK
+  GUARDIAN
+  MANUAL
+  SYSTEM_TEST
+}
+
+enum JourneySessionStatus {
+  /// Created, no fix accepted yet. The portal says "waiting for first
+  /// location" and must never render a position. See ADR-009.
+  STARTED
+  ACTIVE
+  ENDED
+}
+
+enum JourneySessionEndReason {
+  USER_ENDED
+  INCIDENT_RESOLVED
+  /// Ended by the reaper after prolonged silence. Distinct from USER_ENDED
+  /// and unreconstructable if not recorded here.
+  TIMED_OUT
+  SUPERSEDED
+  ADMIN_ENDED
+}
+
+enum JourneyRedactionReason {
+  RETENTION_POLICY
+  SUBJECT_REQUEST
+  LEGAL_HOLD_RELEASE
+}
+
+/// Continuous-location session. Deliberately not incident-scoped: SafeWalk is
+/// a session with no incident, and an incident can begin part-way through one.
+/// Sequencing, hashing, concurrency and redaction rules are in ADR-009.
+model JourneySession {
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  /// Required, no default: every creation path must choose, or SafeWalk and
+  /// Guardian sessions silently accumulate as INCIDENT. Tag only. No logic
+  /// may branch on this in Sprint 10B.
+  purpose JourneyPurpose
+
+  status      JourneySessionStatus     @default(STARTED)
+  endedAt     DateTime?
+  endedReason JourneySessionEndReason?
+
+  /// Denormalised from the newest accepted fix, written in the same
+  /// advisory-locked transaction. The fix table stays authoritative. This
+  /// exists so the silence reaper is one indexed scan, not a subquery per
+  /// session.
+  lastFixReceivedAt DateTime?
+
+  /// Opaque device identifier. TODO: becomes a relation to a Device model
+  /// when one exists. Do not let this accrete unstructured meaning.
+  deviceId String? @db.VarChar(128)
+
+  redactedAt      DateTime?
+  redactionReason JourneyRedactionReason?
+
+  startedAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fixes     JourneyLocationFix[]
+  incidents Incident[]
+
+  @@index([userId, status, startedAt])
+  @@index([status, lastFixReceivedAt])
+}
+
+/// Append-only location stream. Never updated except to redact coordinates.
+/// Incident origin coordinates stay immutable per ADR-005. This is the trail
+/// ADR-005 defers to Sprint 10B.
+///
+/// The chain is built in RECEIPT order, not travel order: offline buffering
+/// means an earlier fix can arrive later. `sequence` proves arrival order and
+/// immutability only. Movement order is `recordedAt`. Canonical
+/// serialisation, hash inputs, nonce generation and verification are in
+/// ADR-009.
+///
+/// Restrict, not Cascade: sessions are ended or redacted, never deleted, so
+/// this costs nothing operationally and turns a silent chain-destroying
+/// delete into a loud failure. Deliberately stricter than
+/// IncidentTimelineEvent.
+model JourneyLocationFix {
+  id               String         @id @default(uuid()) @db.Uuid
+  journeySessionId String         @db.Uuid
+  journeySession   JourneySession @relation(fields: [journeySessionId], references: [id], onDelete: Restrict)
+
+  /// Server-allocated under pg_advisory_xact_lock(2, hashtext(sessionId)).
+  sequence Int
+
+  /// Client-generated, stable across retries. Bounded because it is half of a
+  /// unique index, and an unbounded client string in a btree is a cheap DoS.
+  idempotencyKey String @db.VarChar(128)
+
+  /// Nullable only so redaction can erase position while leaving chain
+  /// continuity verifiable. Never null on insert. Decimal, not Float: exact
+  /// string serialisation is required for a stable hash across languages.
+  latitude  Decimal? @db.Decimal(9, 6)
+  longitude Decimal? @db.Decimal(9, 6)
+  accuracy  Float?
+  speed     Float?
+  heading   Float?
+
+  /// Surfaced to FAMILY_BEARER holders per ADR-008.
+  batteryLevel Int?
+  isCharging   Boolean?
+
+  /// "foreground" | "background" | "manual" | "activation" | "retrigger".
+  /// String not enum, matching IncidentTimelineEvent.source.
+  source String @db.VarChar(32)
+
+  /// Device clock, validated but untrusted. Movement order and position age.
+  recordedAt DateTime
+  /// Server clock. Receipt order, communication silence and the chain.
+  receivedAt DateTime @default(now())
+
+  /// Per-row salt. Coordinates are low-entropy and a bare hash of them is
+  /// brute-forceable, so payloadHash covers nonce plus coordinates. Redaction
+  /// deletes nonce and coordinates: chain continuity survives, payload
+  /// integrity does not. That loss is the point.
+  nonce       String? @db.VarChar(64)
+  payloadHash String  @db.VarChar(64)
+
+  previousHash String? @db.VarChar(64)
+  hash         String  @db.VarChar(64)
+
+  /// Outside the hash inputs by design: setting this must not invalidate the
+  /// chain.
+  redactedAt DateTime?
+
+  @@unique([journeySessionId, sequence])
+  @@unique([journeySessionId, idempotencyKey])
+  @@index([journeySessionId, receivedAt(sort: Desc)])
+  @@index([journeySessionId, recordedAt])
 }

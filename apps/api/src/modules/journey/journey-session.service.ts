@@ -114,6 +114,11 @@ export class JourneySessionService {
       incidentId: string;
       latitude: CoordinateInput;
       longitude: CoordinateInput;
+      accuracy?: number | null;
+      speed?: number | null;
+      heading?: number | null;
+      batteryLevel?: number | null;
+      isCharging?: boolean | null;
       recordedAt: Date;
     },
   ): Promise<InsertFixesResult> {
@@ -124,6 +129,11 @@ export class JourneySessionService {
         source: 'activation',
         latitude: params.latitude,
         longitude: params.longitude,
+        accuracy: params.accuracy,
+        speed: params.speed,
+        heading: params.heading,
+        batteryLevel: params.batteryLevel,
+        isCharging: params.isCharging,
         recordedAt: params.recordedAt,
       },
     ]);
@@ -136,6 +146,11 @@ export class JourneySessionService {
       incident: RetriggerIncidentRef;
       latitude: CoordinateInput;
       longitude: CoordinateInput;
+      accuracy?: number | null;
+      speed?: number | null;
+      heading?: number | null;
+      batteryLevel?: number | null;
+      isCharging?: boolean | null;
       recordedAt: Date;
     },
   ): Promise<InsertFixesResult> {
@@ -153,6 +168,11 @@ export class JourneySessionService {
         source: 'retrigger',
         latitude: params.latitude,
         longitude: params.longitude,
+        accuracy: params.accuracy,
+        speed: params.speed,
+        heading: params.heading,
+        batteryLevel: params.batteryLevel,
+        isCharging: params.isCharging,
         recordedAt: params.recordedAt,
       },
     ]);

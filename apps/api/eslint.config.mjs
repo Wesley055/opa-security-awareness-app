@@ -18,6 +18,11 @@ export default [
     },
     rules: {
       ...tseslint.configs.recommended.rules,
+      // no-undef is redundant under TypeScript: tsc already rejects undefined
+      // identifiers, and the rule cannot see Jest or Node globals. The
+      // typescript-eslint eslint-recommended layer normally turns it off; this
+      // config spreads the legacy rules map only, so it must be done by hand.
+      'no-undef': 'off',
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-misused-promises': 'error',
       '@typescript-eslint/consistent-type-imports': 'error'

@@ -82,7 +82,11 @@ export class JourneySessionService {
     userId: string,
     purpose: JourneyPurpose = JourneyPurpose.INCIDENT,
   ): Promise<JourneySession> {
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+    // $executeRaw, not $queryRaw: pg_advisory_xact_lock returns void and
+    // there is no Prisma type to deserialize a void column into. Matches
+    // advisory-lock.int-spec.ts, which uses the Unsafe variant for the same
+    // reason. The tagged template still parameterises userId.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
 
     const existing = await tx.journeySession.findFirst({
       where: {
@@ -170,7 +174,8 @@ export class JourneySessionService {
     // other whatever their values. hashtext returns int4, so two sessionIds
     // can collide within this form, which costs serialisation and never
     // correctness.
-    await tx.$queryRaw`SELECT pg_advisory_xact_lock(2, hashtext(${sessionId}))`;
+    // $executeRaw for the same void-deserialization reason as above.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(2, hashtext(${sessionId}))`;
 
     // D3: one clock value for the whole transaction, from the database, and
     // truncated at the source. The column is timestamp(3) and PostgreSQL

@@ -6,8 +6,12 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import type { Request, Response } from 'express';
+import type { Response } from 'express';
 import type { CorrelatedRequest } from '../middleware/correlation-id.middleware';
+import {
+  redactSensitivePath,
+  redactSensitiveTrackingUrls,
+} from '../middleware/request-logging.middleware';
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
@@ -44,24 +48,35 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         ? exception.name
         : 'UnknownError';
 
+    const safePath = redactSensitivePath(request.originalUrl);
+
+    const safeMessage = Array.isArray(message)
+      ? message.map((entry) => redactSensitiveTrackingUrls(entry))
+      : redactSensitiveTrackingUrls(message);
+
+    const safeStack =
+      exception instanceof Error && exception.stack !== undefined
+        ? redactSensitiveTrackingUrls(exception.stack)
+        : undefined;
+
     this.logger.error(
       JSON.stringify({
         event: 'http_error',
         correlationId: request.correlationId,
         method: request.method,
-        path: request.originalUrl,
+        path: safePath,
         statusCode: status,
         errorName,
-        message,
+        message: safeMessage,
         timestamp: new Date().toISOString(),
       }),
-      exception instanceof Error ? exception.stack : undefined,
+      safeStack,
     );
 
     response.status(status).json({
       statusCode: status,
-      message,
-      path: request.originalUrl,
+      message: safeMessage,
+      path: safePath,
       correlationId: request.correlationId,
       timestamp: new Date().toISOString(),
     });

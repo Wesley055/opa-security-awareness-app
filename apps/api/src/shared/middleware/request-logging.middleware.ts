@@ -37,6 +37,33 @@ export function redactSensitivePath(originalUrl: string): string {
   return originalUrl;
 }
 
+/**
+ * Redact tracking tokens that appear inside free text.
+ *
+ * Deliberately a sibling of redactSensitivePath rather than an extension of
+ * it. That function takes a structured request path and truncates a known
+ * prefix. This one takes arbitrary text - an exception message, a stack
+ * trace - in which a tracking URL may appear anywhere, and more than once.
+ * Callers stay explicit about which kind of input they hold; neither
+ * function acquires overloaded semantics.
+ *
+ * The motivating case is Nest's own unmatched-route 404, thrown in
+ * @nestjs/core routes-resolver.js as `Cannot ${method} ${url}`. It carries
+ * the full URL in the exception message, and therefore in Error.stack too,
+ * so redacting the structured path alone leaves the token in the log.
+ *
+ * The character class stops at anything that cannot be part of a token,
+ * including '<'. That keeps the function idempotent: text already reading
+ * '/public/tracking/<redacted>' is left untouched rather than growing a
+ * second angle bracket.
+ */
+export function redactSensitiveTrackingUrls(value: string): string {
+  return value.replace(
+    /\/public\/tracking\/[^/?#\s<>)\]"']+/g,
+    `/public/tracking/${REDACTED}`,
+  );
+}
+
 @Injectable()
 export class RequestLoggingMiddleware implements NestMiddleware {
   private readonly logger = new Logger('HTTP');

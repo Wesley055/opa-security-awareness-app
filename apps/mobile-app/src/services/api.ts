@@ -1,10 +1,15 @@
 import axios from 'axios';
 import * as SecureStore from 'expo-secure-store';
 
-// Your PC's local IP, confirmed reachable from your phone tonight.
-// If this ever stops working (different network, IP changes), that's
-// the first thing to re-check — not a code problem.
-const API_BASE_URL = 'http://192.168.12.126:3000';
+// Resolved, not hardcoded - see src/config/api-config.ts. The previous
+// literal was correct on one machine on one network and frozen
+// everywhere else, as its own comment admitted.
+//
+// NOTE: API_BASE_URL is used TWICE in this file - as the axios baseURL
+// below, and again in the refresh interceptor, which calls raw axios
+// deliberately so the refresh request does not recurse through its own
+// 401 handler. Both call sites use the resolved value.
+import { API_BASE_URL } from '../config/api-config';
 
 const ACCESS_TOKEN_KEY = 'opa_access_token';
 const REFRESH_TOKEN_KEY = 'opa_refresh_token';

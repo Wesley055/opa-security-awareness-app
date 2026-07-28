@@ -12,11 +12,14 @@ describe('JourneyIngestionService', () => {
 
   const journeySessionService = {
     recordTrackedFixes: jest.fn(),
+    resolveForActivation: jest.fn(),
   };
 
   const prisma = {
     $transaction: jest.fn(),
-    journeySession: { findUnique: jest.fn() },
+    // startSession takes the lifecycle lock before its existence check.
+    $executeRaw: jest.fn(),
+    journeySession: { findUnique: jest.fn(), findFirst: jest.fn() },
   };
 
   const openSession = {
@@ -48,6 +51,8 @@ describe('JourneyIngestionService', () => {
       async (callback: (tx: typeof prisma) => unknown) => callback(prisma),
     );
     prisma.journeySession.findUnique.mockResolvedValue(openSession);
+    prisma.journeySession.findFirst.mockResolvedValue(null);
+    prisma.$executeRaw.mockResolvedValue(1);
     journeySessionService.recordTrackedFixes.mockResolvedValue({
       inserted: 1,
       skippedDuplicateInBatch: 0,
@@ -138,5 +143,94 @@ describe('JourneyIngestionService', () => {
   // Control: nothing above passes merely because every call throws.
   it('accepts a fix at the current time', async () => {
     await expect(service.ingest(USER, dto() as never)).resolves.toBeDefined();
+  });
+
+  describe('startSession', () => {
+    const stored = {
+      id: SESSION,
+      status: 'STARTED',
+      purpose: 'MANUAL',
+      startedAt: new Date(),
+      lastFixReceivedAt: null,
+    };
+
+    it('returns the resolved session in wire shape', async () => {
+      journeySessionService.resolveForActivation.mockResolvedValue(stored);
+
+      const result = await service.startSession(USER, {} as never);
+
+      expect(result.sessionId).toBe(SESSION);
+      expect(result.status).toBe('STARTED');
+      expect(result.lastFixReceivedAt).toBeNull();
+      expect(typeof result.startedAt).toBe('string');
+    });
+
+    it('defaults to MANUAL rather than INCIDENT', async () => {
+      journeySessionService.resolveForActivation.mockResolvedValue(stored);
+
+      await service.startSession(USER, {} as never);
+
+      const args = journeySessionService.resolveForActivation.mock.calls[0];
+      expect(args[2]).toBe('MANUAL');
+    });
+
+    it('passes a requested purpose through', async () => {
+      journeySessionService.resolveForActivation.mockResolvedValue(stored);
+
+      await service.startSession(USER, { purpose: 'SAFEWALK' } as never);
+
+      const args = journeySessionService.resolveForActivation.mock.calls[0];
+      expect(args[2]).toBe('SAFEWALK');
+    });
+
+    // The honest signal that a reuse happened: what comes back is what is
+    // STORED, not what was asked for.
+    it('returns the stored purpose, not the requested one', async () => {
+      journeySessionService.resolveForActivation.mockResolvedValue({
+        ...stored,
+        purpose: 'INCIDENT',
+      });
+
+      const result = await service.startSession(USER, { purpose: 'SAFEWALK' } as never);
+
+      expect(result.purpose).toBe('INCIDENT');
+    });
+
+    it('reports reused=false when no session existed', async () => {
+      journeySessionService.resolveForActivation.mockResolvedValue(stored);
+      prisma.journeySession.findFirst.mockResolvedValue(null);
+
+      const result = await service.startSession(USER, {} as never);
+
+      expect(result.reused).toBe(false);
+    });
+
+    it('reports reused=true when an open session already existed', async () => {
+      journeySessionService.resolveForActivation.mockResolvedValue(stored);
+      prisma.journeySession.findFirst.mockResolvedValue({ id: SESSION });
+
+      const result = await service.startSession(USER, {} as never);
+
+      expect(result.reused).toBe(true);
+    });
+
+    // The existence check must be serialised or it races.
+    it('takes the lifecycle lock before looking', async () => {
+      journeySessionService.resolveForActivation.mockResolvedValue(stored);
+      prisma.journeySession.findFirst.mockResolvedValue(null);
+
+      await service.startSession(USER, {} as never);
+
+      expect(prisma.$executeRaw).toHaveBeenCalled();
+    });
+
+    it('runs inside a transaction', async () => {
+      journeySessionService.resolveForActivation.mockResolvedValue(stored);
+      prisma.journeySession.findFirst.mockResolvedValue(null);
+
+      await service.startSession(USER, {} as never);
+
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    });
   });
 });

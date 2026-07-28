@@ -4,7 +4,9 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { JourneySessionStatus } from '@prisma/client';
+// JourneySessionStatus was already here for the ENDED check; JourneyPurpose
+// joins it rather than opening a second import of the same module.
+import { JourneyPurpose, JourneySessionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JourneySessionService } from './journey-session.service';
 import type {
@@ -12,6 +14,10 @@ import type {
   JourneyFixInput,
 } from './journey-session.service';
 import type { IngestFixesDto } from './dto/ingest-fixes.dto';
+import type {
+  JourneySessionDto,
+  StartSessionDto,
+} from './dto/start-session.dto';
 
 /** A device clock this far ahead of the server is not plausible. */
 export const MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
@@ -29,6 +35,60 @@ export class JourneyIngestionService {
     private readonly prisma: PrismaService,
     private readonly journeySessionService: JourneySessionService,
   ) {}
+
+  /**
+   * Obtain the caller's active journey session, creating one if there is
+   * none. IDEMPOTENT for free: resolveForActivation reuses an open
+   * session, and the partial unique index guarantees there is at most
+   * one. A retry costs a transaction and nothing else.
+   *
+   * Lives on the ingestion service because that class exists to own the
+   * transaction D7 forbids JourneySessionService from opening.
+   */
+  async startSession(
+    userId: string,
+    dto: StartSessionDto,
+  ): Promise<JourneySessionDto> {
+    // MANUAL, not INCIDENT: a session the app opened is not an emergency.
+    const purpose = dto.purpose ?? JourneyPurpose.MANUAL;
+
+    return this.prisma.$transaction(async (tx) => {
+      // Take the SAME lifecycle lock resolveForActivation takes, before
+      // looking. Without it the existence check races: two concurrent
+      // callers could both see nothing and both report reused=false.
+      // Reentrant within a transaction, so re-taking it below is free -
+      // the orchestrator does exactly this on its create path.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+
+      const existing = await tx.journeySession.findFirst({
+        where: {
+          userId,
+          status: {
+            in: [JourneySessionStatus.STARTED, JourneySessionStatus.ACTIVE],
+          },
+        },
+        select: { id: true },
+      });
+
+      const session = await this.journeySessionService.resolveForActivation(
+        tx,
+        userId,
+        purpose,
+      );
+
+      return {
+        sessionId: session.id,
+        status: session.status,
+        // AS STORED. A reused session keeps the purpose it was created
+        // with, so a SAFEWALK request answered with INCIDENT is telling
+        // the client it joined a session an emergency already opened.
+        purpose: session.purpose,
+        startedAt: session.startedAt.toISOString(),
+        lastFixReceivedAt: session.lastFixReceivedAt?.toISOString() ?? null,
+        reused: existing !== null,
+      };
+    });
+  }
 
   async ingest(userId: string, dto: IngestFixesDto): Promise<InsertFixesResult> {
     return this.prisma.$transaction(async (tx) => {

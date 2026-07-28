@@ -6,6 +6,8 @@ import type { JwtPayload } from '../auth/jwt.strategy';
 // writing this class into design:paramtypes. An import type erases it to
 // Object and ValidationPipe then validates NOTHING, silently.
 import { IngestFixesDto } from './dto/ingest-fixes.dto';
+// VALUE import, same reason as above.
+import { StartSessionDto } from './dto/start-session.dto';
 import { JourneyIngestionService } from './journey-ingestion.service';
 
 type AuthenticatedRequest = Request & { user: JwtPayload };
@@ -16,6 +18,18 @@ export class JourneyController {
   constructor(
     private readonly journeyIngestionService: JourneyIngestionService,
   ) {}
+
+  /**
+   * Idempotent. Returns the active session, creating one only if the
+   * caller has none. Safe to call on every app launch.
+   */
+  @Post('sessions')
+  startSession(
+    @Req() request: AuthenticatedRequest,
+    @Body() dto: StartSessionDto,
+  ) {
+    return this.journeyIngestionService.startSession(request.user.sub, dto);
+  }
 
   @Post('fixes')
   ingest(

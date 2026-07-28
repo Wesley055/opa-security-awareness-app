@@ -25,13 +25,18 @@ high renewal). Consumers = later/retention, not the near-term cheque-writer.
 
 ---
 
-## REVENUE RELEASE 0 — Hospital Pilot  [available NOW]
+## REVENUE RELEASE 0 - Hospital Pilot  [BLOCKED - see engineering gate]
 - **Customer:** first hospital (Lagos targets already identified).
 - **Buys:** a controlled pilot of OPA's emergency alerting.
 - **Actually does today:** SOS -> alerts trusted contacts with live location
   via the proven synchronous path. NOT coordination, NOT dispatch to
   hospitals/responders (not built).
-- **Engineering gate:** none new — runs on the already-proven path.
+- **Engineering gate:** THE PRODUCTION API MUST BOOT. It currently does
+  not: ProviderConfidenceValidator refuses to start while six providers
+  return mock data. Until that is resolved - by replacing the providers,
+  or by gating the intelligence block out of the response - Release 0 is
+  NOT available. Corrected 28 July 2026; the previous wording said "none
+  new" on a row pointed at four named Lagos hospitals.
 - **Purpose:** first cash + validates the B2B relationship + product feedback.
 - **Honesty:** pilot participants must understand the service limitations
   (no "replaces emergency services", no auto-dispatch).

@@ -141,8 +141,9 @@ page (Sprint 10A).
 ### Sprint 10A - Incident Portal - SUBSTANTIALLY BUILT, locally verified (25 July 2026)
 
 Backend: real capability-token endpoint, hashed 128-bit tokens, log
-redaction confirmed working, SOS deduplication done (325d309), 92
-tests passing across 10 suites. Website: /i/[token] page tested and
+redaction confirmed working, SOS deduplication done (325d309).
+Test counts as of 28 July 2026: 16 unit suites / 188 tests, plus 5
+integration suites / 21 tests. Website: /i/[token] page tested and
 confirmed working against a live local backend (invalid-token state
 verified end to end).
 
@@ -162,11 +163,16 @@ estimated address, no fake movement. Reliability requirement:
 critical incident information must be server-rendered, not dependent
 on client-side JavaScript loading successfully.
 
-### Sprint 10B - Live Tracking - PLANNED
+### Sprint 10B - Live Tracking - IN PROGRESS, ~75% (28 July 2026)
 
-Continuous GPS updates, last known location, automatic refresh, GPS
-history, movement detection, bearing calculation, compass conversion,
-route visualization, offline buffering synchronization.
+IN SCOPE: continuous GPS updates, last known location, automatic
+refresh on the tracking page, offline buffering and synchronisation,
+and a tamper-evident hash chain over the location record.
+
+EXPLICITLY OUT OF SCOPE, and previously listed here in error: GPS
+history access for tokens, movement detection, bearing calculation,
+compass conversion, route visualization, ETA, arrival detection, risk
+scoring, geofencing. See ADR-009.
 
 ### Sprint 10C - Location Intelligence - CONFIRMED HARD BLOCKER to any
 production deployment (25 July 2026)
@@ -331,10 +337,10 @@ Enterprise fleet monitoring (concept only).
 | WhatsApp delivery | PARTIAL - real test message sent and confirmed received via Meta app dashboard; still needs real business phone number registration, business verification, and the opa_emergency_alert template approved before it works through the actual product code |
 | Voice delivery | PLANNED - blocked on a public webhook |
 | Diaspora SMS (non-Nigerian numbers) | NOT STARTED - Africa's Talking Sandbox confirmed rejecting a US number; Twilio identified as the real fix, see Phase 4 |
-| Incident portal | PLANNED - Sprint 10A |
-| Live tracking | PLANNED - Sprint 10B |
+| Incident portal | BUILT, locally verified - Sprint 10A. Auth model is ADR-008 capability tokens at /i/<token>; the /incidents/<uuid> route referenced in older notes was never built. |
+| Live tracking | IN PROGRESS ~75% - Sprint 10B. Server, ingestion endpoint, public envelope and website page built. Mobile sender and offline buffer outstanding. |
 | Command Center | NOT STARTED - Sprint 13/14 |
-| Production backend (Azure) | DONE - deployed, migrated, running, DB-connected, secured (this session) |
+| Production backend (Azure) | INFRASTRUCTURE DONE, SERVICE DOES NOT BOOT - deployed, migrated, DB-connected. ProviderConfidenceValidator refuses to start while six providers return mock data, and OPA_ALLOW_MOCK_PROVIDERS is not set in Azure. Observed live in Log Stream, twice. See the deployment consequence note in TODO.md. |
 
 ---
 
@@ -348,8 +354,8 @@ Enterprise fleet monitoring (concept only).
 6. Twilio integration for diaspora SMS
 7. Sprint 9 Pass 2 - Voice trigger
 8. Sprint 10B - Live tracking
-9. Phase B - Production API deployment - DONE (deployed & migrated;
-   verification/wiring items remain)
+9. Phase B - Production API - resource deployed and migrated, but the
+   SERVICE DOES NOT CURRENTLY BOOT (mock-provider validator). Not done.
 10. Sprint 13/14 - Command Center reconnected
 
 

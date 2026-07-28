@@ -47,6 +47,77 @@ sprint-by-sprint status - this file is for granular, individual items.**
 
 ## Real, known gaps - not urgent, not forgotten
 
+### --- HIGH-VALUE, GROUNDWORK ALREADY EXISTS (28 July 2026) ---
+## Ordered by impact per hour. The first three are nearly free because
+## the data or the enum already exists and is simply unused.
+
+  [ ] 1. CONTACT ACKNOWLEDGEMENT - the biggest gap in the product.
+      NotificationStatus.ACKNOWLEDGED exists in the schema and NOTHING
+      SETS IT. A person in danger cannot tell whether anyone saw the
+      alert, and their contacts cannot tell whether anyone else is
+      acting. The signal is already being captured and discarded:
+      opening the tracking page calls recordAccess() on a VALID result.
+      Surface it back - "3 notified, 2 opened the link".
+
+  [ ] 2. "I AM RESPONDING" - the bystander-effect fix. Follows from 1.
+      One button on the tracking page: I am on my way / I have called
+      112. Contacts see each other. Diffusion of responsibility is a
+      documented and lethal failure mode - five people alerted, each
+      assuming another is acting. Nobody in this market solves it.
+      Still AWARENESS, not coordination: it shows people each other, it
+      does not direct anyone.
+
+  [ ] 3. SURFACE BATTERY ON THE TRACKING PAGE. batteryLevel and
+      isCharging are already in the DTO, already stored, already hashed
+      into the chain - and never displayed. "Phone at 8% when last
+      seen" changes how a family reads silence entirely: not "she is
+      not answering" but "her phone died". The data is already there.
+
+  [ ] 4. DURESS CANCEL - and note the cancel path is currently a hole.
+      If an attacker takes the phone and cancels, the alert dies
+      silently. Two parts: cancellation should NOTIFY contacts that the
+      alert was cancelled rather than vanishing, and a DURESS PIN
+      should show a convincing cancel screen while escalating. Sprint
+      9's cancel path is untested anyway - design it properly rather
+      than testing what happens to be there.
+
+  [ ] 5. HARDWARE TRIGGER - 80% of wake-word for 10% of the cost.
+      Triple-press power, or volume-down held. No microphone, no
+      privacy conversation, no Porcupine, no EAS build, no App Store
+      risk. Works in a pocket with the screen locked, which is most of
+      what wake-word promises. DO THIS BEFORE VOICE - it makes the
+      voice measurement prototype less urgent.
+
+  [ ] 6. AUTOMATED INCIDENT REPORT on resolution, delivered by email.
+      This is the OUTPUT of everything 10B built. The hash chain is
+      currently INVISIBLE - a technical property no buyer ever sees. A
+      report makes it tangible: what happened, the verification result,
+      and an explicit statement of what can and cannot be attested to.
+      It is the artifact an insurer, a solicitor or an HR investigation
+      actually asks for, and the thing the commercial positioning
+      promises but cannot currently hand anyone.
+      Groundwork: ADR-001..003 outbox pattern for reliable delivery,
+      an email provider, resolvedAt on the incident, and the timeline.
+      TWO CATCHES:
+        (a) IncidentTimelineEvent has NO hash chain (see known issues),
+            so today a report can honestly say the LOCATION record is
+            verified but NOT the EVENT log. Same blocker as camera
+            evidence. Fix the timeline chain and both unlock.
+        (b) The report contains an employee's location history. WHO
+            RECEIVES IT is an NDPA question, not a formatting one.
+            Proposal: subject always, employer by policy, insurer on
+            request. Legal review before it ships.
+
+
+  [ ] NO FORGOT-PASSWORD FLOW EXISTS. Recorded 28 July 2026.
+      app/(auth)/login.tsx is login only. There is no PasswordReset
+      model anywhere in schema.prisma, so this needs a migration,
+      single-use tokens with expiry, a delivery path, and rate limiting
+      so it cannot be used to enumerate accounts.
+      Sprint 9 auth work, NOT Sprint 10B. Gates no revenue release, but
+      it is a real product gap: a locked-out user of an emergency app
+      cannot raise an alarm.
+
 - [ ] **Enterprise Kit's Company Profile docx still says "OPA
       Technology Limited"** (singular "Technology") - the CAC-approved
       legal name is "OPA Technologies Limited" (plural). Website is
@@ -803,7 +874,11 @@ is verified via UNIT TESTS (mocked Prisma), not live DB, which is fine.
 ##   Sprint 10A = Incident Portal
 ##   Sprint 10B = Live Tracking (produces the Journey Session primitive)
 ##   Sprint 13/14 = Command Center (revenue product)
-##   Phase I = SafeWalk (revenue product, requires 10B)
+##   Phase I = OPA Prevention (matches SPRINT_ROADMAP Phase I).
+##   SafeWalk = COMMERCIAL_ROADMAP Revenue Release 2. Gated on Sprint
+##   10B PLUS silence detection, which decision 4 of 10B DEFERS -
+##   missed check-in escalation IS silence detection. 10B alone does
+##   not unlock it. Corrected 28 July 2026.
 
 ## ============================================================
 ## MESSAGING CHANNEL ARCHITECTURE (decided 24 July 2026)
@@ -927,10 +1002,13 @@ careful to hold. Use obviously-fictional placeholders instead.
 ### REMAINING BEFORE SPRINT 10A
   [ ] Replace mock geocoder with a real provider (or gate intelligence
       out of the response) - now enforced by the validator.
-  [ ] Portal authentication model - /incidents/<uuid> has no stated auth
-      model and the link is sent by SMS to family who will forward it.
-      Decide before the portal exists: public-but-unguessable, signed
-      URL with expiry, or authenticated.
+  [x] Portal authentication model - RESOLVED 28 July 2026, and the
+      question was obsolete rather than open. There is no
+      /incidents/<uuid> route and there never was; the website has
+      exactly eight pages and the tracking one is /i/[token]. ADR-008
+      IS the decision: a 128-bit capability token, SHA-256 at rest,
+      6-hour initial validity, revocable, never logged. That is the
+      "public-but-unguessable" option this checkbox itself listed.
   [ ] Short incident links - fixes SMS cost (currently 2 segments),
       readability, and forces the auth decision.
 
@@ -994,12 +1072,20 @@ a support tool, a shipped log aggregator - would hold live tracking links to
 real emergencies.
 
 MUST be fixed BEFORE the endpoint ships:
-  [ ] Redact the token segment in the HTTP logger, e.g. log
-      /public/tracking/<redacted>, or exclude the route from path logging.
+  [x] Redact the token segment in the HTTP logger - DONE.
+      redactSensitivePath in request-logging.middleware.ts, plus
+      redactSensitiveTrackingUrls for free text (message bodies and
+      stack traces) added in 7b152cd. Four redaction sites in total.
+      NOTE: the trigger was NOT the tracking controller, which never
+      throws - it is Nest's own unmatched-route 404, whose message
+      contains the full URL and therefore so does Error.stack.
   [ ] After resolution, log the token RECORD ID or incident id - never the
       raw :token parameter.
   [ ] Audit any other place request paths are captured (error handlers,
       correlation-id middleware, Application Insights when enabled).
+      STILL OPEN as of 28 July 2026 and MUST NOT be ticked from the
+      repo. This is Azure-side: a clean codebase does not clear it.
+      Correlation-id middleware is confirmed to log paths.
 
 ### REQUIRED HTTP HEADERS on the tracking API and page
   [ ] Cache-Control: no-store, private
@@ -1033,6 +1119,96 @@ MUST be fixed BEFORE the endpoint ships:
       If the tracking page ever needs a link on retrigger, the answer is to
       look up the live token RECORD and issue a fresh token, not to store
       the raw value.
+
+## ============================================================
+## SPRINT 10B - STEP-LEVEL PROGRESS (opened 28 July 2026)
+## ============================================================
+## Standing practice: code commit first, gated on tests. Docs commit
+## second, adding the step here with its SHA and its MEASURED gate.
+## Two commits per milestone. A step is not done until it appears below.
+
+### DONE
+
+  [x] Step 2 - schema, migrations, partial index
+  [x] Step 3a - integration harness (6b77d6c) + fixtures (e6daa01)
+  [x] Canonical payload serialisation (83acf02) - 22 unit tests
+  [x] Canonical chain envelope (f3d2d41) - 27 unit tests
+  [x] JourneySessionService (878520c, fixed 36e5d55, widened e99cdb9)
+  [x] Service integration tests (04a4562) - both locks mutation-tested
+  [x] Step 4 commit 1 of 2 - widen wrappers (e99cdb9)
+  [x] Step 4 commit 2 of 2 - orchestrator wiring (4d544a9)
+      Gate: tsc=0, 13 suites/147 tests, 5 suites/21 int tests.
+      Discharged the trap where a green suite proves nothing about a file
+      nothing imports: journey-session.service.ts entered the unit test
+      graph here and compiled for the first time.
+  [x] Item 6 - authenticated ingestion endpoint (861a843)
+      POST /journey/fixes. Gate: tsc=0, 15 suites/167 tests, 5/21 int.
+      Made the in-batch dedupe reachable for the first time (D5).
+  [x] Item 7 - tracking DTO: fix origin, session state, serverTime (edec8c4)
+      Gate: tsc=0, 16 suites/180 tests, 5/21 int.
+      CLOSED the heading -1 GPS sentinel defect. On iOS CLLocation.course
+      is -1 whenever course is invalid, INCLUDING a stationary device, so
+      a sender forwarding it raw would have shipped a panic button that
+      400s for someone standing still.
+  [x] Item 8a - website tracking types (ea1abb4). Gate: npm run build.
+  [x] Item 8b - live tracking page, same-origin polling (58cf35b)
+      15s poll against the pre-existing /api/tracking/[token] bridge.
+      The presentational block was MOVED with a SHA-256 match, not
+      retyped. apps/website has no tests - the build IS the gate.
+  [x] Item 11 - ADR-009 (f8d4b3e), 339 lines in decision-log.md
+  [x] Item 9a - mobile API base URL now resolves (b68b0f5)
+      Was hardcoded to one LAN IP with a comment admitting it would break
+      on another network. Now: expo.extra.apiBaseUrl, else the Metro host,
+      else THROW. Proven on a real device via Expo Go.
+  [x] Session start endpoint (8b919be) - POST /journey/sessions
+      Not in the original eleven items. The ingestion endpoint needs a
+      sessionId and there was no client-facing way to get one. Idempotent:
+      reuses an open session, and returns reused:true when it did.
+
+### REMAINING
+
+  [ ] Item 9b - fix sender + batching (3-4h)
+      forbidNonWhitelisted is live: any field not on JourneyFixDto 400s
+      the WHOLE batch. idempotencyKey is client-generated per fix.
+      source must be foreground|background|manual - activation and
+      retrigger are reserved for the SOS path and rejected on the wire.
+  [ ] Item 9c - offline buffer + retry queue (4-6h)
+      No AsyncStorage or SQLite dependency exists yet. This is the first
+      thing that will ever exercise the in-batch dedupe.
+  [ ] Item 10 - end-to-end test (2-3h)
+      SOS -> activation fix -> tracked fixes -> page shows RECEIVING ->
+      airplane mode -> SILENT -> reconnect -> buffered fixes flush ->
+      RECEIVING again. That last transition is the real proof.
+
+### RIDES ALONG WITH ITEM 9
+
+  [ ] Sprint 9 - SOS cancel path (untested since Pass 1)
+  [ ] Sprint 9 - permission / network error handling (untested)
+      Both are in app/sos.tsx and both became testable the moment the
+      base URL fix landed. Doing them in the same device session is
+      strictly cheaper than a separate one. Voice trigger is NOT in this
+      block - unstarted, gates no revenue release, properly deferred.
+
+### MEASURED BASELINES (28 July 2026)
+
+  npx jest              16 suites, 188 tests
+  npx tsc --noEmit      exit 0
+  npm run test:int      5 suites, 21 tests
+  npm run lint          15 errors + 1 warning (was 16+1)
+  npm run build (web)   exit 0, TypeScript clean
+
+  Only ONE production-code lint finding remains:
+  incident-orchestrator.service.ts:6, TriggerMode imported and never used.
+
+### STILL OPEN, RECORDED SO IT IS NOT LOST
+
+  [ ] The unit suite leaks a worker handle. REOPENED 28 July after being
+      closed prematurely. It is INTERMITTENT and tracks wall time, not
+      suite count - four runs: 24s clean, 32s warning, 28s warning, one
+      earlier clean. Almost certainly NotificationDispatchWorker's
+      @Interval(2000) outliving teardown. Fix the mechanism with .unref()
+      or teardown; do NOT close it by counting clean runs again.
+
 
 ## ============================================================
 ## STRATEGIC PRINCIPLES (24 July 2026)
@@ -1129,6 +1305,91 @@ capability claim to someone in danger costs everything.
 
 
 ## Camera/Surveillance Integration (Future, Enterprise-tier only)
+
+ARCHITECTURAL DIRECTION recorded 28 July 2026. Not scheduled. Captured
+because the reasoning is expensive to rediscover.
+
+THE INVERSION. Not "camera sees something -> OPA raises an alert".
+Instead: "an OPA incident is active -> authorised cameras contribute to
+that incident's record."
+
+Why the first version is wrong:
+  - It inverts what triggers an OPA alert. OPA is PERSON-initiated,
+    which is exactly why the signal is trustworthy. A camera is
+    PLACE-initiated - that is premises security, a different product
+    with a different buyer and mature incumbents.
+  - It poisons the alert channel. Cameras fire on cats, headlights and
+    wind. Mixing a high-precision signal (a person pressed SOS) with a
+    low-precision one teaches people to ignore both.
+  - Ring and Nest are not integrable anyway. Amazon closed third-party
+    Ring API access and Google killed Works with Nest in 2019. Target
+    enterprise VMS platforms (Milestone, Genetec, Verkada) instead.
+
+THE RULE: OPA IS AN EVIDENCE COORDINATOR, NOT AN EVIDENCE REPOSITORY.
+OPA never holds the footage. It holds a REFERENCE and a HASH, and it
+issues a PRESERVATION INSTRUCTION. The video stays in the customer's
+system. Same discipline as ADR-008: store the hash, never the artifact.
+Consequence: OPA does not become a video processor, does not inherit
+the retention liability, and cannot leak footage it never had.
+
+THE WINDOW IS THE PRODUCT, not the button press. Preservation must
+start BEFORE activation - the approach, the argument, the moment
+someone was followed. By the time a security manager thinks to look,
+that footage has usually rotated out. Target: press minus 10 minutes
+through incident close plus 5.
+
+EVIDENCE REFERENCE CONTRACT - what an evidence record must carry, so
+that "never hold footage" is concrete in the data model:
+  - incident id
+  - facility id
+  - camera identifier (or camera group)
+  - REQUESTED preservation window
+  - ACTUAL preserved window, as returned by the VMS
+  - the CLOCK SOURCE the requested window was computed against
+  - VMS reference / URI
+  - content hash, if the VMS supplies one
+  - preservation status
+  - audit timestamps
+
+CLOCK AUTHORITY. OPA computes the window; the VMS timestamps the
+footage; they will not agree. This is the same problem as recordedAt
+versus receivedAt, and it takes the same answer: name the authoritative
+clock, record which one was used, and pad the window. A preserved
+window that misses by ninety seconds because a DVR drifted is a failure
+that only surfaces when somebody needs the footage.
+
+SCOPE FOR v1: FACILITY-SCOPED. Incident raised at Facility X preserves
+every camera at Facility X. Per-camera geospatial selection is better
+and much harder - do not start there. A webhook a security team acts on
+manually is a legitimate v1 integration.
+
+LEGAL POSITION IS BETTER THIS WAY. OPA is not creating surveillance; it
+is PREVENTING THE DELETION of footage the customer already recorded
+under signage they already posted. Preserving a twenty-minute window
+tied to one declared emergency is MORE data-minimising than blanket
+30-day retention, not less. Purpose limitation is clean. The NDPA
+consent question flagged in 4b6a66b still needs legal review, but it is
+a far easier question in this direction than in the other.
+
+HARD PREREQUISITE - do not build this first. IncidentTimelineEvent has
+NO hash chain and an unguarded sequence race (see the known-issues
+register). An evidence reference IS a timeline event, so until that is
+fixed camera evidence cannot be part of a verifiable record - which is
+the entire point. insertFixes in the journey module is the worked
+solution to that exact race. Fix the timeline chain first.
+
+CHECK BEFORE PLANNING: schema.prisma already has Evidence (line 226),
+EvidenceType (59) and EvidenceStatus (67), and the API already maps
+POST /incidents/{id}/evidence and GET .../download-url. But
+SPRINT_ROADMAP says "Sprint 11 - Evidence Capture - NOT STARTED".
+Both cannot be true. Verify against real code before scheduling Sprint
+11 - it may be substantially further along than the roadmap claims.
+Camera preservation would be an EvidenceType, not a new subsystem.
+
+SEQUENCING: Enterprise tier. After the pilot, after Command Center, and
+after the timeline chain fix. It is a reason for an institution to pay
+MORE - not a reason for anyone to buy.
+
 
 Status: Concept, not started. Sits behind Command Center MVP shipping.
 

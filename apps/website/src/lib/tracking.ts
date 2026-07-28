@@ -16,7 +16,31 @@ export type PublicIncidentSnapshot = {
   location: {
     latitude: number;
     longitude: number;
+    /**
+     * DEVICE clock: when the coordinates were captured. Freshness is
+     * judged against serverTime, never against the browser clock.
+     */
     capturedAt: string;
+    /**
+     * ACTIVATION means the immutable origin of the emergency, which
+     * ADR-005 refuses to overwrite. TRACKED means the position moved on.
+     */
+    origin: 'ACTIVATION' | 'TRACKED';
+  };
+  /**
+   * ABSENT, not null, for any incident with no journey session - which is
+   * every incident raised before Sprint 10B Step 4. Undefined here means
+   * the feature does not exist for this incident, so the page must render
+   * as it always did: no stream badge, no "awaiting first fix".
+   */
+  tracking?: {
+    /**
+     * The SESSION, not the fix. Staleness of a POSITION is a rendering
+     * judgement made from serverTime - deliberately not a state here.
+     */
+    state: 'AWAITING_FIRST_FIX' | 'RECEIVING' | 'SILENT' | 'ENDED';
+    /** SERVER clock of the newest fix. Silence is measured from this. */
+    lastFixReceivedAt: string | null;
   };
   retriggerCount: number;
   lastRetriggeredAt: string | null;
@@ -30,7 +54,15 @@ export type ClosedIncident = {
 };
 
 export type TrackingResult =
-  | { state: 'VALID'; incident: PublicIncidentSnapshot }
+  // serverTime rides on VALID alone. The other five have no position to
+  // age. It exists so freshness can be computed as
+  // serverTime - location.capturedAt, both server values, with the
+  // browser clock never entering the comparison.
+  | {
+      state: 'VALID';
+      incident: PublicIncidentSnapshot;
+      serverTime: string;
+    }
   | { state: 'EXPIRED'; incident: null }
   | { state: 'REVOKED'; incident: null }
   | { state: 'INCIDENT_CLOSED'; incident: ClosedIncident }

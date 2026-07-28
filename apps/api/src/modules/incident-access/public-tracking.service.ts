@@ -3,6 +3,7 @@ import { IncidentStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { IncidentAccessTokenService } from './incident-access-token.service';
 import type { PublicTrackingResponse } from './dto/public-incident-snapshot.dto';
+import { deriveFixOrigin, deriveTrackingState } from './tracking-state';
 
 /**
  * Resolves a bearer tracking link to the snapshot its holder may see.
@@ -47,6 +48,25 @@ export class PublicTrackingService {
         lastTriggeredAt: true,
         retriggerCount: true,
         user: { select: { firstName: true, lastName: true } },
+        // Nested rather than a second query: one round trip, and the
+        // newest-fix ordering is index-backed by
+        // @@index([journeySessionId, receivedAt(sort: Desc)]).
+        journeySession: {
+          select: {
+            status: true,
+            lastFixReceivedAt: true,
+            fixes: {
+              take: 1,
+              orderBy: { receivedAt: 'desc' },
+              select: {
+                latitude: true,
+                longitude: true,
+                recordedAt: true,
+                source: true,
+              },
+            },
+          },
+        },
       },
     });
 
@@ -94,23 +114,60 @@ export class PublicTrackingService {
     // token's life - see ADR-008.
     await this.accessTokens.recordAccess(resolution.token.id);
 
+    const now = new Date();
+    const session = details.journeySession;
+    const newestFix = session?.fixes[0];
+
+    // Redaction nulls the coordinates deliberately (they are the erasure
+    // mechanism), so a redacted fix must NOT overwrite the origin with
+    // nulls. Falling back to the incident row is the honest answer.
+    const usableFix =
+      newestFix !== undefined &&
+      newestFix.latitude !== null &&
+      newestFix.longitude !== null
+        ? newestFix
+        : undefined;
+
+    const location =
+      usableFix !== undefined
+        ? {
+            latitude: Number(usableFix.latitude),
+            longitude: Number(usableFix.longitude),
+            capturedAt: usableFix.recordedAt.toISOString(),
+            origin: deriveFixOrigin(usableFix.source),
+          }
+        : {
+            latitude: Number(details.latitude),
+            longitude: Number(details.longitude),
+            capturedAt: details.createdAt.toISOString(),
+            origin: 'ACTIVATION' as const,
+          };
+
+    // Omitted entirely when there is no session. See the DTO comment.
+    const tracking =
+      session === null || session === undefined
+        ? undefined
+        : {
+            state: deriveTrackingState(session, now),
+            lastFixReceivedAt:
+              session.lastFixReceivedAt?.toISOString() ?? null,
+          };
+
     return {
       state: 'VALID',
       incident: {
         personName,
         status: 'OPEN',
         triggeredAt: details.createdAt.toISOString(),
-        location: {
-          latitude: Number(details.latitude),
-          longitude: Number(details.longitude),
-          capturedAt: details.createdAt.toISOString(),
-        },
+        location,
+        ...(tracking === undefined ? {} : { tracking }),
         retriggerCount: details.retriggerCount,
         lastRetriggeredAt:
           details.retriggerCount > 0
             ? (details.lastTriggeredAt?.toISOString() ?? null)
             : null,
       },
+      serverTime: now.toISOString(),
     };
   }
 }

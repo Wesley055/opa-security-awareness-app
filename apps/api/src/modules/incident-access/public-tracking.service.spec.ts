@@ -180,11 +180,18 @@ describe('PublicTrackingService', () => {
             latitude: 6.6018,
             longitude: 3.3515,
             capturedAt: '2026-07-24T14:00:58.320Z',
+            origin: 'ACTIVATION',
           },
           retriggerCount: 0,
           lastRetriggeredAt: null,
         },
+        serverTime: expect.any(String),
       });
+
+      // The fixture has no journeySession, so the block must be ABSENT
+      // rather than present-and-null. This strict toEqual is what proves
+      // it: an omitted key and a null key are not the same answer.
+      expect(result).not.toHaveProperty('incident.tracking');
     });
 
     it('selects only the two name fields from the user, never the whole record', async () => {

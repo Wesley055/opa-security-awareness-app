@@ -1,3 +1,8 @@
+import type {
+  FixOrigin,
+  JourneyTrackingState,
+} from '../tracking-state';
+
 /**
  * What a bearer-link holder may see.
  *
@@ -23,10 +28,26 @@ export type PublicIncidentSnapshotDto = {
     latitude: number;
     longitude: number;
     /**
-     * When these coordinates were captured. Equal to triggeredAt today,
-     * separate because Sprint 10B will update position independently.
+     * When these coordinates were captured. Equal to triggeredAt while
+     * the incident has no journey fixes, and independent of it once the
+     * stream starts.
      */
     capturedAt: string;
+    /**
+     * Whether this is the immutable origin of the emergency or a later
+     * tracked position. ADR-005 keeps the incident row at the origin.
+     */
+    origin: FixOrigin;
+  };
+  /**
+   * OMITTED, not nulled, when the incident has no journey session - which
+   * is every incident created before Sprint 10B Step 4. A null here would
+   * imply a stream exists and is merely empty. Decision 15.
+   */
+  tracking?: {
+    state: JourneyTrackingState;
+    /** Server clock of the newest fix. Silence is measured from this. */
+    lastFixReceivedAt: string | null;
   };
   /** How many times the SOS was re-triggered. Repeated taps may signal rising distress. */
   retriggerCount: number;
@@ -57,7 +78,15 @@ export type ClosedIncidentDto = {
  * convince them the emergency is over while their relative is still missing.
  */
 export type PublicTrackingResponse =
-  | { state: 'VALID'; incident: PublicIncidentSnapshotDto }
+  // serverTime rides on VALID only. The other four have no position to
+  // age, and INCIDENT_CLOSED deliberately discloses nothing but the end.
+  // It exists so the page can judge staleness without trusting the
+  // device clock - decision 5.
+  | {
+      state: 'VALID';
+      incident: PublicIncidentSnapshotDto;
+      serverTime: string;
+    }
   | { state: 'EXPIRED'; incident: null }
   | { state: 'REVOKED'; incident: null }
   | { state: 'INCIDENT_CLOSED'; incident: ClosedIncidentDto }

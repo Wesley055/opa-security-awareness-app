@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { IncidentAccessTokenService } from '../incident-access/incident-access-token.service';
 import { NotificationService } from '../notifications/notification.service';
 import { UsersService } from '../users/users.service';
+import { JourneySessionService } from '../journey/journey-session.service';
 import { IncidentOrchestratorService } from './incident-orchestrator.service';
 
 describe('IncidentOrchestratorService', () => {
@@ -45,6 +46,12 @@ describe('IncidentOrchestratorService', () => {
     issue: jest.fn(),
   };
 
+  const journeySessionService = {
+    resolveForActivation: jest.fn(),
+    recordActivationFix: jest.fn(),
+    recordRetriggerFix: jest.fn(),
+  };
+
   const prisma = {
     $transaction: jest.fn(),
     $executeRaw: jest.fn(),
@@ -62,6 +69,28 @@ describe('IncidentOrchestratorService', () => {
     );
     prisma.incidentNotification.createMany.mockResolvedValue({ count: 3 });
     prisma.$executeRaw.mockResolvedValue(1);
+    // A bare jest.fn() here returns undefined, and the create path then
+    // throws a TypeError on journeySession.id in every activation test.
+    // The shape matters, not just the mock.
+    journeySessionService.resolveForActivation.mockResolvedValue({
+      id: 'journey-session-1',
+    });
+    journeySessionService.recordActivationFix.mockResolvedValue({
+      inserted: 1,
+      skippedDuplicateInBatch: 0,
+      skippedAlreadyStored: 0,
+      receivedAt: new Date(),
+      tailSequence: 0,
+      tailHash: 'a'.repeat(64),
+    });
+    journeySessionService.recordRetriggerFix.mockResolvedValue({
+      inserted: 1,
+      skippedDuplicateInBatch: 0,
+      skippedAlreadyStored: 0,
+      receivedAt: new Date(),
+      tailSequence: 1,
+      tailHash: 'b'.repeat(64),
+    });
     // Default: no recent incident, so the normal creation path runs.
     prisma.incident.findFirst.mockResolvedValue(null);
     accessTokenService.issue.mockResolvedValue({
@@ -107,6 +136,10 @@ describe('IncidentOrchestratorService', () => {
         {
           provide: IncidentAccessTokenService,
           useValue: accessTokenService,
+        },
+        {
+          provide: JourneySessionService,
+          useValue: journeySessionService,
         },
       ],
     }).compile();
@@ -339,7 +372,12 @@ describe('IncidentOrchestratorService', () => {
       expect(result.status).toBe('INCIDENT_ACTIVATED');
       expect(incidentsService.create).toHaveBeenCalledTimes(1);
       expect(prisma.incidentNotification.createMany).toHaveBeenCalledTimes(1);
-      expect(prisma.incident.update).not.toHaveBeenCalled();
+      // The create path now calls incident.update exactly once, to link
+      // the journey session. Asserting the payload keeps the original
+      // intent of this line: this is a creation, not a retrigger.
+      expect(prisma.incident.update).toHaveBeenCalledTimes(1);
+      const linkArgs = prisma.incident.update.mock.calls[0][0];
+      expect(linkArgs.data).toEqual({ journeySessionId: 'journey-session-1' });
     });
 
     it('acquires a per-user advisory lock before checking for duplicates', async () => {

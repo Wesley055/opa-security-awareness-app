@@ -3,7 +3,6 @@ import { IncidentStatus, IncidentTrigger, NotificationStatus } from '@prisma/cli
 import { EmergencyContactsService } from '../emergency-contacts/emergency-contacts.service';
 import {
   EmergencyTriggerType,
-  TriggerMode,
 } from '../emergency-detection/dto/trigger-request.dto';
 import { EmergencyDetectionService } from '../emergency-detection/emergency-detection.service';
 import { EmergencyIntelligenceService } from '../emergency-intelligence/emergency-intelligence.service';
@@ -21,6 +20,7 @@ import { UsersService } from '../users/users.service';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { IncidentAccessTokenService } from '../incident-access/incident-access-token.service';
+import { JourneySessionService } from '../journey/journey-session.service';
 import type { CreateIncidentRequestDto } from './dto/create-incident-request.dto';
 
 export interface NotificationTaskResult {
@@ -42,6 +42,7 @@ export class IncidentOrchestratorService {
     private readonly timelineService: IncidentTimelineService,
     private readonly prisma: PrismaService,
     private readonly accessTokenService: IncidentAccessTokenService,
+    private readonly journeySessionService: JourneySessionService,
   ) {}
 
   async createCoordinatedIncident(
@@ -177,6 +178,17 @@ export class IncidentOrchestratorService {
       // block each other.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
 
+      // D11: the device clock is advisory. A missing or unparseable
+      // dto.timestamp must not fail the emergency, so it falls back to the
+      // server clock HERE, at the orchestrator boundary, so the journey
+      // service only ever receives a Date. This does NOT weaken D3:
+      // receivedAt remains the database clock, captured inside insertFixes.
+      const parsedRecordedAt = dto.timestamp ? new Date(dto.timestamp) : null;
+      const recordedAt =
+        parsedRecordedAt && !Number.isNaN(parsedRecordedAt.getTime())
+          ? parsedRecordedAt
+          : new Date();
+
       const cutoff = new Date(Date.now() - dedupeWindowSeconds * 1000);
       const recent = await tx.incident.findFirst({
         where: {
@@ -194,9 +206,8 @@ export class IncidentOrchestratorService {
         //
         // The incident's own latitude/longitude are deliberately NOT
         // overwritten: they are the immutable origin of the emergency (where
-        // an abduction began). The new coordinates are recorded on the
-        // timeline instead, and continuous movement becomes a proper location
-        // stream in Sprint 10B.
+        // an abduction began). The new coordinates are recorded as a journey
+        // location fix on the hash chain and on the timeline (Sprint 10B).
         const retriggeredAt = new Date();
         const updated = await tx.incident.update({
           where: { id: recent.id },
@@ -205,6 +216,24 @@ export class IncidentOrchestratorService {
             retriggerCount: { increment: 1 },
           },
         });
+
+        // Inside the transaction, deliberately: the timeline events are
+        // written after commit, so a crash in that window should cost the
+        // audit event, not the position. recordRetriggerFix is
+        // self-healing - it resolves and links a session of its own when
+        // incident.journeySessionId is null.
+        await this.journeySessionService.recordRetriggerFix(tx, {
+          incident: updated,
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          accuracy: dto.accuracy,
+          speed: dto.speed,
+          heading: dto.heading,
+          batteryLevel: dto.batteryLevel,
+          isCharging: dto.isCharging,
+          recordedAt,
+        });
+
         return {
           incident: updated,
           deduplicated: true as const,
@@ -230,6 +259,29 @@ export class IncidentOrchestratorService {
         },
         tx,
       );
+
+      // The activation fix needs created.id, so the session is resolved
+      // here rather than before the create. The lifecycle lock is already
+      // held above and pg_advisory_xact_lock is reentrant within a
+      // transaction, so resolveForActivation re-taking it is free (D6).
+      const journeySession =
+        await this.journeySessionService.resolveForActivation(tx, userId);
+      await this.journeySessionService.recordActivationFix(tx, {
+        sessionId: journeySession.id,
+        incidentId: created.id,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+        accuracy: dto.accuracy,
+        speed: dto.speed,
+        heading: dto.heading,
+        batteryLevel: dto.batteryLevel,
+        isCharging: dto.isCharging,
+        recordedAt,
+      });
+      await tx.incident.update({
+        where: { id: created.id },
+        data: { journeySessionId: journeySession.id },
+      });
 
       // The tracking URL needs the new incident id, so it is built here.
       // Pure string work - no IO inside the transaction.

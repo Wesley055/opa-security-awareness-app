@@ -1,11 +1,14 @@
 import { Module } from '@nestjs/common';
 import { JourneySessionService } from './journey-session.service';
+import { JourneyIngestionService } from './journey-ingestion.service';
+import { JourneyController } from './journey.controller';
 
 // No imports: JourneySessionService injects nothing. Every method takes an
 // explicit Prisma.TransactionClient from its caller, because the advisory
 // locks it relies on are transaction-scoped.
 @Module({
-  providers: [JourneySessionService],
+  controllers: [JourneyController],
+  providers: [JourneySessionService, JourneyIngestionService],
   exports: [JourneySessionService],
 })
 export class JourneyModule {}

@@ -179,6 +179,28 @@ export class JourneySessionService {
   }
 
   /**
+   * Tracked fixes from a device. The only public BATCH path, and
+   * therefore the only caller that can exercise D5's in-batch dedupe -
+   * every other caller passes exactly one fix.
+   */
+  async recordTrackedFixes(
+    tx: Prisma.TransactionClient,
+    params: {
+      sessionId: string;
+      fixes: JourneyFixInput[];
+    },
+  ): Promise<InsertFixesResult> {
+    // Public, so a future internal caller can reach this without the
+    // DTO. An empty batch would take the advisory lock and capture the
+    // transaction clock to write nothing, so it is a caller bug.
+    if (params.fixes.length === 0) {
+      throw new Error('recordTrackedFixes requires at least one fix.');
+    }
+
+    return this.insertFixes(tx, params.sessionId, params.fixes);
+  }
+
+  /**
    * The single owner of the hash chain (D2). Every write path goes through
    * here, so the concurrency tests exercise the code the batch endpoint will
    * use. Two implementations of the chain is the one duplication this design

@@ -6,10 +6,179 @@ not just the outcome.
 
 ---
 
+## ADR-011 - Tracker capture policy: cached replay, stationary silence,
+and the two clocks
+**Date:** 29 July 2026
+**Status:** Decided and implemented - d5aca8b, verified on device.
+
+ADR-010 deferred this: to be recorded when the work lands, the two defects
+found on the first device run of item 9b, if the fixes for them were kept.
+They were kept, verified and committed.
+
+### The two defects
+
+The first device run of the fix sender produced a working sender and two
+behavioural defects that `tsc --noEmit` could not see. `apps/mobile-app`
+has no test framework, so the device is the only gate, and this is the
+clearest demonstration of that to date: `tsc` returned 0 on the defective
+code and returned 0 again on the fix for it.
+
+**Defect 1 - `recordedAt` ran backwards against `sequence`.**
+`watchPositionAsync` delivers a cached last-known position on subscribe. The
+tracker's first fix was therefore the same reading SOS had already acquired
+during the countdown, carrying its original timestamp - captured 3.3 seconds
+BEFORE the activation fix that precedes it in the chain. Chain integrity was
+unaffected, because the chain orders by `receivedAt` and that is monotonic.
+But the public envelope selects the newest fix by `receivedAt desc`, and that
+fix held an OLDER `recordedAt` than the one before it, so the tracking page
+could show "last seen" jumping backwards the moment tracking started.
+
+**Defect 2 - `distanceInterval: 25` silenced a stationary phone.**
+On Android it maps to `setSmallestDisplacement(25)`, which suppresses updates
+entirely until the device physically moves 25 metres. A stationary phone got
+the cached fix and then nothing: one fix, one flush, never another.
+
+### Decision 1 - DISTANCE_INTERVAL_M is 0, permanently
+
+`timeInterval` drives alone.
+
+For a panic button, stationary is not an edge case - it is arguably the most
+important case, because someone held in one place is precisely who needs a
+location record. A displacement filter makes the tracker look like it is
+working while it emits nothing, and the tracking page then reports SILENT
+after 120 seconds while the app sits there running perfectly.
+
+Do not reintroduce a displacement filter as a battery optimisation without
+solving the stationary case first.
+
+### Decision 2 - the pre-start guard compares recordedAt against a start
+time captured before subscribe
+
+`trackingStartedAtMs` is set immediately before `watchPositionAsync`, and
+`enqueue()` drops any fix whose `recordedAt` precedes it. Nothing is lost:
+the activation fix already holds that same position.
+
+It is initialised to `0`, so the guard is INERT until a full start runs. That
+was chosen for safety, and it turned out to be the property that made the
+next problem diagnosable - see the closing section.
+
+### Decision 3 - the drop-only-the-first-fix variant is REJECTED
+
+It was considered, because a guard that drops everything older than start
+could in principle drop every delivery if a provider re-delivers the same
+cached object. Device evidence says it does not: across 50 fixes at
+`distanceInterval: 0` on a stationary Android phone, every `recordedAt` was
+distinct.
+
+So the simple comparison suffices, and the first-fix-only variant would be
+strictly worse - it would let a genuinely stale replay through on any
+delivery after the first.
+
+### Decision 4 - if re-delivery is ever observed, the fix is a monotonic
+rule, not a first-fix exception
+
+Recorded in advance, because the platform most likely to exhibit it - iOS -
+has not been tested, and this reasoning should not have to be rediscovered
+under time pressure.
+
+    lastEnqueuedMs initialised to trackingStartedAtMs at start
+    accept only if ms > lastEnqueuedMs
+
+One rule, three behaviours: the pre-start cached fix is rejected because
+`ms < startedAt`; a re-delivered identical object is rejected because
+`ms === lastEnqueuedMs`; a genuine new reading passes.
+
+And it fails HONESTLY. If the provider never yields a fresh reading, nothing
+is sent and the page goes SILENT, which is true. The alternative fills the
+chain with fixes carrying frozen timestamps, which looks healthy server-side
+and lies to the person reading the page. Between a system that reports it has
+lost contact and one that reports a position it knows is stale, the first is
+the only defensible choice for this product.
+
+It also gives `recordedAt` the same monotonicity `sequence` already has,
+which is what defect 1 was really about.
+
+Note the interaction with session reuse: `trackingStartedAtMs` is assigned
+after `acquireSession()`, which is after a successful activation, so it is
+always later than that activation's `recordedAt`. Initialising
+`lastEnqueuedMs` to it therefore handles the reused-session case for free.
+
+### Decision 5 - the guard must log the threshold, not just the rejection
+
+`trackingStartedAtMs` is device wall-clock (`Date.now()`); `ms` is
+`position.timestamp` from the platform location provider. **Those are two
+clocks.** On Android they are normally both system time, so the cost of the
+guard is losing a reading acquired in the few hundred milliseconds before
+subscribe - trivial at a 10 second interval.
+
+But if they ever diverge, the guard rejects EVERY fix, silently, and the
+symptom is indistinguishable from a subscription that is not firing. The log
+line must therefore carry both the rejected timestamp AND the threshold it
+lost to, so that one console capture is self-diagnosing rather than merely
+suggestive.
+
+### What this ADR does not cover
+
+- **The tracker's stop lifecycle.** ADR-010 Decision 3 specified when the
+  tracker starts and never when it stops, other than logout. Nothing stops
+  it on leaving the SOS screen, so `running` stays true and a second
+  activation no-ops while keeping the first session. Observed twice. It is a
+  real defect and it needs its own decision.
+- **The `receivedAt` tie-break.** Multi-fix batches share one `receivedAt`
+  and the envelope ordering has no tie-break. Server-side, and it must be
+  fixed before the offline buffer makes a 200-fix batch routine.
+- **iOS.** Every device run to date has been Android. The negative-sentinel
+  family that ADR-010 exists for is an iOS `CLLocation` behaviour, so the
+  sanitiser remains unproven against the platform that motivated it.
+
+### The general lesson, which cost a session
+
+After both fixes were applied, two further activations produced ZERO
+foreground fixes - worse than the one fix produced before them. The
+conclusion recorded at the time was that the fixes had regressed the sender
+and should not be committed.
+
+That was wrong. The fixes had never EXECUTED. A fast refresh preserves module
+state, so `running` was still true from the earlier run, `startTracking()`
+early-returned, `trackingStartedAtMs` was never assigned, and the surviving
+subscription still carried `distanceInterval: 25`. The phone ran the pre-fix
+bundle throughout. Nothing was ever compared to anything.
+
+Two facts settled it without spending a device run, both readable from
+artifacts that already existed:
+
+1. `trackingStartedAtMs` is initialised to `0`, so `ms < trackingStartedAtMs`
+   can never be true until a full start assigns it. **The guard could not
+   have dropped anything.** This alone turns two competing readings of one
+   ambiguous situation into two opposite claims about the same diff.
+2. `acquireSession()` sits BELOW the `if (running)` early return, so a full
+   start always POSTs `/journey/sessions` and a no-op start never does. The
+   API log already contained the answer: exactly one session POST, from the
+   pre-fix run.
+
+**When new code appears to have made things worse, prove it RAN before
+concluding it is wrong.** The cheapest proof is usually a request, log line
+or side effect that only the new path can produce.
+
+This is the fourth instance in this project of a correct action condemned by
+a wrong inference: a fix framed too narrowly around one field; a correct
+write failing a wrong post-write assertion; a well-reasoned fix that looked
+like a regression; and now a handover that recommended reverting a correct
+commit. The pattern is not carelessness - each conclusion followed from the
+evidence in view. What was missing each time was a check on the MECHANISM
+rather than the outcome.
+
+---
+
 ## ADR-010 - The negative-sentinel family, tracker lifecycle and 9b scope
 **Date:** 29 July 2026
 **Status:** Decided. Implementation pending - Sprint 10B item 9b (the
 client sanitiser) and a separate commit on the SOS request DTO.
+**Amended 29 July 2026:** the client sanitiser landed in `fa087a6` and the
+two tracker corrections in `d5aca8b`, both verified on a real device. The
+SOS request DTO commit is STILL outstanding, so Decision 1 is only half
+discharged. Implementation outcomes and the decisions that followed from
+them are recorded in ADR-011 above.
 
 Four decisions taken before any code was written for item 9b, the mobile
 fix sender. They are recorded first, deliberately: the reasoning is the

@@ -1151,7 +1151,22 @@ MUST be fixed BEFORE the endpoint ships:
   [x] Open question 24 - no expo-battery in 9b. Deferred to 9c, where a
       dependency decision is being taken anyway.
 
-  NEXT: build the 9b sender. The design is settled and nothing is blocked.
+  STATUS 29 July 2026 (evening) - what of the above has actually landed:
+    Client sanitiser  DONE    fa087a6, tracker + sos.tsx:181.
+    API DTO fix       OPEN    create-incident-request.dto.ts is UNCHANGED.
+                              The boundary that outlives any one client is
+                              still unprotected, and open question 14 rides
+                              along with it. Tier 2.
+    Tracker lifecycle PARTIAL Decision B specified when the tracker STARTS
+                              and never when it STOPS other than logout.
+                              Nothing stops it on leaving the SOS screen, so
+                              a second activation no-ops. Observed live.
+    Sentinel rule     UNPROVEN on the platform that motivated it. Every
+                              device run so far has been Android; the
+                              negative-sentinel family is iOS CLLocation.
+
+  NEXT: the receivedAt tie-break, then 9c. The 9b sender is built,
+  corrected and device-verified. Nothing is blocked.
 
 ### DONE
 
@@ -1190,21 +1205,84 @@ MUST be fixed BEFORE the endpoint ships:
       Not in the original eleven items. The ingestion endpoint needs a
       sessionId and there was no client-facing way to get one. Idempotent:
       reuses an open session, and returns reused:true when it did.
+  [x] Item 9b - mobile journey fix sender (fa087a6)
+      src/services/journey-tracker.ts, 358 lines, plus guarded edits to
+      sos.tsx and _layout.tsx. Client-side sentinel sanitising at both
+      capture points. Gate: tsc --noEmit=0 (apps/mobile-app has no test
+      framework), and a real Android device: POST /journey/fixes -> 201.
+      The client asked for MANUAL and joined the incident own INCIDENT
+      session, so the activation fix and the first tracked fix landed on
+      ONE chain at sequences 0 and 1.
+  [x] Item 9b corrections - cached replay and stationary silence (d5aca8b)
+      DISTANCE_INTERVAL_M 25 -> 0, and a pre-start guard in enqueue().
+      GATE: THE DEVICE, NOT tsc. tsc --noEmit returned 0 on the defective
+      code AND on the fix; only the device and the database could tell the
+      two apart. Measured on a stationary Android phone: 11 consecutive
+      flushes, every one 201, 50 fixes at a 10s cadence, recordedAt
+      monotonic against sequence, and activation sequence 4 (18:57:59.806)
+      correctly preceding foreground sequence 5 (18:58:09.505).
+      Two defects closed: recordedAt ran backwards against sequence
+      because watchPositionAsync replays a cached position on subscribe;
+      and distanceInterval maps to setSmallestDisplacement on Android,
+      which silences a stationary phone entirely - the case a panic button
+      exists for.
+      CORRECTION TO THE RECORD: these two fixes were previously believed
+      to have REGRESSED the sender to zero fixes. They had not. They were
+      never executed - a fast refresh preserves module state, so
+      startTracking() early-returned on if (running) and the phone kept
+      running the pre-fix bundle. The discriminator is one line in the API
+      log: acquireSession() sits below that early return, so a full start
+      always POSTs /journey/sessions and a no-op start never does.
+      When new code appears to have made things worse, prove it RAN.
+      SIDE EFFECT, first time in project history: the 15s flush beating
+      against the 10s capture produced multi-fix batches - roughly 20 of
+      them. insertFixes in-batch CHAINING therefore executed on real data
+      for the first time, with fix 2 previousHash coming from fix 1 hash
+      computed inside the same call rather than read from the tail.
+      In-batch DEDUPE still has not fired: it ran and correctly found
+      nothing. That needs genuine duplicates, which is item 10.
 
 ### REMAINING
 
-  [ ] Item 9b - fix sender + batching (3-4h)
-      forbidNonWhitelisted is live: any field not on JourneyFixDto 400s
-      the WHOLE batch. idempotencyKey is client-generated per fix.
-      source must be foreground|background|manual - activation and
-      retrigger are reserved for the SOS path and rejected on the wire.
   [ ] Item 9c - offline buffer + retry queue (4-6h)
-      No AsyncStorage or SQLite dependency exists yet. This is the first
-      thing that will ever exercise the in-batch dedupe.
+      No AsyncStorage or SQLite dependency exists yet. Needs that decision
+      and open question 2 answered before it ships: the endpoint currently
+      409s ANY fix for an ENDED session, and a batch buffered across a
+      supersession is exactly that case.
+      NOTE: in-batch CHAINING is now proven (see d5aca8b above). It is the
+      in-batch DEDUPE that is still unexercised, and item 10 airplane-mode
+      step is what will exercise it, not 9c on its own.
   [ ] Item 10 - end-to-end test (2-3h)
       SOS -> activation fix -> tracked fixes -> page shows RECEIVING ->
       airplane mode -> SILENT -> reconnect -> buffered fixes flush ->
       RECEIVING again. That last transition is the real proof.
+
+  [ ] receivedAt tie-break in the public envelope - DO BEFORE 9c (0.25h)
+      insertFixes captures date_trunc(milliseconds, now()) ONCE per call,
+      so every fix in a batch shares one receivedAt. The envelope picks the
+      newest fix by receivedAt desc with NO tie-break, so with a multi-fix
+      batch either row may be returned. Harmless at 2 fixes. Under 9c a
+      200-fix buffered batch shares one receivedAt, so an arbitrary
+      tie-break could surface the fix from the START of an outage as
+      latest - the same backwards last-seen defect at a much larger scale.
+      Fix: ORDER BY receivedAt DESC, sequence DESC. sequence is strictly
+      monotonic within a session, so it is the correct tie-break.
+  [ ] Tracker lifecycle - nothing stops the tracker off the SOS screen
+      stopTracking() is called from exactly one place: _layout.tsx, on
+      isAuthenticated going false. So running stays true, a second SOS
+      no-ops in startTracking(), and the first session id is kept even
+      though a new incident exists. Observed twice: it caused the false
+      regression above, and after a clean run the tracker was still
+      flushing nine minutes past the end of the test. A hole in Decision B.
+      Until it is fixed, force-close Expo Go after every device test.
+  [ ] contactsNotified displays 0 while notifications dispatch
+      Activate returns 201 before the outbox worker runs, so the count is
+      computed before any notification exists. Measured: activate 201 at
+      18:57:59.978, worker dispatched 4 notifications at 18:58:02, and the
+      SOS screen read 0 contacts throughout. Not stale - structurally
+      unavailable at response time. On a panic screen this is the worst
+      direction for the error to run. The honest fix is the same work as
+      the contact-acknowledgement idea: a state that updates, not a count.
 
 ### RIDES ALONG WITH ITEM 9
 

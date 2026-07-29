@@ -163,7 +163,7 @@ estimated address, no fake movement. Reliability requirement:
 critical incident information must be server-rendered, not dependent
 on client-side JavaScript loading successfully.
 
-### Sprint 10B - Live Tracking - IN PROGRESS, ~75% (28 July 2026)
+### Sprint 10B - Live Tracking - IN PROGRESS, ~87% (29 July 2026)
 
 IN SCOPE: continuous GPS updates, last known location, automatic
 refresh on the tracking page, offline buffering and synchronisation,
@@ -183,6 +183,15 @@ platform documents those two by sign rather than by a single sentinel.
 The tracker starts only after a successful SOS activation, not on login,
 which also closes open question 25. Battery capture is deferred to 9c
 alongside the offline-buffer dependency decision.
+PROVEN ON DEVICE 29 July 2026: the sender is built and both of its first
+device defects are closed. A stationary Android phone produced 50 fixes at
+a 10s cadence over 11 consecutive flushes, every one accepted, with
+recordedAt monotonic against sequence. The gate here was the device and the
+database, not tsc - tsc returned 0 on the defective code and on the fix.
+STILL OUTSTANDING from the decisions above: create-incident-request.dto.ts
+is unchanged, so the API boundary is protected on this one client only; and
+the sentinel rule remains unproven on iOS, which is the platform that
+motivated it, because every device run so far has been Android.
 
 ### Sprint 10C - Location Intelligence - CONFIRMED HARD BLOCKER to any
 production deployment (25 July 2026)
@@ -348,7 +357,7 @@ Enterprise fleet monitoring (concept only).
 | Voice delivery | PLANNED - blocked on a public webhook |
 | Diaspora SMS (non-Nigerian numbers) | NOT STARTED - Africa's Talking Sandbox confirmed rejecting a US number; Twilio identified as the real fix, see Phase 4 |
 | Incident portal | BUILT, locally verified - Sprint 10A. Auth model is ADR-008 capability tokens at /i/<token>; the /incidents/<uuid> route referenced in older notes was never built. |
-| Live tracking | IN PROGRESS ~75% - Sprint 10B. Server, ingestion endpoint, public envelope and website page built. Mobile sender and offline buffer outstanding. |
+| Live tracking | IN PROGRESS ~87% - Sprint 10B. Server, ingestion endpoint, public envelope, website page and mobile sender all built; sender device-verified 29 July 2026 (50 fixes, 10s cadence, stationary phone, hash chain intact, d5aca8b). Offline buffer (9c) and end-to-end test (10) outstanding. Deliberately NOT marked DONE: the tracking page has never been rendered, and there is no persistence across process death until 9c. |
 | Command Center | NOT STARTED - Sprint 13/14 |
 | Production backend (Azure) | INFRASTRUCTURE DONE, SERVICE DOES NOT BOOT - deployed, migrated, DB-connected. ProviderConfidenceValidator refuses to start while six providers return mock data, and OPA_ALLOW_MOCK_PROVIDERS is not set in Azure. Observed live in Log Stream, twice. See the deployment consequence note in TODO.md. |
 

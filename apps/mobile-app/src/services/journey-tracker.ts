@@ -43,7 +43,14 @@ const FLUSH_INTERVAL_MS = 15000;
 const FLUSH_TIMEOUT_MS = 30000;
 
 const TIME_INTERVAL_MS = 10000;
-const DISTANCE_INTERVAL_M = 25;
+
+/**
+ * DELIBERATELY 0. A distanceInterval suppresses updates until the device
+ * physically moves that far - on Android it is setSmallestDisplacement - so
+ * a stationary phone emits one cached fix and then nothing at all. Stationary
+ * is the case a panic button exists for, so timeInterval drives instead.
+ */
+const DISTANCE_INTERVAL_M = 0;
 
 /** ArrayMaxSize(200) on IngestFixesDto. Larger flushes are chunked. */
 const MAX_BATCH = 200;
@@ -110,6 +117,12 @@ let flushing = false;
 let queue: TrackedFix[] = [];
 let captureSeq = 0;
 
+/**
+ * Wall clock at the moment tracking started. Anything captured before it is
+ * a cached reading replayed by watchPositionAsync on subscribe.
+ */
+let trackingStartedAtMs = 0;
+
 function log(message: string, extra?: unknown): void {
   if (extra === undefined) {
     console.log('[journey-tracker] ' + message);
@@ -155,6 +168,16 @@ function enqueue(position: Location.LocationObject, forSession: string): void {
     typeof position.timestamp === 'number' && Number.isFinite(position.timestamp)
       ? position.timestamp
       : Date.now();
+
+  // PRE-START FIX GUARD. watchPositionAsync replays a cached last-known
+  // position on subscribe. Its recordedAt can PRECEDE the activation fix,
+  // which makes recordedAt run backwards against sequence and lets the
+  // tracking page show "last seen" jumping into the past. The activation
+  // fix already holds that same position, so dropping it loses nothing.
+  if (ms < trackingStartedAtMs) {
+    log('ignoring cached pre-start fix from ' + new Date(ms).toISOString());
+    return;
+  }
 
   captureSeq += 1;
 
@@ -273,6 +296,10 @@ export async function startTracking(): Promise<void> {
     return;
   }
   sessionId = id;
+
+  // Set BEFORE subscribing, so the cached fix that arrives immediately
+  // afterwards is measured against a start time that already exists.
+  trackingStartedAtMs = Date.now();
 
   try {
     subscription = await Location.watchPositionAsync(

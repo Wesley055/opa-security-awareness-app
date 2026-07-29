@@ -1,0 +1,791 @@
+# OPA Sprint 10B - Handover Ultra 13 - PART 2 of 3 (sections 9b-14)
+# Continues from part 1. Paste after it.
+#
+# GENERATED: 2026-07-29, evening session, at HEAD 16d6c88.
+# All three parts must name the same HEAD.
+
+## 9b. ITEM 9b - BUILT, SHIPPED, FALSELY CONDEMNED, EXONERATED, RECORDED.
+
+**Four commits: `fa087a6` (sender), `d5aca8b` (both defect fixes),
+`46c08b5` (docs), `16d6c88` (ADR-011).**
+
+**READ 9b.3 BEFORE ANYTHING ELSE.** It is the reasoning that saved a correct
+commit from being reverted, and its general form applies well beyond this
+project. It is also now permanently recorded in ADR-011.
+
+### 9b.1 The four decisions taken BEFORE any code - ADR-010
+
+`decision-log.md` lines 173-304. Summarised:
+
+**Decision 1 - fix the negative sentinels at BOTH boundaries, client first.**
+The client sanitiser landed in `fa087a6`. **The API DTO fix has still not
+happened** - part 1 section 9 item 12b. A client-side sanitiser is not a
+boundary; it protects exactly one client, and the moment a second client exists
+the exposure returns. **ADR-010's Status now carries an amendment saying so
+explicitly** - the decision is half discharged.
+
+**Decision 2 - the transforms are DELIBERATELY ASYMMETRIC.**
+
+| Field | Rule |
+|---|---|
+| `heading` | exactly `-1` maps to null |
+| `speed` | ANY negative maps to null |
+| `accuracy` | ANY negative maps to null |
+
+**This must not be "corrected" into consistency.** `course` has a documented
+single sentinel of exactly -1, so an exact match preserves the ability to reject
+`-20` as genuine garbage - a control test already asserts that. `speed` and
+`horizontalAccuracy` are documented by SIGN, not by a value. An `=== -1`
+transform copied onto them would look symmetric, pass a spec written against
+-1, and still let `-3` through to `@Min(0)` - **the same too-narrow framing that
+produced ADR-010, repeated inside its own fix.**
+
+The failure mode settles it: `forbidNonWhitelisted` is true and validation is
+per request, so ONE negative field on ONE fix rejects an ENTIRE batch of up to
+200. The ordinary cause is a phone sitting still.
+
+**The client is deliberately MORE aggressive than the API.** The API rejects
+garbage on purpose; the client omits it, because a client that ships a
+batch-killing value has failed at its one job.
+
+**Decision 3 - the tracker starts ONLY after a successful SOS activation.**
+Not on login. The app is foreground-only, so starting at login means watching
+location for a whole session with no product behind it. **This closes q25:** a
+cancelled SOS never calls the API, and a tracker that starts only AFTER a
+successful activation cannot be stranded by a cancelled trigger. **It reopens
+the moment a session can start independently of an SOS - i.e. SafeWalk.**
+
+**Decision 4 - no `expo-battery` in 9b.** Deferred to 9c.
+
+**THE HOLE IN DECISION 3, confirmed twice:** it specified when the tracker
+STARTS and never when it STOPS, other than logout. Issue 17.13.
+
+### 9b.2 THE FIRST DEVICE RUN - TWO REAL DEFECTS
+
+**Proven.** `POST /journey/fixes` -> **201** in 23 ms from a real Android phone.
+Database after that run:
+
+```
+ sequence |   source   |       recordedAt        |       receivedAt
+        1 | foreground | 2026-07-29 14:25:59.395 | 2026-07-29 14:26:18.048
+        0 | activation | 2026-07-29 14:26:02.736 | 2026-07-29 14:26:02.725
+```
+
+**DEFECT 1 - `recordedAt` ran BACKWARDS against `sequence`.** The foreground
+fix at sequence 1 was CAPTURED 3.3 seconds BEFORE the activation fix at
+sequence 0. Cause: `watchPositionAsync` delivers a **cached last-known position
+on subscribe**, carrying its original timestamp. Integrity was unaffected (the
+chain orders by `receivedAt`, which is monotonic) **but the public envelope
+picks the newest fix by `receivedAt desc`, and that fix had an OLDER
+`recordedAt` than the one before it** - so the tracking page's "last seen"
+could jump BACKWARDS the moment tracking started.
+
+**DEFECT 2 - `distanceInterval: 25` silenced a stationary phone. Trap #79.**
+On Android it maps to `setSmallestDisplacement(25)`, suppressing updates until
+the device physically moves 25 metres. A stationary phone got the initial cached
+fix and then **nothing** - `count=1`, `first_recv = last_recv`.
+**For a panic button, stationary is arguably the most important case.**
+
+Both fixes were written: a `trackingStartedAtMs` set before subscribing with a
+guard in `enqueue()`, and `DISTANCE_INTERVAL_M = 0`.
+
+### 9b.3 THE FALSE REGRESSION - THE MOST IMPORTANT REASONING HERE
+
+**Ultra 12 concluded the two fixes had made things STRICTLY WORSE and
+recommended in three places that they not be committed. That was wrong, and the
+way it was wrong is the durable lesson.**
+
+The evidence: after applying the fixes, two further SOS activations ran fourteen
+minutes apart and produced **zero** foreground fixes, where the pre-fix run had
+produced one.
+
+```
+ sequence |   source   |       recordedAt        |       receivedAt
+        3 | activation | 2026-07-29 14:53:50.014 | 2026-07-29 14:53:50.012
+        2 | activation | 2026-07-29 14:39:35.107 | 2026-07-29 14:39:35.100
+        1 | foreground | 2026-07-29 14:25:59.395 | 2026-07-29 14:26:18.048
+        0 | activation | 2026-07-29 14:26:02.736 | 2026-07-29 14:26:02.725
+```
+
+Two candidates: **A**, the pre-start guard eats everything because Android
+re-delivers the same cached object; **B**, `startTracking()` early-returns on
+`if (running)` because nothing calls `stopTracking()` on navigating back.
+
+**THE STEP THAT SETTLED IT COST NOTHING.** Two facts read out of files that
+already existed:
+
+**Fact 1 - `trackingStartedAtMs` is initialised to `0` at line 124.** Therefore
+`ms < trackingStartedAtMs` is `ms < 0`, **never true for a real timestamp**. The
+guard is INERT until line 302 assigns it. **The guard cannot have dropped
+anything unless `startTracking()` ran all the way through.** This alone makes A
+and B not two readings of one ambiguous situation but **opposite claims about
+the same diff**: under A the guard is wrong, under B it never ran.
+
+**Fact 2 - `acquireSession()` sits BELOW `if (running) return`.** So a full
+start always POSTs `/journey/sessions`; a no-op start never does. **The API log
+already contained the answer.**
+
+It did. `/journey/sessions` appears **exactly once** in the entire scrollback -
+`14:26:02.916`, the pre-fix run. Both later activations returned 201
+(`14:39:35.202`, `14:53:50.096`) with **no session POST following either.**
+
+**Verdict: CANDIDATE B. The diff never ran.**
+
+**And the stronger reading.** Metro re-evaluates a module you have edited, which
+would reset `running` to false and produce a session POST. **None appeared.** So
+the module was never re-evaluated: **the phone ran the PRE-FIX bundle for the
+entire 14:26 to 14:53 window.** The two "post-fix" runs tested the old code.
+Nothing was ever compared to anything. Trap #80.
+
+Two independent silencers were operating, **neither caused by the diff**:
+1. `if (running)` no-op (issue 17.13) - SOS #2 and #3 were dead on arrival.
+2. The surviving 14:26 subscription still carried `distanceInterval: 25`.
+   **Trap #79 in full force, because the fix for it never reached a live
+   subscription.**
+
+**THE GENERAL LESSON, the fourth instance of the same family:** trap #73 (a fix
+framed too narrowly), trap #76 (a correct write failing a wrong assertion),
+9b.2 (a well-reasoned fix that looked worse), and now this - **when new code
+appears to have made things worse, prove it RAN before concluding it is wrong.**
+The cheapest proof is usually a request, log line or side effect that only the
+new path can produce. **Now permanently recorded in ADR-011.**
+
+### 9b.4 THE SECOND DEVICE RUN - CLEAN, AND IT PROVED MORE THAN EXPECTED
+
+Full protocol from part 1 section 1: Expo Go fully closed and reopened, one SOS,
+countdown completed, phone stationary, screen held.
+
+**API log, 18:57-19:00 UTC:**
+```
+18:57:59.978  POST /incident-orchestrator/activate  201  220ms
+18:58:00.030  POST /journey/sessions                201   14ms   <- THE PROOF
+18:58:02      Dispatch worker: dispatched 4 notification(s)
+18:58:15.102  POST /journey/fixes                   201   28ms
+18:58:30.103  POST /journey/fixes                   201   23ms
+   ... eleven consecutive flushes, every 15 s, all 201, no gaps ...
+19:00:45.179  POST /journey/fixes                   201   13ms
+```
+
+**`/journey/sessions` at 18:58:00.030 is the line that matters.** The new code
+ran. `trackingStartedAtMs` was assigned. The guard was armed.
+
+**CANDIDATE A IS DEAD, provable from the log alone.** `IngestFixesDto` carries
+`@ArrayMinSize(1)`, so an empty batch 400s. Eleven consecutive 201s mean eleven
+batches each carrying at least one fix. **The guard drops the cached replay and
+nothing else.**
+
+**TRAP #79 CONFIRMED FIXED.** A stationary phone emitting a fix every flush
+cycle is exactly what `DISTANCE_INTERVAL_M = 0` was meant to buy.
+
+**DATABASE - 54 fixes, 1 session.** Tail:
+```
+ sequence |   source   |       recordedAt        |       receivedAt
+       53 | foreground | 2026-07-29 19:06:44.038 | 2026-07-29 19:06:45.374
+       52 | foreground | 2026-07-29 19:06:34.999 | 2026-07-29 19:06:45.374
+       51 | foreground | 2026-07-29 19:06:25.041 | 2026-07-29 19:06:30.448
+       50 | foreground | 2026-07-29 19:06:15.032 | 2026-07-29 19:06:15.338
+       49 | foreground | 2026-07-29 19:06:05.021 | 2026-07-29 19:06:15.338
+       ...
+```
+
+**DEFECT 1 CLOSED.** `recordedAt` ascends in lockstep with `sequence` across all
+20 sampled rows, clean 10-second cadence, **no inversions and no repeated
+`recordedAt` values.** The absence of repeats kills the re-delivered-cached-
+object theory: the provider yields genuinely fresh readings at
+`distanceInterval: 0`. **That is the evidence ADR-011 Decision 3 rests on.**
+
+**THE BOUNDARY CASE - the row that actually closes defect 1:**
+```
+ sequence |   source   |       recordedAt        |       receivedAt
+        4 | activation | 2026-07-29 18:57:59.806 | 2026-07-29 18:57:59.796
+        5 | foreground | 2026-07-29 18:58:09.505 | 2026-07-29 18:58:15.082
+```
+**Activation at 18:57:59.806, first foreground 9.7 seconds LATER.** Compare the
+original failure: sequence 1 foreground at 14:25:59.395 PRECEDING sequence 0
+activation at 14:26:02.736. **The inversion is gone**, and 9.7 s is a genuine
+fresh reading on the first `timeInterval` tick, not the cached replay - the
+replay was dropped by the guard, exactly as designed.
+
+**MULTI-FIX BATCHES EXECUTED FOR THE FIRST TIME IN PROJECT HISTORY.**
+Look at `receivedAt` above: fixes arrive in alternating batches of 2 and 1
+(52+53 share `19:06:45.374`; 51 alone; 49+50 share `19:06:15.338`). That is the
+10 s capture beating against the 15 s flush - three fixes per two flushes,
+roughly 20 two-fix batches over the run.
+
+**Every batch before this session carried exactly one fix.** So `insertFixes`'
+in-batch path had never run: the sort by `recordedAt`, and critically **the
+chaining where fix 2's `previousHash` is fix 1's hash computed WITHIN THE SAME
+CALL rather than read from the database tail.** Reachable since `861a843`, now
+proven on real data, producing a valid chain. **A standing caveat carried by
+every handover since is retired.**
+
+Also confirmed: identical `receivedAt` within a batch, which is
+`date_trunc('milliseconds', now())` captured once per call, exactly as
+documented. **D5's in-batch DEDUPE ran and correctly found nothing** - genuine
+duplicates still need item 10's airplane-mode test.
+
+**A timing observation worth keeping.** Sequences 5-8 show `recordedAt` gaps of
+12.5 s, 14.8 s and 13.4 s - not the clean 10 s of later rows. Early GPS
+settling; it converges by sequence 34. **Relevant to q1:** "twelve consecutive
+misses before SILENT" has more slack early in a session than the arithmetic
+suggests, and that is exactly when it matters most.
+
+### 9b.5 NEW FINDING - THE `receivedAt` TIE-BREAK. BLOCKS 9c.
+
+The public envelope picks the newest fix by `receivedAt desc` (schema line 421).
+**`receivedAt` now has ties**, because every fix in a batch shares one value.
+Nothing breaks the tie, so Postgres may return either row. Picking sequence 52
+over 53 shows a position 10 seconds stale. **Minor today.**
+
+**It is not minor under 9c.** A buffered batch flushed after an outage carries
+up to 200 fixes **all sharing one `receivedAt`**. An arbitrary tie-break could
+surface the fix from the **start** of the outage as "latest" - the same failure
+defect 1 was about, resurrected at a much larger scale and pointing at a
+position that could be minutes or miles old.
+
+**Fix: `ORDER BY receivedAt DESC, sequence DESC`.** One clause. `sequence` is
+strictly monotonic within a session by construction, so it is the correct
+tie-break. **Before 9c ships.** Trap #81.
+
+**A note on why this bug existed undetected.** The 15 s / 10 s ratio is what
+made multi-fix batches happen at all. A 1:1 ratio would have hidden this until
+9c made it dangerous. **The awkward ratio surfaced a latent defect early**,
+which is an argument for leaving it alone - see q30.
+
+### 9b.6 NEW FINDING - THE PANIC SCREEN SAYS "0 CONTACTS" WHILE ALERTING
+
+Observed on the clean run: the SOS screen sat on "emergency activated,
+**0 contacts**" while the API log showed four WhatsApp notifications dispatched
+to two recipients.
+
+**Not a delivery failure. A structural one.** Activate returned 201 at
+18:57:59.978; the outbox worker dispatched at 18:58:02, **two seconds later**.
+`contactsNotified` is computed and returned before any notification exists. The
+number is not stale - it is **unavailable at response time**.
+
+**On a panic screen this is the worst possible direction for an error to run.**
+A user in danger is told nobody was alerted while alerts are going out. The
+plausible behaviour is that they press again, or give up and act as though no
+one is coming.
+
+Tier 2 item 14e. **Adjacent to product idea #1** (contact acknowledgement): the
+honest display is not a count returned by activate at all, but a state that
+updates - "notifying..." then "2 notified" then "1 opened". `recordAccess()`
+already exists and `NotificationStatus.ACKNOWLEDGED` already exists and nothing
+sets it. **The fix for 9b.6 and product idea #1 are the same piece of work.**
+Trap #82.
+
+### 9b.7 ADR-011 - WRITTEN AND COMMITTED (`16d6c88`)
+
+`decision-log.md` lines 9-172, 164 lines. Discharges ADR-010's promise to
+record the two defects once their fixes landed. **Read the file**; summarised:
+
+**Decision 1 - `DISTANCE_INTERVAL_M` is 0, permanently.** `timeInterval` drives
+alone. For a panic button, stationary is not an edge case - it is arguably the
+most important case. A displacement filter makes the tracker look like it is
+working while it emits nothing. **Do not reintroduce one as a battery
+optimisation without solving the stationary case first.**
+
+**Decision 2 - the pre-start guard compares `recordedAt` against a
+`trackingStartedAtMs` captured before subscribe.** The activation fix already
+holds that position, so dropping the replay loses nothing. **Initialised to `0`,
+so it is inert until a full start runs** - chosen for safety, and it turned out
+to be the property that made the false regression diagnosable.
+
+**Decision 3 - the "drop only the first fix" variant is REJECTED.** Device
+evidence shows no re-delivery of cached objects (all 50 `recordedAt` distinct),
+so the simple comparison suffices, and the first-fix-only variant would be
+strictly worse - it would let a genuinely stale replay through on any delivery
+after the first.
+
+**Decision 4 - the fallback if re-delivery is ever observed** (iOS, or a
+different Android provider) **is a strictly monotonic capture rule**, not a
+first-fix exception:
+```
+lastEnqueuedMs initialised to trackingStartedAtMs at start
+accept only if ms > lastEnqueuedMs
+```
+One rule, three behaviours: the pre-start cached fix is rejected
+(`ms < startedAt`), a re-delivered identical object is rejected
+(`ms === lastEnqueuedMs`), a genuine new reading passes. **And it fails
+honestly** - if the provider never yields a fresh reading, nothing is sent and
+the page goes SILENT, which is TRUE, rather than filling the chain with fixes
+carrying frozen timestamps. **Between a system that reports it has lost contact
+and one that reports a position it knows is stale, the first is the only
+defensible choice for this product.** It also gives `recordedAt` the same
+monotonicity `sequence` already has, which is what defect 1 was really about.
+
+**Session-reuse interaction:** `trackingStartedAtMs` is assigned AFTER
+`acquireSession()`, which is after a successful activation, so it is always
+later than that activation's `recordedAt`. Initialising `lastEnqueuedMs` to it
+therefore handles the q28 reused-session case for free.
+
+**Decision 5 - the guard must log the threshold, not just the rejection.**
+`trackingStartedAtMs` is device wall-clock (`Date.now()`); `ms` is
+`position.timestamp` from the platform provider. **Two clocks.** On Android
+normally both system time, so the cost is losing a reading acquired in the few
+hundred ms before subscribe - trivial at a 10 s interval. **But if they ever
+diverge, the guard rejects everything, silently, and the symptom is
+indistinguishable from a subscription that is not firing.** The log line must
+carry the rejected timestamp AND the threshold it lost to. **Small edit, worth
+making before the iOS run.** Part 1 section 9 Tier 1 item 3.
+
+**ADR-011 explicitly does NOT cover:** the tracker stop lifecycle (17.13), the
+`receivedAt` tie-break (server-side), or iOS.
+
+### 9b.8 THE GAP - READ BEFORE CLAIMING 9b IS DONE
+
+**Every device run so far has been Android** (`okhttp/4.12.0`).
+
+**The entire negative-sentinel family is an iOS `CLLocation` behaviour.** So the
+sanitiser - the thing ADR-010 exists for - **has still not been exercised
+against the platform that motivated it.** It is correct and necessary. It is
+simply unproven.
+
+**An iOS device run, stationary, is the test that matters**, and it is the one
+that would produce a negative `speed` in the ordinary case. It is also the run
+most likely to surface cached-object re-delivery, which is why ADR-011 Decision
+4 exists as a written fallback rather than as speculation.
+
+**Record this as a known gap, not a passing gate.**
+
+---
+
+## 10. The token leak - CLOSED. Historical record only.
+
+Fixed in `7b152cd`. Full analysis in ADR-009's "Two redaction contracts".
+
+**What it was:** `global-exception.filter.ts` read `path: request.originalUrl`
+raw in two places and did not import `redactSensitivePath`.
+
+**What the earlier handover got wrong:** it justified urgency by claiming errors
+on tracking routes are routine. **Those four states never reach the exception
+filter** - `public-tracking.controller.ts` uses `@Res({ passthrough: true })`
+and returns normally. Zero `throw` statements across all 8 files in
+`src/modules/incident-access`. **A 404 status is not a thrown 404.**
+
+**What actually fires:** Nest's own unmatched-route 404 from
+`routes-resolver.js:77`, whose message contains the full URL, and therefore so
+does `Error.stack`. **So the fix was FOUR sites, not two.**
+
+**The durable lesson: when a handover explains WHY something is urgent, check
+the mechanism, not just the conclusion.**
+
+**That lesson has now recurred four times.** `edec8c4` fixed `heading` and
+stopped (trap #73). Trap #76, a correct write failing a wrong assertion. 9b.2, a
+well-reasoned fix that looked worse. **And 9b.3 - a handover that recommended
+reverting a correct commit on evidence whose mechanism it had not checked.** The
+plan phase guards against a drifted target. It does not guard against the author
+being wrong. **All four are now recorded in ADR-011's closing section.**
+
+**Still open: Tier 2 item 13.** Application Insights and any other place request
+paths are captured. Azure-side. The `TODO.md` audit checkbox must stay unticked.
+
+---
+
+## 11. There is no working production API
+
+**Still the most important finding in the project. Unchanged.**
+
+- All 7 providers declare a `DataConfidence`; 6 are `MOCK`, only
+  `DeviceTelemetryProvider` is `PRODUCTION`. `ProviderConfidenceValidator`
+  **refuses to boot** if any provider is `MOCK` unless
+  `OPA_ALLOW_MOCK_PROVIDERS=true`.
+- The flag is an explicit **opt-IN**, deliberately not `NODE_ENV`-based.
+  **Forgetting it fails CLOSED.**
+- `.env` is not tracked, so **Azure has no `OPA_ALLOW_MOCK_PROVIDERS`. The next
+  production deploy will refuse to start.** The guard working as designed.
+- Observed live twice in real Azure Log Stream.
+
+**Confirmed again this session** - the local boot printed the validator warning
+naming all six mock providers, and the request log carried an
+`EmergencyIntelligenceService` DEBUG line on **every** activation:
+
+> *Omitted from response due to mock providers: address, surroundings,
+> hospitals, policeStations, safePlaces, routes. Raw device GPS still returned.
+> This only occurs when OPA_ALLOW_MOCK_PROVIDERS=true (local development only).*
+
+**THAT LINE IS NEW EVIDENCE FOR TIER 3 ITEM 15 AND q10.** It means
+response-level omission **already exists and already works** - the intelligence
+block is already stripped when providers are mock, and raw device GPS still
+flows. The "cheap unblock" may be far closer to existing than assumed.
+
+**But the validator is a BOOT-TIME gate on provider confidence, not a
+response-shape gate**, so stripping the response does not obviously satisfy it.
+**Read `provider-confidence.validator.ts` and `EmergencyIntelligenceService`
+together before scoping this.** Still the highest-leverage unknown in the
+project, and the cheapest next step on it is now a read rather than a design.
+
+**Azure App Service application settings live outside the repo and were NOT
+checked. No infrastructure-as-code exists anywhere.** There is no committed
+record of what production is configured to run.
+
+**The docs no longer assert anything false** - `744731f` changed the Feature
+Readiness Matrix and critical-path item 9 to `INFRASTRUCTURE DONE, SERVICE DOES
+NOT BOOT`. **The underlying condition is unchanged.**
+
+**Do NOT set the flag in Azure.** Rejected in three documents.
+
+---
+
+## 12. The document estate
+
+### What is in the repo - 20 markdown files, plus handovers once item 0 is done
+
+| Lines | Path |
+|---|---|
+| 32 | `README.md` |
+| **1524** | `docs/TODO.md` |
+| **589** | `docs/SPRINT_ROADMAP.md` |
+| **860** | `docs/architecture/decision-log.md` |
+| 269 | `docs/VOICE_ACTIVATION_FEASIBILITY_STUDY.md` |
+| 194 | `docs/LAUNCH_AND_REGISTRATION_ROADMAP.md` |
+| 182 | `docs/architecture/emergency-intelligence-engine.md` |
+| 166 | `docs/REGISTRATIONS.md` |
+| 112 | `docs/architecture/system-overview.md` |
+| 98 | `docs/architecture/incident-lifecycle.md` |
+| 94 | `docs/future/ussd-fallback.md` |
+| ~88 | `docs/COMMERCIAL_ROADMAP.md` |
+| 36 | `docs/PHASE0.md` |
+| 36 | `apps/website/README.md` |
+| 12 | `docs/SECURITY.md` |
+| 14/5/3/1/1 | `apps/*/README.md`, `AGENTS.md`, `CLAUDE.md` |
+
+**Counts measured at `16d6c88` in `Get-Content` terms.** Installer output says
++1 on each (trailing-newline convention). Both are right.
+
+### THE ENCODING TRAP - read before editing any doc
+
+**`docs/TODO.md` and `docs/SPRINT_ROADMAP.md` contain ZERO real em-dashes and
+DO carry a UTF-8 BOM.** What renders as mojibake in those two files is
+**literally in the files**. Confirmed again this session by installer.
+
+- **`docs/COMMERCIAL_ROADMAP.md` is clean**: 12 real em-dashes, no BOM.
+- **`docs/architecture/decision-log.md` is clean**: no BOM, confirmed by
+  installer at `16d6c88`.
+
+**A DISTINCTION THAT COST CONFUSION THIS SESSION.** `decision-log.md`'s
+ADR-001..008 headings render in PowerShell as `ADR-008 a<mojibake> Incident
+tracking links...`. **Those are REAL em-dashes and the file is clean.** The
+mojibake is `Get-Content` misreading UTF-8 as ANSI - trap #63 - not corrupt
+bytes. ADR-009/010/011 show a plain hyphen because they deliberately use ASCII.
+**Do not "fix" `decision-log.md`. Only `TODO.md` and `SPRINT_ROADMAP.md` need
+the cleanup commit.**
+
+**Consequences for every future edit:**
+- **Every installer anchor into the two BOM files must be ASCII-only.** Done
+  successfully three times now.
+- **A dedicated cleanup commit is wanted.** Do NOT fold it into a content
+  commit. Tier 4 item 18.
+- Byte-level verification uses **python**, never shell quoting tricks (#71).
+
+### Structural facts - RE-MEASURE, DO NOT TRUST
+
+**`TODO.md` heading map** - major sections use a `## ====` banner, a title line,
+another `## ====`. The bare `## ====` line is NOT unique; **anchor on a
+multi-line combination.**
+
+**The Sprint 10B progress section is at `TODO.md:1124`.** `### DONE` occurs 3
+times - never anchor on it alone. **`46c08b5` added 86 lines in this region**, so
+anything below 1124 has shifted. **The DONE list now ends with the two 9b
+entries; REMAINING has lost Item 9b and gained three new items.**
+
+**`SPRINT_ROADMAP.md`'s Sprint 10B section is at line 166**, now reading
+`IN PROGRESS, ~87% (29 July 2026)`. **The Live tracking matrix row is at ~351**
+and now reads ~87% with the device verification recorded. **Both stale ~75%
+figures are fixed.**
+
+**ULTRA 12 HAD THIS WRONG and Ultra 13 inherited it before checking:** the
+second stale figure was recorded as `:341`. **Line 341 is a matrix header row.**
+The real location was `:351`. **The lesson: a filtered scan for the actual
+string beats a remembered line number.**
+```powershell
+$p='docs\SPRINT_ROADMAP.md'; "probe=scan"; $n=0; Get-Content -LiteralPath $p | ForEach-Object { $n++; if ($_ -match '75%|87%|[Tt]racking|10B') { "$n|$_" } }
+```
+
+**`decision-log.md` ADR index: see part 1 section 5 for the measured table.**
+
+### Still outstanding from the estate sweep
+
+- Undated relative markers at `TODO.md:190` and `:557`.
+- The two competing "Phase A"s.
+- SafeWalk's incomplete gate list in `COMMERCIAL_ROADMAP` C60-63 and C8-9.
+  **10B alone does not unlock SafeWalk** - its MVP needs missed-check-in
+  escalation, which is silence detection, which ADR-010 Decision 4 defers.
+- The "log the record id, never the raw token" checkbox - still UNVERIFIED.
+- The mojibake/BOM cleanup, for the two BOM files only.
+- **NEW: `SPRINT_ROADMAP.md:136` lists movement/compass direction as Sprint 10B
+  scope, contradicting lines 172-175 and ADR-009, which list bearing
+  calculation and compass conversion as explicitly OUT of scope.** A real
+  internal contradiction, deliberately not fixed in a progress commit because
+  resolving it means deciding which statement is right. **ADR-009 says 172-175
+  is correct.** Tier 4 item 17.
+
+### Standing practice - decided by the user, IN FORCE, AND NOW CAUGHT UP
+
+> **Code commit first, gated on tests. Docs commit second, updating the Sprint
+> 10B progress section with the step, its SHA, and its measured gate.**
+> Two commits per milestone.
+
+**As of `46c08b5` both owed docs commits are discharged** - collapsed into one
+commit covering `fa087a6` and `d5aca8b`, which is acceptable because they are
+one milestone with one gate.
+
+**Inverted twice, deliberately and correctly:** ADR-010 was committed BEFORE the
+code it governs, and ADR-011 AFTER, because a decision record's timing should
+follow where the risk of loss is. **Decisions taken in advance are committed in
+advance; outcomes are committed once measured.**
+
+**The measured gate for `d5aca8b` is not `tsc`.** `tsc --noEmit` returned 0 on
+the defective code AND on the fix. **The gate is the device run and the database
+read.** `46c08b5` records it that way, in those words.
+
+### What is in Downloads - 42 `.docx` converted
+
+Output in `C:\Projects\OPA-DocStaging`, plus `_INDEX.md`. **Deliberately outside
+the repo** so documents containing personal data cannot reach git.
+
+**Eight duplicate groups, 15 files collapsing to 7. Two pairs that are NOT
+duplicates** (trap #38): `OPA-Master-Roadmap-v2` (suffixed is newer);
+`OPA_Journey_Risk_Intelligence_Architecture_v1.0` (2592 lines plain from 7/26 is
+newer than the 229-line `(1)` from 7/14).
+
+**Three files probably under-extracted** (trap #39): `OPA_PRD_v1.0.docx`,
+`OPA_Engineering_Architecture_v1.0.docx`,
+`OPA_Enterprise_Documentation_Program_EDP_v1.0.docx`.
+
+**Proposed filing - three tiers, deliberately not all in git:**
+- **`docs/`** - engineering only, plus `OPA_DESIGN_SYSTEM.md`.
+- **`docs/business/`** - positioning, launch sequencing, journey-intelligence
+  strategy, market strategy, pilot proposals, competitive analysis.
+- **Outside the repo entirely** - offer letter, hiring structure, CAC
+  certificate and status report, letterheads, sender-ID letters. **Named-
+  individual employment data. Once committed they are in git history
+  permanently.** Keep in `C:\Projects\OPA-Corporate\`.
+
+**Two marketing documents produced and NOT committed:**
+- `OPA-vs-Panic-Buttons-Briefing.docx` (5 pages) - corporate/institutional.
+- `OPA-Staff-Guide.docx` (4 pages + quick-reference) - for staff who press the
+  button. Calibrates expectations: call 112 first, nobody is watching.
+
+**The staff guide says location is captured at the moment of the press. That
+stopped being true on 29 July 2026** - and as of this session it is emphatically
+false: a stationary phone streams a fix every 10 seconds for as long as the
+screen is held. **It needs revising, and the revision is now a selling point
+rather than a correction.**
+
+---
+
+## 13. Strategy reconciliation
+
+Four business documents read. Their **principles** are sound; their **status
+claims and sequencing** conflicted. `744731f` and `46c08b5` fixed the
+engineering documents; the business documents are outside the repo and drift.
+
+### `OPA-Product-Family-Positioning.docx` (7/18, 92 lines)
+
+**OPA Core (MVP)** answers "something is wrong, right now"; **SafeWalk** answers
+"watch over me for this one uncertain moment"; **Journey Intelligence** answers
+"which way should I go"; **Enterprise** is a market segment, not a capability.
+
+- **Guardian "was never actually defined anywhere in this project"** - why
+  `JourneyPurpose.GUARDIAN` is annotated in ADR-009 and excluded from
+  `CLIENT_PURPOSES`.
+- Traffic/incident awareness is OPA's only when blended with the safety-risk
+  layer. Its claim that poll-compare-notify is the same pattern 10B needs is
+  **accurate but incomplete**: 10B built ingestion and integrity; the
+  poll-a-provider-and-notify half does not exist.
+
+### `OPA-Launch-Sequencing-Final.docx` (7/18, 75 lines)
+
+**"Enterprise was never one thing"** - a lean **Pilot Edition** versus the full
+platform. **`COMMERCIAL_ROADMAP`'s Release 1 scope is exactly this.**
+
+**Conflict:** this document ranks SafeWalk 3rd and full Enterprise 4th;
+`COMMERCIAL_ROADMAP` makes Command Center MVP Release 1 and SafeWalk Release 2.
+
+**Newer evidence favours the commercial roadmap, by accident:** Command Center's
+gates - dispatch hardening (`e7990e2`) and 10A - are **already satisfied**,
+whereas SafeWalk needs 10B *plus* deferred silence detection. **The thing ranked
+3rd is further away than the thing ranked 4th.**
+
+### `OPA-Strategic-Blueprint.docx` (7/26, 196 lines) - most valuable, most dangerous
+
+- **It names 10B's business value:** an audit-grade, hash-verified Survival
+  Timeline for insurance and legal use. **That is `canonical-fix.ts`,
+  `canonical-chain.ts` and the `insertFixes` chain** - and as of this session a
+  stationary phone feeds it continuously **and the multi-fix chaining path is
+  proven on real data.** The claim is materially stronger than 24 hours ago.
+- **But the Survival Timeline is only half hash-verified, and the unverified
+  half is the one an insurer would ask about.** Location fixes get the chain;
+  `IncidentTimelineEvent` does not, and its `recordEvent` has an unguarded
+  sequence race. **Tier 2 item 14b, 2-3 hours.**
+- **Competitive landscape has changed.** **AmBa** (near-identical positioning)
+  and **Emergency Response Africa (ERA)** - funded, government-partnered (Edo,
+  Ogun, Rivers), corporate clients (Jumia, Ecobank, MTN), 4,500+ managed
+  emergencies, live 24/7 Command Center. **ERA is already operating what OPA
+  pitched as its wedge.** Its own recommendation: position as complementary
+  infrastructure, consider partnership.
+- **Its immediate next steps are 10C-blocked and it does not know it** -
+  "nearest-facility routing" is `HospitalProvider` and `PlacesProvider`.
+- **Role-based access is claimed as review-ready and is not.** ADR-008 built
+  `FAMILY_BEARER`; `VERIFIED_CONTACT` and `AUTHORIZED_RESPONDER` are reserved.
+  **Ungated Swagger is arguably the next thing a confidentiality-first NGO
+  reviewer would find.**
+- **Two factual claims to verify before either reaches an investor:** ERA's
+  "$20K seed" looks like a Techstars standard cheque; and the Nigerian
+  healthtech figures (~$55M 2023 -> ~$18M 2024 -> ~$3M 2025) are load-bearing.
+- **Its final section is an orphan** - "Safe Trip" appears nowhere else.
+
+### `OPA_Journey_Risk_Intelligence_Architecture_v1.0.docx` (7/26, 2592 lines)
+
+**NEVER OPENED BY ANYONE ACROSS ANY SESSION.** The design document for what
+comes after SafeWalk. **Read it by heading map first.** Its `(1)` sibling is a
+229-line stub from 7/14 - do not read that one by mistake.
+
+**Journey Intelligence is the one area where this handover's knowledge is
+second-hand.**
+
+### The through-line
+
+Every one of these documents states an honesty principle. **The documents that
+violate it do so by going stale, not by intent.** That is the argument for
+treating estate correction as routine maintenance - and `744731f`, `46c08b5` and
+`16d6c88` are the precedents. **This handover is itself an instance:** Ultra 12's
+"do not commit" recommendation was honest, well-reasoned and wrong, and the
+correction cost one log read.
+
+---
+
+## 14. Wider project context
+
+### Registration and corporate
+
+- **CAC registration DONE.** RC 9697630, OPA Technologies Limited.
+- **D-U-N-S DONE (`eb2024b`).** Number **352294843**. **Apple and Google
+  Developer Organization enrollment unblocked**, pending a 2-3 day D&B
+  activation window. **Start that clock before it is needed.**
+- **Camera/surveillance integration (`4b6a66b`)** in `TODO.md` as Future /
+  Enterprise-tier. **NDPA consent question flagged for legal review.**
+- **Hospital outreach:** drafted, not sent. **The oldest open action item.**
+
+### Sprint status
+
+- **Sprint 9 (SOS):** Pass 1 done, live-tested. Real WhatsApp delivery confirmed
+  again this session - 4 notifications across 2 contacts, on each of four
+  activations. **NEW: the sequential 401 -> refresh -> retry path is proven on
+  device.** **Cancel path, permission and network error handling remain
+  untested; all three ride along with the next device session.** Voice trigger
+  not started. **NEW defect: `contactsNotified` displays 0** - section 9b.6.
+- **Sprint 10A (Incident Portal):** built, locally verified. What remains is
+  short links / SMS segment cost. **The tracking page has still never rendered,
+  and 54 real fixes now exist to render.**
+- **Dispatch hardening:** complete, `e7990e2`.
+- **Sprint 10C:** hard blocker for the full intelligence feature. Largely
+  procurement - **no hours estimate exists.**
+- **`docs/REGISTRATIONS.md`** was found silently truncated once and rebuilt.
+  **If any doc looks shorter than expected, verify its line count.**
+
+### The ADRs - ELEVEN, all implemented
+
+**`docs/architecture/decision-log.md`** - NOT `docs/adr/`. **Measured line index
+in part 1 section 5.**
+
+- **ADR-001-003:** Outbox pattern.
+- **ADR-004:** Mock geocoder output never persisted.
+- **ADR-005:** A retrigger does NOT overwrite the incident's lat/lng.
+- **ADR-006:** SOS deduplication via `pg_advisory_xact_lock`.
+- **ADR-007:** Mock-provider boot validator.
+- **ADR-008:** Tracking tokens 128-bit random, SHA-256 at rest, raw value only
+  in the outbound message, **never logged** - enforced at four points. 6-hour
+  initial validity, 7-day ceiling. `FAMILY_BEARER` built. Known gaps:
+  `NotificationStatus.ACKNOWLEDGED` unset by anything; "verified nearby
+  facilities" blocked on 10C.
+- **ADR-009 (`f8d4b3e`):** Journey sessions, location fixes and the hash chain.
+  339 lines.
+- **ADR-010 (`6b51237`):** The negative-sentinel family, tracker lifecycle and
+  9b scope. 127 lines, **plus a 5-line Status amendment from `16d6c88`.**
+- **ADR-011 (`16d6c88`):** Tracker capture policy - cached replay, stationary
+  silence, and the two clocks. 164 lines.
+
+### Voice activation - the feasibility study WAS read
+
+269 lines. **Status: desk research complete; device testing outstanding.**
+
+- **L1/L2** - activation while the app is open, or screen locked with an active
+  session. **Confirmed feasible on both platforms.**
+- **L3** - background listening. Feasible on **Android**; **iOS conditional**.
+
+**Endorsed direction: Android-led voice, two-tier product model.** Privacy
+framing: on-device keyword spotting, no cloud audio, OS mic indicator visible.
+**Never imply hidden or silent listening.**
+
+**Corrected GO/NO-GO:** build a MEASUREMENT PROTOTYPE - GO now. Ship as a
+product feature - NOT YET. Publish marketing claims - NOT YET.
+
+**Engine: Porcupine.** Performance targets are ESTIMATES, NOT VERIFIED - **they
+must not reach a customer.**
+
+**BLOCKER the study predates: Expo Go cannot run Porcupine.** Needs a custom dev
+build, which needs **EAS - and there is still no `eas.json`.** **The same
+constraint governs the 9c buffer dependency, and trap #75 means that build will
+also need `app.json` native config.**
+
+**Backend is already ready:** `IncidentTrigger.VOICE_HELP_HELP` exists and
+`EmergencyTriggerType.VOICE` maps to it.
+
+### Six product ideas, recorded in `TODO.md`
+
+Ordered by impact per hour. **The first three are nearly free.**
+
+1. **Contact acknowledgement.** `NotificationStatus.ACKNOWLEDGED` exists and
+   NOTHING SETS IT. Opening the tracking page already calls `recordAccess()`.
+   Surface it: "3 notified, 2 opened". **The largest functional gap - and
+   section 9b.6 makes it larger, because the panic screen currently shows a
+   number that is structurally wrong. The honest fix for 9b.6 and this idea are
+   the same piece of work.**
+2. **"I am responding"** on the tracking page - the bystander-effect fix.
+3. **Surface battery.** `batteryLevel` and `isCharging` are stored and hashed
+   and never displayed. **The mobile app still does not capture either** -
+   ADR-010 Decision 4 deferred it to 9c.
+4. **Duress cancel.** `handleCancel` never calls the API.
+5. **Hardware trigger** (triple-press power / volume-down held) - 80% of
+   wake-word for 10% of the cost, no mic, no App Store risk. **Before voice.**
+6. **Automated incident report on resolution, emailed.** The OUTPUT of
+   everything 10B built. **Blocked on 14b** for the events half.
+
+### Positioning language - decided
+
+**Rejected: "emergency coordination platform."** It moves onto ERA's ground.
+
+**Adopted:**
+- **Definition**: *emergency alerting with a verifiable location record*
+- **Category**: *live incident awareness*
+- **Differentiator**: *incident awareness and record*
+- **One line:** *OPA is a live incident awareness platform that produces a
+  verifiable record.*
+
+**"Live" was held back pending 9b. IT IS NOW EARNED.** A stationary Android
+phone streamed 50 fixes over nine minutes at a 10-second cadence, every one on
+a verified hash chain, `recordedAt` monotonic against `sequence`. That is not
+one stale cached reading - it is what a customer will picture when they hear
+"live". **Defensible as of `d5aca8b`.**
+
+**One caveat to keep honest:** it is live *while the app is in the foreground*.
+`source: 'background'` remains unreachable, and there is no persistence across
+process death until 9c. **Do not let "live" grow into "always".**
+
+### Website (`apps/website`)
+
+Next.js 16.2.10 on Vercel, **no tests**, gated on `npm run build`. 18 `.tsx`
+files; **exactly ONE `'use client'` component**. `src/middleware.ts` is 31 lines
+and runs on the token routes; **`middleware` is deprecated in Next 16.2 in
+favour of `proxy`** - the build warns on every run. **Read what it does before
+migrating.**
+
+`src/lib/tracking.ts` (115 lines) is `server-only` and **casts** the API
+response rather than validating it, so **the website's types are a hand-mirrored
+copy of the API DTO with no mechanism keeping them in sync.** One drift already
+exists. q20.
+
+---

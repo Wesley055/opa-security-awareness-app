@@ -11,6 +11,7 @@ import {
 import { router } from 'expo-router';
 import * as Location from 'expo-location';
 import { api } from '../src/services/api';
+import { startTracking, cleanNonNegative } from '../src/services/journey-tracker';
 
 const COUNTDOWN_SECONDS = 5;
 const LOCATION_TIMEOUT_MS = 15000;
@@ -178,11 +179,12 @@ export default function SosScreen() {
         userConfirmed: true,
         latitude: locationRef.current.latitude,
         longitude: locationRef.current.longitude,
-        accuracy: locationRef.current.accuracy ?? undefined,
+        accuracy: cleanNonNegative(locationRef.current.accuracy),
       });
       if (!mountedRef.current) return;
       setResult(data);
       setScreenState('activated');
+      void startTracking();
     } catch (err: unknown) {
       if (!mountedRef.current) return;
       const responseMessage =

@@ -6,6 +6,133 @@ not just the outcome.
 
 ---
 
+## ADR-010 - The negative-sentinel family, tracker lifecycle and 9b scope
+**Date:** 29 July 2026
+**Status:** Decided. Implementation pending - Sprint 10B item 9b (the
+client sanitiser) and a separate commit on the SOS request DTO.
+
+Four decisions taken before any code was written for item 9b, the mobile
+fix sender. They are recorded first, deliberately: the reasoning is the
+part that gets lost between sessions, and the outcome alone would invite a
+later tidy-up that reverts it.
+
+### The defect family
+
+ADR-009 records the heading -1 sentinel and both of the contradictory rules
+that govern it. It states them about `heading`. That framing was too narrow.
+
+iOS CLLocation signals an invalid reading with a negative number rather
+than null, and it does so on three fields:
+
+- `course` is -1 whenever course is invalid, which INCLUDES a stationary
+  device.
+- `speed` is negative whenever speed is invalid; a stationary device is
+  again the ordinary case.
+- `horizontalAccuracy` is negative when the location itself is invalid.
+
+Commit edec8c4 fixed `JourneyFixDto.heading` and stopped there, because the
+reasoning was framed around one field rather than around "this platform
+signals invalid readings with negative numbers". The correct frame would
+have caught all three at once.
+
+**The general rule, which outlives this ADR: when a platform uses a
+sentinel value, audit every field sourced from that platform, not just the
+field that prompted the discovery.**
+
+One of the remaining gaps is not latent. `app/sos.tsx` line 181 already
+sends `position.coords.accuracy` raw on the panic path. The `?? undefined`
+there handles null, not a negative. A device returning a negative accuracy
+on an invalid fix will 400 the SOS activation today.
+
+### Decision 1 - fix at both boundaries, client first
+
+The client sanitiser lands in 9b: one helper applied to `accuracy`, `speed`
+and `heading` at the boundary, always, whatever the DTOs do. It is free,
+immediate, and it protects the batch.
+
+The API DTO fix is a SEPARATE commit, because a client-side sanitiser is
+not a boundary. It protects exactly one client, and the moment a second
+client exists the exposure returns. `create-incident-request.dto.ts` is the
+boundary that outlives any one client.
+
+Open question 14 - tightening the SOS DTO `timestamp` to `@IsISO8601()` -
+rides along in that commit, since the file is open anyway.
+
+### Decision 2 - the transforms are deliberately asymmetric
+
+| Field | Rule |
+|---|---|
+| `heading` | exactly -1 maps to null |
+| `speed` | any negative maps to null |
+| `accuracy` | any negative maps to null |
+
+**This asymmetry is intentional and must not be corrected into
+consistency.**
+
+`course` has a specific documented invalid sentinel, exactly -1, so
+transforming exactly -1 preserves the ability to reject other negative
+values as genuine garbage - which a control test already asserts for -20.
+
+`speed` and `horizontalAccuracy` are documented by SIGN, not by a single
+value. An exactly--1 transform copied onto them would look symmetric, would
+pass a spec written against -1, and would still let -3 through to `@Min(0)`.
+That is the same too-narrow framing that produced this ADR, repeated inside
+its own fix.
+
+The failure mode settles it. `forbidNonWhitelisted` is true and validation
+is per request, so ONE negative field on ONE fix rejects an ENTIRE batch of
+up to 200 fixes - it does not drop a single fix. The ordinary cause is a
+phone sitting still, which is exactly what a buffered batch is full of.
+Discarding a negative number that was never a measurement costs nothing.
+Discarding 200 emergency location fixes is not comparable.
+
+### Decision 3 - the tracker starts only after a successful SOS activation
+
+Not on login. The app is foreground-only - there is no TaskManager and no
+background location permission - so starting at login means watching
+location for an entire session with no product behind it. SafeWalk is the
+feature that would justify it, and SafeWalk is not built.
+
+**This closes open question 25 as a side effect, and the reason matters
+more than the closure.** A cancelled SOS never calls the API, so the
+concern was that a cancelled trigger could strand an open session holding
+tracked fixes with no incident attached. If the tracker only ever starts
+AFTER a successful activation, that state is unreachable.
+
+It becomes reachable again the moment a session can be started
+independently of an SOS - which is exactly what SafeWalk requires.
+**Reopen q25 when SafeWalk starts.**
+
+### Decision 4 - no battery capture in 9b
+
+`batteryLevel` and `isCharging` exist in both DTOs and are hashed into the
+chain, and no client has ever sent them. Capturing them needs
+`expo-battery`, a new dependency, and Expo Go bundling must be verified
+before anything is built on it - the same constraint that governs the 9c
+buffer dependency and Porcupine.
+
+Deferred to 9c, where a dependency decision is being taken anyway. Nothing
+displays the value today, so shipping it in 9b would add a dependency in
+order to produce a field nobody reads.
+
+### Rejected
+
+- **Copying the exactly--1 transform from `heading` onto `speed` and
+  `accuracy`.** Symmetric, and wrong for a sign-documented field.
+- **Relying on the client sanitiser alone.** It is not a boundary.
+- **Relying on the DTO transform alone.** The sanitiser is free and lands
+  first; the DTO change is a separate commit with its own tests.
+- **Starting the tracker at login.** Decision 3.
+- **Adding `expo-battery` in 9b.** Decision 4.
+
+### Not covered
+
+Whether the DTOs should distinguish "absent because the reading was
+invalid" from "absent because it was never captured". Both arrive as null.
+Nothing reads the difference today.
+
+---
+
 ## ADR-009 - Journey sessions, location fixes and the hash chain
 **Date:** 28 July 2026
 **Status:** Decided and largely implemented. Sprint 10B items 5-8 shipped;

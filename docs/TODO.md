@@ -1127,6 +1127,32 @@ MUST be fixed BEFORE the endpoint ships:
 ## second, adding the step here with its SHA and its MEASURED gate.
 ## Two commits per milestone. A step is not done until it appears below.
 
+### DECISIONS TAKEN 29 July 2026 - item 9b and the sentinel family
+
+  Recorded in ADR-010 (docs/architecture/decision-log.md) BEFORE any code
+  was written, so the reasoning survives the session that produced it.
+
+  [x] Decision A - negative sentinels fixed at BOTH boundaries.
+      Client sanitiser (accuracy, speed, heading) lands in 9b.
+      create-incident-request.dto.ts fixed in a SEPARATE commit, because
+      the panic path has a LIVE exposure at app/sos.tsx:181 and a client
+      sanitiser protects one client only. Open question 14 (tighten the
+      SOS timestamp to @IsISO8601) rides along in that commit.
+  [x] Sentinel rule, deliberately ASYMMETRIC - do NOT make it consistent.
+      heading  : exactly -1 maps to null  (documented single sentinel)
+      speed    : any negative maps to null (documented by SIGN)
+      accuracy : any negative maps to null (documented by SIGN)
+      One negative field 400s an ENTIRE batch of up to 200 fixes, and the
+      ordinary cause is a phone sitting still.
+  [x] Decision B - the tracker starts ONLY after a successful SOS
+      activation, not on login. Closes open question 25 as a side effect:
+      a cancelled SOS cannot strand a session holding fixes with no
+      incident. REOPENS when SafeWalk can start a session independently.
+  [x] Open question 24 - no expo-battery in 9b. Deferred to 9c, where a
+      dependency decision is being taken anyway.
+
+  NEXT: build the 9b sender. The design is settled and nothing is blocked.
+
 ### DONE
 
   [x] Step 2 - schema, migrations, partial index

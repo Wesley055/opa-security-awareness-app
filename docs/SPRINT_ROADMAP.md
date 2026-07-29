@@ -173,6 +173,16 @@ EXPLICITLY OUT OF SCOPE, and previously listed here in error: GPS
 history access for tokens, movement detection, bearing calculation,
 compass conversion, route visualization, ETA, arrival detection, risk
 scoring, geofencing. See ADR-009.
+DECISIONS 29 July 2026: 9b sender scope settled, recorded in ADR-010.
+Negative GPS sentinels are fixed at BOTH boundaries - a client sanitiser
+in 9b covering accuracy, speed and heading, plus a separate commit on
+create-incident-request.dto.ts because the SOS path has a live exposure
+at app/sos.tsx:181. The transforms are deliberately asymmetric: heading
+maps exactly -1, while speed and accuracy map ANY negative, because the
+platform documents those two by sign rather than by a single sentinel.
+The tracker starts only after a successful SOS activation, not on login,
+which also closes open question 25. Battery capture is deferred to 9c
+alongside the offline-buffer dependency decision.
 
 ### Sprint 10C - Location Intelligence - CONFIRMED HARD BLOCKER to any
 production deployment (25 July 2026)

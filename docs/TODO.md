@@ -1490,6 +1490,81 @@ Both cannot be true. Verify against real code before scheduling Sprint
 11 - it may be substantially further along than the roadmap claims.
 Camera preservation would be an EvidenceType, not a new subsystem.
 
+VERIFIED 29 July 2026. The note above was right to doubt the roadmap.
+SPRINT_ROADMAP has been corrected. The verification turned up four things
+that were not recorded anywhere, two of which are corrections to claims
+this project has been making.
+
+  [x] Sprint 11 is server-side substantially BUILT, not not-started.
+      Model, enums, module, controller, service, Azure Blob storage,
+      sha256-before-upload, idempotent dedupe on (incidentId, sha256),
+      5-minute SAS download URLs, EVIDENCE_ADDED timeline event.
+      AUDIO, VIDEO and IMAGE are already EvidenceType values, so phone
+      capture needs NO migration.
+
+  [ ] CORRECTION - EVIDENCE ENCRYPTION IS NOT IMPLEMENTED.
+      Evidence.encryptionKeyId exists in the schema (line 237) and
+      NOTHING SETS IT. There is no encrypt anywhere in evidence.service.ts.
+      Azure Blob provides server-side encryption at rest by default, which
+      is real, but that is AZURE holding the keys - not OPA-managed
+      encryption. Those are materially different claims to an
+      institutional buyer and only one of them is currently true.
+      DO NOT claim encrypted evidence capture until this is built or the
+      claim is narrowed to "encrypted at rest by the storage provider".
+      This is the SECOND schema field found reading as a capability - see
+      the background-source correction below. A field is not a feature.
+
+  [ ] CORRECTION - source: background IS NOT A CAPABILITY.
+      JourneyFixDto accepts foreground | background | manual, but a
+      measured sweep of all 10 .ts/.tsx files under apps/mobile-app
+      found ZERO hits for TaskManager, startLocationUpdatesAsync,
+      defineTask, or even the string background. The client cannot send
+      it. The enum value is a server-side placeholder for a capability
+      never built on the client.
+      HONEST STATEMENT: OPA records continuously WHILE THE APP IS OPEN,
+      at a verified 10-second cadence, on a tamper-evident chain.
+      Anything claiming background recording - staff guide, briefing,
+      pitch, pilot agreement - must be corrected.
+      The nearby claim that IS true and worth using: airplane mode is
+      RECOVERABLE, because GNSS is receive-only. A phone in airplane mode
+      keeps producing fixes, so with 9c persistence they all flush on
+      reconnect - "here is where the phone travelled during the two hours
+      it appeared dark". Location-off, force-kill and power-off are not
+      recoverable, and no software fixes that.
+
+  [ ] NEW - A SECOND BOOT DEPENDENCY, NOT PREVIOUSLY RECORDED.
+      evidence.service.ts calls config.getOrThrow for
+      AZURE_STORAGE_CONNECTION_STRING and AZURE_STORAGE_CONTAINER in its
+      CONSTRUCTOR, and EvidenceModule is registered in app.module.ts:54.
+      If either variable is absent the service cannot construct and the
+      app does not boot - BEFORE ProviderConfidenceValidator is reached.
+      It boots locally, so .env has both. AZURE IS UNVERIFIED.
+      So the production-boot problem may have TWO causes, not one. Check
+      Azure app settings for both variables before assuming the boot fix
+      is a single decision about mock providers.
+
+  [ ] TO VERIFY - is Evidence.capturedAt ever populated?
+      It is nullable (line 239). If the upload path does not receive a
+      capture time from the client, evidence carries only an UPLOAD time.
+      "When was this recorded" is the first question anyone asks of a
+      photo, and the same defect shape as the tracker cached-replay bug:
+      a timestamp that looks authoritative and is not.
+
+SEQUENCING, unchanged and now confirmed by code: fix the timeline chain
+FIRST. evidence.service.ts:95 already writes an EVIDENCE_ADDED event into
+a timeline with no hash chain and an unguarded sequence race, so the code
+that needs the fix exists today. Until it lands, evidence cannot be part
+of a verifiable record - which is the entire point.
+
+ON A WHITE PAPER, if one is written: the subject should be the verifiable
+record - how it is constructed, what it proves, and what it does not.
+That is the differentiator and it is what institutional buyers and
+insurers read. But WAIT UNTIL THE TIMELINE CHAIN LANDS. Location fixes
+are chained; timeline events are not. A paper describing an audit-grade
+record while half of it is unchained gets falsified by the first
+technical reader, under our own name. The honest-limits section is what
+would make it credible rather than marketing.
+
 SEQUENCING: Enterprise tier. After the pilot, after Command Center, and
 after the timeline chain fix. It is a reason for an institution to pay
 MORE - not a reason for anyone to buy.

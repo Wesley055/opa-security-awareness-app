@@ -220,7 +220,41 @@ replaced with real, validated production integrations.
 
 ---
 
-**Sprint 11 - Evidence Capture** - NOT STARTED
+**Sprint 11 - Evidence Capture** - SERVER-SIDE SUBSTANTIALLY BUILT.
+Corrected 29 July 2026 after verifying against real code. The previous
+"NOT STARTED" was wrong.
+
+ALREADY BUILT AND WIRED: Evidence model (schema.prisma 226), EvidenceType
+(59) = AUDIO | VIDEO | IMAGE | GPS_LOG | DOCUMENT, EvidenceStatus (67) =
+PENDING | UPLOADING | STORED | FAILED | DELETED. EvidenceModule registered
+in app.module.ts:54. EvidenceController at incidents/:incidentId/evidence
+with upload, list and :evidenceId/download-url. EvidenceService hashes the
+buffer to sha256 BEFORE upload, dedupes on @@unique([incidentId, sha256])
+so uploads are idempotent, stores to Azure Blob, and issues 5-minute SAS
+URLs - evidence is never served from a permanent public URL. Upload also
+writes an EVIDENCE_ADDED timeline event. IncidentAccessGuard is in the
+module providers.
+
+AUDIO, VIDEO and IMAGE are ALREADY EvidenceType values, so phone capture
+needs NO schema migration. Camera preservation is an EvidenceType, not a
+new subsystem.
+
+REMAINING, and it is much less than "not started" implied:
+  - Client-side capture. The mobile app has NONE. A measured sweep of all
+    10 .ts/.tsx files under apps/mobile-app/{src,app} found ZERO hits for
+    TaskManager, startLocationUpdatesAsync, defineTask or the string
+    background. There is no camera or microphone code either.
+  - The IncidentTimelineEvent hash chain and its sequence race. An
+    evidence reference IS a timeline event, and evidence.service.ts:95
+    already writes one - into a timeline with no chain and an unguarded
+    race. So the code that needs the chain is ALREADY WRITTEN. Fix the
+    chain before client capture, or evidence lands unverifiable.
+  - Offline evidence queueing, which Sprint 10B item 9c generalises.
+  - The encryption decision - see the correction in TODO.md.
+
+DESIGN CONSTRAINT, from the strategic principle in TODO.md: build ingestion
+around "a sensor reported an event", not "the phone sent video". Built
+phone-first, every later hardware integration is a rewrite.
 **Sprint 12 - User Profile** - NOT STARTED, medical fields need a schema migration first, confirmed absent from the database.
 
 ---

@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import type { IntelligenceProvider } from './data-confidence';
+import { isMockConfidence } from './data-confidence';
 import { GeocodingProvider } from './providers/geocoding.provider';
 import { HospitalProvider } from './providers/hospital.provider';
 import { PlacesProvider } from './providers/places.provider';
@@ -45,7 +46,12 @@ export class ProviderConfidenceValidator implements OnModuleInit {
   }
 
   onModuleInit(): void {
-    const mocked = this.providers.filter((p) => p.dataConfidence === 'MOCK');
+    // isMockConfidence, not isDisplayableToUsers: this is a deployment
+    // question about the providers themselves, not a question about what may
+    // be rendered. Same answer today; different question.
+    const mocked = this.providers.filter((p) =>
+      isMockConfidence(p.dataConfidence),
+    );
 
     if (mocked.length === 0) {
       this.logger.log(

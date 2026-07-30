@@ -7,6 +7,8 @@ import { PlacesProvider } from './providers/places.provider';
 import { PoliceProvider } from './providers/police.provider';
 import { RoutingProvider } from './providers/routing.provider';
 import { SafePlaceProvider } from './providers/safe-place.provider';
+import { isDisplayableToUsers } from './data-confidence';
+import type { IntelligenceProvider } from './data-confidence';
 
 /**
  * Omits any response section backed by a provider whose dataConfidence is
@@ -68,8 +70,18 @@ export class EmergencyIntelligenceService {
 
     const omitted: string[] = [];
 
-    const isMock = (provider: { dataConfidence: string }) =>
-      provider.dataConfidence === 'MOCK';
+    // isDisplayableToUsers, not isMockConfidence: this file decides what
+    // reaches a response, which is the presentation question.
+    //
+    // The parameter type was { dataConfidence: string }, which discarded the
+    // compile-time guarantee that a confidence value is a real
+    // DataConfidence. Under that signature a misspelled confidence would
+    // compile, return false here, and ship the data. IntelligenceProvider
+    // restores the check.
+    //
+    // The name isMock and all six call sites below are unchanged.
+    const isMock = (provider: IntelligenceProvider) =>
+      !isDisplayableToUsers(provider.dataConfidence);
 
     // --- Geocoding-derived address fields ---
     const geocodingIsMock = isMock(this.geocodingProvider);

@@ -29,5 +29,31 @@ export interface IntelligenceProvider {
   readonly dataConfidence: DataConfidence;
 }
 
+/**
+ * THE PRIMITIVE. Asks only whether a provider is mocked. Says nothing about
+ * whether the value may be shown to anyone.
+ *
+ * Kept separate from isDisplayableToUsers below, deliberately. The startup
+ * validator asks "is this provider mocked" - a deployment question. A
+ * response builder or a UI asks "may this be displayed" - a presentation
+ * question. Both return the same answer today and they are not the same
+ * question: if a fourth confidence level is ever added, only one of them is
+ * likely to change. Each caller should use the one that matches what it is
+ * actually asking.
+ */
+export const isMockConfidence = (confidence: DataConfidence): boolean =>
+  confidence === 'MOCK';
+
+/**
+ * DERIVED from the primitive above. This is the check named in the
+ * DataConfidence doc comment: any UI or response builder should call this
+ * before rendering location intelligence to a human.
+ *
+ * Defined in terms of isMockConfidence rather than repeating the comparison,
+ * so the rule exists in exactly one place. Before this, the same comparison
+ * was written out three times - here, in the boot validator, and again as a
+ * local helper inside EmergencyIntelligenceService - and all three had to be
+ * changed in step to stay correct.
+ */
 export const isDisplayableToUsers = (confidence: DataConfidence): boolean =>
-  confidence !== 'MOCK';
+  !isMockConfidence(confidence);

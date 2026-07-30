@@ -57,7 +57,29 @@ export class PublicTrackingService {
             lastFixReceivedAt: true,
             fixes: {
               take: 1,
-              orderBy: { receivedAt: 'desc' },
+              // THE TIE-BREAK IS REQUIRED, NOT COSMETIC.
+              //
+              // insertFixes stamps every fix in one batch with a single
+              // receivedAt - date_trunc('milliseconds', now()) captured once
+              // per call - so receivedAt is NOT unique, and ordering by it
+              // alone is ambiguous the moment a batch carries more than one
+              // fix. Postgres may then return either row.
+              //
+              // Until 29 July 2026 every batch carried exactly one fix, so
+              // the ambiguity was unreachable. The mobile tracker's 15s
+              // flush against its 10s capture now produces multi-fix
+              // batches routinely.
+              //
+              // sequence is the CORRECT second key, not an arbitrary one:
+              // insertFixes sorts a batch by recordedAt before assigning
+              // sequence numbers, so within a tied receivedAt group the
+              // highest sequence is the latest real capture. The tie-break
+              // recovers true recency rather than merely being predictable.
+              //
+              // The index above still serves the leading key. Ordering
+              // within a tied group is resolved after it, and a group is at
+              // most one batch, so at most 200 rows.
+              orderBy: [{ receivedAt: 'desc' }, { sequence: 'desc' }],
               select: {
                 latitude: true,
                 longitude: true,

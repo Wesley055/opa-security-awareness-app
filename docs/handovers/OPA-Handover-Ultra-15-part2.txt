@@ -1,0 +1,741 @@
+# OPA - Handover Ultra 15 - PART 2 of 3 (sections 9b-14)
+# Continues from part 1. Paste after it.
+#
+# GENERATED: 2026-07-30, at the Sprint 11 corrections commit.
+
+## 9b. WHAT THIS SESSION ESTABLISHED
+
+### 9b.1 Item 9b - the fix sender, finished and proven
+
+`fa087a6` built it, `d5aca8b` fixed its two device defects, `46c08b5` recorded
+both, `16d6c88` decided the policy, `893d65a` fixed the tie-break its data
+exposed. **The sender is done.**
+
+Device-verified: **50 fixes, 10s cadence, stationary Android phone, 11
+consecutive flushes all 201, `recordedAt` monotonic against `sequence`,
+activation seq 4 (18:57:59.806) correctly preceding foreground seq 5
+(18:58:09.505).** Database: 54 fixes, 1 session.
+
+### 9b.2 THE FALSE REGRESSION - the reasoning worth keeping
+
+**Ultra 12 concluded the two tracker fixes had made things STRICTLY WORSE and
+recommended in three places that they not be committed. That was wrong.**
+
+Evidence it had: after the fixes, two activations fourteen minutes apart produced
+**zero** foreground fixes where the pre-fix run produced one.
+
+**Two facts settled it with no device time, both readable from artifacts that
+already existed:**
+
+1. **`trackingStartedAtMs` is initialised to `0`.** So `ms < trackingStartedAtMs`
+   is `ms < 0` - **never true for a real timestamp.** The guard is INERT until
+   line 302 assigns it. **It cannot have dropped anything unless
+   `startTracking()` ran to completion.** This turns two competing readings of
+   one ambiguous situation into **two opposite claims about the same diff.**
+2. **`acquireSession()` sits BELOW `if (running) return`.** A full start always
+   POSTs `/journey/sessions`; a no-op start never does.
+
+**The API log already contained the answer:** `/journey/sessions` appears
+**exactly once** in the whole scrollback - the pre-fix run. Both later
+activations returned 201 with no session POST.
+
+**Verdict: the diff never ran.** Stronger: Metro re-evaluates an edited module,
+which would have reset `running` and produced a session POST. None appeared. **So
+the phone ran the PRE-FIX bundle throughout. Nothing was ever compared to
+anything.** Trap #80.
+
+Two independent silencers, **neither caused by the diff**: the `if (running)`
+no-op, and the surviving subscription still carrying `distanceInterval: 25`.
+
+**THE GENERAL LESSON, now the fifth instance:** a fix framed too narrowly (#73);
+a correct write failing a wrong assertion (#76); a well-reasoned fix that looked
+worse; a handover recommending reverting a correct commit; **and a broken glob
+producing a false absence (#83).** **Each conclusion followed from the evidence
+in view. What was missing every time was a check on the MECHANISM.** Recorded in
+ADR-011's closing section.
+
+**ADR-011's five decisions** (`16d6c88`, `decision-log.md:9`, 164 lines):
+`DISTANCE_INTERVAL_M` is 0 permanently; the pre-start guard compares against a
+pre-subscribe `trackingStartedAtMs`; drop-only-the-first-fix REJECTED on device
+evidence (all 50 `recordedAt` distinct); **if re-delivery ever appears the fix is
+a monotonic `lastEnqueuedMs` rule, which fails HONESTLY** - nothing sent and the
+page goes SILENT, which is true, rather than a chain of frozen timestamps; and
+**the guard must log the THRESHOLD** because `trackingStartedAtMs` is device
+wall-clock while `ms` is the platform provider's - **two clocks**, and divergence
+would reject everything silently.
+
+### 9b.3 THE BOOT POLICY - AND IT HAS TWO CAUSES, NOT ONE
+
+**Cause 1: the provider validator.** `ProviderConfidenceValidator.onModuleInit()`
+filters six mock-capable providers and **THROWS** unless
+`OPA_ALLOW_MOCK_PROVIDERS === 'true'` (strict equality). Six of seven providers
+are `MOCK`. `.env` sets it locally; **Azure never had it.** Observed twice in
+real Azure Log Stream.
+
+**This is not a bug.** Opt-IN, deliberately not `NODE_ENV`-derived, so
+**forgetting it fails CLOSED.** A mock geocoder returning a plausible invented
+address could send a responder to the wrong place.
+
+**Two dead ends, both eliminated this session:**
+- **Response gating alone does NOT satisfy the validator.** It is a boot-time
+  check on *registered providers*, not on response shape. **This answers q10.**
+- **Conditional registration does NOT work.** The six providers are **concrete
+  constructor parameters**; omit one from the module array and Nest fails DI
+  resolution - a different boot failure, not a validator seeing five.
+
+**THE FINDING THAT DECIDES IT.** `incident-orchestrator.service.ts:86` awaits
+`buildLocationIntelligence` on the **SOS activation path** (injected at `:37`;
+module imported at `app.module.ts:48` and
+`incident-orchestrator.module.ts:19`). **The module cannot be unregistered - the
+orchestrator would not resolve.** This is why `Omitted from response due to mock
+providers` fired on **every** activation in the device logs.
+
+**So: the module must stay registered; the service already nulls every
+mock-backed section per provider independently; nothing fabricated reaches a
+user; and the ONLY blocker from this cause is the `throw`.**
+
+**PR 1 (`6188e63`) removed everything else in the way** - three duplicate copies
+of the mock predicate collapsed into one, and a widened
+`{ dataConfidence: string }` narrowed to `IntelligenceProvider`.
+
+**Cause 2, NEW AND NOT PREVIOUSLY RECORDED: `evidence.service.ts` calls
+`config.getOrThrow` for `AZURE_STORAGE_CONNECTION_STRING` and
+`AZURE_STORAGE_CONTAINER` IN ITS CONSTRUCTOR**, and `EvidenceModule` is
+registered at `app.module.ts:54`. **A missing variable stops boot BEFORE the
+provider validator is reached.** It boots locally, so `.env` has both. **Azure is
+unverified.**
+
+**Check Azure app settings for both variables before assuming the boot fix is a
+single decision.** Cheap, and it may be the real first blocker.
+
+**ADR-012 - both positions, for the validator question:**
+
+**Position A - keep the `throw`.** It is the backstop for a mistake nobody has
+made yet: a seventh provider added without a matching null check. The service's
+omission is **six hand-written checks in a 148-line method**, not a loop. Remove
+the throw and the only protection is that a long method was maintained correctly
+forever, with nothing re-verifying it. Today a missed null fails at boot, loudly,
+naming the provider.
+
+**Position B - permit boot.** The strict gate blocks deployment for a condition
+the service already handles correctly. A guard that prevents shipping a working
+product is over-strict, and the error message itself names response gating as a
+legitimate remedy.
+
+**A synthesis worth considering rather than a third mode.** A separate flag
+creates a second operational mode that must be tested forever. But the state
+wanted in production **is** "mock providers registered, outputs omitted, boot
+permitted" - one mode, not two. `OPA_ALLOW_MOCK_PROVIDERS` is named for
+permission and reads as recklessness, which is why three documents ban it in
+Azure. **Its name and message are wrong for that state; its mechanism is not.** A
+rename plus a rewritten message keeps the throw for the case it exists to catch
+and needs no new variable.
+
+**What must NOT change: the error message.** It names the providers, explains the
+danger, offers three remedies, and refuses to guess. **It is the clearest writing
+in the codebase.**
+
+**Also keep:** the test pinning that `TRUE`, `True`, `1`, `yes`, `on`, `false`
+and `''` all **still fail** the strict `=== 'true'` comparison.
+
+### 9b.4 SPRINT 11 IS BUILT SERVER-SIDE - and it makes 14b over-determined
+
+`TODO.md` carried a note saying the schema and API already had evidence support
+while `SPRINT_ROADMAP` said Sprint 11 was NOT STARTED, that both could not be
+true, and that real code should be checked. **Checked. The roadmap was wrong.**
+
+**What exists** - full inventory in part 1 section 3. Highlights:
+- `Evidence` model with `sha256`, `status`, `capturedAt`, `encryptionKeyId`
+- `EvidenceType` = **AUDIO | VIDEO | IMAGE | GPS_LOG | DOCUMENT** - so **phone
+  capture of any media type needs NO migration**
+- `EvidenceModule` registered; controller at `incidents/:incidentId/evidence`
+- **sha256 computed BEFORE upload**, so the hash reflects what was captured
+- **Idempotent dedupe on `@@unique([incidentId, sha256])`**
+- Azure Blob storage; **5-minute SAS URLs, never a permanent public URL**
+- **An `EVIDENCE_ADDED` timeline event on upload**
+
+**THE GATE, now proven in code rather than argued:** `evidence.service.ts:95`
+writes a timeline event into `IncidentTimelineEvent`, which has **no hash chain
+and an unguarded sequence race**. So *the code that needs the chain already
+exists*. Until 14b lands, **evidence cannot be part of a verifiable record -
+which is the entire point.**
+
+**Every conversation this session converged on 14b:** the attested report, camera
+evidence references, the "audit-grade Survival Timeline" claim, recording *"the
+device went dark at HH:MM"* as an attested event rather than an inference, and
+now the evidence subsystem's own timeline write. **2-3 hours. It is the best
+value in the project by a wide margin.**
+
+**Remaining Sprint 11 scope, much smaller than "not started":** client capture
+(none exists), the timeline chain, offline evidence queueing (9c generalises),
+and the encryption decision.
+
+**DESIGN CONSTRAINT, from `TODO.md:1322-1333`, already recorded before this
+session and better than anything proposed during it:**
+
+> **PRINCIPLE: OPA is an emergency EVENT platform, not a mobile app.** OPA's
+> value begins AFTER the trigger. The orchestrator should not care whether an
+> event came from an Android phone, an iPhone, a smartwatch, a BLE keyfob, a
+> vehicle sensor, an estate panel or a hospital duress button.
+>
+> `Sensor event -> Incident -> Orchestrator -> Notifications / Tracking / Evidence`
+>
+> **ACTION: design Sprint 11's ingestion around "a sensor reported an event",
+> not "the phone sent video". If Sprint 11 is built phone-first, every later
+> integration is a rewrite.**
+
+**Follow that.** Phone camera, phone mic, building CCTV, a wearable, a dashcam -
+all the same shape: a sensor reported an event, here is the artifact, here is its
+hash, here is where it sits on the timeline. Build that and phone capture is one
+implementation rather than the architecture.
+
+### 9b.5 EVIDENCE ARCHITECTURE - DECISIONS TAKEN, ADR-013 OWED
+
+Reached across a review exchange this session. **Write these up; the reasoning is
+what will otherwise be lost.**
+
+**1. Priority ordering, and evidence must never delay location.**
+```
+location -> SOS/status messages -> telemetry -> audio -> photos -> video
+```
+A 200-fix batch is a few KB; thirty seconds of video is several MB. **On a weak
+connection during an emergency, video uploads would starve the location updates
+- degrading a proven capability to add an unproven one.**
+
+**Implementation note:** location and evidence go to **different endpoints** -
+`POST /journey/fixes` versus a multipart blob upload with a **50MB in-memory
+buffer cap**. So the priority queue is client-side scheduling across two very
+different transports, not one queue.
+
+**2. AUDIO ABOVE PHOTOS.** Revised during the session and the argument is
+decisive: a phone in a purse, pocket, face-down or in a car console produces
+twenty unusable photos, but a microphone in the same purse still captures
+speech. **Audio does not depend on where the camera points.**
+
+**3. THE BINDING CONSTRAINT ON AUDIO IS BYSTANDER CONSENT, NOT USER CONSENT.**
+The user can consent to being recorded. **The user CANNOT consent on behalf of
+the shopkeeper, passer-by or colleague whose voice ends up in the file.** That is
+why audio is legally harder than location: location records where *you* were;
+audio records what *other people said*. Jurisdictions requiring all-party consent
+are not satisfied by the app owner opting in during setup.
+
+**Correct framing: silent to the user's attacker, documented in the legal basis.**
+Silent activation is fine. What cannot be silent is the record of *why* capture
+was lawful. **A question for counsel about a specific jurisdiction, not a design
+toggle** - and the one item that genuinely blocks on NDPA rather than merely
+coinciding with it.
+
+**Also: an audio recording is only evidence if it is admissible.** A file
+captured without a defensible consent basis may be worse than nothing, because it
+invites a challenge to the whole record - **including the location half that
+currently IS clean.**
+
+**4. TWO INTEGRITY MECHANISMS, KEPT SEPARATE.** Location fixes have a **hash
+chain**, which proves nothing was REMOVED. Evidence has **per-object sha256**,
+which proves an individual file was not altered. **A chain is strictly stronger.**
+`GPS_LOG` exists as an `EvidenceType` and **folding location into per-object
+evidence would WEAKEN it.** Right model: two mechanisms, one timeline referencing
+both. **Decide explicitly, because `GPS_LOG` existing invites the weak way.**
+
+**5. AI SUMMARIES ARE NOT EVIDENCE OBJECTS.** A captured artifact and a derived
+interpretation cannot carry the same evidentiary status. If a summary sits in the
+same structure with the same hash and the same timeline position as a recording,
+equal provenance is implied - and **the first competent challenge attacks the
+summary and discredits everything adjacent to it.** Derived material belongs in
+a **separate, clearly-labelled layer that REFERENCES evidence rather than being
+evidence.** Same reason chain of custody distinguishes the sample from the lab's
+opinion about it.
+
+**6. DEVELOPMENT AND DEPLOYMENT ARE SEPARABLE.** The pipeline, APIs, storage,
+upload queues and timeline model can be built while capture release waits on
+regulatory work. **And most of that pipeline already exists** - see 9b.4. That
+argument is stronger than when it was made.
+
+**7. RESPONSE COORDINATION - DEFERRED, NOT REJECTED.**
+
+Decided this session: **OPA is the evidentiary layer for now.** Coordination is a
+real future product; it is not now.
+
+**Why deferred rather than rejected.** Independence is the only structurally
+uncopyable advantage today - **a responder cannot produce neutral evidence about
+their own response.** Coordinating makes OPA a party to what it attests. That
+cost is real but not permanent.
+
+**Critically: the hash chain does NOT rescue this.** Cryptographic integrity
+proves the record was not altered after the fact. It says nothing about whether
+the party who wrote it had an interest in what it said. **Tamper-evidence is not
+independence.**
+
+**The boundary while deferred: VIEWER, NEVER CONSOLE.** Incident list, live
+position, report retrieval - yes. Responder assignment, status tracking,
+escalation management - no. **Stated explicitly because a viewer drifts into a
+console one reasonable request at a time, and drift is how this decision would
+get reversed without anyone deciding.**
+
+**Where the line actually falls:** notifying contacts is *alerting*. Giving a
+responder scoped live location is *providing information*. Recording that a
+responder acknowledged at 14:02:40 is *observing someone else's action* - which
+is why acknowledgement is so valuable: **it proves response time without OPA
+participating in the response.** Coordination starts at *deciding and directing*.
+
+**What would justify revisiting:** a partnership attempt with a response operator
+that fails or is declined; institutional buyers requiring dispatch as a condition
+of purchase; a funded route to actual response capability; or OPA's record
+becoming commodity rather than differentiator.
+
+**What must NOT happen while deferred:** coordination features shipped
+incrementally under other names. **If revisited, it is revisited as a decision,
+with this ADR superseded.**
+
+**Note: keeping architectural separation costs almost nothing and preserves both
+paths.** A record layer partners can write into is also one OPA's own future
+console could write into. Deferring requires not building the console yet, not
+building anything differently.
+
+**The honest counter-argument, recorded:** coordination is where recurring
+revenue and stickiness usually live, integrated products often beat modular ones,
+and a pure recorder depends on someone else's distribution. **This is a bet, not
+a theorem.**
+
+**8. A QUALIFICATION ON THE PARTNER STRATEGY, from `TODO.md:1335-1339`:**
+
+> **PRINCIPLE: partner APIs come AFTER product-market fit, never before.**
+> Correct sequence: pilot -> users -> reliability -> partners ask -> API.
+> Building an SDK or public API now solves a problem nobody has asked to have
+> solved. OPA currently has no pilot, no revenue, no public API, no third-party
+> auth model, no docs and no operational history.
+
+**This materially qualifies `PARTNER_INTEGRATION_AND_DIFFERENTIATION.md`.** The
+positioning in that document stands; **its integration surfaces should be
+understood as a target architecture, not a build queue.** `:1341-1345` adds who
+would realistically integrate first: **things that HAVE A TRIGGER BUT NO
+BACKEND** - bluetooth panic buttons, smartwatches, elder-care pendants, vehicle
+crash sensors. **Not competing safety apps.**
+
+### 9b.6 A WHITE PAPER - GOOD IDEA, WRONG TIME
+
+**The subject should be the verifiable record:** how it is constructed, what it
+proves, and what it does not. That is the differentiator and it is what
+institutional buyers and insurers read. It doubles as technical credibility for a
+partnership conversation.
+
+**The material is stronger than it first appears, and it already exists:**
+sha256-before-upload with idempotent dedupe on `(incidentId, sha256)`; chained
+location fixes where the chain proves nothing was removed; no permanent public
+URLs; 5-minute signed access. **That is a real integrity story, implemented.**
+
+**But WAIT UNTIL THE TIMELINE CHAIN LANDS.** Location fixes are chained; timeline
+events are not. **A paper describing an audit-grade record while half of it is
+unchained gets falsified by the first technical reader, under our own name.**
+
+**The honest-limits section is what would make it credible rather than
+marketing:** device-dark, foreground-only, what a chain proves versus what it
+does not.
+
+### 9b.7 THE DEVICE-DARK ANALYSIS - four states, one recoverable
+
+If a phone has location revoked, is in airplane mode, is force-killed or powered
+off, **no software safety app can transmit from it.** An OS and physics limit,
+not an OPA gap, and it applies equally to every phone-based competitor and to the
+OS vendors' own features.
+
+| State | Capture | Transmit | Trail |
+|---|---|---|---|
+| Location revoked | no | yes | ends |
+| **Airplane mode** | **yes - GNSS is receive-only** | no | **delayed, not lost** |
+| Force-killed | no | no | ends |
+| Powered off | no | no | ends |
+
+**Airplane mode is materially different and it is the case 9c changes.** A phone
+in airplane mode continues producing position fixes. **With a durable queue,
+every fix captured during the dark period flushes on reconnect** - *"here is
+where the phone travelled during the two hours it appeared dark."* Qualitatively
+stronger than a last-known location, and exactly what item 10's airplane-mode
+test exercises. **It depends on background capture too, since the app must
+survive being backgrounded.**
+
+**Honestly preserved in the unrecoverable cases:** a trail rather than a snapshot
+(10s cadence); **origin coordinates immutable** (ADR-005); a tamper-evident chain.
+
+**THE GAP: going dark is NOT an attested event.** `SILENT` is derived at read
+time from fix age - **not persisted, not hash-chained.** So *"the device went
+dark at 14:53:50"* is an inference from absence, not a fact in the record.
+**Making it attestable is 14b, and this is the strongest single argument for it.**
+
+**Being honest about all this is a commercial asset, not a weakness to hide.** An
+institutional buyer finds the limit anyway, and trusts whoever named it first.
+
+**The one genuine software-only mitigation is SILENT ACTIVATION** - it does not
+fix a physical problem, it reduces how often the worst case is reached, because
+an activation that does not announce itself is less likely to be noticed and shut
+down before the alert has gone out. **By the inclusion test it is CORE.**
+
+### 9b.8 THE DOWNLOADS HAZARD - still outstanding
+
+Three copies of `decision-log` in Downloads, **225 lines**, hash
+`350876D96B03`, versus the repo's **860 lines** / `B860D01A1D62`. **225 predates
+ADR-009 entirely.** The newest timestamp carries the oldest content. **Part 1
+section 9 item 1 has the delete command. Still not done.**
+
+**Open, harmless either way:** four other files - `gap_register.txt` (126, x2),
+`integrity_done.txt` (56, x3), `strategy_notes.txt` (92, x2),
+`feature_evaluation.txt` (140, x1) - **appear to be extracts of `TODO.md`
+sections**, matched by timestamp to `:754`, `:957`, `:1318` and `:858-868`. Every
+duplicate group is byte-identical. **Inference, not verified.** The command that
+settles it is in Ultra 14 section 9b.8 if wanted; it compares each file's lines
+against `TODO.md`. **~95-100% means absorbed and safe to delete.**
+
+---
+
+## 10. The token leak - CLOSED. Historical record only.
+
+Fixed in `7b152cd`. `global-exception.filter.ts` read `path:
+request.originalUrl` raw in two places without importing `redactSensitivePath`.
+
+**What the earlier handover got wrong:** it claimed errors on tracking routes are
+routine. **Those four states never reach the exception filter** - the controller
+uses `@Res({ passthrough: true })` and returns normally; **zero `throw`
+statements across all 8 files** in `src/modules/incident-access`. **A 404 status
+is not a thrown 404.** What actually fires is Nest's unmatched-route 404, whose
+message contains the full URL, so `Error.stack` does too. **The fix was FOUR
+sites, not two.**
+
+**The durable lesson: when a handover explains WHY something is urgent, check the
+mechanism, not just the conclusion.** Five recurrences now - 9b.2.
+
+**Still open: Tier 2 item 13**, Application Insights. Azure-side.
+
+---
+
+## 11. Production API - scoped, and it has two causes
+
+Full chain in 9b.3. **Summary: the provider validator's `throw`, and possibly a
+missing `AZURE_STORAGE_*` variable that stops boot even earlier.** Response-level
+omission already exists and works per provider. The module cannot be
+unregistered. **Do NOT set `OPA_ALLOW_MOCK_PROVIDERS` in Azure.**
+
+**Azure App Service settings live outside the repo and were NOT checked. No
+infrastructure-as-code exists anywhere.** **Booting locally is not deploying.**
+
+---
+
+## 12. The document estate
+
+### In the repo - 22 markdown files plus handover parts
+
+| Lines | Path |
+|---|---|
+| **1599** | `docs/TODO.md` |
+| **860** | `docs/architecture/decision-log.md` |
+| **623** | `docs/SPRINT_ROADMAP.md` |
+| 469 | `docs/PARTNER_INTEGRATION_AND_DIFFERENTIATION.md` |
+| 286 | `docs/PANIC_SYSTEM_CAPABILITY_ASSESSMENT.md` |
+| 269 | `docs/VOICE_ACTIVATION_FEASIBILITY_STUDY.md` |
+| 194 | `docs/LAUNCH_AND_REGISTRATION_ROADMAP.md` |
+| 182 | `docs/architecture/emergency-intelligence-engine.md` |
+| 166 | `docs/REGISTRATIONS.md` |
+| 112 | `docs/architecture/system-overview.md` |
+| 98 | `docs/architecture/incident-lifecycle.md` |
+| 94 | `docs/future/ussd-fallback.md` |
+| ~88 | `docs/COMMERCIAL_ROADMAP.md` |
+| ~2540 | `docs/handovers/OPA-Handover-Ultra-13-part{1,2,3}.txt` |
+| + | `README.md`, `docs/PHASE0.md`, `docs/SECURITY.md`, `apps/*/README.md` |
+
+### THE ENCODING TRAP - and a distinction that cost confusion
+
+**`TODO.md` and `SPRINT_ROADMAP.md` carry a UTF-8 BOM and contain ZERO real
+em-dashes.** Their mojibake is **literally in the files** - visible as `Redis
+â€" production` at `:352`, `:383`, `:628`, `:642`, `:884`.
+
+**`decision-log.md` is CLEAN - no BOM.** **But its ADR-001..008 headings ALSO
+render as mojibake in PowerShell.** Those are **REAL em-dashes**; the mojibake is
+`Get-Content` misreading UTF-8 as ANSI (trap #63) - a console artifact, not
+corrupt bytes. ADR-009/010/011 use ASCII hyphens deliberately.
+
+**Two files, opposite causes, identical appearance. The cleanup applies to
+`TODO.md` and `SPRINT_ROADMAP.md` ONLY. Do not "fix" `decision-log.md`.**
+
+**Every installer anchor into the two BOM files must be ASCII-only.** Done
+successfully five times. **Verify the BOM survived the write and abort if not.**
+
+### Structural facts - RE-MEASURE, DO NOT TRUST
+
+**`TODO.md`** uses `## ====` banner / title / `## ====`. The bare banner is NOT
+unique - **anchor on a multi-line combination.** `### DONE` occurs **3 times**.
+
+**Top-level banner map** (verified scan, before this session's +75 at ~1491):
+`:8` Immediate, `:21` Confirmed real, `:48` Known gaps, `:144` Journey
+Intelligence, `:190` Legal, `:206` Backend, `:212` Deployment, `:222` App store,
+**`:228` Documentation status**, `:242` A technique worth remembering, `:261`
+Where we stopped, `:285` OPA Prevention, `:347` SOS deferred hardening, `:352`
+Redis, `:383` Website copy, `:418` Dispatch hardening, `:606` Sequencing
+decision, `:628` Tomorrow's plan, `:642` Dispatch phase 2c, `:754` Gap register,
+`:858` unbuilt features, `:884` Messaging channel architecture, `:957`
+Pre-Sprint-10 integrity, `:1016` Sprint 10A architecture, **`:1124` Sprint 10B
+progress**, **`:1318` STRATEGIC PRINCIPLES**, `:1411` Camera integration.
+**Everything below ~1491 has shifted by +75.**
+
+**`:228` Documentation status is the natural home for references to the two new
+strategy docs** - currently orphaned. Read `:228-245` before anchoring.
+
+**`SPRINT_ROADMAP.md`:** Sprint 10B at `:166` (`~87%`); Live tracking matrix row
+at ~`:351`; **Sprint 11 entry at `:223`, now a 35-line corrected status.**
+Feature Readiness Matrix starts near `:346`. **A Sprint 11 / Evidence row may
+need adding, or a stale one may exist - read the matrix before anchoring.**
+
+**Sprint and phase map:**
+```
+Sprint 10A Incident Portal      SUBSTANTIALLY BUILT
+Sprint 10B Live Tracking        IN PROGRESS ~88%
+Sprint 10C Location Intelligence CONFIRMED HARD BLOCKER, procurement
+Sprint 11  Evidence Capture     SERVER-SIDE SUBSTANTIALLY BUILT (corrected)
+Sprint 12  User Profile         NOT STARTED - medical fields need a migration,
+                                confirmed absent from the database
+Phase 3 / Sprint 13 Dashboard Foundation      NOT STARTED
+Phase 3 / Sprint 14 Incident Management UI    NOT STARTED
+  Backend Facility model and access guards are real and tested; no dashboard
+  UI is connected to them.
+Phases 4-9: Deployment, Security Hardening, Pilot, Business Ops, App Store,
+  Market-Ready Documentation
+Phases A-K: a parallel lettered track (A Production Foundation, B Sprint 9,
+  C Pilot Readiness, D Nigeria Launch, E US Validation, F 10A, G 10B,
+  H Journey Intelligence, I OPA Prevention, J Multi-Country, K International)
+```
+
+**Note the phase/sprint duality is itself a documentation hazard** - two
+numbering systems over the same work. Part of the Tier 4 sweep.
+
+**`decision-log.md` ADR index: part 1 section 5, measured.**
+
+### Standing practice - IN FORCE
+
+> **Code commit first, gated on tests. Docs commit second, updating the Sprint
+> 10B progress section with the step, its SHA, and its MEASURED gate.**
+
+**Inverted twice, deliberately:** ADR-010 committed BEFORE its code, ADR-011
+AFTER. **Decisions taken in advance are committed in advance; outcomes are
+committed once measured.**
+
+**Record gates that could actually have failed.** For `d5aca8b` the gate is the
+device run and the database read - **not `tsc`, which returned 0 on the defective
+code AND on the fix.** For `6188e63` it is **188 pre-existing tests passing with
+none edited.**
+
+### Still outstanding from the estate sweep
+
+- Undated relative markers at `TODO.md:190` and `:557`.
+- The two competing "Phase A"s, and the phase/sprint duality above.
+- SafeWalk's incomplete gate list in `COMMERCIAL_ROADMAP` C60-63, C8-9.
+  **10B alone does not unlock SafeWalk** - its MVP needs missed-check-in
+  escalation, i.e. silence detection, which ADR-010 D4 defers.
+- The "log the record id, never the raw token" checkbox - still UNVERIFIED.
+- The mojibake/BOM cleanup, two files only.
+- **`SPRINT_ROADMAP.md:136`** lists movement/compass as 10B scope, contradicting
+  `:172-175` and ADR-009. **ADR-009 is right.**
+- **The two new strategy docs are orphaned.**
+- **A Feature Readiness Matrix row for Sprint 11 / Evidence.**
+- **An audit for other schema-field-as-capability claims** (trap #86), starting
+  with `NotificationStatus.ACKNOWLEDGED`.
+
+### Downloads / DocStaging
+
+42 `.docx` converted into `C:\Projects\OPA-DocStaging` plus `_INDEX.md`,
+**deliberately outside the repo** so documents containing personal data cannot
+reach git. **Eight duplicate groups, 15 files collapsing to 7. Two pairs that are
+NOT duplicates** (trap #38). **Three probably under-extracted** (trap #39).
+
+**Filing plan:** `docs/` engineering only; `docs/business/` positioning;
+**outside the repo entirely** for the offer letter, hiring structure, CAC
+certificate, letterheads, sender-ID letters - **named-individual employment data,
+permanent once in git history.** Keep in `C:\Projects\OPA-Corporate\`.
+
+**Two marketing documents produced, NOT committed:**
+`OPA-vs-Panic-Buttons-Briefing.docx` and `OPA-Staff-Guide.docx`.
+
+**THE STAFF GUIDE NEEDS TWO CORRECTIONS.** It says location is captured at the
+moment of the press - **false since 29 July**, and the revision is a selling
+point. **And if it or the briefing claims background recording or encrypted
+evidence, both are false** - see trap #86.
+
+---
+
+## 13. Strategy - two documents committed, both qualified by older principles
+
+`1637f9b` added `PANIC_SYSTEM_CAPABILITY_ASSESSMENT.md` (286 lines) and
+`PARTNER_INTEGRATION_AND_DIFFERENTIATION.md` (469 lines). **Read them.**
+
+### The capability assessment
+
+- **Provenance matters:** the source checklist is vendor-authored - a description
+  of that vendor's product, written for dedicated hardware in fixed facilities.
+  **Useful market intelligence, not a neutral standard.**
+- **Corrects five optimistic status claims and one pessimistic one.**
+- **Names the gap the checklist missed: OPA is foreground-only.** For a phone in
+  a pocket that is worse than any of the three gaps the vendor names, and it is
+  the one a pendant genuinely wins on.
+- **THE BLOCKING FACT for indoor positioning:** proposed indoor fields cannot
+  enter the canonical fix payload without breaking verification for **every fix
+  already stored**. **Same shape as the `source` enum question - one ADR should
+  cover both** (q32).
+- **Rejects** in-app VoIP and silent-listening. **Accepts** responder call-back
+  with number masking. **Defers** the transport abstraction.
+- **Guardian gets no spec** - never defined anywhere, which is why
+  `JourneyPurpose.GUARDIAN` is excluded from `CLIENT_PURPOSES`. **Journey
+  Intelligence must not be dropped** - it has a 2592-line architecture document
+  that **has never been opened in any session.**
+
+### The partner/differentiation document
+
+- **Names a competitor absent from every prior strategy document: the phone
+  itself.** Apple Emergency SOS with satellite, crash detection, Android Personal
+  Safety - free, pre-installed, deeper OS access than any third-party app.
+  **Any consumer-facing phone safety app competes with a free built-in feature.**
+- **Ranks differentiators by defensibility.** Defensible: **independence of the
+  record**, and **Nigerian channel and regulatory fit**. **NOT a differentiator:
+  the hash chain** - a competent team builds it in a month. **The mechanism is
+  not the advantage.**
+- **The differentiator only monetises in the institutional channel.** Consumers
+  want rescue; institutions want proof. **OPA cannot provide rescue and can
+  provide proof.** Apple does not sell an audit trail to a hotel chain.
+- **Three integration surfaces**, and **an INCLUSION TEST** for sorting future
+  features as core / partner / reject.
+- **QUALIFIED BY `TODO.md:1335-1339`:** partner APIs come after product-market
+  fit. **Target architecture, not a build queue.** See 9b.5 item 8.
+
+### Older business documents - outside the repo, still drifting
+
+`OPA-Product-Family-Positioning` (7/18), `OPA-Launch-Sequencing-Final` (7/18),
+`OPA-Strategic-Blueprint` (7/26), `OPA_Journey_Risk_Intelligence_Architecture_v1.0`
+(7/26, 2592 lines, **never opened**).
+
+**Key conflict:** launch sequencing ranks SafeWalk 3rd and Enterprise 4th;
+`COMMERCIAL_ROADMAP` makes Command Center Release 1 and SafeWalk Release 2.
+**Newer evidence favours the roadmap by accident** - Command Center's gates are
+satisfied, SafeWalk needs deferred silence detection. **The thing ranked 3rd is
+further away than the thing ranked 4th.** **But coordination is now deferred**
+(9b.5 item 7), so **Command Center's cheapness is no longer a reason to build
+it.**
+
+**Two claims to verify before either reaches an investor:** ERA's "$20K seed"
+looks like a Techstars standard cheque; the Nigerian healthtech figures (~$55M
+2023 → ~$18M 2024 → ~$3M 2025) are load-bearing.
+
+---
+
+## 14. Wider project context
+
+### Registration - THE CLOCK IS RUNNING
+
+- **CAC DONE.** RC 9697630, OPA Technologies Limited.
+- **D-U-N-S IN HAND. 352294843.** Apple and Google Organization enrollment
+  unblocked, **pending a 2-3 day D&B activation window.**
+- **START THE SLOW PARTS NOW** - elapsed time, not effort. Part 3 section 20.
+- **The free D&B self-service tools (D-U-N-S Manager / iUpdate) are documented as
+  being for U.S.-based non-public companies.** A Nigerian entity likely needs the
+  regional **Data Update** request route - a queue, not an instant edit.
+  **Whoever submits must be an owner, director or officer.** **Verify the current
+  Nigerian route on dnb.com directly.**
+- **The fields that decide developer-program verification are legal name, HQ
+  address and phone** - write them byte-identical to CAC and the website. **A
+  name or address mismatch is the most common failure**, more so than the website
+  field.
+- **NDPA registration is IN PROCESS, awaiting completion.** **The constraint on
+  audio capture is timing, not permission** - but a covert-audio capability is
+  exactly what would complicate a pending review.
+- **Hospital outreach: drafted, not sent. The oldest open action item.**
+
+### Sprint status
+
+- **Sprint 9:** Pass 1 done, live-tested; WhatsApp confirmed across four
+  activations. **The sequential 401 → refresh → retry path is proven on device.**
+  **Cancel path, permission and network error handling remain untested - all
+  three ride along with the next device session.** **New defect:
+  `contactsNotified` shows 0.**
+- **Sprint 10A:** built, locally verified. **The tracking page has still never
+  rendered**, and 54 real fixes exist.
+- **Dispatch hardening:** complete, `e7990e2`.
+- **Sprint 10C:** hard blocker for the full intelligence feature. Procurement.
+- **Sprint 11:** server-side substantially built. **Corrected this session.**
+- **`docs/REGISTRATIONS.md`** was found silently truncated once and rebuilt.
+  **If any doc looks shorter than expected, verify its line count.**
+
+### Voice activation - PICOVOICE HAS RESPONDED AND IS WAITING
+
+269-line study. **Desk research complete; device testing outstanding.**
+**L1/L2 feasible on both platforms. L3 (background) feasible on Android, iOS
+conditional.** **Endorsed: Android-led voice, two-tier model.** Privacy framing:
+on-device keyword spotting, no cloud audio, OS mic indicator visible. **Never
+imply hidden or silent listening.**
+
+**Corrected GO/NO-GO: measurement prototype GO now; ship as a product feature NOT
+YET; publish marketing claims NOT YET.** **Porcupine's performance targets are
+ESTIMATES, NOT VERIFIED - they must not reach a customer.** **If Picovoice is
+offering support, the useful ask is help getting accurate on-device measurements,
+not a commercial commitment.**
+
+**BLOCKER: Expo Go cannot run Porcupine.** Custom dev build → EAS → **no
+`eas.json`**. **And trap #75 means that build also needs `app.json` native
+config.** **HAPPY COINCIDENCE: the same work may unblock 9c.** Backend is ready -
+`IncidentTrigger.VOICE_HELP_HELP` and `EmergencyTriggerType.VOICE` exist.
+
+### Six product ideas. First three nearly free.
+
+1. **Contact acknowledgement.** `ACKNOWLEDGED` exists and NOTHING SETS IT.
+   Opening the tracking page already calls `recordAccess()`. **The largest
+   functional gap. The fix for the "0 contacts" bug and this idea are the same
+   work.** **Also load-bearing for any partner SLA** - and it is how the record
+   proves response time *without* OPA participating in the response.
+2. **"I am responding"** on the tracking page - the bystander-effect fix.
+3. **Surface battery.** `batteryLevel`/`isCharging` stored and hashed, **and the
+   app has never captured either.** **Free telemetry, no dependency, no
+   permission, and a real timeline event.** Tier 2 item 14g.
+4. **Duress cancel.** `handleCancel` never calls the API.
+5. **Hardware trigger** (triple power press / held volume-down) - **80% of
+   wake-word for 10% of the cost, no mic, no App Store risk, no NDPA audio
+   question. BEFORE voice. This is the actual silent-activation mechanism.**
+6. **Automated incident report on resolution.** The OUTPUT of everything 10B
+   built, and **the sellable artifact in the partnership model.** **Blocked on
+   14b.**
+
+### Silent activation - and the unasked design question
+
+**Backend ready.** **App NOT silent** - five-second visible countdown,
+full-screen state changes, large button. **The mechanism is product idea 5.**
+
+**THE DESIGN QUESTION NOBODY HAS ASKED: if activation is silent, how does the
+user know it worked?** Screen confirmation defeats the purpose. **A single
+discreet haptic is the likely answer. Decide before building** - it determines
+whether the feature is trustworthy in the moment it matters. **And it interacts
+with the `contactsNotified` defect: a user who cannot look at the screen has no
+confirmation channel at all, so the signal must be correct before silence is
+offered.**
+
+### Positioning - "live" is EARNED, "background" is NOT
+
+**Rejected: "emergency coordination platform."** **Adopted:** *emergency alerting
+with a verifiable location record* / *live incident awareness* / *OPA is a live
+incident awareness platform that produces a verifiable record.*
+
+**"Live" is earned as of `d5aca8b`** - 50 fixes, 10s cadence, verified chain,
+`recordedAt` monotonic against `sequence`.
+
+**Caveat: live WHILE THE APP IS IN THE FOREGROUND.** `source: 'background'` is
+unreachable **and the string is absent from the client entirely**. No persistence
+across process death until 9c. **Do not let "live" grow into "always".**
+
+**HONEST CAPABILITY STATEMENT:** *records continuously while the app is open, at
+a verified 10-second cadence, on a tamper-evident chain.*
+
+### Website
+
+Next.js 16.2.10 on Vercel, **no tests**, gated on `npm run build`. 18 `.tsx`
+files, **exactly ONE `'use client'` component**. **`middleware` is deprecated in
+Next 16.2 in favour of `proxy`** - the build warns every run. **Read what
+`src/middleware.ts` does before migrating.**
+
+`src/lib/tracking.ts` **casts** the API response rather than validating it, so
+**the website's types are a hand-mirrored copy of the API DTO with nothing
+keeping them in sync.** One drift exists (q20). **Gating Swagger and versioning
+it as a contract would address this and the exposure together.**
+
+---

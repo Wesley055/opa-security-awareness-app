@@ -1,0 +1,940 @@
+# OPA - Handover Ultra 15 - PART 1 of 3 (sections 1-9)
+# Paste ALL THREE parts, in order, as the first messages in the new chat.
+#
+# GENERATED: 2026-07-30, at the Sprint 11 corrections commit.
+# THE EXACT HEAD SHA WAS NOT READ BACK BEFORE GENERATION - re-derive it with
+# git log. Expect the Sprint 11 corrections commit at HEAD, one after 893d65a.
+
+# OPA - Handover (Ultra 15)
+
+**Supersedes Ultra 2-14 and all delta notes. Merged, not appended.**
+
+Ultra 13 and any earlier parts committed at `docs/handovers/` remain for
+history. **Commit these parts too** - section 9 item 0.
+
+## THIS SESSION: NINE COMMITS. 10B AT ~88%. TWO SUBSYSTEMS DEMYSTIFIED.
+
+| SHA | What |
+|---|---|
+| *(this one)* | Docs: correct the Sprint 11 status, record four evidence findings |
+| `893d65a` | API: tie-break the newest-fix ordering on sequence |
+| `6188e63` | API: consolidate the mock-confidence predicate, restore its typing |
+| `1637f9b` | Docs: panic-system capability + partner differentiation assessments |
+| `876fe16` | Docs: handover Ultra 13 - **q12 CLOSED** |
+| `16d6c88` | Docs: ADR-011 - tracker capture policy |
+| `46c08b5` | Docs: Sprint 10B progress for fa087a6 and d5aca8b |
+| `d5aca8b` | Sprint 10B: fix tracker cached-replay and stationary-device silence |
+
+**The four findings that matter most, all measured, none previously recorded:**
+
+1. **SPRINT 11 IS SERVER-SIDE SUBSTANTIALLY BUILT**, not "NOT STARTED". Full
+   evidence subsystem: model, enums, module, controller, service, Azure Blob,
+   sha256-before-upload, idempotent dedupe, 5-minute SAS URLs, and a timeline
+   event on upload. **AUDIO, VIDEO and IMAGE are already `EvidenceType` values,
+   so phone capture needs NO migration.**
+2. **A SECOND BOOT DEPENDENCY.** `evidence.service.ts` calls `getOrThrow` for
+   two `AZURE_STORAGE_*` variables **in its constructor**, so a missing variable
+   stops boot **before** the provider validator is reached. **Azure is
+   unverified. The production-boot problem may have TWO causes.**
+3. **EVIDENCE ENCRYPTION IS NOT IMPLEMENTED.** `encryptionKeyId` exists and
+   nothing sets it. **Second schema field found reading as a capability.**
+4. **`source: 'background'` IS NOT A CAPABILITY.** Measured: `scanned=10,
+   hits=0` for `TaskManager`, `startLocationUpdatesAsync`, `defineTask` and even
+   the string `background` across the entire mobile app.
+
+**A field is not a feature. That sentence has now been earned twice in one
+session.**
+
+---
+
+## 1. Working method
+
+No file access. Manual command-and-paste: one command, the user runs it in
+PowerShell, pastes raw output back. One thing at a time. **Never assume file
+state - verify it.**
+
+A parallel session with file access has existed. **If two run at once, only ONE
+may write to the repo.** Establish which at the start.
+
+### Every command must carry its own control
+
+**A command whose interesting result is a zero or an absence must also print a
+number proving it reached real data.** `count=`, `files=`, `scanned=`, `lines=`.
+`probe=` before everything.
+
+```powershell
+"probe=unique-token"; <rest of command>
+```
+
+**This rule caught three false negatives this session** and its absence caused
+one. It is the most load-bearing habit in this project.
+
+- `lines=0` revealed a read issued from the wrong working directory - `cd`
+  persists between commands, and a relative path silently resolves against
+  wherever you were last.
+- `scanned=116` and `hits=14` overturned a conclusion that emergency
+  intelligence had no consumers. **Without the control, `hits=0` from a broken
+  glob looked exactly like a real absence.** Trap #83.
+- `scanned=10, hits=0` **proved** the background capability is absent - a
+  trustworthy zero, because the file count showed the sweep reached everything.
+
+### Paste damage, and how to recover
+
+- **The first line gets dropped**, silently, often. Never anchor on line 1.
+- **The MIDDLE can drop.** A `git diff` arrived missing its header and first two
+  hunks with later hunks intact.
+- **The console echo appears ABOVE the probe.** Not a dropped line.
+- **A whole previous console block can be pasted back** and PowerShell tries to
+  execute each line. Harmless noise; read past it.
+
+**The recovery that works: do NOT re-issue the same dump. Issue a NARROWER,
+line-numbered read of exactly the missing facts.**
+
+```powershell
+$p='path\to\file.ts'; "probe=read lines=$((Get-Content -LiteralPath $p).Count)"; $n=0; Get-Content -LiteralPath $p | ForEach-Object { $n++; if ($_ -match 'PATTERN|PATTERN2') { "$n|$_" } }
+```
+
+**Multi-window reads work and save round trips:**
+```powershell
+$p='docs\TODO.md'; "probe=x lines=$((Get-Content -LiteralPath $p).Count)"; $n=0; Get-Content -LiteralPath $p | ForEach-Object { $n++; if (($n -ge 10 -and $n -le 30) -or ($n -ge 100 -and $n -le 120)) { "$n|$_" } }
+```
+
+### VERIFY, DO NOT PREDICT
+
+Wrong predictions this session, all caught only because something measured them:
+Ultra 12's `:341` (real answer `:351`); a numstat predicted `73 6` against a real
+`86 8`; ADR line numbers predicted by arithmetic that had drifted; `docs/`
+assumed uniformly CRLF when it is mixed; the emergency-intelligence module
+assumed to use a registry when it uses concrete constructor injection.
+
+**An installer's own printed expectations are assertions and can be wrong (trap
+#85). The measured `git diff --numstat` is the gate.** Print expectations, then
+measure anyway. This session's final installer predicted `35 1` and `75 0` and
+was right - which is only knowable because it was checked.
+
+### PowerShell specifics
+
+- **NO backslash escape.** `\"` ends the string early and hangs at `>>`. The
+  escape is a BACKTICK. Ctrl+C recovers. Trap #56.
+- **PowerShell STRIPS double quotes from native-command arguments.** Trap #78.
+- **`**` IS NOT RECURSIVE GLOBBING in PS 5.1.** Trap #83. Enumerate with
+  `Get-ChildItem -Recurse` and print `scanned=`.
+- **`cd` PERSISTS between commands.** A relative path resolves against the last
+  directory, not the repo root. **Prefix reads with `cd C:\Projects\OPA;`.**
+- **Square brackets in a path are WILDCARDS.** `-LiteralPath` is MANDATORY.
+- **`Get-Content` misreads UTF-8 as ANSI.** Keep anchors ASCII-only. Trap #63.
+  **`decision-log.md`'s ADR-001..008 headings render as mojibake and the file is
+  CLEAN** - real em-dashes, console artifact. **Do not "fix" it.**
+- **`-Encoding utf8` on WRITE adds a BOM.** All writing goes through Node.
+- **Multi-paragraph commit messages use REPEATED `-m` FLAGS.** Never embed
+  newlines in one quoted `-m`. Used ~10 times this session, up to seven
+  paragraphs.
+- **`Copy-Item` with a non-matching wildcard exits 0 and copies NOTHING.**
+- **`Remove-Item -LiteralPath 'a','b'` CONTINUES past a missing path and a
+  `;`-chained command still runs.** Trap #84 - it deleted an unrun installer
+  this session. **NEVER chain a destructive step to a commit.**
+- **A pipeline masks the exit code.** Check unpiped. Trap #66.
+- **NEVER pipe two object shapes into one stream** - the second prints as
+  nothing, silently, exit 0.
+- `Get-ChildItem | Where-Object` returns a bare object on one match, `$null` on
+  none. Wrap in `@()`.
+- `git status --short` cannot show an ahead-count. Use `git status -sb`.
+- Set `$env:GIT_PAGER = 'cat'` at session start.
+
+### Querying Postgres
+
+```powershell
+"probe=db"; $q=[char]34; $sql = "SELECT sequence, source, " + $q + "recordedAt" + $q + ", " + $q + "receivedAt" + $q + " FROM " + $q + "JourneyLocationFix" + $q + " ORDER BY sequence DESC LIMIT 20;"; $sql | docker exec -i opa-postgres psql -U opa -d opa; "exit=$LASTEXITCODE"
+```
+`docker exec -i`. `-d opa` dev, `-d opa_test` integration. **Two statements in
+one `$sql` works** - put a `count(*)` first so the dump has its own control.
+
+### Installer scripts - 30 for 30 across nine sessions
+
+1. Write a `.js` with target content as arrays of strings.
+2. User downloads, copies to the right directory **renamed to `.cjs`**.
+3. Run once. Prints a plan, writes, prints next commands.
+4. **Delete before committing.**
+
+**The placement step is easy to skip and fails confusingly.** Three times this
+session a commit was attempted before an installer ran: `Remove-Item` errored on
+a missing `.cjs` and `git commit` said "nothing to commit, working tree clean".
+**That combination means the installer never ran.**
+
+```powershell
+cd <root>; "probe=place"; $s=@(Get-ChildItem -LiteralPath "$env:USERPROFILE\Downloads" -Filter 'NAME*.js' -File | Sort-Object LastWriteTime -Descending); "files=$($s.Count)"; if ($s.Count -gt 0) { Copy-Item -LiteralPath $s[0].FullName -Destination '<root>\NAME.cjs' -Force; "bytes=" + $s[0].Length } else { "NOT FOUND" }
+```
+**Byte size is a real integrity check** - matched exactly six times this session.
+
+**`node --check` validates the installer's JavaScript, NOT what it emits.** It
+caught an unterminated string this session (a single-quoted line closed with a
+double quote). **An ASCII scan caught a stray Cyrillic word** that had slipped
+into an installer writing into BOM-carrying files. **Both checks earn their
+keep. `tsc --noEmit` has never once been redundant.**
+
+Rules:
+- **Deliver as `.js`** - the chat viewer shows nothing for `.cjs`.
+- **ONE file.** Arrays of quoted strings joined with `\n` - never template
+  literals; generated TS contains backticks and `${`.
+- **Two phases: plan every file, THEN write any.** Trap #52.
+- Per-edit state from a `from` count + a `marker` present only after the edit.
+- Assert by COUNT, not presence. Trap #42.
+- **Every edit declares `anchorAfter`.** Trap #76. A REPLACE asserts
+  `anchorAfter=0` - the old text must be GONE.
+- **A line-replace states how many lines it CONSUMES.** Trap #70.
+- **A marker must not appear in content another edit adds.** Trap #68.
+- **A DELETION inverts marker logic:** present = pristine, absent = applied.
+- **Detect EOL per file. Detect and re-prepend the BOM. VERIFY the BOM survived
+  and abort if not.**
+- **PRINT the neighbour's measured EOL before writing a new file.** Caught a
+  wrong assumption twice.
+- **Prefer INSERTS over REPLACES** - an all-inserts installer must produce zero
+  deletions, a sharper check than a mixed count.
+- **Verify anchor indentation programmatically.** A 14-space mismatch is the
+  difference between PRISTINE and UNKNOWN.
+- **A multi-line anchor is more precise but more fragile.** A 7-line span was
+  used successfully this session; note it fails if the file is ever reflowed.
+- **Distinct filename per revision** (`-v2`).
+- **State which directory it runs from and guard on a neighbour file.** Four
+  roots: `apps/api`, `apps/website`, `apps/mobile-app`, REPO ROOT. Trap #65.
+
+**OWNED vs GUARDED.** Overwrite files you created, guard files you did not.
+**Once owned files are committed, that installer is spent.** Trap #64.
+**Check `git status --short` for stray `.cjs` before every `git add`.**
+
+**Downloads** land in `C:\Users\mohammed.WESLEYWEST\Downloads`. Browser adds
+` (1)`; **the suffix carries NO information about age.** Trap #38 - see section
+9 item 1 for how badly this can bite.
+
+### Environment recovery after a reboot
+
+**Postgres and Redis run in Docker, not as Windows services.** Trap #27.
+```powershell
+"probe=docker-start"; Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"; Start-Sleep -Seconds 45; docker ps --format "{{.Names}}|{{.Status}}"
+```
+`P1001` at `globalSetup` means Docker is down. Don't relaunch twice.
+
+API: `cd C:\Projects\OPA\apps\api; npm run start:dev`
+Expo: `cd C:\Projects\OPA\apps\mobile-app; npx expo start`
+
+### DEVICE TESTING PROTOCOL - LOAD-BEARING
+
+**A fast refresh does NOT reset module state.** `journey-tracker.ts` is a
+module-scope singleton; `running`, `subscription`, `flushTimer`, `sessionId` all
+survive. **A tracker test over a fast refresh tests the OLD code while looking
+like it tests the new.** Trap #80. Cost a session and nearly a correct commit.
+
+1. **Fully close Expo Go from the app switcher.** Reopen.
+2. One SOS. **Let the 5s countdown COMPLETE.**
+3. Stay on the SOS screen, phone stationary, 90s minimum.
+4. Capture BOTH the `[journey-tracker]` console AND the API terminal.
+5. **Force-close Expo Go afterwards** (issue 17.13 - observed still flushing 9+
+   minutes past a test).
+
+**`POST /journey/sessions` IN THE API LOG IS THE PROOF THE NEW CODE RAN.**
+`acquireSession()` sits BELOW `if (running) return`.
+
+---
+
+## 2. Current state
+
+**HEAD: the Sprint 11 corrections commit. Re-derive the SHA - it was not read
+back before this handover was generated.**
+
+```powershell
+$env:GIT_PAGER='cat'; cd C:\Projects\OPA; "probe=resume"; git log --oneline -3; git status -sb
+```
+
+**Expect a clean tree and no ahead-count.** If it shows `ahead 1`, push.
+
+### MEASURED THIS SESSION
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` (`apps/api`) | **exit 0** |
+| `npx jest` (`apps/api`) | **18 suites, 207 tests** |
+| `npm run test:int` (`apps/api`) | **5 suites, 21 tests**, ~6.7s |
+| `npx tsc --noEmit` (`apps/mobile-app`) | **exit 0** |
+
+**Baseline before this session: 16 suites / 188 tests.** `6188e63` added two
+suites and 19 tests, and **all 188 pre-existing tests passed with NONE edited** -
+that is the proof it was behaviour-neutral.
+
+**Not re-measured:** `npm run build` (`apps/website`) - previously 0.
+`npm run lint` (`apps/api`) - **16 problems: 15 errors + 1 warning**, exit 1.
+One production finding: `incident-orchestrator.service.ts:6` unused
+`TriggerMode`. **May indicate the silent-activation mode path is under-wired -
+look before deleting.**
+
+### DOCUMENT LINE COUNTS - in `Get-Content` terms, after this session
+
+| File | Lines |
+|---|---|
+| `docs/TODO.md` | **1599** |
+| `docs/architecture/decision-log.md` | 860 |
+| `docs/SPRINT_ROADMAP.md` | **623** |
+| `docs/PARTNER_INTEGRATION_AND_DIFFERENTIATION.md` | 469 |
+| `docs/PANIC_SYSTEM_CAPABILITY_ASSESSMENT.md` | 286 |
+
+**Counting convention:** Node's `split(/\r?\n/)` yields ONE MORE element than
+`Get-Content`, because of the trailing newline. Installers report 1600/624.
+**Both are right.** Ultra 11 recorded figures off by one for this reason.
+
+**COMPLETE:** everything through Sprint 10B item 9b, the tie-break, PR 1
+predicate consolidation, ADR-010, ADR-011, three docs commits, two strategy
+assessments, and the Sprint 11 status correction.
+
+**NEXT: two decisions, then 9c, then item 10. See section 9.**
+
+### Honest progress
+
+**Sprint 10B ~88%.** ~30 hours in, 6-9 remaining. Remaining: persistence (9c)
+and the end-to-end test (10).
+
+**Sprint 10A effectively complete.** **The tracking page has STILL never
+rendered** - 54 real fixes exist to render it with.
+
+**Sprint 10C ~0%, unestimated.** Largely procurement.
+
+**Sprint 11 server-side substantially BUILT** - see section 3.
+
+**There is still no working production API, and it may have TWO causes.**
+
+---
+
+## 3. Verified facts about the codebase
+
+### Environment
+
+- Node **v26.5.0**. Prisma **6.19.3**. **PostgreSQL 16.14** in Docker.
+  Next.js **16.2.10** on the website.
+- Docker: `opa-postgres`, `opa-redis`. `POSTGRES_USER=opa`, `POSTGRES_DB=opa`.
+- `psql` NOT on host PATH but IS in the container. Use stdin.
+- **`apps/api/.env` has `OPA_ALLOW_MOCK_PROVIDERS=true`, `PORT=3000`, and both
+  `AZURE_STORAGE_*` variables** (it boots, and both are `getOrThrow`).
+  **This `.env` defeats any boot-policy test unless overridden in the shell.**
+- `decimal.js` NOT installed - use `Prisma.Decimal`. `@types/pg` NOT installed.
+- `class-transformer` and `class-validator` ARE installed.
+- Git `core.autocrlf=true`. `.gitattributes` pins `*.sql text eol=lf` only.
+
+### LINE ENDINGS - FOUR MIXED REGIONS. ASSUME MIXED.
+
+**Every region measured has turned out mixed. The split is always the same:
+installer-written or checkout-normalised is CRLF; hand-typed is LF.**
+
+- **`apps/api/src`:** `modules/journey`, `modules/incident-access`,
+  `shared/middleware` **LF**; `global-exception.filter.ts` and the orchestrator
+  **CRLF**.
+- **`apps/api/src/modules/emergency-intelligence`:** `data-confidence.ts` and
+  `provider-confidence.validator.ts` **LF**; `emergency-intelligence.service.ts`
+  **CRLF**.
+- **`apps/mobile-app`:** `app/sos.tsx` **LF**; `app/_layout.tsx`,
+  `src/services/api.ts`, `src/services/journey-tracker.ts` **CRLF**.
+- **`docs/`:** `TODO.md` and `SPRINT_ROADMAP.md` **BOM + CRLF**;
+  `decision-log.md` **no BOM, CRLF**; `VOICE_ACTIVATION_FEASIBILITY_STUDY.md`
+  and `COMMERCIAL_ROADMAP.md` **no BOM, LF**.
+
+**Consequence: WHICH neighbour matters.** Two installers wrote CRLF into an LF
+directory this session by copying an installer-written neighbour. Harmless - git
+normalises on `add` - and **caught only because both printed the measured
+neighbour EOL before writing.** Keep that print. Prefer a hand-authored
+neighbour.
+
+**Trap #77: `git checkout` NORMALISES an installer-written file** to CRLF.
+Verify with `git diff --numstat`, never assume. Verified clean seven times.
+
+### Network / device
+
+**LAN `192.168.12.126`, interface `Wi-Fi`** (ten decoy adapters - filter on
+`InterfaceAlias -eq 'Wi-Fi'`). API on `0.0.0.0:3000`. Firewall rule
+`OPA API dev 3000`. Device `192.168.12.216`, `okhttp/4.12.0` (Android).
+
+### `apps/api/src/main.ts` - 58 lines
+
+**Global `ValidationPipe`** with `whitelist`, `forbidNonWhitelisted`,
+`transform` all true. **`forbidNonWhitelisted` means any undeclared field 400s
+the WHOLE request** - this binds the mobile sender absolutely. **NO
+`setGlobalPrefix`** - live URLs are `/public/tracking/<token>`, load-bearing for
+`redactSensitivePath` (trap #53). **Swagger published unconditionally at
+`api/docs`** - part 3 section 17.8.
+
+### `apps/api/src/app.module.ts` - 66 lines
+
+`RequestLoggingMiddleware` at `.forRoutes('*')`. **Its JSON log line is the
+primary diagnostic instrument in this project** - method, path, statusCode,
+durationMs, userAgent, ip, correlationId. **Three diagnoses this session came
+from reading it alone.** `EmergencyIntelligenceModule` at `:48`,
+**`EvidenceModule` at `:54`.**
+
+### `apps/api/jest.config.ts`
+
+`testRegex: '.*\\.spec\\.ts$'`, ts-jest, node env. **No `moduleNameMapper`, no
+aliases, no `globalSetup`, no `setupFiles`.** **No `setupFiles` means
+`reflect-metadata` is not global** - trap #61. **Proven consequence: a spec
+cannot use `Test.createTestingModule` on a decorated class.** The workaround
+that works: construct directly and cast the constructor -
+`const CTOR = TheClass as unknown as new (...args: unknown[]) => TheClass;`
+
+### tsconfig strictness
+
+**`noUncheckedIndexedAccess` is ON** in `apps/api`. `rows[0]` is `T | undefined`.
+`firstRow()` exists in `test/int`. `apps/mobile-app` also compiles clean.
+
+### `prisma/schema.prisma` - 423 lines
+
+**Journey:** `JourneyPurpose` 284, `JourneySessionStatus` 292,
+`JourneySessionEndReason` 300, `JourneyRedactionReason` 310, `JourneySession`
+319, `JourneyLocationFix` 371.
+
+**Indexes on `JourneyLocationFix`:** `@@unique([journeySessionId, sequence])`
+419, `@@unique([journeySessionId, idempotencyKey])` 420,
+`@@index([journeySessionId, receivedAt(sort: Desc)])` 421,
+`@@index([journeySessionId, recordedAt])` 422.
+
+**`receivedAt` IS NOT UNIQUE** - one value per batch, not per fix, because
+`insertFixes` captures `date_trunc('milliseconds', now())` ONCE per call.
+**Trap #81, FIXED in `893d65a`** with `ORDER BY receivedAt DESC, sequence DESC`.
+**The underlying fact still governs any NEW query that picks a "latest" fix.**
+
+**EVIDENCE - fully mapped this session:**
+```
+enum EvidenceType   (59)  AUDIO | VIDEO | IMAGE | GPS_LOG | DOCUMENT
+enum EvidenceStatus (67)  PENDING | UPLOADING | STORED | FAILED | DELETED
+Incident.evidence   (124) Evidence[]
+model Evidence      (226)
+  id, incidentId (cascade delete)
+  type, status (default PENDING)
+  storageKey?, mimeType?, sizeBytes? (BigInt), sha256?, encryptionKeyId?
+  capturedAt?, uploadedAt?, createdAt, updatedAt
+  @@unique([incidentId, sha256])          <- idempotent dedupe
+  @@index([incidentId, createdAt])
+  @@index([status, createdAt])
+```
+
+**Enums:** `JourneySessionStatus = STARTED | ACTIVE | ENDED`;
+`JourneyPurpose = INCIDENT | SAFEWALK | GUARDIAN | MANUAL | SYSTEM_TEST`;
+`JourneySessionEndReason = USER_ENDED | INCIDENT_RESOLVED | TIMED_OUT |
+SUPERSEDED | ADMIN_ENDED`.
+
+`receivedAt`, `recordedAt`, `redactedAt` all `timestamp(3)`. **11 migrations,
+all replay cleanly.**
+
+Partial index, live in both databases:
+```sql
+CREATE UNIQUE INDEX journey_session_one_active_per_user ON public."JourneySession"
+USING btree ("userId")
+WHERE (status = ANY (ARRAY['STARTED'::"JourneySessionStatus", 'ACTIVE'::"JourneySessionStatus"]))
+```
+
+### THE EVIDENCE SUBSYSTEM - NEW SECTION, mapped this session
+
+**`apps/api/src/modules/evidence/` - registered at `app.module.ts:54`.**
+
+**`evidence.controller.ts`** - `@Controller('incidents/:incidentId/evidence')`
+- POST upload via `FileInterceptor('file', { limits: { fileSize: 50MB } })`
+- GET list for incident
+- GET `:evidenceId/download-url`
+- `MAX_EVIDENCE_SIZE_BYTES = 50 * 1024 * 1024`, and its comment points at an
+  **in-memory-buffer limitation** in the service. **So 50MB is an OOM guard,
+  not a product policy.** `FileInterceptor` buffers multipart uploads in process
+  memory. **This is a real constraint on video** and an argument for short clips
+  independent of platform restrictions.
+
+**`evidence.module.ts`** - `controllers: [EvidenceController]`,
+`providers: [EvidenceService, IncidentAccessGuard]`,
+`exports: [EvidenceService]`.
+
+**`evidence.service.ts` - 158 lines. The integrity story.**
+- **`BlobServiceClient.fromConnectionString(config.getOrThrow('AZURE_STORAGE_CONNECTION_STRING'))`
+  and `config.getOrThrow('AZURE_STORAGE_CONTAINER')` IN THE CONSTRUCTOR.**
+  **See section 9b.3 - this is a second boot dependency.**
+- `sha256 = createHash('sha256').update(buffer).digest('hex')` **BEFORE upload**,
+  so the hash reflects exactly what was captured, not what storage returned.
+- **Dedupe on `incidentId_sha256`** - an identical re-upload returns the
+  existing record. **Uploads are idempotent by construction**, same principle as
+  the journey idempotency keys.
+- Creates the record, uploads to
+  `incidents/{incidentId}/evidence/{record.id}`, then updates with
+  `storageKey` and `uploadedAt`.
+- **Writes a timeline event: `type: 'EVIDENCE_ADDED'`, `source:
+  'EVIDENCE_SERVICE'`, payload includes `evidenceId`, `evidenceType`, `sha256`.**
+- On failure, updates status (FAILED) and logs.
+- **`getDownloadUrl` issues a SAS URL expiring in 5 minutes.** **Evidence is
+  NEVER served from a permanent public URL.**
+
+**WHAT IS NOT THERE:**
+- **No encryption.** `encryptionKeyId` is never set. No `encrypt` anywhere.
+  Azure Blob encrypts at rest by default, but **that is Azure holding the keys,
+  not OPA-managed encryption.** Materially different claims to an institutional
+  buyer, and only one is currently true.
+- **No client capture.** The mobile app has none - see below.
+- **`capturedAt` is nullable and it is UNVERIFIED whether the upload path
+  populates it.** If the client does not send a capture time, evidence carries
+  only an UPLOAD time. **"When was this recorded" is the first question anyone
+  asks of a photo, and this is the same defect shape as the tracker's cached
+  replay: a timestamp that looks authoritative and is not.** **VERIFY: read
+  `evidence.controller.ts` and `dto/upload-evidence.dto.ts`.**
+
+**TWO INTEGRITY MECHANISMS, AND THEY SHOULD STAY SEPARATE.** Location fixes have
+a **hash chain**, which proves nothing was REMOVED. Evidence has **per-object
+sha256**, which proves an individual file was not altered. **A chain is strictly
+stronger.** `GPS_LOG` exists as an `EvidenceType` and **folding location into
+per-object evidence would WEAKEN it.** The right model is two mechanisms, one
+timeline referencing both. **Decide this explicitly, because `GPS_LOG` existing
+invites doing it the weak way.**
+
+### MOBILE - `apps/mobile-app`
+
+`apps/mobile` is stale since 7/9 - **ignore it**. Expo Router.
+
+```
+app/(auth)/login.tsx     205  NOT read     app/index.tsx        120  READ
+app/(auth)/register.tsx  254  NOT read     app/sos.tsx          417  READ partly
+app/contacts.tsx         384  NOT read     app/_layout.tsx       43  READ full
+src/services/api.ts       78  READ full    src/store/authStore.ts 89  READ full
+src/services/journey-tracker.ts 385 READ   src/config/api-config.ts 78 known
+app.json 33  package.json 32  tsconfig.json 6
+```
+
+**There is NO `eas.json`.**
+
+**MEASURED: `scanned=10, hits=0`** for `TaskManager`,
+`startLocationUpdatesAsync`, `defineTask` and the string `background` across all
+`.ts`/`.tsx` under `src/` and `app/`. **There is no background capability, and
+no camera or microphone code either.**
+
+#### `package.json` - UNCHANGED
+
+```
+axios ^1.18.1  expo ^54.0.8  expo-constants ~18.0.13  expo-linking ~8.0.12
+expo-location ~19.0.8  expo-router ~6.0.24  expo-secure-store ~15.0.8
+expo-status-bar ~3.0.9  react 19.1.0  react-native 0.81.5  zustand ^5.0.14
+@react-navigation/native ^7.3.8  react-native-safe-area-context ~5.6.0
+react-native-screens ~4.16.0
+dev: @types/react ~19.1.10, typescript ~5.9.2
+```
+
+- **No AsyncStorage, expo-sqlite, TaskManager, NetInfo, camera or av.**
+  **9c needs a new dependency.** First-party candidates: `expo-sqlite` or
+  `expo-file-system`. **`expo-secure-store` is the wrong tool.**
+  **VERIFY EXPO GO BUNDLES THE CHOSEN ONE BEFORE BUILDING ON IT.**
+- **`source: 'background'` is UNREACHABLE and the string is absent from the
+  client entirely.** **Do not let the enum read as a claim.**
+- **No test framework. `npx tsc --noEmit` is the only static gate. THE DEVICE IS
+  THE GATE** - proven twice: `tsc` passed on the defects AND on the fixes.
+
+#### `app.json` - 33 lines. A LATENT BUILD CLIFF. NOW URGENT.
+
+```json
+plugins: [ "expo-router", "expo-secure-store" ]
+extra:   { "apiBaseUrl": null, "apiPort": 3000 }
+```
+
+**`expo-location` is NOT in `plugins`. No iOS usage strings, no Android
+permissions.** Works **only because Expo Go ships its own Info.plist**. **The
+first custom dev build ships an SOS button that cannot get a location and a
+tracker that cannot watch one.** Trap #75, ~15 minutes.
+
+**WHY URGENT: Picovoice has responded and is waiting.** Porcupine needs a custom
+dev build → EAS → `eas.json`, which does not exist. **And 9c may need the same
+build.** **One piece of work unblocks both. Do it BEFORE any EAS build.**
+
+#### `src/services/api.ts` - 78 lines. READ IN FULL.
+
+Shared axios instance, `timeout: 10000`. Request interceptor attaches `Bearer`
+from `expo-secure-store`. Response interceptor 401 → refresh → retry.
+**`API_BASE_URL` used TWICE** - the instance, and line 47's refresh which uses
+**raw axios deliberately** so refresh does not recurse. **REUSE THIS INSTANCE.**
+
+1. **The retry guard is `!isRefreshing` (line 37).** A batch POST that 401s
+   during a refresh falls through to `Promise.reject`. Trap #74. **Rule: NEVER
+   delete a queued fix until a 2xx returns.**
+2. **`timeout: 10000`** - the tracker overrides to 30000 per flush.
+
+**The SEQUENTIAL refresh path is PROVEN on device**: 14:53:49 activate 401 →
+refresh 201 → retry 201. **Does NOT clear trap #74** - that is the CONCURRENT
+case, untested, and **9c's flushing is what will hit it.**
+
+#### `src/store/authStore.ts` - 89 lines
+
+**`checkAuth` only checks a token EXISTS locally.** No `GET /auth/me`.
+**Force-logout side-channel** 79-89. **q23: possible temporal-dead-zone bug.**
+**Force-logout has STILL never been observed firing** - and given issue 17.13 it
+is the ONLY tracker stop path.
+
+#### `app/_layout.tsx` - 43 lines. THE TRACKER'S ONLY STOP POINT (issue 17.13).
+
+#### `app/sos.tsx` - 417 lines. THE ONLY LOCATION CAPTURE.
+
+`COUNTDOWN_SECONDS = 5`, `LOCATION_TIMEOUT_MS = 15000`,
+`MAX_LOCATION_AGE_MS = 60000`. Refs include `locationGenRef`, `mountedRef`.
+`activate` posts with `cleanNonNegative(accuracy)` then `void startTracking()`.
+**Sends no `timestamp`** - relies on D11 server-time fallback.
+
+**`result.contactsNotified` IS RENDERED AND IT IS WRONG** - "0 contacts" while
+four notifications dispatched. Trap #82.
+
+`handleCancel` **never calls the API** - the duress hole.
+
+**`heading` and `course` appear ZERO times outside `journey-tracker.ts`'s unused
+defensive helper.** Keep it that way.
+
+#### `src/services/journey-tracker.ts` - 385 lines. `d5aca8b`.
+
+Module-scope singleton, NOT a hook. **That survival is trap #80 and 17.13.**
+
+`FLUSH_INTERVAL_MS = 15000`, `FLUSH_TIMEOUT_MS = 30000`,
+`TIME_INTERVAL_MS = 10000`, **`DISTANCE_INTERVAL_M = 0`** (53),
+`MAX_BATCH = 200`, `MAX_QUEUED_FIXES = 600`.
+State: `running` (111), `generation`, `sessionId`, `subscription`, `flushTimer`,
+`flushing`, `queue`, `captureSeq`, **`trackingStartedAtMs` (124, init `0`)**.
+
+- **`if (running) return` sits ABOVE `acquireSession()`** - the whole diagnostic.
+- `trackingStartedAtMs` assigned at 302 BEFORE subscribing.
+- `enqueue()` guard at 177 drops fixes older than it.
+- `flush()` **removes from queue only after a 2xx**.
+- `stopTracking()` idempotent, one final flush, **queue never cleared**.
+
+**The 15s flush beats against the 10s capture → alternating 2-fix and 1-fix
+batches. That is what finally exercised multi-fix batches.**
+
+**Queue is IN MEMORY ONLY. It dies with the process. That is 9c.**
+
+### `public-tracking.service.ts` - 195 lines after `893d65a`
+
+Nested select, `take: 1`,
+**`orderBy: [{ receivedAt: 'desc' }, { sequence: 'desc' }]`**. Selects
+`latitude`, `longitude`, `recordedAt`, `source` - **NOT `sequence`**, which
+matters for any test of the tie-break. **The controller NEVER THROWS** - zero
+`throw` statements across all 8 files in `src/modules/incident-access`.
+
+---
+
+## 4. Contracts
+
+### `POST /journey/sessions` (`8b919be`)
+
+`purpose?` `@IsIn(CLIENT_PURPOSES = MANUAL | SAFEWALK | SYSTEM_TEST)`.
+**INCIDENT excluded** (orchestrator's), **GUARDIAN excluded** (no product).
+Returns `{ sessionId, status, purpose, startedAt, lastFixReceivedAt, reused }`;
+`purpose` **AS STORED, not as requested**. **Idempotent by construction** -
+safe on every app launch. **All 54 fixes across four activations and two days
+sit on ONE session** (q28).
+
+### `POST /journey/fixes` (`861a843`)
+
+```
+IngestFixesDto: sessionId @IsUUID(); fixes @ArrayMinSize(1) @ArrayMaxSize(200)
+JourneyFixDto:
+  idempotencyKey @IsString() @Length(1,128)
+  source         @IsIn(['foreground','background','manual'])
+  latitude/longitude bounded; accuracy?/speed? @Min(0) NO transform
+  heading?       @Transform(-1 -> null) @Min(0) @Max(360)
+  batteryLevel?/isCharging? optional; recordedAt @IsISO8601()
+```
+
+**`@ArrayMinSize(1)` IS A DIAGNOSTIC** - an empty batch 400s, so **every 201
+proves at least one fix was carried.**
+
+**Behaviour:** unknown session and another user's both **404** (deliberately
+indistinguishable); **ENDED session 409**; `recordedAt` beyond 5 min future skew
+or before `startedAt - 5 min` is **400**. **The 409 is q2 and it will bite item
+10.**
+
+### `JourneySessionService` - 380 lines. **Injects nothing.**
+
+`JourneyFixSource` includes `activation` and `retrigger`, **both REJECTED on the
+wire** - precedent for server-only source values, relevant if a partner device
+source is ever added. Server-side keys are deterministic. **Tracked fixes use
+the CLIENT key.**
+
+`insertFixes`: advisory lock `(2, hashtext(sessionId))`; capture
+`date_trunc('milliseconds', now())` ONCE; dedupe in-batch; **sort by
+`recordedAt`**; read tail by `sequence desc`; per fix compute `nonce`,
+`payloadHash`, `hash`; `createMany`; update session.
+
+**IN-BATCH CHAINING HAS EXECUTED FOR REAL** - ~20 two-fix batches. Reachable
+since `861a843`, never run before. **A caveat carried by every handover is
+retired.** **Because the batch is sorted by `recordedAt` before sequence is
+assigned, highest sequence within a tied `receivedAt` group = latest real
+capture** - which is why `893d65a` uses `sequence` as the tie-break.
+
+**In-batch DEDUPE has still never fired** - it ran and found nothing. Needs
+item 10's airplane mode.
+
+### Canonical modules - AND A CONSTRAINT ON FUTURE FEATURES
+
+`canonical-fix.ts` 178 lines / 22 tests, `canonical-chain.ts` 167 / 27.
+`canonicalSpeed` is an ALIAS of `canonicalAccuracy`. All seven
+`CanonicalFixInput` keys passed explicitly. `canonicalTimestamp` SILENTLY
+TRUNCATES sub-ms but THROWS on unparseable. `previousHash: null` is genesis;
+`undefined` THROWS. **Delimiter assertions cannot fire today - do not delete.**
+
+**THE CANONICAL PAYLOAD IS SEVEN KEYS, A CLOSED SET, and every stored fix's
+`payloadHash` is computed over that shape. Adding a field breaks verification
+for every existing fix unless a payload version AND a versioned verifier are
+introduced.** This blocks **indoor positioning fields** and **any new `source`
+value**. **ONE ADR should cover both** - q32.
+
+### `data-confidence.ts` - 60 lines after `6188e63`
+
+```ts
+export type DataConfidence = 'MOCK' | 'VERIFIED' | 'PRODUCTION';
+export const isMockConfidence = (c) => c === 'MOCK';           // PRIMITIVE
+export const isDisplayableToUsers = (c) => !isMockConfidence(c); // DERIVED
+```
+**Kept separate deliberately:** the validator asks a *deployment* question, the
+service asks a *presentation* question. Same answer today, different questions.
+**If a fourth confidence level appears, only one is likely to change.**
+
+### Integration harness (`6b77d6c`) - 5 suites, 21 tests
+
+Must not be undone: `datasourceUrl` not `datasources`; `dotenv.parse` not
+`config`; two independent `_test` checks; truncation before EACH test;
+`assertPartialIndex` checks SEMANTICS; migration count from disk.
+
+**Fixtures: `createUser`, `createSession`, `sleep`, `waitFor`, `captureError`.
+NO incident or token fixture** - which is why the tie-break has no automated
+test (17.15).
+
+### Website
+
+`live-tracking.tsx` is the app's ONLY `'use client'` component. `POLL_MS =
+15000`. **NO tests. `npm run build` IS the gate. THE PAGE HAS NEVER RENDERED.**
+
+---
+
+## 5. Settled decisions
+
+**`docs/architecture/decision-log.md`, 860 lines, NEWEST FIRST.**
+
+**MEASURED ADR INDEX** - re-derive after any ADR lands:
+
+| ADR | Line | | ADR | Line |
+|---|---|---|---|---|
+| **011** | **9** | | 006 | 783 |
+| **010** | **173** | | 005 | 800 |
+| **009** | **305** | | 004 | 814 |
+| 008 | 644 | | 003 | 828 |
+| 007 | 766 | | 002 | 840 |
+| | | | 001 | 852 |
+
+**Any ADR-012 goes above ADR-011 at line 9.**
+
+**ADR-001-003** outbox. **ADR-004** mock geocoder never persisted. **ADR-005**
+retrigger does NOT overwrite incident lat/lng. **ADR-006** SOS dedupe via
+advisory lock. **ADR-007** mock-provider boot validator. **ADR-008** tracking
+tokens: 128-bit, SHA-256 at rest, raw only outbound, never logged, four
+enforcement points; `FAMILY_BEARER` built, `VERIFIED_CONTACT` and
+`AUTHORIZED_RESPONDER` **reserved not built**. **ADR-009** journey sessions,
+fixes, hash chain. **ADR-010** negative sentinels, tracker lifecycle, 9b scope,
+**plus a 5-line amendment recording Decision 1 as HALF DISCHARGED**.
+**ADR-011** tracker capture policy - five decisions, part 2 section 9b.2.
+
+**TWO ADRs ARE OWED:**
+- **ADR-012 - the boot policy.** Part 2 section 9b.3. **Note it now has TWO
+  causes to consider, not one.**
+- **ADR-013 - evidence architecture and the coordination boundary.** Part 2
+  section 9b.5 has the decided content.
+
+**Write them with `Status: Open` if undecided** - ADR-010 was committed before
+its code for exactly this reason. **Decisions taken in advance are committed in
+advance; outcomes are committed once measured.**
+
+---
+
+## 6. Rejected - do not re-propose
+
+- `expect.objectContaining` for the create-path `incident.update` assertion.
+- Putting `journeySessionId` on the orchestrator's returned object.
+- A second API route for website polling. `router.refresh()` for tracking.
+- Falling back to a default silence threshold on bad config.
+- **Setting `OPA_ALLOW_MOCK_PROVIDERS` in Azure.** Rejected in three documents.
+- **"Emergency coordination platform"** as positioning.
+- **A second axios instance for the fix sender.** Reuse `api`.
+- **`expo-secure-store` as the offline buffer.**
+- **Copying `heading`'s `=== -1` transform onto `speed`/`accuracy`.**
+- **Relying on the client sanitiser alone.** Not a boundary.
+- **Starting the tracker at login.** ADR-010 D3.
+- **A `distanceInterval` on `watchPositionAsync`.** Trap #79, ADR-011 D1,
+  permanently.
+- **Reverting `d5aca8b`.** Device-verified. Ultra 12's recommendation rested on
+  an artifact of a fast refresh.
+- **A "drop only the first fix" pre-start guard.** ADR-011 D3.
+- **Rewriting committed ADR prose.** Status is a living field; amend additively.
+- **Conditional provider registration to satisfy the boot validator.** The six
+  providers are concrete constructor params; omitting one causes DI failure.
+- **A per-provider `enabled` / `exposed` boolean.** Confidence is ALREADY the
+  granular switch. A second self-declared boolean would be a second source of
+  truth about the same safety property.
+- **In-app VoIP as a platform goal.** The phone is already a two-way voice
+  device with priority emergency routing.
+- **An `EmergencyTransport` abstraction.** Premature: one transport, one client.
+- **NEW - folding location into per-object Evidence.** `GPS_LOG` exists, but
+  location has a hash CHAIN which proves nothing was removed; per-object sha256
+  does not. **Two mechanisms, one timeline.**
+- **NEW - AI summaries as evidence objects.** A derived interpretation cannot
+  carry the same evidentiary status as a captured artifact. Same structure, same
+  hash, same timeline position implies equal provenance, and the first competent
+  challenge attacks the summary and discredits everything adjacent.
+  **Derived material belongs in a separate labelled layer that REFERENCES
+  evidence.**
+- **NEW - response coordination, DEFERRED not rejected.** See part 2 9b.5.
+
+---
+
+## 7. Traps
+
+#1-79 stand in Ultra 12/13. **#80-85 restated, all still live.**
+
+80. **A FAST REFRESH PRESERVES MODULE STATE.** Counter-check:
+    `POST /journey/sessions` in the API log. **When new code appears to have
+    made things worse, prove it RAN before concluding it is wrong.**
+81. **`receivedAt` IS NOT UNIQUE** - one per batch. **FIXED in `893d65a`**, but
+    the fact governs any new "latest fix" query.
+82. **A 201 FROM THE ORCHESTRATOR IS NOT PROOF NOTIFICATIONS WERE SENT.**
+    Dispatch is asynchronous. Observed "0 contacts" while four went out.
+83. **`**` IS NOT RECURSIVE GLOBBING IN PS 5.1.** Hid `app.module.ts` and nearly
+    produced "emergency intelligence has no consumers" - the opposite of the
+    truth. **Enumerate with `-Recurse` and print `scanned=`.**
+84. **`Remove-Item` with multiple paths CONTINUES past a missing one, and a
+    `;`-chained command still runs.** Deleted an unrun installer this session.
+    **Never chain a destructive step to a commit.**
+85. **AN INSTALLER'S OWN PREDICTED NUMBERS ARE ASSERTIONS AND CAN BE WRONG.**
+    Sibling of #76: the plan phase guarantees the target has not drifted, not
+    that the assertions are right.
+
+86. **NEW - A SCHEMA FIELD IS NOT A CAPABILITY, AND THIS PROJECT HAS NOW SHIPPED
+    TWO CLAIMS BASED ON ONE.** `source: 'background'` (the string is absent from
+    the entire client) and `Evidence.encryptionKeyId` (nothing sets it) both
+    exist in the data model and both were believed to be features. **A third
+    candidate is live: `NotificationStatus.ACKNOWLEDGED`, which exists and
+    nothing sets.** **Before claiming any capability, grep the client and the
+    service for the code that would write it, and print `scanned=`.**
+    The measurement that settles it is cheap: `scanned=10, hits=0`.
+
+87. **NEW - `cd` PERSISTS BETWEEN COMMANDS AND SILENTLY REBASES RELATIVE PATHS.**
+    A read issued after a mobile-app command resolved `docs\TODO.md` against
+    `apps\mobile-app` and reported `lines=0`. **Harmless only because the
+    `lines=` control was present.** **Prefix every read with
+    `cd C:\Projects\OPA;`.**
+
+---
+
+## 8. What changed in the codebase this session
+
+**`6188e63` - PR 1, predicate consolidation. BEHAVIOUR-NEUTRAL.**
+`data-confidence.ts` +27/-1 (adds `isMockConfidence`, redefines
+`isDisplayableToUsers` in terms of it); validator +7/-1; service +14/-2 (local
+`isMock` derived from the shared helper, parameter narrowed from
+`{ dataConfidence: string }` to `IntelligenceProvider`); two new spec files, 19
+tests. **Gate: `tsc` 0, and all 188 pre-existing tests passed with NONE edited.**
+
+**Why the widened type mattered:** under `{ dataConfidence: string }` a
+misspelled confidence would compile, return false from `isMock`, and ship the
+data.
+
+**`893d65a` - the `receivedAt` tie-break. +23/-1.**
+**Gates: `tsc` 0, 18/207 unit, 5/21 integration against real Postgres.**
+**No automated test constructs a tie** - see part 3 17.15.
+
+**The Sprint 11 corrections commit** - `SPRINT_ROADMAP.md` +35/-1,
+`TODO.md` +75/-0. Documentation only.
+
+---
+
+## 9. NEXT - the work order
+
+### 0. FIRST. FIVE MINUTES.
+
+**Commit these three parts to `docs/handovers/`.**
+
+```powershell
+cd C:\Projects\OPA; "probe=handover-save"; New-Item -ItemType Directory -Force -Path 'docs\handovers','C:\Projects\OPA-DocStaging\handovers' | Out-Null; $src=@(Get-ChildItem -LiteralPath "$env:USERPROFILE\Downloads" -Filter 'OPA-Handover-Ultra-15-part*.txt' -File | Sort-Object LastWriteTime -Descending | Group-Object { $_.Name -replace ' \(\d+\)','' } | ForEach-Object { $_.Group[0] }); "files=$($src.Count)"; $src | ForEach-Object { $_.LastWriteTime.ToString('HH:mm:ss') + '|' + $_.Name }; $src | ForEach-Object { $n = $_.Name -replace ' \(\d+\)',''; Copy-Item -LiteralPath $_.FullName -Destination ('C:\Projects\OPA-DocStaging\handovers\' + $n) -Force; Copy-Item -LiteralPath $_.FullName -Destination ('docs\handovers\' + $n) -Force }; git add docs/handovers; git status --short
+```
+
+**Expect `files=3`.** Glob says **Ultra-15**.
+
+### 1. DELETE THREE STALE FILES FROM DOWNLOADS. THIRTY SECONDS. STILL NOT DONE.
+
+**A real revert hazard, carried over from Ultra 14 and still outstanding.**
+Three copies of `decision-log` in Downloads, all **225 lines**, all hash
+`350876D96B03`, versus the repo's **860 lines** hash `B860D01A1D62`. **225 lines
+predates ADR-009 entirely.** One is dated 07-27 - **the newest timestamp in the
+group carrying the oldest content**, trap #38 made concrete.
+
+**If any is copied into `docs/architecture/`, it silently destroys ADR-009,
+ADR-010, ADR-011 and the ADR-010 amendment.**
+
+```powershell
+"probe=rm-stale"; @('decision-log.md','decision-log (1).md','decision-log (2).md') | ForEach-Object { $p = Join-Path "$env:USERPROFILE\Downloads" $_; if (Test-Path -LiteralPath $p) { Remove-Item -LiteralPath $p -Force; "deleted: $_" } else { "absent: $_" } }; "remaining=" + @(Get-ChildItem -LiteralPath "$env:USERPROFILE\Downloads" -Filter 'decision-log*' -File).Count
+```
+
+### Tier 1 - finish Sprint 10B. TWO DECISIONS FIRST.
+
+1. **The 9c storage dependency.** `expo-sqlite` or `expo-file-system`.
+   **Gating question: does Expo Go bundle the chosen one?** If not, a custom dev
+   build is required → EAS → `eas.json`, which does not exist. **Verify on the
+   device before writing the buffer.**
+2. **q2 - the ENDED-session contract.** The endpoint 409s **any** fix for an
+   `ENDED` session, so a batch buffered across supersession is rejected
+   entirely. **Item 10's airplane-mode test is exactly this scenario.** Must
+   also be reconciled with "never delete without a 2xx" **in the same code**: a
+   permanent rejection means delete, a transient one means keep.
+3. **`app.json` native config** (trap #75), ~15 min. **Unblocks Picovoice AND
+   possibly 9c.** Before any EAS build.
+4. **9c** - offline buffer + retry queue, 4-6h.
+5. **Item 10** - end-to-end test, 2-3h. Needs 9c and a device.
+
+**Cheap and overdue: render the tracking page.** Never done, 54 real fixes
+exist, and it visually verifies `893d65a`.
+
+### Tier 2 - integrity and security
+
+14b. **`IncidentTimelineEvent` chain + sequence race. 2-3h. THE HIGHEST-LEVERAGE
+   TASK IN THE PROJECT, and this session made the case over-determined** - see
+   part 2 section 9b.4. **`evidence.service.ts:95` already writes into it.**
+12b. **`create-incident-request.dto.ts` sentinel fix + q14.**
+13. **Application Insights audit checkbox** - Azure-side, stays UNTICKED.
+14. **Swagger at `api/docs`** - becomes a design question if a partner API is
+   ever built.
+14d. **Issue 17.13, the tracker lifecycle hole.** Observed twice.
+14e. **`contactsNotified` (trap #82).**
+14f. **NEW - verify `Evidence.capturedAt` is populated on upload.**
+14g. **NEW - capture `batteryLevel` and `isCharging`.** Already stored and
+   hashed in the fix payload; **the app has never captured either.** Free
+   telemetry, no new dependency, no permission, and a real timeline event.
+
+### Tier 3 - production. TWO CAUSES, NOT ONE.
+
+15. **The boot policy.** ADR-012, part 2 section 9b.3. ~1.5h once decided.
+15b. **NEW - verify Azure has `AZURE_STORAGE_CONNECTION_STRING` and
+   `AZURE_STORAGE_CONTAINER`.** `getOrThrow` in a constructor stops boot before
+   the provider validator is reached. **Cheap check, and it may be the real
+   first blocker.**
+16. **Deploy and verify.** No infrastructure-as-code exists. **Booting locally
+   is not deploying.**
+
+### Tier 4 - documentation estate
+
+17. Correction sweep - part 2 section 12. **Includes `SPRINT_ROADMAP.md:136`**,
+   which lists movement/compass as 10B scope, contradicting `:172-175` and
+   ADR-009.
+18. **The mojibake/BOM cleanup**, for `TODO.md` and `SPRINT_ROADMAP.md` ONLY.
+19. File the converted business documents.
+20. **The two new strategy docs are orphaned** - `TODO.md:228`
+   `## Documentation status` is the natural home. Needs a read of `:228-245`.
+21. **A `TODO.md` audit for other schema-field-as-capability claims** (trap #86).
+   Start with `NotificationStatus.ACKNOWLEDGED`.
+
+### Tier 5 - separate tracks
+
+22. **App-store enrollment. THE D-U-N-S CLOCK IS RUNNING** - part 3 section 20.
+23. **Sprint 9 gaps** - cancel path, permission/network errors. **Both ride
+   along with the next device session.**
+24. **Picovoice** - responded and waiting. Gated on `app.json` + `eas.json`.
+25. 10C provider procurement. No estimate exists.
+26. **A white paper on the verifiable record** - part 2 section 9b.6. **After
+   the timeline chain.**
+
+---

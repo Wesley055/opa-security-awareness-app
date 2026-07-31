@@ -1,0 +1,413 @@
+# OPA - Handover Ultra 16 - ADDENDUM (production and deployment)
+# Paste AFTER part 3. Written later in the same session, at commit 3da28b7.
+#
+# THIS ADDENDUM CORRECTS PARTS 1-3. Where they disagree, THIS FILE WINS.
+
+## A1. WHY THIS EXISTS
+
+Parts 1-3 were generated before the production estate was examined. Everything
+below was measured afterwards, in the same session. **Two claims in parts 1-3
+are now known to be false**, and a parallel session made a third error that must
+not be inherited.
+
+**A PARALLEL FILE-ACCESS SESSION RAN CONCURRENTLY WITH THIS ONE.** It connected
+to the Azure App Service over SSH, installed an isolated Prisma CLI, and applied
+migrations to the production database. **Part 1 section 1's rule held: only one
+session wrote to the repo (this one), and the other wrote to Azure.** That
+happened to be safe. **It was not coordinated in advance, and next time it
+should be.**
+
+---
+
+## A2. CORRECTIONS TO PARTS 1-3
+
+### A2.1 "NO INFRASTRUCTURE-AS-CODE EXISTS ANYWHERE" IS FALSE
+
+Stated in part 2 section 11 and part 1 Tier 3 item 16. **Wrong.**
+
+**`.github/workflows/main_opa-api-production.yml` - 79 lines, READ IN FULL.**
+
+Azure's auto-generated Deployment Center workflow (`main_<app-service>.yml`).
+**It triggers on every push to `main`**, so all four commits this session
+deployed.
+
+```
+on: push to main, plus workflow_dispatch
+job build   (ubuntu-latest)
+  actions/checkout@v4
+  actions/setup-node@v4   node-version: '22.x', cache: npm
+  npm ci
+  npm run prisma:generate --workspace apps/api
+  npm run build --workspace apps/api
+  assemble standalone deploy folder:
+    mkdir deploy
+    cp -r apps/api/dist deploy/dist
+    cp -r apps/api/prisma deploy/prisma
+    cp apps/api/package.json deploy/package.json
+    cd deploy; npm install --include=dev --no-package-lock
+    npx prisma generate
+    npm prune --omit=dev
+  actions/upload-artifact@v4  (include-hidden-files: true)
+job deploy  (needs: build)
+  azure/login@v2  - OIDC, three repo secrets AZUREAPPSERVICE_{CLIENTID,TENANTID,SUBSCRIPTIONID}_<guid>
+  azure/webapps-deploy@v3  app-name: opa-api-production, slot-name: Production
+```
+
+**Three gaps, all real:**
+
+1. **NO `prisma migrate deploy` STEP.** The pipeline never applies migrations.
+   This is why production drifted five migrations behind - see A3.
+   **Adding it is not trivial:** GitHub runners have dynamic IPs and Azure
+   Postgres firewalls by IP, so it needs either "Allow public access from any
+   Azure service" enabled or a different execution location. **And
+   `npm prune --omit=dev` strips the Prisma CLI from the published bundle**, so
+   it cannot be run from the App Service afterwards without reinstalling it -
+   which is exactly what the parallel session had to do by hand.
+2. **NO TEST GATE.** Every push to `main` deploys regardless of `jest`. Adding
+   `npx jest` before the build step is a two-line change.
+3. **Node 22.x in CI, v26.5.0 locally.** CI does not test what you run. The App
+   Service has its own Node setting which was NOT checked and may be a third
+   value.
+
+**`found=1` for deployment-ish files across the repo: `docker-compose.yml` only**
+(local Postgres and Redis). **There is NO Dockerfile.** This is a code
+deployment, not a container - App Service runs `node dist/main.js` via the
+`start` script.
+
+**`apps/api/package.json` scripts, measured:**
+```
+build           nest build
+lint            eslint "{src,test}/**/*.ts" --max-warnings=0
+start           node dist/main.js
+start:dev       nest start --watch
+test            jest
+test:cov        jest --coverage
+test:int        jest --config jest-int.config.ts --runInBand
+prisma:generate prisma generate
+prisma:migrate  prisma migrate dev
+prisma:deploy   prisma migrate deploy      <- exists, never called by CI
+```
+
+### A2.2 THE API IS NOT RUNNING - MEASURED, 503
+
+```
+GET https://opa-api-production-g4f6cxdyanfbaub0.southafricanorth-01.azurewebsites.net/api/docs
+-> WebException, resp_status=503, dns=4
+```
+
+**DNS resolves and Azure's front end answers, so the App Service exists and
+there is no healthy container behind it.**
+
+**THE CRITICAL INFERENCE: the deployed build is CURRENT, not stale.** A build
+predating `ProviderConfidenceValidator` would boot fine. It does not boot.
+**Therefore production is running this repo's code, and that code refuses to
+start.** ADR-012 is confirmed as the live cause, not a theory.
+
+**Consequence for sequencing: there is NO running build to fall out of step
+with.** Applying migrations to production is safe right now - nothing can query
+the new tables until something boots. That removes the usual
+migrate-and-deploy-together constraint.
+
+**`/api/docs` is the right probe** - Swagger is published unconditionally, needs
+no auth and no database. **Note App Service cold starts take 30+ seconds**, so
+allow a long timeout and run twice before concluding.
+
+### A2.3 `OPA_ALLOW_MOCK_PROVIDERS` - THE ABSENCE IS THE ACTIVE CAUSE
+
+Parts 1-3 record it as absent and treat that as confirmation the ban held. True,
+but incomplete: **its absence is precisely why nothing boots.**
+
+The reasoning "there are no users yet so it does not matter" is **coherent as a
+priority but wrong as a mechanism.** `onModuleInit()` runs when Nest builds the
+module graph, before any request is served. It counts registered MOCK providers
+and throws. **Zero users, zero traffic, still throws.**
+
+**Do not resolve this by setting the variable** - three documents ban it and
+part 2 section 9b.3 explains why. **Resolve it by deciding ADR-012.**
+
+---
+
+## A3. THE PRODUCTION DATABASE IS FIVE MIGRATIONS BEHIND
+
+**Server:** `opa-api-production-server.postgres.database.azure.com`, port 5432,
+Azure Database for PostgreSQL **flexible server**, region South Africa North.
+Admin username is visible in the portal's Connect blade.
+
+**Repo has ELEVEN migrations. Production has SIX.** Measured both sides.
+
+```
+APPLIED IN PRODUCTION (all 9-13 July):
+  20260709083910_init
+  20260710025119_add_emergency_contacts
+  20260713133514_add_incident_timeline_events
+  20260713205817_add_incident_notifications
+  20260713212329_add_timeline_event_type_index
+  20260713234433_add_facility_and_evidence
+
+NOT APPLIED (23-26 July):
+  20260723033655_add_notification_payload
+  20260724001353_add_incident_retrigger_fields
+  20260724002033_add_incident_dedupe_index
+  20260724095715_add_incident_access_token     <- ADR-008 tracking tokens
+  20260726050617_add_journey_sessions          <- JourneySession, JourneyLocationFix,
+                                                  hash chain, partial index
+```
+
+**So production can create an incident but cannot dedupe it, cannot retrigger
+it, cannot issue a tracking token, and has nowhere to store a location fix.
+The ENTIRE Sprint 10B feature set and the whole tracking-link flow have no
+schema in production.**
+
+**THE PARALLEL SESSION CONCLUDED "your production database now has its full
+schema". That was wrong by five migrations and eighteen days.** It counted the
+six it had applied rather than comparing against the eleven on disk.
+**The lesson is the standing one: measure both sides and print both counts.**
+
+**HOW THE SIX WERE APPLIED, and it is worth keeping:** the App Service's own
+deployed Prisma CLI was broken (a wasm/ENOENT error), so an **isolated CLI was
+installed over SSH at `/home/prisma-tools`** - `npm init -y`, then
+`npm install prisma@6.19.3`, then `./node_modules/.bin/prisma --version` as a
+go/no-go gate before touching the database. **That gate is good practice and the
+folder persists**, so the remaining five are a re-run of the same command.
+Prisma applies only what is outstanding.
+
+**AFTER migrating, verify SEMANTICS not just success:**
+`add_journey_sessions` creates the partial unique index
+`journey_session_one_active_per_user`. The integration harness has
+`assertPartialIndex` checking its semantics precisely because it is easy to get
+subtly wrong. **Confirm it landed correctly in production, not merely that the
+migration reported success.**
+
+```sql
+SELECT count(*) AS migrations FROM "_prisma_migrations";
+SELECT to_regclass('public."JourneySession"') AS journey_session;
+SELECT indexdef FROM pg_indexes WHERE indexname = 'journey_session_one_active_per_user';
+```
+
+## A3.1 URGENT - THE DATABASE PASSWORD IS EXPOSED
+
+**The production database password appeared in plaintext in the parallel
+session's terminal output and chat.** Rotation was advised there and is
+correct. **It is the only genuinely time-sensitive item in this addendum.**
+
+Portal -> `opa-api-production-server` -> Reset password. **Avoid `$` in the new
+value** (URL-encoding pain in `DATABASE_URL`); letters, numbers, `-` and `_` are
+safe. Then rebuild `DATABASE_URL`, update it and the `AZURE_POSTGRESQL_*`
+settings in App Service, save, restart, and update the password manager.
+
+**Rotating is simpler while the app is down** - nothing to restart carefully.
+
+---
+
+## A4. AZURE INVENTORY - measured this session
+
+**App Service:** `opa-api-production`, Web App, region South Africa North.
+Default hostname `opa-api-production-g4f6cxdyanfbaub0.southafricanorth-01.azurewebsites.net`.
+Left nav includes Alerts, Metrics, Logs, Health check, **Application Insights**
+(Tier 2 item 13 lives here), Diagnostic settings, App Service logs, **Log
+stream**, Automation.
+
+**App settings, alphabetical, names only:** `ALLOWED_ORIGINS`,
+`AZURE_POSTGRESQL_DATABASE`, `AZURE_POSTGRESQL_HOST`,
+`AZURE_POSTGRESQL_PASSWORD`, `AZURE_POSTGRESQL_PORT`, `AZURE_POSTGRESQL_SSL`,
+`AZURE_POSTGRESQL_USER`, `AZURE_STORAGE_CONNECTION_STRING`,
+`AZURE_STORAGE_CONTAINER`, `BCRYPT_ROUNDS`, `DATABASE_URL`,
+`JWT_ACCESS_EXPIRES_IN`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_EXPIRES_IN`,
+`JWT_REFRESH_SECRET`, `NODE_ENV`, `REDIS_URL`,
+`WEBSITE_HEALTHCHECK_MAXPINGFAI...`.
+
+**`OPA_ALLOW_MOCK_PROVIDERS` ABSENT** - proven by the `NODE_ENV` -> `REDIS_URL`
+adjacency in an alphabetical list.
+
+**Minor inconsistency, harmless today:** `ALLOWED_ORIGINS` has no **deployment
+slot setting** tick while the `AZURE_POSTGRESQL_*` entries do. Irrelevant with
+one slot; **it would swap between slots if a staging slot is ever added.**
+
+**Not checked and worth knowing:** the App Service's Node runtime version;
+whether the Postgres firewall allows Azure services (decides whether CI can ever
+migrate); whether `REDIS_URL` points at a real Azure Cache instance.
+
+**The Azure CLI is NOT installed locally.** `Get-Command az` returns 0. Portal or
+Cloud Shell only. Cloud Shell avoids both the missing local `psql` and the
+firewall, since it runs from inside Azure.
+
+---
+
+## A5. WHAT PRODUCTION ACTUALLY NEEDS, IN ORDER
+
+1. **Rotate the database password.** Exposed. Only urgent item.
+2. **Apply the five outstanding migrations** from `/home/prisma-tools`, then
+   verify count = 11 and the partial index semantics. **Safe while the app is
+   down.**
+3. **ADR-012.** Part 2 section 9b.3, both positions plus the rename synthesis.
+   **This is now visibly the LAST thing between the repo and a live API** - not
+   deployment, not infrastructure, not migrations.
+4. **Then redeploy** (any push to `main`, or workflow_dispatch) and re-probe
+   `/api/docs` for 200.
+5. **Add `prisma migrate deploy` and a test gate to the workflow.** Note the
+   firewall and `npm prune` constraints in A2.1.
+
+**Honest framing: production is ONE DECISION from alive.** Parts 1-3 describe
+deployment as unstarted work of unknown size. It is neither - the pipeline runs,
+the database exists, the schema is five migrations behind, and the app refuses
+to boot for one documented reason with a written-up decision waiting.
+
+---
+
+## A6. NEW TRAPS
+
+**#90 - `---` IN A PASTED-BACK CONSOLE BLOCK PARSES AS AN OPERATOR.**
+Section separators written as `"--- thing ---"` are harmless when sent as a
+command, but when a whole previous output block is pasted back, PowerShell reads
+`---` as a decrement and throws `Missing expression after unary operator '-'`.
+**Use `"=== thing ==="`.** No operator meaning, same readability.
+
+**#91 - `Measure-Object -Line` COUNTS NON-EMPTY LINES ONLY.**
+A 94-line file with a blank line between every content line reports 34. This
+briefly looked like evidence of a shorter earlier revision of a file when it was
+just the same file measured differently. **For a true line count use
+`(Get-Content -LiteralPath $p).Count`.**
+
+**#92 - `curl` IN POWERSHELL IS AN ALIAS FOR `Invoke-WebRequest`.**
+`-X`, `-H`, `-d` are not its parameters. **Use `curl.exe`** - which parts 1-3
+already do in the website section, but a suggested verification command in the
+parallel session did not. Combined with trap #56 (`\"` is not an escape), a
+copied curl command will fail confusingly or hang at `>>`.
+
+**#93 - A CATCH BLOCK NEEDS ITS OWN CONTROL.**
+`catch { $_.Exception.Response }` printed `status=` empty because the exception
+carried no `Response`. **Print `err_type`, `err_msg`, and an explicit
+`resp_status=NONE` branch**, so a failure is distinguishable from a silent one.
+Same family as the `probe=`/`scanned=` rule, applied to error paths.
+
+**#94 - A SUCCESSFUL DEPLOY IS NOT A RUNNING APP.**
+Azure reports deployment success once files are copied. The Node process starts
+afterwards and can die immediately, leaving a green pipeline and a 503.
+**"Deployed", "running" and "serving requests" are three different claims.**
+The parallel session asserted all three from evidence for the first.
+
+---
+
+## A7. OTHER FINDINGS FROM THIS SESSION, NON-PRODUCTION
+
+### A7.1 `docs/future/ussd-fallback.md` IS CONVERSION-DAMAGED
+
+94 lines, **BOM + CRLF**, `bytes=1870` vs `chars=1846`. Escaped markdown
+(`\#`, `\*\*`, `1\.`), `&#x20;` entities, and a blank line between every content
+line - a Word-to-Markdown round trip. **It renders wrong on GitHub.**
+
+**Its `## Fallback decision tree` heading at line 21 is followed immediately by
+the next heading. The decision tree itself is MISSING.** Trap #39 made concrete.
+
+**It was born damaged:** `git log --follow` shows exactly one commit,
+`c427571`, and the blob is 94 lines - identical to the working copy. **Git
+cannot recover it.** `OPA-Master-Roadmap.md` in DocStaging only contains a
+pointer to the file. **The source `.docx` was not located.**
+
+**Content that survives and is worth keeping:** USSD needs cellular signal, a
+supported network, **a registered short code via a telecom or aggregator
+requiring formal approval**, and a session capped around 2-3 minutes. **Never
+transmit evidence, medical records or long location payloads over USSD.** A
+USSD-triggered incident should confirm **location/community** - i.e. a
+pre-registered location, the same shape a fixed duress button needs - create a
+bare incident, send a short confirmation.
+
+**Its roadmap places USSD LAST**, after a validated product and a real telecom
+partnership. **That contradicts market commentary treating USSD as an open entry
+point: it is gated on a partnership OPA does not control**, structurally the
+same as 10C's procurement gate. Its own roadmap is also stale - it lists the
+React Native app as "next" when it is built and device-verified.
+
+### A7.2 THE DOWNLOADS ESTATE IS FOUR TIMES LARGER THAN RECORDED
+
+Parts 1-3 say 42 `.docx` converted. **Measured: `docx_count=201` in Downloads.**
+**And DocStaging contains NO `.docx` at all** (`scanned=52`, zero) - the
+conversions produced `.md` there and the sources stayed in Downloads.
+
+**Two divergent-version hazards, both trap #38:**
+- `OPA-Master-Roadmap-v2.docx` **35,486 bytes** vs
+  `OPA-Master-Roadmap-v2 (1).docx` **35,776 bytes** - **different sizes, so
+  different documents.** The converted `.md` came from **v1** (27,489), so
+  roughly 8KB of v2 roadmap content was never converted.
+- `OPA_Journey_Risk_Intelligence_Architecture_v1.0.docx` **520,882 bytes**
+  (7/26) vs its `(1)` copy **393,632 bytes** (7/14). **Not duplicates.** This is
+  the 2592-line document that **has never been opened in any session**, and
+  there are two materially different versions of it.
+
+**A content search across all 201 `.docx` would settle where the USSD decision
+tree lives.** A `.docx` is a zip; `System.IO.Compression.ZipFile` can read
+`word/document.xml` without Word.
+
+### A7.3 COMMAND CENTRE - SCOPING DISCUSSED, NOT DECIDED
+
+**It is a WEB dashboard, not a mobile app.** Institutional staff at a desk. The
+public tracking page is the precedent: web-only, no download, no login, reached
+by a tokenized SMS link.
+
+**Four surfaces exist conceptually; three are built:** mobile app (individual,
+the only trigger), tracking page (contact, token link), marketing website, and
+the Command Centre (institution staff) which **does not exist at all** - the
+website has exactly one interactive component.
+
+**KEEP THE ADR-013 BOUNDARY: viewer, never console.** Incident list, live
+position, report retrieval, **acknowledgement display** - yes. Responder
+assignment, status tracking, escalation - no.
+
+**THE QUESTION THAT CHANGES THE DESIGN AND IS UNANSWERED: is the institution
+buying for its STAFF or for its CLIENTS?** Staff enrolment can be mandatory and
+bulk-loaded from an HR list, with a known headcount and a buyer who controls
+adoption. Client enrolment must be voluntary, self-service and consent-based - a
+different data model and a different NDPA position. **Decide before building.**
+
+**What exists to build on:** the `Facility` model and access guards are real and
+tested. **What does not:** any authenticated web area, a facility-scoped
+incident list endpoint, any enrolment or invite flow, and medical fields (Sprint
+12, confirmed absent from the database).
+
+**Zero-download triggering is NOT possible today** - `sos.tsx` is the only
+trigger. Zero-download applies to *viewing*. For hospitals the real
+zero-download trigger is **hardware** - a wall button or badge - which fits
+`TODO.md:1322-1333`'s sensor principle, and whose **fixed known location solves
+the required `latitude`/`longitude` trivially and sidesteps indoor positioning
+entirely.** It needs a device or third-party auth model, which does not exist.
+
+### A7.4 OUTREACH - A DRAFT WAS REVIEWED AND SHOULD NOT BE SENT AS WRITTEN
+
+A drafted estate email claimed: an active pilot; an emergency command centre
+platform; zero app downloads to trigger; a security team dashboard that maps
+responders and shares data with emergency services; and **full NDPA
+compliance**. **Every one of those is false today**, and the dashboard claim is
+precisely the coordination drift ADR-013 warns against.
+
+**What is true and worth leading with:** tokenized SMS links opening a live map
+in any browser with no download or login; a device-verified ten-second cadence;
+and a tamper-evident record - location fixes and timeline events both chained,
+with a verifier.
+
+**Recommended framing: pre-pilot, seeking one or two design partners.**
+Stronger than a fake pilot, and it matches the differentiation document's own
+argument that an institutional buyer finds the limit anyway and trusts whoever
+named it first.
+
+**Two things to fix before any demo:** render the tracking page (never done, 54
+real fixes waiting), and the `contactsNotified` "0 contacts" bug.
+
+---
+
+## A8. WHAT ELSE THIS ADDENDUM CHANGES IN PARTS 1-3
+
+- **Part 1 Tier 3 item 16 and part 2 section 11:** "No infrastructure-as-code
+  exists anywhere" - **false**, see A2.1.
+- **Part 3 section 19 estimates:** deployment is not unbounded work. It is one
+  decision, one migration re-run, and two workflow steps.
+- **Part 3 section 18 "the two that block progress":** production adds a third,
+  and it is the same ADR-012 already listed under Tier 0.
+- **Part 1 section 3 Azure inventory:** unchanged and confirmed, plus A4's
+  additions.
+- **Part 3 section 17.3 handle leak:** unchanged.
+
+**Nothing in parts 1-3 about the repo, the code, the tests, ADR-014's content or
+the traps is affected.** The corrections are confined to production, deployment
+and the document estate.
+
+# END OF ADDENDUM

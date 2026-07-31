@@ -27,22 +27,32 @@ export class IncidentTimelineService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Appends one event to an incident's timeline. Sequence numbers and
-   * the hash chain are computed inside the same transaction as the
-   * lookup of the prior event, to keep the read-then-write as tight as
-   * possible. Note: this is not a hard guarantee against a race under
-   * true concurrent writes to the same incident (Prisma's default
-   * transaction isolation doesn't row-lock here) — the unique
-   * constraint on (incidentId, sequence) will reject a genuine
-   * collision rather than silently corrupt the chain, but a caller
-   * that needs to be fully race-proof under heavy concurrent writes
-   * should catch that constraint error and retry.
+   * Appends one event to an incident's timeline.
+   *
+   * A transaction-scoped advisory lock serialises writes for the same incident
+   * before the prior event is read. Sequence allocation, previous-hash lookup,
+   * hash computation, and insertion therefore occur in one ordered critical
+   * section.
+   *
+   * The two-key advisory-lock namespace uses class ID 3 for incident timelines.
+   * Different incidents normally do not contend. A hashtext collision may cause
+   * unnecessary serialisation, but it cannot corrupt sequence or hash-chain
+   * correctness.
    */
   async recordEvent(params: RecordTimelineEventParams) {
     const occurredAt = params.occurredAt ?? new Date();
     const payload = params.payload ?? {};
 
     return this.prisma.$transaction(async (tx) => {
+      // Serialises concurrent writers for the same incident before the prior
+      // event is read. classid 3 is the timeline namespace: the 1-arg form is
+      // the per-user lifecycle lock and classid 2 is journey fix ingestion, so
+      // these three cannot contend with one another whatever their values.
+      // $executeRaw, not $queryRaw: pg_advisory_xact_lock returns void and
+      // there is no Prisma type to deserialize a void column into. The tagged
+      // template still parameterises incidentId.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(3, hashtext(${params.incidentId}))`;
+
       const lastEvent = await tx.incidentTimelineEvent.findFirst({
         where: { incidentId: params.incidentId },
         orderBy: { sequence: 'desc' },

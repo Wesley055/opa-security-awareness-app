@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import type { PrismaClient, User, JourneySession } from '@prisma/client';
+import type { PrismaClient, User, JourneySession, Incident } from '@prisma/client';
 import { prismaTest } from './prisma-test-client';
 
 let seq = 0;
@@ -52,6 +52,41 @@ export async function createSession(
       status: overrides.status ?? 'STARTED',
       endedAt: overrides.endedAt,
       endedReason: overrides.endedReason,
+    },
+  });
+}
+
+export interface IncidentOverrides {
+  trigger?: 'SOS_BUTTON' | 'VOICE_HELP_HELP' | 'TRUSTED_CONTACT' | 'SYSTEM_TEST';
+  status?: 'OPEN' | 'ACKNOWLEDGED' | 'RESOLVED' | 'CANCELLED';
+  latitude?: string;
+  longitude?: string;
+  journeySessionId?: string;
+}
+
+/**
+ * Incident has exactly four required columns with no default: userId,
+ * trigger, latitude and longitude. Everything else defaults or is nullable.
+ *
+ * Coordinates are passed as STRINGS. The columns are Decimal(9, 6) and
+ * decimal.js is not installed, so Prisma.Decimal or a string are the options;
+ * a string keeps the Prisma namespace out of this file for one value. A JS
+ * float would introduce a binary representation the database then rounds,
+ * which is the same class of problem D3 documents for timestamps.
+ */
+export async function createIncident(
+  userId: string,
+  overrides: IncidentOverrides = {},
+  client: PrismaClient = prismaTest,
+): Promise<Incident> {
+  return client.incident.create({
+    data: {
+      userId,
+      trigger: overrides.trigger ?? 'SOS_BUTTON',
+      status: overrides.status ?? 'OPEN',
+      latitude: overrides.latitude ?? '6.524379',
+      longitude: overrides.longitude ?? '3.379206',
+      journeySessionId: overrides.journeySessionId,
     },
   });
 }

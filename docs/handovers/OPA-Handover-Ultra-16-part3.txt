@@ -1,0 +1,627 @@
+# OPA - Handover Ultra 16 - PART 3 of 3 (sections 15-20)
+# Continues from part 2. Paste after it.
+#
+# GENERATED: 2026-07-30, at commit 3da28b7.
+
+## 15. Resume here
+
+**Docker must be running - part 1 section 1 if the machine has rebooted.**
+At handover time `opa-postgres` and `opa-redis` were up 35 hours, healthy.
+
+```powershell
+$env:GIT_PAGER = 'cat'
+cd C:\Projects\OPA; "probe=resume"; git log --oneline -3; git status -sb
+```
+
+**Expect `3da28b7` at HEAD, clean tree, no ahead-count.** Then `96cf7de`, then
+`18bdd73`.
+
+**If any `.cjs` shows as untracked, delete it before staging** (trap #64). Use
+`git status --porcelain`, NOT a filesystem sweep -
+`apps/api/scripts/create-test-db.cjs` is a tracked project file and a recursive
+count will report it as a false positive.
+
+### FIRST FIVE MINUTES - two things
+
+1. **Save these parts and commit them to `docs/handovers/`.** Part 1 section 9
+   item 0, glob says **Ultra-16**.
+2. **Confirm the Downloads cleanup held** - `remaining=0` was achieved this
+   session for the three stale `decision-log` copies. One check:
+   ```powershell
+   "probe=stale"; "remaining=" + @(Get-ChildItem -LiteralPath "$env:USERPROFILE\Downloads" -Filter 'decision-log*' -File).Count
+   ```
+
+**The Azure check from Ultra 15's list is DONE.** Both `AZURE_STORAGE_*`
+variables are present; `OPA_ALLOW_MOCK_PROVIDERS` is absent.
+
+### THEN, in order of value
+
+1. **ADR-014.** Part 2 section 9b.9 has the complete content including four
+   refinements and one open scope question. **~0.5h to install.** **Do this
+   first - it unblocks 9c and defines item 10's expected result.**
+2. **ADR-013.** Part 2 section 9b.5. Content decided. **~0.5h.**
+3. **ADR-012.** Part 2 section 9b.3. **ONE cause now.** ~1.5h with the code.
+4. **The 9c storage decision** - `expo-sqlite` or `expo-file-system`. **A
+   MEASUREMENT ON THE DEVICE, not a debate.** Does Expo Go bundle it?
+5. **9c** - offline buffer + retry queue, 4-6h. Must implement ADR-014's queue
+   rule and preserve the in-order flush invariant.
+6. **Item 10** - end-to-end test, 2-3h. Needs 9c and a device.
+7. **Render the tracking page.** Never done, 54 real fixes exist, visually
+   verifies `893d65a`. ~0.5h.
+8. **`scheme` in `app.json`.** One line, not permanent.
+
+**Nothing needs reading first.** `sos.tsx`, `api.ts`, `authStore.ts`,
+`_layout.tsx`, `app.json`, `package.json`, `journey-tracker.ts`, the
+emergency-intelligence module, the evidence module, **the incident-timeline
+module** and **the integration harness** are all in part 1 section 3 and
+section 4. The three unread mobile files - `login.tsx`, `register.tsx`,
+`contacts.tsx` - are on nobody's path.
+
+**Also cheap:** lint has one production finding
+(`incident-orchestrator.service.ts:6`, unused `TriggerMode` - **look before
+deleting; it may indicate the silent-activation mode path is under-wired**) plus
+11 mechanical `consistent-type-imports` and three others. 0.5-1h to green.
+**Do not run `eslint --fix` as a bundle.**
+
+**Nothing is blocked on code. Three ADRs are blocked on nothing but typing.**
+
+---
+
+## 16. Scope - Sprint 10B
+
+**DONE:** schema, state machine, append-only fixes, ingestion endpoint,
+idempotency and ordering, latest-location query, incident linkage, website live
+position, session start endpoint, mobile base URL resolution, **the mobile sender
+(9b) device-verified**, **the newest-fix tie-break**, **`app.json` native config**.
+
+**REMAINING: offline queue (9c), end-to-end test (10).**
+
+**Out of scope:** ETA, arrival detection, route intelligence, risk scoring,
+WebSockets, geofencing, `VERIFIED_CONTACT`/`AUTHORIZED_RESPONDER` tiers, OTP
+re-issue, responder features, location *history* access for tokens.
+
+---
+
+## 17. Known issues - document, do not fix inside a milestone
+
+### 1. Timeline events written outside the transaction - STILL OPEN
+
+The orchestrator's `$transaction` closes at **line 326** (NOT 274 - Ultra 15's
+figure had drifted by 52); every `recordEvent` fires after it, at **336, 376,
+388, 408**. A crash between commit and 336 leaves an incremented `retriggerCount`
+with no event recording where the person was.
+
+**`96cf7de` did NOT touch this and correctly so - the lock addresses
+concurrency, not atomicity.**
+
+**NEW AND IMPORTANT: fixing this is now harder than it was.** Making the write
+atomic means passing the caller's `tx` into `recordEvent` instead of it opening
+its own transaction. **But `recordEvent` now takes an advisory lock, so an outer
+transaction holding a lock that the inner one waits on becomes a deadlock rather
+than today's harmless nesting.** Every caller must be re-verified first.
+**Currently verified safe: `evidence.service.ts` has no `$transaction` at all,
+and the orchestrator's four calls are all after its own commit.**
+
+**This is the positive case for `4d544a9` putting the journey fix INSIDE the
+transaction: the position survives that window even though the audit event does
+not.**
+
+### 2. `recordEvent` sequence race - FIXED AND PROVEN
+
+**`96cf7de`** added `pg_advisory_xact_lock(3, hashtext(incidentId))` as the first
+statement inside the existing transaction. **`3da28b7`** proved it serialises,
+with a control case ruling out connection serialisation.
+
+**Retained as a fact, not an issue:** the chain itself pre-existed both commits
+and was recorded in Ultra 15 as absent.
+
+### 3. The unit suite leaks a handle - OPEN, closed prematurely twice
+
+> "A worker process has failed to exit gracefully... Active timers can also cause
+> this, ensure that .unref() was called on them."
+
+**Six runs now: 24s clean, 32s warning, 28s warning, one earlier clean, 20.5s
+clean, and 24.6s clean this session with the new suite added. It tracks WALL
+TIME, not suite count**, consistent with `NotificationDispatchWorker`'s
+`@Interval(2000)` outliving teardown. **A clean run is consistent with the bug
+being present.** Fix the mechanism - `.unref()` or stop the scheduler in
+teardown - **and do not close it by observation again.** Trap #59.
+
+### 4. SMS character-count guard missing
+
+154 chars with a realistic name - under the 160 single-segment limit, but only
+just. A longer name silently doubles cost.
+
+### 5. `buildTrackingUrl` doc comment
+
+Still describes old incident-id behaviour. Cosmetic.
+
+### 6. THE NEGATIVE-SENTINEL FAMILY - HALF FIXED
+
+iOS `CLLocation` signals *invalid reading* with a negative number: **`course` is
+`-1` whenever invalid, INCLUDING a stationary device**; **`speed` is negative
+whenever invalid**; **`horizontalAccuracy` is negative when the location is
+invalid.** Android differs; the app must be correct on both.
+
+| DTO / file | Field | Status |
+|---|---|---|
+| `JourneyFixDto` | `heading` | **FIXED** `edec8c4` |
+| `JourneyFixDto` | `speed`, `accuracy` | **GAP** - `@Min(0)`, no transform |
+| `create-incident-request.dto.ts` | all three | **GAP** - client-mitigated only |
+| `journey-tracker.ts`, `sos.tsx:181` | | **SANITISED** `fa087a6` |
+
+**ADR-010 D1 commits to fixing the SOS DTO in a separate commit. STILL not done.**
+
+**Why `speed` matters:** `forbidNonWhitelisted` is true and validation is per
+request, so **one negative speed on one fix 400s the ENTIRE batch of up to 200.**
+Ordinary cause: a phone sitting still.
+
+**NOTE THE OVERLAP WITH ADR-014.** This is the same whole-batch failure shape as
+the ENDED-session rejection and the `recordedAt` skew checks. **If ADR-014 adopts
+per-item outcomes, this gap should be reconsidered under the same policy rather
+than fixed separately.**
+
+**STILL UNPROVEN.** Every device run has been **Android**. **An iOS device run,
+stationary, is the test that matters.**
+
+### 7. Lint - 16 problems: 15 errors + 1 warning
+
+One production finding: unused `TriggerMode`. `sms.provider.ts:28-29` needs the
+file opened. **Trap #25 is live** - the disable directive names a renamed rule
+and suppresses nothing.
+
+### 8. Swagger published unconditionally at `api/docs`
+
+`main.ts` 35-53, **no environment gate, no auth.** **Not urgent while nothing is
+deployed, blocking the moment anything is.** **Useful for preflight** - hitting
+`/api/docs` from the phone is the fastest proof the device can reach the API.
+
+### 9. `app.json` native location configuration - FIXED in `18bdd73`
+
+`expo-location` is now in `plugins` with an iOS usage string and both background
+flags explicitly false. `ios.bundleIdentifier` and `android.package` set to
+`com.opasafety.app`, permanent after a store publish. `name` `OPA`, `slug` `opa`.
+
+**NOT PROVEN ON A DEVICE.** `tsc` cannot verify this file; the real gate is a
+custom dev build actually granting location. **Do not describe it as verified.**
+
+**Still missing: `scheme`.** Not permanent, one line.
+
+### 10. The refresh interceptor cannot retry a concurrent 401
+
+`api.ts:37` requires `!isRefreshing`. Trap #74. **Not fixed.** **The SEQUENTIAL
+path is proven on device.** **The CONCURRENT case remains untested, and 9c's
+batch flushing is exactly what will hit it.**
+
+### 11. `recordedAt` preceding the activation fix - FIXED AND VERIFIED
+
+`d5aca8b`, verified in the database. ADR-011 D2/D3. **The general shape still
+matters:** `watchPositionAsync` replays a cached position on subscribe. **No
+re-delivery observed on Android at `distanceInterval: 0`.** **iOS is untested.**
+
+### 12. The tracker's queue is capped at 600 in memory
+
+On overflow the OLDEST fixes are dropped with a loud log. 9c replaces it with
+persistence. **Decide then whether overflow drops oldest, drops newest, or
+degrades the capture rate.** **At the measured 10s cadence, 600 fixes is 100
+minutes of foreground tracking.**
+
+### 13. NOTHING STOPS THE TRACKER WHEN LEAVING THE SOS SCREEN
+
+`stopTracking()` is called from exactly one place: `_layout.tsx`, on
+`isAuthenticated` going false. **Navigating back does not stop it.** So `running`
+stays true and a second activation no-ops, keeping the FIRST session's
+`sessionId`.
+
+**CONFIRMED TWICE.** After one clean run the tracker was still flushing **nine
+minutes** past the end of the test.
+
+**NEWLY LOAD-BEARING FOR ADR-014.** Because the client keeps the ended session's
+id after supersession, every subsequent fix is addressed to an `ENDED` session
+with `recordedAt >= endedAt`. **A naive "permanent rejection means delete" rule
+would silently discard all of them while the app appeared to be tracking - in the
+exact case that matters, since supersession happens when a NEW incident starts.**
+See part 2 section 9b.9 refinement 1.
+
+**`startTracking()` should probably detect a changed session and restart rather
+than no-op.** **Interacts with q26, q28, ADR-014, and the evidence engine's stop
+condition.**
+
+**Operational consequence: force-close Expo Go after every device test.**
+
+### 14. `contactsNotified` displays 0 while notifications dispatch
+
+Trap #82. **The honest fix is the same work as product idea 1.** **More dangerous
+with silent activation.**
+
+### 15. The tie-break has no automated test
+
+`893d65a` is reasoned and gate-checked. **But no test constructs a tied
+`receivedAt`.**
+
+**HALF THE OBSTACLE IS NOW GONE.** `createIncident` exists in `fixtures.ts` as of
+`3da28b7`. **What is still missing is a token fixture.** `receivedAt` is
+server-assigned inside `insertFixes`, so a genuine tie needs a real multi-fix
+batch through `recordTrackedFixes`, and reaching the public envelope then needs an
+incident AND a token. **And the nested select does NOT include `sequence`**, so
+such a test must assert on `recordedAt`.
+
+**Two options:** build the token fixture (~0.5h now, down from ~1h), or accept
+item 10 as the test.
+
+### 16. `SPRINT_ROADMAP.md:136` contradicts `:172-175` and ADR-009
+
+Line 136 lists movement/compass as 10B scope; 172-175 list bearing calculation
+and compass conversion as explicitly OUT, per ADR-009. **ADR-009 is right.**
+
+### 17. The two strategy documents are orphaned
+
+Nothing references them. `TODO.md:228` `## Documentation status` is the natural
+home. Read `:228-245` first.
+
+### 18. `Evidence.encryptionKeyId` is never set
+
+**Evidence encryption is NOT implemented.** Azure Blob encrypts at rest by
+default, but **that is Azure holding the keys, not OPA-managed encryption.**
+**Do not claim encrypted evidence capture** until built, or narrow the claim to
+"encrypted at rest by the storage provider". Trap #86.
+
+### 19. `Evidence.capturedAt` may never be populated
+
+It is nullable. **If the upload path does not receive a capture time from the
+client, evidence carries only an UPLOAD time.** **VERIFY: read
+`evidence.controller.ts` and `dto/upload-evidence.dto.ts`.**
+
+### 20. The 50MB evidence cap is an OOM guard, not a policy
+
+`FileInterceptor` buffers multipart uploads in process memory. **A real
+constraint on video**, and an argument for short clips independent of platform
+restrictions.
+
+### 21. The second boot dependency - RESOLVED, NOT A DEFECT
+
+`evidence.service.ts` calls `getOrThrow` for `AZURE_STORAGE_CONNECTION_STRING`
+and `AZURE_STORAGE_CONTAINER` in its constructor. **Both are present in Azure -
+measured this session.** **The boot problem has ONE cause.** Retained here only
+so the constructor dependency is not rediscovered as news.
+
+### 22. NEW - `POST /journey/fixes` rejects whole batches for per-fix problems
+
+Three separate cases, one shape:
+- `status === ENDED` -> `ConflictException`, before any fix is examined
+- `recordedAt` beyond future skew -> `BadRequestException` from inside `.map()`
+- `recordedAt` before `startedAt - grace` -> same
+- (and 17.6's negative `speed`, rejected by the global `ValidationPipe`)
+
+**In every case ONE bad fix in a batch of up to 200 discards all 200.**
+**ADR-014 fixes the first. It should decide whether it covers the others** -
+otherwise the endpoint has two contradictory policies for the same question and
+the client needs two code paths. Part 2 section 9b.9.
+
+---
+
+## 18. Open questions
+
+**CLOSED:** D1-D13, q4, q9, **q10**, **q12**, q15, q16, q19, q25 (reopens with
+SafeWalk).
+
+**CLOSED THIS SESSION:**
+- **Does the timeline have a hash chain? YES - it always did.**
+- **Is the sequence race real? YES - and it is now fixed and proven.**
+- **Does Azure have both `AZURE_STORAGE_*` variables? YES.**
+- **Is `OPA_ALLOW_MOCK_PROVIDERS` set in Azure? NO.**
+- **Does the boot problem have two causes? NO - one.**
+- **Does `truncateAll` cover the incident tables? YES - it enumerates
+  `pg_tables`.**
+- **Does any `recordEvent` caller nest inside its own transaction? NO.**
+- **Is the white paper still gated on the timeline chain? NO.**
+
+### THE TWO THAT BLOCK PROGRESS
+
+**A. The 9c storage dependency.** `expo-sqlite` or `expo-file-system`, both
+first-party. **`expo-secure-store` is the wrong tool.** **Gating question: does
+Expo Go bundle the chosen one?** If not: custom dev build -> EAS -> `eas.json`,
+which does not exist. **`app.json` is now ready for such a build.** **Verify on
+the device before writing the buffer**, or the buffer is written against a module
+that will not load.
+
+**B. ADR-014 must be written before 9c.** **The DECISION is made** - part 2
+section 9b.9 has the full contract, four refinements and one scope question.
+What remains is installing it and implementing it. **If 9c is written first, the
+queue's delete rule will be invented ad hoc and item 10 will fail in a way that
+looks like a 9c bug.**
+
+### Still open
+
+1. **Freshness thresholds.** `JOURNEY_SILENCE_SECONDS` defaults to 120.
+   **`TIME_INTERVAL_MS` is 10s so twelve consecutive misses are needed before
+   SILENT - but measured early-session intervals were 12.5-14.8s while GPS
+   settled. The real margin is narrower at the START of an incident.**
+3. **Is redaction itself recorded as an event?** **The chain can now carry one.**
+5. **Retention policy proper.** NDPC obligations live post-CAC. **54 fixes across
+   two days on ONE session with no end and no retention sweep.** **And evidence
+   adds blob storage to the same question.**
+6. **Should `verify-journey-index.js` be reinstated?** Probably not.
+7. **Does `apps/website/eslint.config.mjs` have the same `no-undef` defect?**
+8. **`recv=` vs `rcv=` in the chain envelope.** Shipped as `rcv=`. Leave it.
+11. **Command Center or SafeWalk first?** **Superseded in part:** coordination is
+    deferred, **so Command Center's satisfied gates are no longer a reason to
+    build it.** The live question is SafeWalk versus finishing the record.
+13. **A public batch form for the activation/retrigger wrappers?** Partly
+    answered by `recordTrackedFixes`.
+14. **Tighten the SOS DTO `timestamp` to `@IsISO8601()`?** **Same commit as 12b.**
+17. **Should Swagger be gated?** Section 17.8.
+18. **Does `redactSensitiveTrackingUrls` need more patterns?** **Two lists, one
+    concept** - consider a shared source.
+20. **Should the website's mirrored types be generated?** One drift exists.
+21. **Should `jest.config.ts` gain `setupFiles: ['reflect-metadata']`?**
+    **PARTLY ANSWERED THIS SESSION: direct construction works fine, and two
+    specs now prove it. The workaround is cheap enough that this may not be worth
+    changing** - but every future DTO spec needing `Test.createTestingModule`
+    still hits trap #61.
+22. **There is no forgot-password flow.** No `PasswordReset` model. **A
+    locked-out user of an emergency app cannot raise an alarm.**
+23. **Temporal-dead-zone bug in `authStore.ts`?** **Force-logout has STILL never
+    been observed firing.** **If broken, the tracker will not stop on a failed
+    refresh - and given 17.13 that is the ONLY stop path.**
+26. **Should the tracker restart if stopped while an incident is open?**
+    **Probably wrong, definitely unreasoned.** **Interacts with ADR-014.**
+27. **Should `TIME_INTERVAL_MS` adapt?** 10s fixed drains battery on a long
+    incident and is too slow for a fast-moving one.
+28. **What ends a session from the client?** Nothing. **CONFIRMED AT SCALE: 54
+    fixes, four activations, two days, ONE session.** **Correct today; clearly
+    wrong once SafeWalk exists.**
+29. **Should the pre-start guard compare delivery time rather than capture time?**
+    **Two clocks** (ADR-011 D5). **Instrument the log line first.**
+30. **Should `FLUSH_INTERVAL_MS` be a multiple of `TIME_INTERVAL_MS`?** **Leave
+    it.** The 15/10 ratio is what exercised in-batch chaining and surfaced trap
+    #81 while the consequence was still 10 seconds of staleness.
+31. **THE BOOT POLICY. ADR-012.** Part 2 section 9b.3. **ONE cause. ~1.5h.**
+32. **How does a hash payload evolve? NOW THREE CASES, ONE ADR:**
+    - indoor positioning fields entering the canonical FIX payload (7 keys)
+    - any new `source` value
+    - **NEW: the TIMELINE's `computeHash` (6 keys: `incidentId`, `sequence`,
+      `type`, `payload`, `occurredAt`, `previousHash`).** Adding a field
+      silently invalidates verification for every already-stored EVENT.
+    **Versioned payload plus versioned verifier, or a separate related record?**
+    **Prerequisite for two roadmap items.**
+    **Note what the timeline spec deliberately does NOT catch:** because the
+    tests build the chain by calling `recordEvent` and verify with `verifyChain`,
+    a change to the canonical SHAPE passes every test - both sides agree. That is
+    the correct tradeoff (a reimplemented hash would be a second implementation
+    agreeing with itself) but it means **the shape is protected by this ADR, not
+    by the test suite.**
+33. **If activation is silent, how does the user know it worked?** A discreet
+    haptic is likely. **Decide before building product idea 5.**
+34. **Is the app free and the record paid?** Direction to test, not a decision.
+35. **Is the insurer channel pursued?** Needs an underwriter.
+36. **Does the evidence upload path populate `capturedAt`?** Section 17.19.
+    **A check, not a decision.**
+37. **Is evidence encryption built, or is the claim narrowed?** Section 17.18.
+38. **Where does derived material live?** AI summaries are rejected as evidence
+    objects, so **a separate labelled layer that references evidence** is needed
+    if summaries are ever built. Unscoped.
+39. **Does `GPS_LOG` as an `EvidenceType` ever get used?** **If never, consider
+    removing it** rather than leaving an invitation to do it the weak way.
+
+### NEW
+
+40. **Does ADR-014's per-item policy extend to the skew checks and the negative
+    sentinels?** Section 17.22. **Recommendation: yes, one policy.**
+41. **Who writes the "device went dark" event?** The chain is ready to carry it
+    and nothing produces it. `SILENT` is still derived at read time from fix age.
+    **This is the strongest remaining claim in the white paper and it is a small,
+    well-defined piece of work.**
+42. **Should `recordEvent` accept an optional caller `tx`?** That is what fixing
+    17.1 requires, **and it is now a deadlock question rather than a nesting
+    question** because `recordEvent` takes a lock. Every caller must be
+    re-verified. Currently all are safe.
+
+---
+
+## 19. Estimate
+
+**Sprint 10B: ~88%. ~30 hours spent, 6-9 remaining.**
+
+Remaining Tier 1:
+
+| # | Work | Est. | 10B at completion |
+|---|---|---|---|
+| - | ADR-014 install | 0.5h | ~88% |
+| - | 9c storage measurement on device | 0.25h | ~88% |
+| - | Render the tracking page | 0.5h | ~89% |
+| 9c | Offline buffer + retry queue | 4-6h | ~93% |
+| 10 | End-to-end test | 2-3h | **100%** |
+
+**Tier 0, all content already written: ADR-014 (0.5h), ADR-013 (0.5h),
+ADR-012 (1.5h with the code change).** **This is the cheapest high-value work
+available.**
+
+Other tiers: SOS DTO sentinel fix + q14 (0.5h, **reconsider under ADR-014**);
+lint to green (0.5-1h); Swagger gating (0.25h); tracker lifecycle 17.13 (0.5-1h,
+**now interacts with ADR-014**); `contactsNotified` (0.5h, or fold into product
+idea 1); battery/network telemetry capture (0.5h, free); `scheme` (5 min);
+the canonical-payload evolution ADR (0.5h to decide, three cases, unblocks two
+roadmap items); token fixture for the tie-break (0.5h, down from 1h);
+a "device went dark" event writer (unscoped, small); estate tidying and the BOM
+cleanup (1-2h); `capturedAt` and encryption checks (0.5h); 10C procurement
+carries no estimate.
+
+**Sprint 10 OVERALL has no honest percentage** because 10C is unestimated.
+10A+10B together are roughly 90%. **Sprint 11 is server-side substantially built
+but client-side unstarted, so it has no honest percentage either.**
+
+### Item 10 - what it must show
+
+SOS tap -> incident created -> activation fix on the chain -> tracked fixes
+ingested -> page shows `RECEIVING` -> airplane mode -> `SILENT` after 120s ->
+reconnect -> buffered fixes flush -> back to `RECEIVING`.
+
+**That last transition is the single best proof the whole slice works**, and the
+first thing that will exercise **D5's in-batch DEDUPE**. **In-batch CHAINING has
+run** (~20 two-fix batches); **DEDUPE has not.**
+
+**Item 10 inherits five things:**
+- **The tracking page has never rendered**, and 54 real fixes exist.
+- **The tie-break is untested** - item 10 is its real test.
+- **ADR-014 must be installed first**, or the reconnect step fails on a 409 and
+  looks like a 9c bug.
+- **Airplane mode is the recoverable dark state** because GNSS is receive-only.
+  **The strongest honest answer to the kidnapper objection.**
+- **NEW: 17.13 means the client may still hold the ENDED session's id at
+  reconnect**, so item 10 also exercises ADR-014's reacquire path whether or not
+  it was designed to.
+
+---
+
+## 20. Website + app-store enrollment - THE CLOCK IS RUNNING
+
+Gates iOS/Android distribution. **Mostly elapsed time** - active work ~5-8 hours,
+calendar 1-3 weeks. **The D-U-N-S number is in hand. Start the slow parts now.**
+
+### Identity facts - verify against the D&B record before typing into any form
+
+| Field | Value |
+|---|---|
+| Legal entity | **OPA Technologies Limited** |
+| CAC | **RC 9697630** |
+| D-U-N-S | **352294843** |
+| Phone | **+234 906 653 8149** (E.164 `+2349066538149`) |
+| Registered office | 18 Prince Hakeem Balogun Street, Glory Land Estate, Isheri-Olofin, Lagos State, Nigeria |
+| Domain | **opasafety.com** (live, Next.js 16.2.10 on Vercel) |
+| Bundle / package | **`com.opasafety.app`** (NEW, set in `18bdd73`, PERMANENT) |
+| App display name | **OPA** (NEW) |
+| Expo slug | **opa** (NEW) |
+
+**The single most common cause of failed organization verification is a name or
+address mismatch** between CAC, D&B, the website and the enrollment form. **Write
+the address identically everywhere.**
+
+### Updating the D&B record
+
+- **The free self-service tools (D-U-N-S Manager / iUpdate) are documented as
+  being for U.S.-based, non-public companies.** A Nigerian entity likely needs the
+  regional **Data Update** request route. **Verify the current Nigerian route on
+  dnb.com directly.**
+- **Whoever submits must be an owner, director or officer.**
+- **Priority of fields: legal name, HQ address, phone.**
+- **Then set the website field to `opasafety.com`.**
+
+### The problem found earlier - not cosmetic
+
+A verifier reported *"No active website matches the exact domain
+opasafety.com"*. **That claim was FALSE - the site is live and serves fully.**
+Diagnosed as **zero search-engine and third-party footprint**: verifiers that
+*search* rather than *fetch* conclude it does not exist.
+
+**So Search Console and LinkedIn/Crunchbase work is not tidying - it is the
+actual blocker for organisation verification.**
+
+**Near-collision:** `opeansafety.com` is a real Nigerian safety-training company.
+
+### DONE (`e22cacf`)
+
+`robots.ts` and `sitemap.ts`, confirmed generated at build.
+
+**`robots.ts` disallows `/i/` and `/api/`, and neither is in the sitemap. THIS IS
+A SECURITY PROPERTY, NOT TIDINESS.** A crawled token URL would publish a live
+incident location into a search index. **Never add `/i/` or `/api/` "for
+completeness".**
+
+**One of FOUR defences for the same secret:** the request logger's
+`redactSensitivePath`; the exception filter's `redactSensitivePath` +
+`redactSensitiveTrackingUrls`; the tracking controller's `X-Robots-Tag`; and
+`robots.ts`.
+
+### OUTSTANDING - three guarded edits, each needs the file pasted first
+
+1. **`src/app/contact/page.tsx`** - add registered office and phone.
+2. **`src/components/layout/Footer.tsx`** - add a short legal-entity line.
+3. **`src/app/layout.tsx`** - add JSON-LD `Organization` with `legalName`, `url`,
+   `email`, `telephone` (`+2349066538149`), `identifier` (RC 9697630), `address`.
+   **This is what automated verifiers parse.**
+
+### THEN, in order
+
+1. **Deploy.** Commit is not deploy.
+2. **Verify the live output:**
+   ```powershell
+   curl.exe -s https://opasafety.com/robots.txt
+   curl.exe -s https://opasafety.com/sitemap.xml | Select-String -Pattern '/i/'
+   ```
+   First must show `Disallow: /i/` and `Disallow: /api/`. **Second must print
+   NOTHING.** **Caution: a failed fetch also prints nothing** (trap #51).
+3. **Google Search Console and Bing Webmaster Tools.** **Days to weeks - start
+   now.**
+4. **Update the D&B record** for 352294843.
+5. **LinkedIn company page and Crunchbase entry.**
+
+### Enrollment - do not start until D&B activation completes
+
+**Both programs verify against the D&B RECORD, not the number.**
+
+**Apple Developer Program (~$99/yr).** Enroll from the Apple Developer app on an
+iPhone/iPad/Mac with biometrics - **same device throughout**. Enter your **legal**
+name. Entity type **Organization**. Supply D-U-N-S, HQ address, an **answerable**
+phone, and the website. **Then take the verification call.**
+
+**Google Play (~$25 one-time).** Choose **Organization**, not Personal -
+organization accounts also avoid the closed-testing gate. Link a Google Payments
+profile (**required even for a free app**). Verify contact email, contact phone,
+developer email and developer phone by OTP. Have the CAC certificate ready.
+
+**Sequence: website edits -> deploy -> Search Console -> wait out D&B activation
+-> Google first -> Apple second.**
+
+### Traps for this track
+
+- **A `noindex` meta on `/robots.txt` before the fix was NOT a problem.**
+- **Commit is not deploy.**
+- **A live site is not a discoverable site.**
+- **`apps/website` has no tests** - gate on `npm run build`.
+- **`middleware` is deprecated in Next 16.2 in favour of `proxy`.**
+- **The phone must be answered Mon-Fri 9:00-5:00 WAT.** Apple calls it.
+- **A store build is a custom dev build.** **`app.json` is now correct for one
+  (`18bdd73`) but has NOT been proven on a device.** **`eas.json` still does not
+  exist.**
+
+---
+
+# END OF HANDOVER ULTRA 16
+
+**Three parts, generated at `3da28b7` - read back, pushed, clean tree.**
+
+**Supersedes Ultra 2-15.**
+
+**State at handover:**
+- Clean tree, pushed. **Four commits this session.**
+- **Sprint 10B ~88%** - unchanged; the timeline work was Tier 2.
+- **Tier 2 item 14b COMPLETE** - lock, unit tests, integration proof with a
+  control case.
+- **Unit 19 suites / 214 tests. Integration 6 suites / 24 tests.**
+- **THREE ADRs owed, all with content already written:** ADR-014 (part 2 9b.9),
+  ADR-013 (part 2 9b.5), ADR-012 (part 2 9b.3).
+- **Nothing blocked on code.**
+
+**The two corrections this handover carries hardest:**
+1. **The production boot problem has ONE cause, not two.** Both
+   `AZURE_STORAGE_*` variables are present in Azure. Ultra 15 said two in six
+   places.
+2. **The incident timeline hash chain ALREADY EXISTED**, complete with a
+   `verifyChain` walker, and Ultra 15 recorded it as absent in two sections.
+   **Trap #86 inverted: a capability recorded as missing is as expensive as a
+   capability recorded as present. Read the mechanism.**
+
+**Two new traps:**
+- **#88** - `$LASTEXITCODE` is stale after a PowerShell-level failure. A missing
+  executable printed `exit=0` inherited from an earlier command.
+- **#89** - `[System.IO.File]` and Node ignore `cd`; PowerShell cmdlets honour
+  it. One command produced a correct `Get-Content` read alongside a silently
+  empty .NET read, giving `lines=33` and `lf_total=0` simultaneously.
+
+**First actions in the new session:**
+1. **Save all three parts** and commit to `docs/handovers/` (glob: Ultra-16).
+2. `git log --oneline -3; git status -sb` - expect `3da28b7`.
+3. **Install ADR-014** from part 2 section 9b.9. Content is complete.
+4. Then ADR-013, then ADR-012.
+5. Then the 9c storage measurement on the device, then 9c.

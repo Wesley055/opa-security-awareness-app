@@ -14,16 +14,16 @@ import type { IntelligenceProvider } from './data-confidence';
  * Omits any response section backed by a provider whose dataConfidence is
  * 'MOCK', rather than returning fabricated location intelligence.
  *
- * The boot-time ProviderConfidenceValidator refuses to start the app at all
- * unless OPA_ALLOW_MOCK_PROVIDERS=true is explicitly set - meaning this
- * omission path only runs in an environment that has knowingly opted into
- * mock providers (local dev). Production, staging, and anything shown to a
- * pilot partner never reaches this branch with mocks still in place.
+ * ADR-012: the boot-time ProviderConfidenceValidator now permits startup
+ * with registered mock providers when OPA_BOOT_WITH_SUPPRESSED_MOCKS=true.
+ * Production therefore DOES reach this branch with mocks in place. This is
+ * no longer a local-development-only path.
  *
- * Do not remove this gating even though the validator already blocks
- * startup - defense in depth. If the validator is ever relaxed for a
- * legitimate reason, this is the layer that still prevents fabricated
- * data from reaching a real response.
+ * That makes this layer load-bearing rather than defense in depth: it is
+ * what keeps fabricated data out of a real response now that the validator
+ * has been deliberately relaxed. Its behaviour is pinned per provider by
+ * emergency-intelligence.service.spec.ts. Do not remove it, and do not
+ * change what it nulls without changing those tests deliberately.
  */
 @Injectable()
 export class EmergencyIntelligenceService {
@@ -138,8 +138,9 @@ export class EmergencyIntelligenceService {
     if (omitted.length > 0) {
       this.logger.debug(
         `Omitted from response due to mock providers: ${omitted.join(', ')}. ` +
-          'Raw device GPS still returned. This only occurs when ' +
-          'OPA_ALLOW_MOCK_PROVIDERS=true (local development only).',
+          'Raw device GPS still returned. This occurs whenever mock ' +
+          'providers are registered, including in production under ' +
+          'OPA_BOOT_WITH_SUPPRESSED_MOCKS=true.',
       );
     }
 

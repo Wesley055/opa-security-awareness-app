@@ -54,7 +54,7 @@ describe('ProviderConfidenceValidator', () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv };
-    delete process.env.OPA_ALLOW_MOCK_PROVIDERS;
+    delete process.env.OPA_BOOT_WITH_SUPPRESSED_MOCKS;
     warn = jest
       .spyOn(Logger.prototype, 'warn')
       .mockImplementation(() => undefined);
@@ -110,26 +110,53 @@ describe('ProviderConfidenceValidator', () => {
 
     it('reports the count of mocked providers', () => {
       const validator = buildValidator({ 0: 'MOCK', 1: 'MOCK' });
-      expect(() => validator.onModuleInit()).toThrow(/2 emergency/);
+      expect(() => validator.onModuleInit()).toThrow(
+        /2 mock emergency-intelligence provider/,
+      );
+    });
+
+    it('names the flag that acknowledges suppressed mocks', () => {
+      const validator = buildValidator({ 1: 'MOCK' });
+      expect(() => validator.onModuleInit()).toThrow(
+        /OPA_BOOT_WITH_SUPPRESSED_MOCKS=true/,
+      );
+    });
+
+    // ADR-012 section 3 describes the message as retaining the danger and
+    // offering remedies. Without this test, dropping either would be silent.
+    it('keeps the safety rationale and the alternatives to the flag', () => {
+      const validator = buildValidator({ 1: 'MOCK' });
+
+      let message = '';
+      try {
+        validator.onModuleInit();
+      } catch (error) {
+        message = (error as Error).message;
+      }
+
+      expect(message).toContain('must never reach a real user or responder');
+      expect(message).toContain('Replace');
+      expect(message).toContain('suppressed from every');
     });
   });
 
-  describe('OPA_ALLOW_MOCK_PROVIDERS', () => {
+  describe('OPA_BOOT_WITH_SUPPRESSED_MOCKS', () => {
     it('permits startup with a warning when the value is exactly true', () => {
-      process.env.OPA_ALLOW_MOCK_PROVIDERS = 'true';
+      process.env.OPA_BOOT_WITH_SUPPRESSED_MOCKS = 'true';
       const validator = buildValidator({ 1: 'MOCK' });
       expect(() => validator.onModuleInit()).not.toThrow();
       expect(warn).toHaveBeenCalledTimes(1);
     });
 
-    it('warns in terms strong enough to be noticed', () => {
-      process.env.OPA_ALLOW_MOCK_PROVIDERS = 'true';
+    it('states the suppression contract and the acknowledgement flag', () => {
+      process.env.OPA_BOOT_WITH_SUPPRESSED_MOCKS = 'true';
       const validator = buildValidator({ 1: 'MOCK' });
       validator.onModuleInit();
 
       const message = String(warn.mock.calls[0][0]);
       expect(message).toContain('MockHospitalProvider');
-      expect(message).toContain('NEVER');
+      expect(message).toContain('suppresses their outputs');
+      expect(message).toContain('OPA_BOOT_WITH_SUPPRESSED_MOCKS=true');
     });
 
     // Deliberately strict, and this is the test most worth keeping. A safety
@@ -139,14 +166,14 @@ describe('ProviderConfidenceValidator', () => {
     it.each(['TRUE', 'True', '1', 'yes', 'on', 'false', ''])(
       'does not accept %p as permission',
       (value) => {
-        process.env.OPA_ALLOW_MOCK_PROVIDERS = value;
+        process.env.OPA_BOOT_WITH_SUPPRESSED_MOCKS = value;
         const validator = buildValidator({ 1: 'MOCK' });
         expect(() => validator.onModuleInit()).toThrow(/Refusing to start/);
       },
     );
 
     it('is irrelevant when no provider is mocked', () => {
-      process.env.OPA_ALLOW_MOCK_PROVIDERS = 'true';
+      process.env.OPA_BOOT_WITH_SUPPRESSED_MOCKS = 'true';
       const validator = buildValidator();
       expect(() => validator.onModuleInit()).not.toThrow();
       expect(log).toHaveBeenCalledTimes(1);

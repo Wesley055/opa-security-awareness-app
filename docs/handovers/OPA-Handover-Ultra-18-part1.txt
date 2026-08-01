@@ -1,0 +1,1473 @@
+# OPA - Handover Ultra 18 - PART 1 of 3 (sections 1-9)
+# Paste ALL THREE parts, in order, as the first messages in the new chat.
+#
+# GENERATED: 2026-08-01 (local), at commit 13d20fc.
+# Supersedes Ultra 17 parts 1-3. Merged, not appended.
+
+# OPA - Handover (Ultra 18)
+
+**Supersedes Ultra 2-17 including the Ultra 16 addendum.**
+
+Ultra 13, 15, 16 and 17 parts remain committed at `docs/handovers/` for history.
+**Commit these parts too** - section 9 item 0.
+
+## THIS SESSION: PRODUCTION IS LIVE.
+
+**The API booted in production for the first time in the project's history, and
+the database is fully migrated.** Every claim below is measured, not inferred.
+
+| SHA | What |
+|---|---|
+| `3609876` | Docs: handover Ultra 17 (committed at start of session, pushed) |
+| `270f7d9` | Docs: amend ADR-012 message diagnostics and ADR-007 |
+| `13d20fc` | API: hard-rename the suppressed-mock boot flag |
+
+**Also done, no commit:** `apps/api/.env:14` renamed (untracked);
+`OPA_BOOT_WITH_SUPPRESSED_MOCKS=true` ADDED in App Service; **five migrations
+applied in production (6/11 -> 11/11)**; production schema semantics verified;
+external reachability verified.
+
+### THE HEADLINE, AND WHAT IT REPLACES
+
+**Ultra 17 said "production is ONE code change from booting." That statement is
+now obsolete and must not be carried forward.** The chain it described was
+executed end to end this session:
+
+```
+rotate password (Ultra 17)  -> ADR-012 code change + gates   DONE 13d20fc
+  -> push -> deploy (Actions run #77 green)                  DONE
+  -> set OPA_BOOT_WITH_SUPPRESSED_MOCKS=true in App Service  DONE
+  -> verify boot in Log stream                               DONE
+  -> SSH became reachable                                    DONE
+  -> prisma migrate status (proved the rotated password)     DONE
+  -> prisma migrate deploy (5 migrations)                    DONE
+  -> verify 11 and the partial index SEMANTICS               DONE
+```
+
+### THE FIVE THINGS THIS HANDOVER CARRIES HARDEST
+
+**1. PRODUCTION IS RUNNING AND EXTERNALLY REACHABLE.**
+`/api/docs` returns **200, 3126 bytes** from outside Azure. `/health` returns
+200 to Azure's internal probe. `Nest application successfully started` in Log
+stream. **"Deployed", "running" and "serving requests" are now all three
+evidenced separately** - the distinction trap #94 exists for.
+
+**2. `REDIS_URL` IN PRODUCTION IS LITERALLY THE STRING `placeholder`.**
+NEW, previously unrecorded by any handover. `getaddrinfo ENOTFOUND placeholder`,
+reconnecting roughly every 4 seconds, forever. **The app boots anyway** - Redis
+is not a boot dependency - but this is the primary remaining production
+operational issue. See section 9 Tier 0.
+
+**3. THE ROTATED PASSWORD IS VERIFIED.** Ultra 17 recorded it as rotated but
+UNVERIFIED, because no route to the database existed. `prisma migrate status`
+connected, read `_prisma_migrations`, and enumerated state. **That question is
+closed.**
+
+**4. THE MIGRATIONS REPLAY CORRECTLY ON POSTGRESQL 14.23.** Ultra 17 flagged
+this as believed-but-never-demonstrated (issue 17.24). All five applied cleanly,
+and the partial unique index - including its enum-typed `WHERE` clause - is
+byte-identical to the local 16.14 definition. **Demonstrated, not assumed.**
+
+**5. KUDU WEB SSH MANGLES PASTED MULTI-COMMAND SEQUENCES.** New traps #98 and
+#99. This cost four round trips and produced an `exit=127` that looked nothing
+like a database problem. **Read section 7 before using SSH again.**
+
+---
+
+## 1. Working method
+
+No file access. Manual command-and-paste: one command, the user runs it in
+PowerShell, pastes raw output back. One thing at a time. **Never assume file
+state - verify it.**
+
+A parallel session with file access has existed in the past. **If two run at
+once, only ONE may write to the repo.** Establish which at the start. **No
+parallel session ran during Ultra 17 or Ultra 18.**
+
+### Every command must carry its own control
+
+**A command whose interesting result is a zero or an absence must also print a
+number proving it reached real data.** `count=`, `files=`, `scanned=`, `lines=`,
+`chars=`, `bytes=`. `probe=` before everything.
+
+```powershell
+"probe=unique-token"; <rest of command>
+```
+
+**This rule has now caught false negatives in six consecutive sessions.**
+
+- `scanned_ts=120, oldflag_hits=0` proved the flag rename was complete across
+  `apps/api/src`. Without `scanned_ts` the zero would have been worthless.
+- `pattern_hits=3, flag_hits=0` proved `emergency-intelligence.service.spec.ts`
+  contains no flag reference - a TRUE zero, established by a probe that
+  demonstrably found other content in the same file.
+- **`amend_total=0` WAS A FALSE NEGATIVE THIS SESSION.** A regex searched for
+  `Amendment|AMENDMENT`; the file's existing amendment at line 306 says
+  **`**Amended 29 July 2026:**`** - the participle, not the noun. The absence
+  was believed for one round trip and would have produced a second, divergent
+  amendment style in the decision log. **Caught by re-probing with a broader
+  pattern plus an unconditional control (`adr010_head=`).**
+
+**A sorted listing gives you a control for free.** Checking whether
+`OPA_BOOT_WITH_SUPPRESSED_MOCKS` exists in an alphabetical Azure settings list:
+seeing it land between `NODE_ENV` and `REDIS_URL` PROVES presence. The same
+adjacency proved its ABSENCE last session. Look for the boundary.
+
+### Paste damage, and how to recover
+
+- **The first line gets dropped**, silently, often. Never anchor on line 1.
+- **MORE THAN THE FIRST LINE CAN DROP.**
+- **The MIDDLE can drop.**
+- **The console echo appears ABOVE the probe.** Not a dropped line.
+- **A whole previous console block can be pasted back** and PowerShell tries to
+  execute each line.
+- **A COMMAND CAN ARRIVE PASTED TWICE, CONCATENATED.** **Happened this session**
+  - a commit command arrived as `...Countcd C:\Projects\OPA; ...` and threw a
+  ParserError. **Nothing ran, but that was VERIFIED by checking HEAD, not
+  assumed from the error.** **Check HEAD, not the message.**
+- **A trailing expression makes double-paste worse.** The commit that failed
+  ended with a `"body_lines=..."` expression; the duplicate concatenated onto it.
+  **Re-issued as the commit ALONE, with verification as a separate command, it
+  worked first time.** **Put nothing after a long command.**
+
+**The recovery that works: do NOT re-issue the same dump. Issue a NARROWER,
+line-numbered read of exactly the missing facts**, with every line self-labelling
+so a drop anywhere is detectable:
+
+```powershell
+$env:GIT_PAGER='cat'; cd C:\Projects\OPA; "probe=gitnarrow"; git log --oneline -3 | ForEach-Object { "log|$_" }; "status_sb=" + ((git status -sb) -join ' ~ '); "porcelain=" + @(git status --porcelain).Count
+```
+
+**Multi-window reads work and save round trips:**
+```powershell
+$p='docs\TODO.md'; "probe=x lines=$((Get-Content -LiteralPath $p).Count)"; $n=0; Get-Content -LiteralPath $p | ForEach-Object { $n++; if (($n -ge 10 -and $n -le 30) -or ($n -ge 100 -and $n -le 120)) { "$n|$_" } }
+```
+
+### VERIFY, DO NOT PREDICT
+
+**Wrong predictions caught only because something measured them, THIS SESSION:**
+- **`amend_total=0`** - a false negative from a regex that could not match. See
+  above and trap #96.
+- **ADR-007 predicted at line 896, measured at 895.** The Ultra 17 table was off
+  by one. Small, but it is why the ADR index is RE-DERIVED rather than trusted.
+- **`newflag_hits` predicted 11, measured 13.** The prediction omitted
+  `emergency-intelligence.service.ts`'s two occurrences entirely - **the exact
+  arithmetic slip Ultra 17 made when it recorded "9 hits, 3 files" while listing
+  3 + 6 = 9 for two files and a third file with no count.** The real code total
+  was 11. **This file keeps getting left out of the flag tally.**
+- **A reviewer asserted the spec anchor `SPEC_WARN_OLD` would never match.** It
+  matched; the replica run had already proven it. **A measurement outranks a
+  review.**
+
+**An installer's own printed expectations are assertions and can be wrong (trap
+#85). The measured `git diff --numstat` is the gate.** This session: installer 1
+predicted 12 lines and measured `12 0`; installer 2 predicted three deltas and
+measured `12 11`, `36 9`, `26 23`.
+
+### PowerShell specifics
+
+Unchanged from Ultra 17 and all still live:
+
+- **NO backslash escape.** The escape is a BACKTICK. Trap #56.
+- **A TypeScript tagged template pasted into PowerShell is a syntax error.**
+- **PowerShell STRIPS double quotes from native-command arguments.** Trap #78.
+- **`**` IS NOT RECURSIVE GLOBBING in PS 5.1.** Trap #83.
+- **`cd` PERSISTS between commands.** Trap #87.
+- **`[System.IO.File]` AND NODE IGNORE `cd`.** Trap #89. Absolute paths only.
+- **`$LASTEXITCODE` IS STALE after a PowerShell-level failure.** Trap #88.
+- **A pipeline masks the exit code.** Trap #66. **This is why the full jest run
+  is unpiped and the `Tests:` line read directly.**
+- **Square brackets in a path are WILDCARDS.** `-LiteralPath` is MANDATORY.
+- **`Get-Content` misreads UTF-8 as ANSI.** Trap #63. **`decision-log.md` AND
+  `incident-timeline.service.ts` both render mojibake and BOTH ARE CLEAN.**
+  **Re-confirmed this session: `bytes=48370` vs `chars=48299`, a 71-byte delta =
+  ~24 real three-byte em-dashes.** **Do not "fix" either.**
+- **`-Encoding utf8` on WRITE adds a BOM.** All writing goes through Node, or
+  through `[System.IO.File]::WriteAllText` which writes UTF-8 with NO BOM.
+  **The `.env` edit used the latter this session and preserved `bom=False`.**
+- **Multi-paragraph commit messages use REPEATED `-m` FLAGS.** Used twice this
+  session, three and four paragraphs. **Verify the body landed:**
+  `git log -1 --format='%b'`.
+- **`curl` IS AN ALIAS FOR `Invoke-WebRequest`.** Use `curl.exe`. Trap #92.
+  **Note: `Invoke-WebRequest` itself is fine when used deliberately** - the
+  `/api/docs` probe used it with `-UseBasicParsing` and a try/catch carrying its
+  own `resp_status=NONE` branch (trap #93).
+- **`Measure-Object -Line` COUNTS NON-EMPTY LINES ONLY.** Trap #91.
+- **`---` IN A PASTED-BACK CONSOLE BLOCK PARSES AS AN OPERATOR.** Trap #90.
+- **`Copy-Item` with a non-matching wildcard exits 0 and copies NOTHING.**
+- **`Remove-Item -LiteralPath 'a','b'` CONTINUES past a missing path.** Trap #84.
+- `Get-ChildItem | Where-Object` returns a bare object on one match, `$null` on
+  none. Wrap in `@()`.
+- `git status --short` cannot show an ahead-count. Use `git status -sb`.
+- Set `$env:GIT_PAGER = 'cat'` at session start.
+
+### Querying Postgres
+
+**LOCAL, via Docker:**
+```powershell
+"probe=db"; $q=[char]34; $sql = "SELECT sequence, source, " + $q + "recordedAt" + $q + " FROM " + $q + "JourneyLocationFix" + $q + " ORDER BY sequence DESC LIMIT 20;"; $sql | docker exec -i opa-postgres psql -U opa -d opa; "exit=$LASTEXITCODE"
+```
+`docker exec -i`. `-d opa` dev, `-d opa_test` integration.
+
+**PRODUCTION - NOW REACHABLE, but only from inside the App Service.** See
+section 11. `psql` is NOT installed on the App Service. **Use the deployed
+Prisma client as a query runner**, which worked cleanly this session:
+
+```bash
+cd /home/site/wwwroot && node -e "const{PrismaClient}=require('@prisma/client');const p=new PrismaClient();p.\$queryRawUnsafe(\"select indexname,indexdef from pg_indexes where tablename='JourneySession'\").then(r=>{console.log('rows='+r.length);r.forEach(x=>console.log(x.indexname+' :: '+x.indexdef));return p.\$disconnect()}).catch(e=>{console.log('ERR '+e.message);process.exit(1)})"; echo "exit=$?"
+```
+
+**ONE LINE. Multi-line node -e blocks get mangled by bracketed paste - trap
+#98.** `DATABASE_URL` must be exported in the shell first.
+
+### Installer scripts - 36 for 36 across twelve sessions
+
+1. Write a `.js` with target content as arrays of strings.
+2. **Deliver as `.txt` if the chat viewer will not show `.js`.** NEW - this
+   session's two installers were delivered as `.txt` at the user's request and
+   worked identically. The chat viewer shows nothing for `.cjs`.
+3. User downloads, copies to the right directory **renamed to `.cjs`**.
+4. Run once. Prints a plan, writes, prints next commands.
+5. **Delete before committing.**
+
+**PLACEMENT MUST SELECT BY BYTE SIZE, NOT TIMESTAMP.** Trap #38.
+
+**STATE BOTH ACCEPTABLE BYTE SIZES.** NEW REFINEMENT. A file delivered as LF may
+arrive CRLF after download, growing by exactly its line count. Accepting both
+keeps the gate meaningful instead of inviting a bypass:
+
+```powershell
+cd C:\Projects\OPA; "probe=place"; $s=@(Get-ChildItem -LiteralPath "$env:USERPROFILE\Downloads" -Filter 'NAME*.txt' -File | Sort-Object LastWriteTime -Descending); "files=$($s.Count)"; $s | ForEach-Object { $_.LastWriteTime.ToString('HH:mm:ss') + '|bytes=' + $_.Length + '|' + $_.Name }; $t=@($s | Where-Object { $_.Length -eq LF_BYTES -or $_.Length -eq CRLF_BYTES }); "matching=$($t.Count)"; if ($t.Count -eq 1) { Copy-Item -LiteralPath $t[0].FullName -Destination 'C:\Projects\OPA\NAME.cjs' -Force; "placed_bytes=" + $t[0].Length } else { "NO EXPECTED-BYTE CANDIDATE - do not run" }
+```
+
+**Every revision changes the byte count, which automatically invalidates stale
+copies.** Proven three times this session as installer 1 went 10965 -> 12855 ->
+13328 and installer 2 went 17261 -> 17602 -> 18605.
+
+**`node --check` validates the installer's JavaScript, NOT what it emits.**
+**An ASCII scan catches stray non-ASCII** - both installers scanned
+`nonascii=0`, deliberately, so neither could smuggle a mojibake em-dash into
+`decision-log.md`. **`tsc --noEmit` has never once been redundant.**
+
+Rules, all still in force:
+- **ONE file.** Arrays of quoted strings - never template literals.
+- **Two phases: plan every file, THEN write any.** Trap #52.
+- **EVERY assertion that could make the edit unsafe belongs in PHASE 1.**
+- **PHASE 2 MUST BE ABLE TO FAIL.** Increment a counter and `process.exit(1)`.
+  **The strongest single read-back check is `written === plannedContent`.**
+  **PROVEN THIS SESSION**: a test stubbed `fs.writeFileSync` to substitute
+  `suppressed` -> `suppresced` (same length, so a byte gate would pass) after
+  the plan was built; the string comparison caught it and exited 1.
+- **PIN CONTENT WITH A SHA-256 OF THE EOL-NORMALISED TEXT, NOT A BYTE COUNT.**
+- **USE ONE COUNTING METHOD THROUGHOUT.**
+- **A gate should block the write only when violating it makes the edit UNSAFE.**
+  **This was violated and corrected this session** - see the next two rules,
+  which are its two halves.
+- **AN IDEMPOTENCY GUARD MUST BE TIED TO CONTENT, NOT TO A DATE OR LABEL.** NEW.
+  Installer 1's first guard aborted on the marker `**Amended 1 August 2026:**`.
+  That is fail-closed but MISDIAGNOSING: an unrelated same-dated amendment would
+  have produced the message "This installer is spent," which is false, and is
+  trap #95's shape - a label read as proof of the thing. **Fixed by guarding on
+  two content SENTINELS** (`The emitted refusal and permitted-boot messages`,
+  `ADR-012 supersedes the flag name`) **and reporting the date marker
+  separately.**
+- **A CONDITION THAT IS NOT A SAFETY CONDITION IS AN OBSERVATION, NOT A GATE.**
+  NEW. Having added the sentinels, the date-marker check was KEPT as a gate out
+  of caution - re-introducing the very over-reach the rule forbids, and breaking
+  a phase-2 assertion (`markerCount === 2` would have failed against a
+  pre-existing decoy and reported "the file may be damaged" about a good file).
+  **Both fixed: the date check prints a loud NOTE and proceeds; phase 2 asserts
+  the DELTA (`before + 2`) rather than an absolute.**
+- **WHEN A GATE CAN FAIL FOR A DIAGNOSABLE REASON, PRINT THE DIAGNOSIS.** NEW.
+  `expectOldFlagBefore` was challenged as brittle. It was KEPT - it is the only
+  check that the file being globally token-renamed is the file that was read -
+  but on mismatch it now prints every occurrence with line numbers plus the
+  expected list. **An abort should be a diagnosis, not a wall.**
+- **BE IDEMPOTENT, THREE-WAY, AND NEVER OVERWRITE A DIVERGENT VALUE.**
+- **RECOVERY INSTRUCTIONS MUST COVER OWNED UNTRACKED FILES.**
+- Assert by COUNT, not presence. Trap #42.
+- **Every edit declares `anchorAfter`.** Trap #76. **Use `null` for "no check",
+  NOT `''`** - `''` is a legitimate anchor meaning "expect a blank line", and
+  conflating them silently disables the check.
+- **Detect EOL per file. Detect and re-prepend the BOM. VERIFY both survived.**
+  **Installer 2 wrote three files with MIXED conventions in one run** - two LF,
+  one CRLF - and preserved each.
+- **Prefer INSERTS over REPLACES.** Installer 1 was pure insertion. Installer 2
+  could not be - a rename is inherently a replacement - so it used exact
+  multi-line block anchors asserted by count.
+- **State which directory it runs from and guard on a neighbour file.** Four
+  roots: `apps/api`, `apps/website`, `apps/mobile-app`, REPO ROOT. Trap #65.
+
+**TEST THE INSTALLER AGAINST A REPLICA BEFORE SHIPPING IT.** **Installer 1 was
+tested through TEN cases; installer 2 through SEVEN**, including a
+byte-accurate replica of all three target files reconstructed from the measured
+line dumps. **Both then ran against the real repository with zero retries.**
+
+Installer 1 cases: clean, re-run, LF source, same-length tamper, duplicated
+anchor, BOM present, mixed EOL, wrong directory, corrupted write, unrelated
+same-date amendment.
+Installer 2 cases: clean, re-run, anchor tamper, unexpected extra flag
+occurrence, wrong directory, corrupted write, mixed EOL.
+
+**BEYOND THE INSTALLER: VERIFY THE EMITTED CONTENT AGAINST ITS CONSUMERS.** NEW,
+and it is what made installer 2 safe. The emitted error and warning strings were
+evaluated in Node and checked against **all twelve assertions in the spec** -
+including the eight that depend on the `Refusing to start` prefix - BEFORE the
+installer shipped. **An installer that writes correctly can still write the
+wrong thing.**
+
+**OWNED vs GUARDED.** Overwrite files you created, guard files you did not.
+**Once owned files are committed, that installer is spent.** Trap #64.
+
+**CHECKING FOR STRAY `.cjs`: use `git status --porcelain`, NOT a filesystem
+sweep.** `apps/api/scripts/create-test-db.cjs` is a TRACKED project file.
+```powershell
+"untracked_cjs=" + @(git status --porcelain | Where-Object { $_ -match '^\?\?.*\.cjs$' }).Count
+```
+
+**Downloads** land in `C:\Users\mohammed.WESLEYWEST\Downloads`.
+
+### Environment recovery after a reboot
+
+**Postgres and Redis run in Docker locally, not as Windows services.** Trap #27.
+```powershell
+"probe=docker-start"; Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"; Start-Sleep -Seconds 45; docker ps --format "{{.Names}}|{{.Status}}"
+```
+`P1001` at `globalSetup` means Docker is down.
+
+API: `cd C:\Projects\OPA\apps\api; npm run start:dev`
+Expo: `cd C:\Projects\OPA\apps\mobile-app; npx expo start`
+
+**`apps/api/.env:14` is now `OPA_BOOT_WITH_SUPPRESSED_MOCKS=true`.** If a
+`start:dev` ever refuses to boot with the validator's throw, that line is the
+first thing to check.
+
+### DEVICE TESTING PROTOCOL - LOAD-BEARING
+
+**A fast refresh does NOT reset module state.** `journey-tracker.ts` is a
+module-scope singleton. **A tracker test over a fast refresh tests the OLD code
+while looking like it tests the new.** Trap #80.
+
+1. **Fully close Expo Go from the app switcher.** Reopen.
+2. One SOS. **Let the 5s countdown COMPLETE.**
+3. Stay on the SOS screen, phone stationary, 90s minimum.
+4. Capture BOTH the `[journey-tracker]` console AND the API terminal.
+5. **Force-close Expo Go afterwards** (issue 17.13).
+
+**`POST /journey/sessions` IN THE API LOG IS THE PROOF THE NEW CODE RAN.**
+
+### Working in Kudu web SSH - NEW SECTION, READ IT
+
+**The App Service SSH console is now reachable** (the container stays up). It is
+also the most hostile paste target in this project.
+
+- **BRACKETED PASTE CORRUPTS MULTI-COMMAND LINES.** Trap #98.
+- **`read -s` SILENTLY CONSUMES THE NEXT PASTED LINE.** Trap #99.
+- **Disable bracketed paste first**, then paste ONE line at a time:
+  ```bash
+  printf '\e[?2004l'
+  ```
+- **Prefer a single-line `export` over `read -s`** for the connection string.
+  It puts the credential in shell history - run `history -c` afterwards - but it
+  works reliably, and `read -s` demonstrably did not.
+- **Print a length, never the value:**
+  ```bash
+  echo "len=${#DATABASE_URL}"
+  ```
+  `len=160` is the correct order of magnitude for the production URL.
+- **Ctrl+C is INTERRUPT, not copy.** Use Ctrl+Shift+C or select the text.
+
+---
+
+## 2. Current state
+
+**HEAD: `13d20fc` - pushed. Clean tree, no ahead-count.**
+
+```powershell
+$env:GIT_PAGER='cat'; cd C:\Projects\OPA; "probe=resume"; git log --oneline -5; git status -sb
+```
+
+Expect `13d20fc`, `270f7d9`, `3609876`, `194b32a`, `4df4888` - **unless a
+handover commit for these parts is at HEAD, which is the expected state.**
+
+### MEASURED THIS SESSION
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` (`apps/api`) | **exit 0**, first try |
+| `npx jest` (`apps/api`) | **20 suites, 238 tests**, 34.008s (was 20/236) |
+| `git diff --numstat` (3 code files) | `12 11`, `36 9`, `26 23` = 74 ins / 43 del |
+| `git diff --numstat` (decision-log) | `12 0` |
+| Old flag sweep, `apps/api/src` | `scanned_ts=120, oldflag_hits=0, newflag_hits=13` |
+
+**`13d20fc` changed behaviour deliberately. Its honest gate is that the 22
+suppression tests in `emergency-intelligence.service.spec.ts` passed UNEDITED
+while that service's doc comment and debug log were rewritten** - which also
+proves `OMITTED_LOG_PATTERN` still matches, since it captures only up to the
+first period on the unchanged line 140.
+
+**Not re-measured this session:** `npm run test:int` (was 6 suites / 24 tests);
+`npx tsc --noEmit` (`apps/mobile-app`, was 0); `npm run build` (`apps/website`,
+was 0); `npm run lint` (`apps/api`, was 16 problems - 15 errors + 1 warning).
+
+### PRODUCTION - MEASURED THIS SESSION
+
+| Check | Result |
+|---|---|
+| Actions run #77 on `13d20fc` | **green** |
+| Boot warning in Log stream | **exact ADR-012 text, all six providers named** |
+| `Nest application successfully started` | **yes** |
+| `GET /health` (Azure internal probe) | **200** |
+| `GET /api/docs` (from the local machine) | **200, 3126 bytes** |
+| `prisma migrate status` before deploy | 11 found, 6 applied, **5 pending by name** |
+| `prisma migrate deploy` | **5 applied, exit=0** |
+| `prisma migrate status` after deploy | **"Database schema is up to date!", exit=0** |
+| `pg_indexes` on `JourneySession` | **4 rows, partial index correct** |
+| Production Node | **v22.22.2**, instance `lw0sdlwk0001P1` |
+
+**The partial index, verified in production:**
+```sql
+CREATE UNIQUE INDEX journey_session_one_active_per_user ON public."JourneySession"
+USING btree ("userId")
+WHERE (status = ANY (ARRAY['STARTED'::"JourneySessionStatus", 'ACTIVE'::"JourneySessionStatus"]))
+```
+**Identical to the local definition, enum casts intact, on PostgreSQL 14.23.**
+
+### THE WORKER HANDLE LEAK - EIGHT RUNS NOW
+
+Issue 17.3. This session's run was **34.008s and produced NO warning**. **A clean
+run is consistent with the bug being present.** Do not close it by observation.
+Trap #59. **Note the production Log stream shows `NotificationDispatchWorker`
+ticking every 2 seconds via `@Interval(2000)`** - the same timer implicated in
+the leak, now observable in a real environment.
+
+### FILE LINE COUNTS - measured, after this session
+
+| File | Lines | Note |
+|---|---|---|
+| `docs/architecture/decision-log.md` | **1001** | was 989; CRLF, no BOM, ~24 real em-dashes, `bytes=48370` `chars=48299` |
+| `apps/api/src/modules/emergency-intelligence/provider-confidence.validator.ts` | **90** | was 87, LF, no BOM. **READ IN FULL - Ultra 17 gap 1 CLOSED** |
+| `apps/api/src/modules/emergency-intelligence/provider-confidence.validator.spec.ts` | **183** | was 156, LF. **READ IN FULL - Ultra 17 gap 2 CLOSED** |
+| `apps/api/src/modules/emergency-intelligence/emergency-intelligence.service.ts` | **~161** | was ~160, CRLF. **RE-MEASURE** - the installer reported 159->160 by a counter that assumes a trailing newline this file lacks |
+| `apps/api/src/modules/emergency-intelligence/emergency-intelligence.service.spec.ts` | **697** | UNCHANGED, LF |
+| `apps/api/src/modules/emergency-intelligence/data-confidence.ts` | 59 | unchanged |
+| `apps/api/.env` | **14** | UNTRACKED. Line 14 is now the renamed flag. No BOM |
+| `docs/handovers/ADR-012-content.txt` | 138 | CRLF, no BOM |
+| `docs/TODO.md` | 1599 | BOM + CRLF, not re-measured |
+| `docs/SPRINT_ROADMAP.md` | 623 | BOM + CRLF, not re-measured |
+
+**Counting convention:** Node's `split(/\r?\n/)` yields ONE MORE element than
+`Get-Content` **when the file ends with a newline**, and the SAME number when it
+does not. **Both are right about different things. Line POSITIONS are
+unaffected.**
+
+**COMPLETE:** everything through Sprint 10B item 9b, ADR-010, ADR-011,
+`app.json` native config, Tier 2 item 14b, ADR-012 **decided, installed,
+amended, IMPLEMENTED and DEPLOYED**, the suppression contract tests, and
+**the entire production bring-up chain**.
+
+**NEXT: Redis configuration, then the three owed ADRs, then 9c. See section 9.**
+
+### Honest progress
+
+**Sprint 10B ~88%.** Unchanged - this session's work was production and Tier 0.
+Remaining: persistence (9c) and the end-to-end test (10).
+
+**Sprint 10A effectively complete.** **The tracking page has STILL never
+rendered** - 54 real fixes exist locally to render it with.
+
+**Sprint 10C ~0%.** Largely procurement.
+
+**Sprint 11 server-side substantially BUILT.**
+
+**Production: LIVE, fully migrated, with one operational defect (Redis).**
+
+---
+
+## 3. Verified facts about the codebase
+
+### Environment
+
+- Node **v26.5.0** locally, **v22.x in CI**, **v22.22.2 on the App Service**.
+  Prisma **6.19.3** locally, in CI, and in `/home/prisma-tools` on the App
+  Service. **PostgreSQL 16.14 in local Docker**; **PostgreSQL 14.23 in
+  production**. Next.js **16.2.10** on the website.
+- **Prisma 7.9.1 exists and the CLI advertises it.** **DO NOT UPGRADE casually**
+  - it is a major version, and 6.19.3 is what the deployed client was built
+  against. Recorded so the upsell banner is not mistaken for a requirement.
+- Docker: `opa-postgres`, `opa-redis`. `POSTGRES_USER=opa`, `POSTGRES_DB=opa`.
+- `psql` NOT on host PATH, NOT on the App Service. In the local container only.
+- **The Azure CLI (`az`) is NOT installed.** Portal and Kudu SSH only.
+- **`apps/api/.env` has `OPA_BOOT_WITH_SUPPRESSED_MOCKS=true` at LINE 14**, plus
+  `PORT=3000` and both `AZURE_STORAGE_*`. **14 lines, no BOM.**
+- `decimal.js` NOT installed - use `Prisma.Decimal` **or a STRING**.
+  `class-transformer` and `class-validator` ARE installed.
+- Git `core.autocrlf=true`. `.gitattributes` pins `*.sql text eol=lf` only.
+
+### AZURE - MEASURED THIS SESSION
+
+**App Service `opa-api-production`**, South Africa North. Default hostname
+`opa-api-production-g4f6cxdyanfbaub0.southafricanorth-01.azurewebsites.net`.
+
+**App settings, alphabetical, AFTER this session's addition:**
+`ALLOWED_ORIGINS`, `AZURE_POSTGRESQL_DATABASE`, `AZURE_POSTGRESQL_HOST`,
+`AZURE_POSTGRESQL_PASSWORD`, `AZURE_POSTGRESQL_PORT`, `AZURE_POSTGRESQL_SSL`,
+`AZURE_POSTGRESQL_USER`, `AZURE_STORAGE_CONNECTION_STRING`,
+`AZURE_STORAGE_CONTAINER`, `BCRYPT_ROUNDS`, `DATABASE_URL`,
+`JWT_ACCESS_EXPIRES_IN`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_EXPIRES_IN`,
+`JWT_REFRESH_SECRET`, `NODE_ENV`, **`OPA_BOOT_WITH_SUPPRESSED_MOCKS`**,
+`REDIS_URL`, `WEBSITE_HEALTHCHECK_MAXPINGFAI...`.
+
+**`OPA_BOOT_WITH_SUPPRESSED_MOCKS=true` is PRESENT** - proven by its position
+between `NODE_ENV` and `REDIS_URL` in the alphabetical listing, and confirmed
+functionally by the boot warning quoting the flag back.
+
+**`REDIS_URL` IS SET TO THE LITERAL STRING `placeholder`.** See section 9 Tier 0
+and section 11.
+
+**Postgres flexible server `opa-api-production-server`:**
+```
+Endpoint            opa-api-production-server.postgres.database.azure.com
+Port                5432
+Administrator login hhduhnfjoz
+Database            opa-api-production-database
+PostgreSQL version  14.23
+Configuration       Burstable, B1ms, 1 vCore, 2 GiB RAM, 128 GiB storage
+Resource group      opa-production
+Subscription ID     b79ffdb2-0cf1-4915-89b4-2b6b7cae0299
+Region              South Africa North
+Migrations applied  11 of 11    <- CHANGED THIS SESSION
+```
+
+**NETWORK CONNECTIVITY: Private access (VNet Integration). "Public access" is
+GREYED OUT.** Fixed at creation, cannot be changed. **The only route to the
+database is from inside the App Service.** This remains true and now governs all
+future migrations - see section 11 and open question 44.
+
+**Azure's own banner flags Burstable as a dev/test tier.** Still an unresolved
+production-readiness item, now with a live app on top of it.
+
+**The password rotated in Ultra 17 is VERIFIED WORKING.**
+
+**Connection string shape** (do NOT paste the password into chat):
+```
+postgresql://hhduhnfjoz:PASSWORD@opa-api-production-server.postgres.database.azure.com:5432/opa-api-production-database?sslmode=require
+```
+`sslmode=require` is mandatory. The username is plain. Safe password charset:
+letters, digits, `-`, `_`. **`$` breaks in shells; `@ : / ? # & %` break the
+URL.** **Measured length of the full URL: 160 characters.**
+
+### CI/CD - `.github/workflows/main_opa-api-production.yml`, 79 lines
+
+Azure's auto-generated Deployment Center workflow. **Triggers on every push to
+`main`**, so every commit deploys. **Run #77 deployed `13d20fc`.**
+
+```
+job build   (ubuntu-latest)
+  actions/checkout@v4 ; setup-node@v4 node 22.x cache npm
+  npm ci ; npm run prisma:generate --workspace apps/api ; npm run build --workspace apps/api
+  assemble deploy/: cp dist, prisma, package.json;
+    npm install --include=dev --no-package-lock ; npx prisma generate ; npm prune --omit=dev
+  upload-artifact@v4 (include-hidden-files: true)
+job deploy  (needs: build)
+  azure/login@v2 - OIDC, three repo secrets
+  azure/webapps-deploy@v3  app-name: opa-api-production, slot-name: Production
+```
+
+**Two gaps remain, one closed:**
+1. **NO `prisma migrate deploy`.** **Still true, and now a DOCUMENTED MANUAL
+   PROCEDURE rather than a gap to be fixed blindly** - a hosted runner cannot
+   reach a private-access server. See open question 44 and section 11.
+2. **NO TEST GATE.** Every push deploys regardless of jest. **This is now
+   materially riskier than it was**, because a bad push reaches a LIVE API
+   rather than one that was already down. **238 tests exist. Adding
+   `npx jest` before build is a two-line change.** **Raised in priority.**
+3. ~~Node version mismatch~~ - CI (22.x) matches production (v22.22.2). Only
+   local (v26.5.0) differs. Not a defect.
+
+**ORYX GENERATES THE STARTUP COMMAND**, re-confirmed in this session's Log
+stream:
+```
+PATH="$PATH:/home/site/wwwroot" node dist/src/main.js
+```
+**Note `dist/src/main.js`, NOT `dist/main.js`.** `apps/api/package.json`'s
+`start` script says `node dist/main.js` and would FAIL. Issue 17.23. Oryx also
+extracts `node_modules.tar.gz` to `/node_modules` and symlinks it - visible in
+the startup script echoed in Log stream.
+
+**There is NO Dockerfile.** `docker-compose.yml` is local Postgres/Redis only.
+
+### LINE ENDINGS - MIXED. ASSUME MIXED. MEASURE EVERY TIME.
+
+**Installer-written or checkout-normalised is CRLF; hand-typed is LF.**
+
+- **`apps/api/src`:** `modules/journey`, `modules/incident-access`,
+  `shared/middleware` **LF**; `global-exception.filter.ts`, the orchestrator,
+  `modules/incident-timeline` **CRLF**.
+- **`apps/api/test/int`: LF**, with trailing newlines.
+- **`apps/api/src/modules/emergency-intelligence`:** `data-confidence.ts`,
+  `provider-confidence.validator.ts`, `provider-confidence.validator.spec.ts`
+  and `emergency-intelligence.service.spec.ts` **LF**;
+  `emergency-intelligence.service.ts` **CRLF**. **All measured this session.**
+- **`apps/api/.env`: no BOM.**
+- **`apps/mobile-app`:** `app/sos.tsx` and `app.json` **LF**; `app/_layout.tsx`,
+  `src/services/api.ts`, `src/services/journey-tracker.ts` **CRLF**.
+- **`docs/`:** `TODO.md` and `SPRINT_ROADMAP.md` **BOM + CRLF**;
+  `decision-log.md` **no BOM, CRLF**; `VOICE_ACTIVATION_FEASIBILITY_STUDY.md`
+  and `COMMERCIAL_ROADMAP.md` **no BOM, LF**.
+- **`docs/handovers/`: CRLF, no BOM.**
+
+Git normalises on `add`, so a wrong EOL is harmless but noisy. **The
+`LF will be replaced by CRLF` warnings on staging the two LF spec/validator
+files this session are expected and were correct.**
+
+**Trap #77: `git checkout` NORMALISES an installer-written file** to CRLF.
+
+### Network / device
+
+**LAN `192.168.12.126`, interface `Wi-Fi`.** API on `0.0.0.0:3000`. Firewall rule
+`OPA API dev 3000`. Device `192.168.12.216`, `okhttp/4.12.0` (Android).
+
+### `apps/api/src/main.ts` - 58 lines, UNCHANGED
+
+**Global `ValidationPipe`** with `whitelist`, `forbidNonWhitelisted`, `transform`
+all true. **`forbidNonWhitelisted` means any undeclared field 400s the WHOLE
+request.** **NO `setGlobalPrefix`** - live URLs are `/public/tracking/<token>`,
+load-bearing for `redactSensitivePath` (trap #53). **Swagger published
+unconditionally at `api/docs`** - **NOW PUBLICLY REACHABLE AND RETURNING 200.
+See issue 17.8, which has changed from theoretical to live.**
+
+### `apps/api/src/app.module.ts` - 66 lines
+
+`RequestLoggingMiddleware` at `.forRoutes('*')`. **Its JSON log line is the
+primary diagnostic instrument**, and this session confirmed it works in
+production - every request appears as
+`{"event":"http_request","correlationId":...,"path":...,"statusCode":...}`.
+`EmergencyIntelligenceModule` at `:48`, `EvidenceModule` at `:54`.
+
+**All 25 modules initialise in production**, confirmed in Log stream, and every
+route maps: health, auth, users, incidents, emergency-contacts, notifications,
+emergency-intelligence, emergency-detection, incident-orchestrator,
+incident-timeline, public tracking, journey, refresh, facilities, evidence.
+
+### `apps/api/jest.config.ts` and `jest-int.config.ts`
+
+**Unit:** `testRegex: '.*\\.spec\\.ts$'`, ts-jest, node env. **No
+`moduleNameMapper`, no aliases, no `globalSetup`, no `setupFiles`.**
+**No `setupFiles` means `reflect-metadata` is not global** - trap #61.
+
+**TRAP #61.** Importing a decorated class and constructing it DIRECTLY works
+fine. **Trap #61 bites `Test.createTestingModule`, not plain construction.**
+Two working forms:
+- Cast the CONSTRUCTOR (multi-arg):
+  `type Ctor = new (...args: unknown[]) => TheClass; const CTOR = TheClass as unknown as Ctor;`
+  **Used by `emergency-intelligence.service.spec.ts` (seven args) and by
+  `provider-confidence.validator.spec.ts` (six args).**
+- Cast the ARGUMENT (single dependency).
+
+**Integration (`jest-int.config.ts`, 29 lines):**
+```
+testRegex: '.*\\.int-spec\\.ts$'      <- NOT ".int.spec.ts"
+rootDir: '.'
+globalSetup: test/int/global-setup.ts
+setupFilesAfterEach: test/int/setup-after-env.ts
+maxWorkers: 1
+testTimeout: 30000
+```
+
+### tsconfig strictness
+
+**`noUncheckedIndexedAccess` is ON** in `apps/api`. `rows[0]` is `T | undefined`.
+`firstRow()` exists in `test/int/rows.ts`. **`debug.mock.calls[0]` needs an
+explicit `=== undefined` guard.** **Note `warn.mock.calls[0][0]` in
+`provider-confidence.validator.spec.ts:130` compiles WITHOUT a guard, because
+`jest.SpyInstance` is loosely typed. Do not "fix" it.**
+
+### `prisma/schema.prisma` - 423 lines, at `apps/api/prisma/schema.prisma`
+
+**NOT at the repo root.** **`datasource db` url is `env("DATABASE_URL")` at
+line 7** - which is why the App Service migration requires that variable
+exported in the SSH shell.
+
+**Journey:** `JourneyPurpose` 284, `JourneySessionStatus` 292,
+`JourneySessionEndReason` 300, `JourneyRedactionReason` 310, `JourneySession`
+319, `JourneyLocationFix` 371.
+
+**Indexes on `JourneyLocationFix`:** `@@unique([journeySessionId, sequence])`
+419, `@@unique([journeySessionId, idempotencyKey])` 420,
+`@@index([journeySessionId, receivedAt(sort: Desc)])` 421,
+`@@index([journeySessionId, recordedAt])` 422.
+
+**`receivedAt` IS NOT UNIQUE** - one value per batch. Trap #81, FIXED in
+`893d65a` with `ORDER BY receivedAt DESC, sequence DESC`. **The underlying fact
+still governs any NEW "latest fix" query** - see ADR-014's in-order-flush
+invariant.
+
+```
+enum IncidentStatus  (17)  OPEN | ACKNOWLEDGED | RESOLVED | CANCELLED
+enum IncidentTrigger (24)  SOS_BUTTON | VOICE_HELP_HELP | TRUSTED_CONTACT | SYSTEM_TEST
+
+model Incident (97)
+  id, userId (Restrict), trigger, status (default OPEN)
+  latitude / longitude  Decimal(9,6)      <- REQUIRED, no default
+  address?, voicePhrase?, trustedContact?, metadata?
+  lastTriggeredAt?, retriggerCount (default 0)
+  createdAt, updatedAt, resolvedAt?
+  facilityId?, journeySessionId? (SetNull)
+  ONLY FOUR REQUIRED COLUMNS WITH NO DEFAULT: userId, trigger, latitude, longitude
+
+model IncidentTimelineEvent (150)
+  id, incidentId (CASCADE), sequence Int, type String, payload Json?, source String
+  actorUserId?, correlationId?, occurredAt, recordedAt @default(now())
+  previousHash String?, hash String
+  @@unique([incidentId, sequence])
+  @@index([incidentId, occurredAt]) / ([incidentId, type, occurredAt]) / ([correlationId])
+
+enum EvidenceType   (59)  AUDIO | VIDEO | IMAGE | GPS_LOG | DOCUMENT
+enum EvidenceStatus (67)  PENDING | UPLOADING | STORED | FAILED | DELETED
+model Evidence      (226)
+  id, incidentId (cascade), type, status (default PENDING)
+  storageKey?, mimeType?, sizeBytes? (BigInt), sha256?, encryptionKeyId?
+  capturedAt?, uploadedAt?, createdAt, updatedAt
+  @@unique([incidentId, sha256])
+```
+
+`JourneySessionStatus = STARTED | ACTIVE | ENDED`;
+`JourneyPurpose = INCIDENT | SAFEWALK | GUARDIAN | MANUAL | SYSTEM_TEST`;
+`JourneySessionEndReason = USER_ENDED | INCIDENT_RESOLVED | TIMED_OUT | SUPERSEDED | ADMIN_ENDED`.
+
+**11 migrations on disk. PRODUCTION NOW HAS ALL 11.**
+
+Partial index, live in the LOCAL databases **AND NOW IN PRODUCTION**:
+```sql
+CREATE UNIQUE INDEX journey_session_one_active_per_user ON public."JourneySession"
+USING btree ("userId")
+WHERE (status = ANY (ARRAY['STARTED'::"JourneySessionStatus", 'ACTIVE'::"JourneySessionStatus"]))
+```
+
+**All four `JourneySession` indexes confirmed in production:**
+`JourneySession_pkey`, `JourneySession_userId_status_startedAt_idx`,
+`JourneySession_status_lastFixReceivedAt_idx`,
+`journey_session_one_active_per_user`.
+
+### THE EMERGENCY-INTELLIGENCE MODULE - FULLY READ, NO REMAINING GAPS
+
+#### `provider-confidence.validator.ts` - 90 lines, LF - READ IN FULL
+
+**Ultra 17 gap 1 is CLOSED.** The file was never read before this session.
+
+**SIX constructor parameters** (NOT seven - `DeviceProvider` is `PRODUCTION` and
+is not injected here), in order: `geocoding`, `hospital`, `places`, `police`,
+`routing`, `safePlace`. **The `providers` getter returns them in that order,
+which is exactly the alphabetical order seen in the production error and warning
+messages.**
+
+`onModuleInit()` has THREE branches and no others:
+| Condition | Behaviour |
+|---|---|
+| No MOCK providers | `logger.log('All emergency intelligence providers report production-grade data.')`, return |
+| MOCK + `OPA_BOOT_WITH_SUPPRESSED_MOCKS === 'true'` | `logger.warn(...)`, boot |
+| MOCK + anything else | `throw` |
+
+**The strict `=== 'true'` comparison is isolated in one expression** and survived
+the rename untouched. The seven-case `it.each` pinning `TRUE`/`True`/`1`/`yes`/
+`on`/`false`/`''` as failures still passes.
+
+**What the rename changed here, and why it was NOT a name swap:** the file
+contained FOUR statements of the old policy - the class doc comment, the
+flag-read comment, the error text, and a warning asserting the flag
+**"must NEVER be set in production, staging, UAT or any environment shown to a
+pilot partner."** That last one was **pinned by a test** (`toContain('NEVER')`).
+**A rename that left it passing would have meant the rename had not landed.**
+
+#### `provider-confidence.validator.spec.ts` - 183 lines, LF - READ IN FULL
+
+**Ultra 17 gap 2 is CLOSED.** 17 tests: 10 `it(` blocks plus a seven-case
+`it.each`.
+
+**Three assertions were changed and two tests added:**
+- `/2 emergency/` -> `/2 mock emergency-intelligence provider/` (the message
+  wording changed around the count).
+- `toContain('NEVER')` -> `toContain('suppresses their outputs')` plus
+  `toContain('OPA_BOOT_WITH_SUPPRESSED_MOCKS=true')`.
+- NEW: the error names the acknowledgement flag.
+- NEW: the error keeps the danger sentence and the remedies.
+
+**The `NEVER` assertion is the one that mattered.** It pinned the policy ADR-012
+reverses.
+
+#### `emergency-intelligence.service.ts` - ~161 lines, CRLF
+
+**Seven constructor parameters, in order:** `geocodingProvider`, `placesProvider`,
+`hospitalProvider`, `policeProvider`, `safePlaceProvider`, `deviceProvider`,
+`routingProvider`.
+
+- **Six providers awaited in one `Promise.all`.**
+- **`deviceProvider.buildDeviceIntelligence` is SYNCHRONOUS**, called separately.
+- Local `isMock = (p) => !isDisplayableToUsers(p.dataConfidence)`.
+
+**THE SIX OMITTED LABELS AND WHAT EACH NULLS:**
+| Provider | Label | Nulls |
+|---|---|---|
+| geocoding | `address` | **TEN fields inside `location`**. **latitude, longitude and accuracy SURVIVE.** |
+| places | `surroundings` | the whole `surroundings` object -> null |
+| hospital | `hospitals` | `nearestHospital` AND `hospitals` |
+| police | `policeStations` | `nearestPoliceStation` AND `policeStations` |
+| safePlace | `safePlaces` | `nearestSafePlace` AND `safePlaces` |
+| routing | `routes` | nulled in the RETURN statement, far from its check |
+
+**THREE STRUCTURAL FACTS THE TESTS PIN:**
+1. `nearestHospital` is computed as `hospitals[0] ?? null` BEFORE the mock check
+   short-circuits it. Safe today; a reorder would leak it.
+2. `routes` is nulled physically far from its check. Easiest of the six to break.
+3. `emergencyResources` is ALWAYS an object, never null.
+
+**THE DOC COMMENT WAS REWRITTEN THIS SESSION.** It previously asserted that the
+omission path "only runs in an environment that has knowingly opted into mock
+providers (local dev)" and that "production, staging, and anything shown to a
+pilot partner never reaches this branch." **All false as of `13d20fc`.** It now
+records ADR-012, states that production DOES reach this branch, and describes
+the layer as **load-bearing rather than defence in depth**.
+
+**THE DEBUG LOG WAS REWRITTEN.** The old text said the omission "only occurs
+when OPA_ALLOW_MOCK_PROVIDERS=true (local development only)". **`OMITTED_LOG_PATTERN`
+in the spec is `/due to mock providers: ([^.]*)\./`, which captures only up to
+the first period on the FIRST line - the line that did NOT change.** That is why
+`emergency-intelligence.service.spec.ts` needed no edit and remained an
+independent gate.
+
+#### The seven providers - `providers/*.ts`
+
+| File | Class | providerName | dataConfidence | Method |
+|---|---|---|---|---|
+| `geocoding.provider.ts` (43) | `GeocodingProvider` | `MockGeocodingProvider` | `MOCK` | `reverseGeocode` |
+| `places.provider.ts` (123) | `PlacesProvider` | `MockPlacesProvider` | `MOCK` | `findNearbyPlaces` + `groupByDirection` |
+| `hospital.provider.ts` (56) | `HospitalProvider` | `MockHospitalProvider` | `MOCK` | `findNearbyHospitals` |
+| `police.provider.ts` (53) | `PoliceProvider` | `MockPoliceProvider` | `MOCK` | `findNearbyPoliceStations` |
+| `safe-place.provider.ts` (78) | `SafePlaceProvider` | `MockSafePlaceProvider` | `MOCK` | `findNearbySafePlaces` |
+| `routing.provider.ts` (59) | `RoutingProvider` | `MockRoutingProvider` | `MOCK` | `buildSafeRoutes` |
+| `device.provider.ts` (54) | `DeviceProvider` | **`DeviceTelemetryProvider`** | **`PRODUCTION`** | `buildDeviceIntelligence` - **SYNC** |
+
+**Six of seven MOCK. The names match the production warning message exactly** -
+confirmed this session in Log stream.
+
+#### `dto/location-request.dto.ts` - 60 lines
+
+```
+latitude   @IsLatitude()    REQUIRED
+longitude  @IsLongitude()   REQUIRED
+accuracy?  @IsNumber @Min(0)
+speed?     @IsNumber @Min(0)          <- 17.6 negative-sentinel gap lives here
+heading?   @IsNumber @Min(0) @Max(360)
+altitude?  @IsNumber
+batteryLevel? @IsNumber @Min(0) @Max(100)   <- PERCENTAGE 0-100, not a fraction
+isCharging?  @IsBoolean
+networkType? @IsString
+language?    @IsString
+timestamp?   @IsString                 <- q14: should be @IsISO8601()
+```
+
+**`batteryLevel` is 0-100.** The mobile app captures neither `batteryLevel` nor
+`isCharging` (Tier 2 item 14g). `194b32a` pins the convention.
+
+### THE INCIDENT TIMELINE SUBSYSTEM
+
+`apps/api/src/modules/incident-timeline/` - controller 20, module 13,
+service 146, spec 232.
+
+**`recordEvent`:** opens its OWN `$transaction`; first statement inside is
+`pg_advisory_xact_lock(3, hashtext(incidentId))`; reads tail by `sequence desc`;
+`sequence = (last?.sequence ?? 0) + 1`; `previousHash = last?.hash ?? null`;
+`computeHash` over a canonical JSON of **SIX keys**, sha256 hex.
+
+**`verifyChain(incidentId)`** walks ascending, checks linkage FIRST then
+recomputes the hash, returns `{ valid, brokenAtSequence? }`.
+
+**LOCK NAMESPACES - THREE, CANNOT COLLIDE:**
+| Form | Key | Where |
+|---|---|---|
+| 1-arg `pg_advisory_xact_lock(hashtext(userId))` | user | orchestrator `:179`, journey-ingestion `:61`, journey-session `:89` |
+| 2-arg, classid **2** | session | `insertFixes`, journey-session `:220` |
+| 2-arg, classid **3** | incident | `recordEvent` |
+
+**Because `recordEvent` opens its OWN transaction, a caller invoking it from
+INSIDE their transaction would risk a DEADLOCK.**
+
+### THE EVIDENCE SUBSYSTEM
+
+`apps/api/src/modules/evidence/`, registered at `app.module.ts:54`.
+`@Controller('incidents/:incidentId/evidence')`, `FileInterceptor` 50MB.
+`evidence.service.ts` 158 lines: `BlobServiceClient.fromConnectionString` +
+container name via `getOrThrow` **in the CONSTRUCTOR**; sha256 **BEFORE** upload;
+dedupe on `incidentId_sha256`; writes `EVIDENCE_ADDED` into the timeline at
+`:95`; `getDownloadUrl` issues a 5-minute SAS URL.
+
+**`EvidenceModule` initialises successfully in production**, so both
+`AZURE_STORAGE_*` variables are present and correct. Issue 17.21 closed.
+
+**NOT THERE:** no encryption (`encryptionKeyId` never set); no client capture;
+**`capturedAt` nullable and UNVERIFIED whether the upload path populates it.**
+
+### MOBILE - `apps/mobile-app`
+
+`apps/mobile` is stale since 7/9 - **ignore it**. Expo Router. **UNCHANGED THIS
+SESSION.**
+
+```
+app/(auth)/login.tsx     205  NOT read     app/index.tsx        120  READ
+app/(auth)/register.tsx  254  NOT read     app/sos.tsx          417  READ partly
+app/contacts.tsx         384  NOT read     app/_layout.tsx       43  READ full
+src/services/api.ts       78  READ full    src/store/authStore.ts 89  READ full
+src/services/journey-tracker.ts 385 READ   src/config/api-config.ts 78 known
+app.json 43   package.json 32   tsconfig.json 6
+```
+
+**There is still NO `eas.json`.**
+
+**No background capability, no camera, no microphone.** **No AsyncStorage,
+expo-sqlite, TaskManager, NetInfo, camera or av.** **9c needs a new dependency.
+`expo-secure-store` is the wrong tool. VERIFY EXPO GO BUNDLES THE CHOSEN ONE
+BEFORE BUILDING ON IT.** **No test framework. `npx tsc --noEmit` is the only
+static gate. THE DEVICE IS THE GATE.**
+
+**`app.json` - 43 lines after `18bdd73`. Trap #75 FIXED.** Both background flags
+explicitly false; `ios.bundleIdentifier` and `android.package` =
+**`com.opasafety.app`, PERMANENT after a store publish**. **STILL MISSING:
+`scheme`.** **NOT PROVEN ON A DEVICE.** **Do NOT add `android.permissions`.**
+
+**`src/services/api.ts` - 78 lines.** Shared axios instance, `timeout: 10000`.
+Bearer from `expo-secure-store`. 401 -> refresh -> retry. **REUSE THIS
+INSTANCE.** **The retry guard is `!isRefreshing`** - trap #74. **SEQUENTIAL
+refresh is PROVEN on device; CONCURRENT is untested and 9c's flushing is what
+will hit it.**
+
+**`app/sos.tsx` - 417 lines. THE ONLY LOCATION CAPTURE.** `COUNTDOWN_SECONDS = 5`.
+**Sends no `timestamp`** - relies on D11 server-time fallback.
+**`result.contactsNotified` IS RENDERED AND IT IS WRONG** - trap #82.
+`handleCancel` **never calls the API** - the duress hole. **Two unverified
+defects from a recovered transcript: no in-flight activation lock, and
+`cancelledRef` set but never checked.**
+
+**`src/services/journey-tracker.ts` - 385 lines, `d5aca8b`.** Module-scope
+singleton (trap #80, issue 17.13). `FLUSH_INTERVAL_MS = 15000`,
+`TIME_INTERVAL_MS = 10000`, **`DISTANCE_INTERVAL_M = 0`**, `MAX_BATCH = 200`,
+`MAX_QUEUED_FIXES = 600`. **`if (running) return` sits ABOVE `acquireSession()`.**
+**Queue is IN MEMORY ONLY - that is 9c.** **FLUSHES IN CAPTURE ORDER, oldest
+first. 9c MUST PRESERVE THAT.**
+
+### `public-tracking.service.ts` - 195 lines after `893d65a`
+
+Nested select, `take: 1`, **`orderBy: [{ receivedAt: 'desc' }, { sequence: 'desc' }]`**.
+Selects `latitude`, `longitude`, `recordedAt`, `source` - **NOT `sequence`**.
+**The controller NEVER THROWS** - zero `throw` statements across all 8 files in
+`src/modules/incident-access`.
+
+---
+
+## 4. Contracts
+
+**UNCHANGED THIS SESSION.** Carried forward from Ultra 17 verbatim in substance.
+
+### `POST /journey/sessions` (`8b919be`)
+
+`purpose?` `@IsIn(CLIENT_PURPOSES = MANUAL | SAFEWALK | SYSTEM_TEST)`.
+Returns `{ sessionId, status, purpose, startedAt, lastFixReceivedAt, reused }`.
+**Idempotent by construction.** **All 54 local fixes across four activations and
+two days sit on ONE session** (q28).
+
+### `POST /journey/fixes` (`861a843`) - CHANGING UNDER ADR-014
+
+```
+IngestFixesDto: sessionId @IsUUID(); fixes @ArrayMinSize(1) @ArrayMaxSize(200)
+JourneyFixDto:
+  idempotencyKey @IsString() @Length(1,128)
+  source         @IsIn(['foreground','background','manual'])
+  latitude/longitude bounded; accuracy?/speed? @Min(0) NO transform
+  heading?       @Transform(-1 -> null) @Min(0) @Max(360)
+  batteryLevel?/isCharging? optional; recordedAt @IsISO8601()
+```
+
+**`@ArrayMinSize(1)` IS A DIAGNOSTIC** - every 201 proves at least one fix landed.
+
+**CURRENT behaviour at `journey-ingestion.service.ts:95-127`:**
+```
+:95   findUnique  select: { id, userId, status, startedAt }   <- NO endedAt
+:103  session null OR wrong user  -> NotFoundException
+:107  status === ENDED            -> ConflictException
+:114  dto.fixes.map(...) - PER-FIX validation INSIDE the map:
+:118    recordedAt > now + MAX_FUTURE_SKEW_MS  -> BadRequestException
+:123    recordedAt < startedAt - START_GRACE_MS -> BadRequestException
+```
+
+**THREE FACTS THAT SHAPE ADR-014:** the ENDED check fires before any fix is
+examined; `endedAt` is NOT selected; the skew checks throw from inside `.map()`
+so **ONE bad `recordedAt` 400s the ENTIRE batch of up to 200.**
+
+### `JourneySessionService` - 380 lines. Injects nothing.
+
+`insertFixes`: advisory lock `(2, hashtext(sessionId))`; capture
+`date_trunc('milliseconds', now())` ONCE; dedupe in-batch; **sort by
+`recordedAt`**; read tail by `sequence desc`; per fix compute `nonce`,
+`payloadHash`, `hash`; `createMany`; update session.
+
+**IN-BATCH CHAINING HAS EXECUTED FOR REAL** (~20 two-fix batches).
+**In-batch DEDUPE has still never fired.** Needs item 10's airplane mode.
+
+### Canonical modules
+
+`canonical-fix.ts` 178 lines / 22 tests, `canonical-chain.ts` 167 / 27.
+`canonicalSpeed` is an ALIAS of `canonicalAccuracy`. `canonicalTimestamp`
+SILENTLY TRUNCATES sub-ms but THROWS on unparseable. `previousHash: null` is
+genesis; `undefined` THROWS.
+
+**THE CANONICAL PAYLOAD IS SEVEN KEYS, A CLOSED SET.** Adding a field breaks
+verification for every existing fix. **The timeline's SIX-key `computeHash` has
+the identical problem. q32 - ONE ADR, THREE cases.**
+
+### Integration harness - 6 suites, 24 tests (not re-measured this session)
+
+`datasourceUrl` not `datasources`; `dotenv.parse` not `config`; two independent
+`_test` checks; truncation before EACH test; `assertPartialIndex` checks
+SEMANTICS; migration count from disk.
+
+```
+advisory-lock.int-spec.ts                    163   THE precedent for lock tests
+assert-schema.ts                             149
+env.ts                                        62
+fixtures.ts                                  124   createUser, createSession, createIncident, sleep, waitFor, captureError
+global-setup.ts                               54
+harness.int-spec.ts                           55
+incident-timeline-concurrency.int-spec.ts    189
+journey-session-concurrency.int-spec.ts      235
+journey-session-constraints.int-spec.ts       95
+journey-session-service.int-spec.ts          241
+prisma-test-client.ts                         62
+rows.ts                                       16
+setup-after-env.ts                            14
+```
+
+**Still NO token fixture** - which is why the tie-break has no automated test.
+
+**`assertPartialIndex` is the local precedent for what was done manually in
+production this session.** Worth noting that the production check was ad hoc; if
+schema verification becomes routine, that query belongs in a script.
+
+### Website
+
+`live-tracking.tsx` is the app's ONLY `'use client'` component. `POLL_MS = 15000`.
+**NO tests. `npm run build` IS the gate. THE PAGE HAS NEVER RENDERED.**
+
+---
+
+## 5. Settled decisions
+
+**`docs/architecture/decision-log.md`, 1001 lines, NEWEST FIRST.**
+
+**ADR INDEX - ARITHMETIC, NOT MEASURED. RE-DERIVE BEFORE USE.**
+
+The two amendment inserts this session (6 lines before old line 88, 6 lines
+before old line 910) shift everything below them. **These positions are computed
+from the pre-amendment measurements and have NOT been verified by a heading
+scan:**
+
+| ADR | Line | | ADR | Line |
+|---|---|---|---|---|
+| **012** | **9** | | 007 | **901** |
+| **011** | **144** | | 006 | **924** |
+| 010 | **308** | | 005 | **941** |
+| 009 | **440** | | 004 | **955** |
+| 008 | **779** | | 003 | **969** |
+| | | | 002 | **981** |
+| | | | 001 | **993** |
+
+**RE-DERIVE FIRST THING:**
+```powershell
+cd C:\Projects\OPA; $p='C:\Projects\OPA\docs\architecture\decision-log.md'; "probe=adrs"; "lines=$((Get-Content -LiteralPath $p).Count)"; $h=@(); $n=0; Get-Content -LiteralPath $p | ForEach-Object { $n++; if ($_ -match '^#+\s*ADR-\d+') { $h += "$n|" + $_.Trim() } }; "adr_count=$($h.Count)"; $h
+```
+Expect `lines=1001`, `adr_count=12`.
+
+**Any new ADR goes above ADR-012 at line 9.**
+
+**AMENDMENT CONVENTION - MEASURED, FOLLOW IT.** The house style is
+**`**Amended <D Month YYYY>:**`**, sentence-case body, no ISO date. Set by
+ADR-010's amendment (`**Amended 29 July 2026:**`) and followed by both
+amendments this session. **A regex for `Amendment` will NOT find them** - trap
+#96 bit exactly this way.
+
+**ADR-001-003** outbox. **ADR-004** mock geocoder never persisted. **ADR-005**
+retrigger does NOT overwrite incident lat/lng. **ADR-006** SOS dedupe via
+advisory lock. **ADR-007** mock-provider boot validator - **NOW CARRIES AN
+AMENDMENT pointing to ADR-012 and recording the hard rename.** **ADR-008**
+tracking tokens. **ADR-009** journey sessions, fixes, hash chain. **ADR-010**
+negative sentinels, tracker lifecycle, 9b scope, plus its amendment.
+**ADR-011** tracker capture policy. **ADR-012 - THE BOOT POLICY. DECIDED,
+INSTALLED, AMENDED, IMPLEMENTED AND DEPLOYED.**
+
+**ADR-012's amendment, added this session:**
+> **Amended 1 August 2026:** The emitted refusal and permitted-boot messages
+> follow the intent described in this section rather than treating the
+> illustrative quotations as exhaustive. They retain the number and names of
+> registered mock providers for operational diagnosis. This clarification does
+> not change the suppression or acknowledgement semantics of this decision.
+
+**Why it was needed, and the distinction is worth preserving:** ADR-012
+section 3 says the message "is retained in structure - it names every mock
+provider, explains the danger, and offers remedies," while the block quoted
+beneath it contains no remedies and no danger sentence. **The ADR disagreed with
+itself.** The amendment reconciles that WITHOUT deciding anything new. **The
+separate choice to keep the danger sentence and the remedy list is an
+IMPLEMENTATION decision, recorded in `13d20fc`'s commit message, not in the
+ADR** - phrasing it as a clarification would have smuggled a new decision in
+under a label saying it was not one.
+
+**ADR-007's amendment, added this session:**
+> **Amended 1 August 2026:** ADR-012 supersedes the flag name and production
+> policy recorded here. The validator throw remains fail-closed, but the hard
+> rename is `OPA_BOOT_WITH_SUPPRESSED_MOCKS`. Exact lowercase `true` explicitly
+> acknowledges booting with registered mock providers whose outputs are
+> suppressed. The old `OPA_ALLOW_MOCK_PROVIDERS` name is retired and is not read.
+
+**ADR-007's `**Status:** Implemented (`1a9c242`)` line was deliberately NOT
+edited**, following ADR-010's precedent where the amendment sits in the body and
+Status is left alone. **Open for a future session if the convention should
+change.**
+
+**THREE ADRs STILL OWED, ALL WITH CONTENT ALREADY WRITTEN:**
+- **ADR-013** - evidence architecture and the coordination boundary. Part 2
+  section 9b.9 has the decided content.
+- **ADR-014** - the ENDED-session fix contract. Part 2 section 9b.8 has the FULL
+  decided content including four refinements.
+- **ADR-015** - multi-entry platform. **Content is COMMITTED at
+  `docs/handovers/ADR-015-content.txt` but NOT INSTALLED.** Trap #95.
+
+**Write them with `Status: Open` if undecided.** **Decisions taken in advance are
+committed in advance; outcomes are committed once measured.**
+
+---
+
+## 6. Rejected - do not re-propose
+
+- `expect.objectContaining` for the create-path `incident.update` assertion.
+- Putting `journeySessionId` on the orchestrator's returned object.
+- A second API route for website polling. `router.refresh()` for tracking.
+- Falling back to a default silence threshold on bad config.
+- **Setting `OPA_ALLOW_MOCK_PROVIDERS` in Azure.** **The renamed flag
+  `OPA_BOOT_WITH_SUPPRESSED_MOCKS` IS set in Azure as of this session. The old
+  name is retired and is not read anywhere.**
+- **"Emergency coordination platform"** as positioning.
+- **A second axios instance for the fix sender.** Reuse `api`.
+- **`expo-secure-store` as the offline buffer.**
+- **Copying `heading`'s `=== -1` transform onto `speed`/`accuracy`.**
+- **Relying on the client sanitiser alone.**
+- **Starting the tracker at login.** ADR-010 D3.
+- **A `distanceInterval` on `watchPositionAsync`.** Trap #79, ADR-011 D1.
+- **Reverting `d5aca8b`.** Device-verified.
+- **A "drop only the first fix" pre-start guard.** ADR-011 D3.
+- **Rewriting committed ADR prose.** Status is a living field; amend additively.
+- **Conditional provider registration to satisfy the boot validator.**
+- **A per-provider `enabled` / `exposed` boolean.**
+- **In-app VoIP as a platform goal.**
+- **An `EmergencyTransport` abstraction.** Premature.
+- **Folding location into per-object Evidence.**
+- **AI summaries as evidence objects.**
+- **Response coordination, DEFERRED not rejected.**
+- **`android.permissions` in `app.json`.**
+- **Reimplementing `computeHash` in a spec to produce independent test vectors.**
+- **"update if different" in an installer for a permanent value.**
+- **Asserting a target file's byte count as an installer GATE.**
+- **A TRANSITIONAL alias for the renamed boot flag.** ADR-012 decided a HARD
+  rename. **EXECUTED this session; the question is closed.**
+- **Instantiating the REAL `DeviceProvider` inside the suppression spec.**
+- **A byte-count integrity gate in an installer.** Use a SHA-256 of the
+  EOL-normalised text.
+- **NEW - a DATE STRING as an installer's idempotency guard.** Tie the guard to
+  CONTENT sentinels. A date marker over-triggers and, worse, misreports an
+  unrelated same-dated edit as "this installer is spent."
+- **NEW - blocking an installer write on a condition that is not a safety
+  condition.** If violating it does not make the edit unsafe, print it and
+  proceed.
+- **NEW - removing `expectOldFlagBefore` from an installer performing a GLOBAL
+  token rename.** It was challenged as brittle and KEPT: block anchors cover only
+  the blocks they replace, so the occurrence count is the only check that the
+  file being globally rewritten is the file that was read. **Make it diagnostic
+  on failure instead of removing it.**
+- **NEW - dropping the `Refusing to start` prefix from the validator's error.**
+  Eight tests assert `toThrow(/Refusing to start/)`, ADR-012's decided text opens
+  with it, and the production stack showed it. Proposed twice; rejected twice.
+- **NEW - an Ultra 17 ADDENDUM instead of a full Ultra 18.** Ultra 17 explicitly
+  supersedes "Ultra 16 parts 1-3 AND the Ultra 16 addendum, merged not
+  appended," and records the addendum as a near-miss hazard (the commit glob said
+  `part*`, the file was named `addendum`). **One document, not two.**
+
+---
+
+## 7. Traps
+
+#1-97 stand in Ultra 12/13/15/16/17. **#95-99 restated, all live.**
+
+**#11 - A BADLY WRITTEN CONCURRENCY TEST PASSES WHETHER OR NOT THE LOCK EXISTS.**
+The defence is a CONTROL CASE.
+
+**#38 - THE BROWSER'S ` (1)` SUFFIX CARRIES NO AGE INFORMATION.** **Select by
+BYTE SIZE.** **Managed cleanly this session by changing the byte count on every
+revision, which automatically invalidated stale copies.**
+
+**#59 - DO NOT CLOSE A FLAKY BUG BY OBSERVATION.** Eight clean-ish runs of the
+worker handle leak now.
+
+**#61 - `reflect-metadata` is not global.** Bites `Test.createTestingModule`, NOT
+plain construction. **Proven again with a six-argument constructor.**
+
+**#63 - `Get-Content` MISREADS UTF-8 AS ANSI.** `decision-log.md` renders
+mojibake and IS CLEAN. Re-confirmed by `bytes - chars = 71`.
+
+**#66 - A PIPELINE MASKS THE EXIT CODE.** Run jest unpiped.
+
+**#77 - `git checkout` NORMALISES an installer-written file** to CRLF.
+
+**#85 - AN INSTALLER'S PRINTED EXPECTATIONS ARE ASSERTIONS.** The measured
+numstat is the gate.
+
+**#86 - A SCHEMA FIELD IS NOT A CAPABILITY**, and **the inverse is equally
+expensive**. **Read the mechanism before believing either.**
+
+**#93 - A CATCH BLOCK NEEDS ITS OWN CONTROL.** Print `err_type`, `err_msg`, and
+an explicit `resp_status=NONE` branch. **Used this session for the `/api/docs`
+probe.**
+
+**#94 - A SUCCESSFUL DEPLOY IS NOT A RUNNING APP.** **"Deployed", "running" and
+"serving requests" are three different claims.** **THIS SESSION ALL THREE WERE
+SEPARATELY EVIDENCED** - Actions green, `Nest application successfully started`,
+and `/api/docs` 200 from outside. **The trap is not retired; it is the reason
+three separate checks were run.**
+
+**#95 - A COMMIT SUBJECT NAMING A DECISION IS NOT EVIDENCE THE DECISION
+LANDED.** ADR-015 is still a draft content file. **The authority on what is
+installed is a heading scan of `decision-log.md`.**
+
+**#96 - A ZERO FROM A PROBE THAT COULD NOT HAVE MATCHED LOOKS IDENTICAL TO A
+ZERO FROM MISSING CONTENT.** **BIT AGAIN THIS SESSION**: a search for
+`Amendment|AMENDMENT` returned 0 against a file containing `**Amended 29 July
+2026:**`. The participle does not contain the noun. **Before believing an
+absence, ask whether the probe could have matched at all**, and pair it with an
+unconditional control that prints regardless.
+
+**#97 - KUDU SSH REQUIRES A CONTAINER THAT STAYS UP.** **RESOLVED for now** - the
+app boots, so SSH connects. **The trap remains true and will bite again the next
+time the app crash-loops**: a crash-looping app gives `WEBSOCKET SERVER
+DISCONNECTED` and no amount of retrying fixes it. Log stream still works without
+SSH and is the correct instrument for anything boot-related.
+
+98. **NEW - KUDU WEB SSH SENDS BRACKETED-PASTE ESCAPE SEQUENCES, AND BASH EATS
+    THEM.** A pasted multi-part `&&` chain arrives as
+    `^[[200~cd /home/prisma-tools && ...` and bash reports
+    `$'\E[200~cd': command not found` with **`exit=127`**. **Nothing runs, and
+    the failure looks nothing like a database or credential problem.** It bit
+    twice this session. **Fix: `printf '\e[?2004l'` first, then paste ONE line at
+    a time.** **Corollary: prefer single-line commands in SSH, including
+    `node -e` one-liners.**
+
+99. **NEW - `read -s` SILENTLY CONSUMES THE NEXT PASTED LINE.** Because the
+    prompt echoes nothing, a `read -s -p "url: " DATABASE_URL` followed
+    immediately by another pasted line takes THAT LINE as its input and returns.
+    The variable ends up holding a command, or empty. **Observed symptom: Prisma
+    `P1012 - DATABASE_URL resolved to an empty string`, which reads like a schema
+    problem and is not.** **Fix: use a single-line `export DATABASE_URL='...'`
+    instead, verify with `echo "len=${#DATABASE_URL}"`, and `history -c`
+    afterwards.**
+
+100. **NEW - A LONG COMMAND WITH A TRAILING EXPRESSION IS A DOUBLE-PASTE
+    HAZARD.** A commit command ending in `"body_lines=..."` arrived duplicated
+    and concatenated (`.Countcd C:\Projects\OPA;`), throwing a ParserError.
+    **Re-issued as the commit ALONE, with verification as a SEPARATE command, it
+    worked first time.** **Put nothing after a long command, and verify in a
+    second command so the check does not ride on the thing being checked.**
+
+---
+
+## 8. What changed in the codebase this session
+
+**`270f7d9` - two decision-log amendments. `12 0`.**
+ADR-012 gains a message-diagnostics clarification; ADR-007 gains a supersession
+note. Pure insertion, no deletions. Installed by a two-phase installer,
+replica-tested through ten cases. Gates: exact structural anchors asserted by
+count, `anchorAfter` on both, CRLF uniformity and no-BOM preserved, read-back
+proving `written === plannedContent`, phase 2 able to exit non-zero, measured
+numstat `12 0`. `989 -> 1001` lines.
+
+**`13d20fc` - the flag rename. `12 11`, `36 9`, `26 23` across three files.**
+`OPA_ALLOW_MOCK_PROVIDERS` -> `OPA_BOOT_WITH_SUPPRESSED_MOCKS`, hard, no alias.
+
+- `provider-confidence.validator.ts` - class doc comment rewritten, flag read
+  renamed (`mocksAllowed` -> `suppressedMocksAcknowledged`), error and warning
+  rewritten. **Two prose blocks asserted the old policy; one of them was pinned
+  by a test.**
+- `provider-confidence.validator.spec.ts` - six flag occurrences renamed, three
+  assertions changed, two tests added. 15 -> 17 tests.
+- `emergency-intelligence.service.ts` - doc comment rewritten to record ADR-012
+  and describe the suppression layer as load-bearing; debug log rewritten.
+- `apps/api/.env:14` - renamed by hand, untracked, same session.
+
+**Gates: `tsc --noEmit` exit 0 first try; jest 20 suites / 238 tests, up from
+236; the 22 suppression tests in `emergency-intelligence.service.spec.ts` passed
+UNEDITED; `oldflag_hits=0` against `scanned_ts=120`.**
+
+**No other production code was changed.**
+
+**Infrastructure changes, uncommitted by nature:**
+- `OPA_BOOT_WITH_SUPPRESSED_MOCKS=true` added in App Service.
+- Five migrations applied in production.
+
+---
+
+## 9. NEXT - the work order
+
+### 0. FIRST. FIVE MINUTES.
+
+**Commit these three parts to `docs/handovers/`.**
+
+```powershell
+cd C:\Projects\OPA; "probe=handover-save"; New-Item -ItemType Directory -Force -Path 'docs\handovers' | Out-Null; $src=@(Get-ChildItem -LiteralPath "$env:USERPROFILE\Downloads" -Filter 'OPA-Handover-Ultra-18-*.txt' -File | Sort-Object LastWriteTime -Descending | Group-Object { $_.Name -replace ' \(\d+\)','' } | ForEach-Object { $_.Group[0] }); "files=$($src.Count)"; $src | ForEach-Object { $_.LastWriteTime.ToString('HH:mm:ss') + '|bytes=' + $_.Length + '|' + $_.Name }; $src | ForEach-Object { $n = $_.Name -replace ' \(\d+\)',''; Copy-Item -LiteralPath $_.FullName -Destination ('docs\handovers\' + $n) -Force }; git add docs/handovers; git status --short
+```
+
+**Expect `files=3`.** Glob says **Ultra-18** and uses `-18-*` NOT `-18-part*`.
+
+### 1. RE-DERIVE THE ADR INDEX. Section 5 has the command. The positions in this
+document are ARITHMETIC, not measurement.
+
+### GAPS - things this handover does NOT know. READ BEFORE ACTING.
+
+**Ultra 17's gaps 1, 2, 3, 8 and 9 are CLOSED.** What remains:
+
+1. **`TODO.md:984, 993` and `SPRINT_ROADMAP.md:210, 396`** - four prose hits
+   naming the OLD flag, never read in context, **and now factually wrong**. Tier
+   0b item 1.
+2. **`emergency-intelligence.controller.ts` and the module file** have never been
+   read.
+3. **Whether the orchestrator tolerates FULLY NULL enrichment is UNMEASURED,
+   AND IT IS NO LONGER HYPOTHETICAL.** Production now runs with all six
+   intelligence sections suppressed. `incident-orchestrator.service.ts:86`
+   awaits `buildLocationIntelligence`. **This should be verified BEFORE
+   production serves a real SOS.** Open question 43. **Raised in priority by this
+   session.**
+4. **`Evidence.capturedAt` population is unverified.**
+5. **`npm run test:int`, mobile `tsc`, website `build` and `lint` were not
+   re-measured this session.**
+6. **The exact `REDIS_URL` value is known only as the string `placeholder`.**
+   Whether an Azure Cache for Redis instance exists at all is UNKNOWN.
+7. **Nothing has ever exercised a production write path.** No incident has been
+   created in production; no fix ingested. **The schema is present but unused.**
+
+### Tier 0 - PRODUCTION OPERATIONS
+
+**The bring-up is DONE. What remains is operational.**
+
+1. **REDIS. The primary remaining production defect.**
+   ```
+   Symptom:  ERROR [RedisService] Redis error: getaddrinfo ENOTFOUND placeholder
+             WARN  [RedisService] Redis reconnecting...     (~every 4 seconds)
+             ERROR [RedisService] Redis PING failed on startup:
+                   Reached the max retries per request limit (which is 3)
+   Cause:    REDIS_URL in App Service is the literal string "placeholder".
+             Deployment configuration, NOT application code.
+   Impact:   Permanent reconnect loop. The app boots and serves regardless -
+             Redis is not a boot dependency. Log noise, wasted cycles, and
+             whatever Redis actually backs is silently unavailable.
+   UNKNOWN:  What depends on Redis, and whether an Azure Cache for Redis
+             instance exists. BOTH MUST BE ESTABLISHED BEFORE ACTING.
+   Next:     (a) grep the API for RedisService consumers and record what breaks
+                 while it is down;
+             (b) check the Azure resource group for a Redis instance;
+             (c) either provision one and set REDIS_URL, or decide deliberately
+                 that Redis is not needed yet and make the failure quiet.
+   ```
+   **Do NOT simply provision Redis without (a).** If nothing depends on it, a
+   loud reconnect loop is a configuration smell, not an outage, and the right fix
+   may be to remove the dependency rather than feed it.
+
+2. **VERIFY THE ORCHESTRATOR TOLERATES NULL ENRICHMENT.** Gap 3 above. **Cheap
+   (~0.25h) and it now guards a live system.**
+
+3. **ADD A TEST GATE TO THE CI WORKFLOW.** Two lines, 238 tests exist, and the
+   consequence of a bad push has changed: it now reaches a LIVE API. **Raised
+   from "cheap insurance" to "the obvious next infrastructure change."**
+
+4. **DOCUMENT THE MANUAL MIGRATION PROCEDURE.** It worked; it is not written
+   down anywhere except this handover. **A private-access server cannot be
+   reached by a hosted runner** (open question 44), so manual-from-App-Service
+   is the procedure until someone stands up a self-hosted runner in the VNet.
+   **Write it into `docs/` as an operations note**, including trap #98 and #99.
+
+5. **GATE SWAGGER.** Issue 17.8 has changed status. `api/docs` is now **publicly
+   reachable with no auth**, which is how we proved the API was serving. It
+   exposes the full API surface. **Not urgent while there is no data and no
+   users, but it is now a live exposure rather than a theoretical one.**
+
+### Tier 0b - the three remaining ADRs, all with content already written
+
+1. **Prose sweep for the renamed flag** - `TODO.md` 984, 993;
+   `SPRINT_ROADMAP.md` 210, 396. **~0.25h. Do this first; it is the smallest
+   piece of the rename still outstanding.** **Do NOT touch `docs/handovers/`** -
+   rewriting handovers would falsify what earlier sessions knew.
+2. **ADR-014** - the ENDED-session fix contract. Part 2. **~0.5h. Do this before
+   9c** - it unblocks 9c and defines item 10's expected result.
+3. **ADR-013** - evidence architecture + the coordination boundary. **~0.5h.**
+4. **ADR-015** - multi-entry platform. **Content committed but NOT installed.**
+   **~0.5h.** **Note its section 7 entry criteria have MOVED**: "the production
+   API boots and serves requests" and "the schema is fully migrated" are now
+   BOTH SATISFIED. Remaining: notification providers comply with 6b, and Sprint
+   10B closed at 100%.
+
+### Tier 1 - finish Sprint 10B
+
+1. **The 9c storage dependency.** `expo-sqlite` or `expo-file-system`.
+   **Gating question: does Expo Go bundle the chosen one? A MEASUREMENT ON THE
+   DEVICE, not a debate.**
+2. **9c** - offline buffer + retry queue, 4-6h. **Must implement ADR-014's queue
+   rule and PRESERVE THE IN-ORDER FLUSH INVARIANT.**
+3. **Item 10** - end-to-end test, 2-3h. Needs 9c and a device.
+
+**Cheap and overdue: render the tracking page.** ~0.5h, never done, 54 real fixes
+exist locally. **Named with the `contactsNotified` bug as the two fixes required
+before any demo.**
+
+### Tier 2 - integrity and security
+
+12b. `create-incident-request.dto.ts` sentinel fix + q14.
+13. Application Insights audit checkbox - Azure-side, stays UNTICKED.
+14d. **Issue 17.13, the tracker lifecycle hole.** Also a correctness issue for
+   ADR-014.
+14e. **`contactsNotified` (trap #82).**
+14f. **Verify `Evidence.capturedAt` is populated on upload.**
+14g. **Capture `batteryLevel` and `isCharging`.** **DTO says 0-100.**
+14h. **`scheme` in `app.json`.** One line, not permanent.
+14i. **17.1, the post-commit timeline write.** Now a DEADLOCK question.
+14j. **The two `sos.tsx` defects from an old transcript**, unverified.
+
+### Tier 3 - documentation estate
+
+17. Correction sweep. Includes `SPRINT_ROADMAP.md:136`.
+18. The mojibake/BOM cleanup, for `TODO.md` and `SPRINT_ROADMAP.md` ONLY.
+19. File the converted business documents.
+20. The two strategy docs are orphaned - `TODO.md:228` is the natural home.
+21. A `TODO.md` audit for schema-field-as-capability claims AND for capabilities
+    recorded as absent. Start with `NotificationStatus.ACKNOWLEDGED`.
+22. **Correct Ultra 15's "two causes" and "no hash chain" claims** wherever
+    copied.
+23. **Correct the Ultra 16 addendum's A5 migration-ordering claim and A2.1's CI
+    firewall reasoning** wherever copied.
+24. **NEW - purge "production is one code change from booting" and any statement
+    that production is down**, wherever it appears in `TODO.md` or
+    `SPRINT_ROADMAP.md`.
+
+### Tier 4 - separate tracks
+
+25. **App-store enrollment. THE D-U-N-S CLOCK IS RUNNING** - part 3 section 20.
+26. **Sprint 9 gaps** - cancel path, permission/network errors. **Probably BUILT
+    AND UNTESTED rather than unbuilt.**
+27. **Picovoice** - **the user stated Picovoice is "not ready"; confirm before
+    spending time.**
+28. 10C provider procurement.
+29. **A white paper on the verifiable record** - UN-GATED.
+
+---

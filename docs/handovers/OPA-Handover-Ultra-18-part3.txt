@@ -1,0 +1,738 @@
+# OPA - Handover Ultra 18 - PART 3 of 3 (sections 15-20)
+# Continues from part 2. Paste after it.
+#
+# GENERATED: 2026-08-01 (local), at commit 13d20fc.
+
+## 15. Resume here
+
+**THE BASELINE HAS CHANGED. PRODUCTION IS RUNNING.**
+
+Ultra 17's section 15 was a production bring-up chain. That chain is complete.
+**Do not start this session by trying to get production to boot.**
+
+**Docker must be running for anything local - part 1 section 1 if the machine has
+rebooted.**
+
+```powershell
+$env:GIT_PAGER = 'cat'
+cd C:\Projects\OPA; "probe=resume"; git log --oneline -5; git status -sb
+```
+
+**A HANDOVER CANNOT CONTAIN ITS OWN SHA.** So the rule, not a SHA: **expect the
+HANDOVER COMMIT at HEAD, with `13d20fc` reachable a few commits below it.**
+`13d20fc` is the last code-affecting commit as of writing; `270f7d9` is the
+decision-log amendment. If HEAD is neither of those nor a handover commit,
+something landed that this document does not know about - **measure before
+proceeding.**
+
+**If any `.cjs` shows as untracked, delete it before staging** (trap #64). Use
+`git status --porcelain`, NOT a filesystem sweep -
+`apps/api/scripts/create-test-db.cjs` is a TRACKED project file.
+
+### FIRST FIVE MINUTES
+
+1. **Save these parts and commit them to `docs/handovers/`.** Part 1 section 9
+   item 0. Glob says **Ultra-18** and uses `-18-*` not `-18-part*`.
+2. **Re-derive the ADR index** - part 1 section 5 has the command. **The line
+   numbers in this handover are ARITHMETIC, not measurement.** Expect
+   `lines=1001`, `adr_count=12`, ADR-012 at 9.
+3. **Confirm the tree is clean and nothing else landed.**
+4. **Confirm production is still up.** Cheap, and it establishes whether anything
+   changed while nobody was looking:
+   ```powershell
+   cd C:\Projects\OPA; "probe=apidocs"; try { $r = Invoke-WebRequest -Uri 'https://opa-api-production-g4f6cxdyanfbaub0.southafricanorth-01.azurewebsites.net/api/docs' -TimeoutSec 60 -UseBasicParsing; "resp_status=" + $r.StatusCode; "bytes=" + $r.RawContentLength } catch { "resp_status=NONE"; "err_type=" + $_.Exception.GetType().Name; "err_msg=" + $_.Exception.Message }
+   ```
+   Expect `resp_status=200`, `bytes=3126`. **Cold start on Burstable is slow -
+   run it twice before concluding anything** (trap #94).
+
+### THEN, in order
+
+**Nothing here is blocked on anything else, so this ordering is by value, not by
+dependency - except items 4 and 5, which are.**
+
+1. **REDIS - investigate before provisioning.** Part 1 section 9 Tier 0 item 1.
+   **Read `TODO.md:352` first** - it is a Redis section and may already record
+   what depends on it. Then grep for `RedisService` consumers. Then check the
+   `opa-production` resource group for a Redis instance. **Only then decide
+   whether to provision, or to remove the dependency and quieten the failure.**
+   ~0.5-1h to know; unscoped to fix.
+
+2. **VERIFY THE ORCHESTRATOR TOLERATES FULLY NULL ENRICHMENT.** Open question 43.
+   **Production currently runs with all six intelligence sections suppressed, so
+   this is no longer hypothetical - it is the state a real SOS would hit.**
+   `incident-orchestrator.service.ts:86` awaits `buildLocationIntelligence`.
+   ~0.25h. **Do this before anything creates a production incident.**
+
+3. **ADD A TEST GATE TO THE CI WORKFLOW.** Two lines, 238 tests exist, and a bad
+   push now reaches a live service rather than one already down. ~0.25h.
+
+4. **ADR-014** (part 2 section 9b.9), **ADR-013** (9b.10), **ADR-015** (already
+   drafted at `docs/handovers/ADR-015-content.txt`). ~0.5h each. **ADR-014 first
+   - it unblocks 9c.**
+
+5. **The prose sweep for the renamed flag** - `TODO.md` 984, 993;
+   `SPRINT_ROADMAP.md` 210, 396. **Now factually wrong, not merely stale.**
+   ~0.25h. **Do NOT touch `docs/handovers/`.**
+
+6. **The 9c storage decision** - a MEASUREMENT ON THE DEVICE.
+7. **9c** - 4-6h. **8. Item 10** - 2-3h.
+9. **Render the tracking page.** ~0.5h, never done.
+10. **`scheme` in `app.json`.** One line.
+11. **Write the migration procedure into `docs/`.** Part 2 section 11 has it.
+12. **Decide the Swagger policy.** Issue 17.8 - now a live public endpoint.
+
+**Also cheap:** lint has one production finding
+(`incident-orchestrator.service.ts:6`, unused `TriggerMode` - **look before
+deleting; it may indicate the silent-activation mode path is under-wired**) plus
+11 mechanical `consistent-type-imports` and three others. 0.5-1h to green.
+**Do not run `eslint --fix` as a bundle.**
+
+**Nothing is blocked on code. Three ADRs are blocked on nothing but typing.
+Production is running and its remaining issues are operational, not structural.**
+
+---
+
+## 16. Scope - Sprint 10B
+
+**UNCHANGED THIS SESSION.**
+
+**DONE:** schema, state machine, append-only fixes, ingestion endpoint,
+idempotency and ordering, latest-location query, incident linkage, website live
+position, session start endpoint, mobile base URL resolution, the mobile sender
+device-verified, the newest-fix tie-break, `app.json` native config.
+
+**REMAINING: offline queue (9c), end-to-end test (10).**
+
+**Out of scope:** ETA, arrival detection, route intelligence, risk scoring,
+WebSockets, geofencing, `VERIFIED_CONTACT`/`AUTHORIZED_RESPONDER` tiers, OTP
+re-issue, responder features, location *history* access for tokens.
+
+---
+
+## 17. Known issues
+
+**Restructured this session into CLOSED / CHANGED IN NATURE / OPEN.**
+
+### CLOSED THIS SESSION
+
+**17.21 - The `AZURE_STORAGE` constructor dependency. CONFIRMED RESOLVED.**
+Both variables are present and `EvidenceModule` initialises successfully in the
+production Log stream. **Retained only so the dependency is not rediscovered as
+news.**
+
+**17.24a - Whether the migrations replay on PostgreSQL 14.23. DEMONSTRATED.**
+All eleven now applied against production's 14.23 while local is 16.14,
+including the enum-typed partial index predicate. **The concern is discharged.**
+**17.24b (the Burstable tier) remains OPEN - see below.**
+
+**The production migration gap. CLOSED.** 6 of 11 became 11 of 11. **This was
+never numbered as an issue but was the single largest production defect.**
+
+**The production boot failure. CLOSED.** ADR-012 implemented and deployed.
+
+**Trap #97's practical blockage. CLOSED FOR NOW** - SSH is reachable because the
+container stays up. **The trap itself remains true and will bite again if the app
+ever crash-loops.**
+
+### CHANGED IN NATURE - these need a DECISION, not a fix
+
+**17.8 - Swagger published unconditionally at `api/docs`.**
+`main.ts` 35-53, **no environment gate, no auth.** **PREVIOUSLY: "not urgent
+while nothing is deployed, blocking the moment anything is." THAT MOMENT HAS
+ARRIVED.** It is now a live, publicly reachable, unauthenticated description of
+the entire API surface - and it is also **exactly how external reachability was
+proven**, because it needs no auth and no database.
+
+**This is now a policy question, not a bug:** gate it behind `NODE_ENV`, put it
+behind auth, or keep it open deliberately and record why. **The preflight value
+is real and would be lost by gating it - so if it is gated, something else must
+become the liveness probe.** `/health` is the obvious candidate but it does touch
+dependencies.
+
+**17.23 - `apps/api/package.json`'s `start` script points at the wrong path.**
+`start` is `node dist/main.js`. **The compiled entry is `dist/src/main.js`** -
+**re-confirmed in this session's Log stream**, where Oryx generates
+`node dist/src/main.js` from its own manifest. **Harmless while Oryx generates
+the startup command; it breaks the moment anyone sets an explicit App Service
+startup command from the package script.** **Now more dangerous than before,
+because breaking it takes down a LIVE service.**
+
+**17.3 - The unit suite leaks a handle. NOW OBSERVABLE IN PRODUCTION.**
+> "A worker process has failed to exit gracefully... Active timers can also cause
+> this, ensure that .unref() was called on them."
+
+**EIGHT runs now: 24s clean, 32s warning, 28s warning, one earlier clean, 20.5s
+clean, 24.6s clean, 43.18s clean, and 34.0s clean this session.** **It tracks
+WALL TIME, not suite count.** **NEW: the production Log stream shows
+`NotificationDispatchWorker` ticking every 2 seconds via `@Interval(2000)` - the
+exact scheduler implicated - which is now directly observable rather than
+inferred.** **Fix the mechanism** - `.unref()` or stop the scheduler in teardown
+- **and do not close it by observation again.** Trap #59.
+
+### OPEN - NEW THIS SESSION
+
+**17.26 - NEW - `REDIS_URL` in production is the literal string `placeholder`.**
+```
+ERROR [RedisService] Redis error: getaddrinfo ENOTFOUND placeholder
+WARN  [RedisService] Redis reconnecting...          (~every 4 seconds, forever)
+ERROR [RedisService] Redis PING failed on startup: Reached the max retries per
+      request limit (which is 3).
+```
+**Deployment configuration, not application code.** The app boots and serves
+regardless - Redis is not a boot dependency, which is why this was invisible
+until production ran.
+**UNKNOWN, and both must be established before acting:** what actually depends on
+`RedisService`, and whether an Azure Cache for Redis instance exists at all.
+**Do not provision to silence the log.** **THE PRIMARY REMAINING PRODUCTION
+OPERATIONAL ISSUE.** Part 2 section 9b.2.
+
+**17.27 - NEW - no production write path has ever executed.**
+The schema is present and verified correct. **Nothing has used it.** No incident
+has been created in production, no fix ingested, no notification dispatched, no
+tracking token issued. **"Production is live" means the process serves requests;
+it does not mean any feature has run there.** **The first production incident
+will exercise, simultaneously and for the first time: the orchestrator against
+null enrichment (q43), the notification worker against a real payload column, the
+hash chain against production Postgres 14, and the advisory locks under real
+concurrency.** **Consider a deliberate, controlled first write rather than
+discovering all four at once during a real emergency.**
+
+### OPEN - CARRIED FORWARD
+
+**17.1 - Timeline events written outside the transaction. STILL OPEN.**
+The orchestrator's `$transaction` closes at **line 326**; every `recordEvent`
+fires after it, at **336, 376, 388, 408**. A crash between commit and 336 leaves
+an incremented `retriggerCount` with no event recording where the person was.
+**Fixing it is HARDER than it looks.** Making the write atomic means passing the
+caller's `tx` into `recordEvent` instead of it opening its own transaction. **But
+`recordEvent` takes an advisory lock, so an outer transaction holding a lock the
+inner one waits on becomes a DEADLOCK rather than harmless nesting.**
+**Currently verified safe: `evidence.service.ts` has no `$transaction` at all,
+and the orchestrator's four calls are all after its own commit.**
+
+**17.2 - `recordEvent` sequence race. FIXED AND PROVEN.** `96cf7de` added the
+lock; `3da28b7` proved it serialises with a control case ruling out connection
+serialisation. **The chain itself pre-existed both commits and was recorded in
+Ultra 15 as absent** - trap #86's corollary.
+
+**17.4 - SMS character-count guard missing.** 154 chars with a realistic name -
+under the 160 single-segment limit, but only just. A longer name silently doubles
+cost.
+
+**17.5 - `buildTrackingUrl` doc comment** still describes old incident-id
+behaviour. Cosmetic.
+
+**17.6 - THE NEGATIVE-SENTINEL FAMILY - HALF FIXED.**
+iOS `CLLocation` signals *invalid reading* with a negative number: **`course` is
+`-1` whenever invalid, INCLUDING a stationary device**; **`speed` is negative
+whenever invalid**; **`horizontalAccuracy` is negative when the location is
+invalid.** Android differs; the app must be correct on both.
+
+| DTO / file | Field | Status |
+|---|---|---|
+| `JourneyFixDto` | `heading` | **FIXED** `edec8c4` |
+| `JourneyFixDto` | `speed`, `accuracy` | **GAP** - `@Min(0)`, no transform |
+| `create-incident-request.dto.ts` | all three | **GAP** - client-mitigated only |
+| **`LocationRequestDto`** | **`speed`, `accuracy`** | **GAP**, `@Min(0)` no transform |
+| `journey-tracker.ts`, `sos.tsx:181` | | **SANITISED** `fa087a6` |
+
+**ADR-010 D1 commits to fixing the SOS DTO in a separate commit. STILL not done.**
+**Why `speed` matters:** `forbidNonWhitelisted` is true and validation is per
+request, so **one negative speed on one fix 400s the ENTIRE batch of up to 200.**
+Ordinary cause: a phone sitting still.
+**NOTE THE OVERLAP WITH ADR-014.** Same whole-batch failure shape.
+**STILL UNPROVEN.** Every device run has been **Android**. **An iOS device run,
+stationary, is the test that matters.**
+
+**17.7 - Lint - 16 problems: 15 errors + 1 warning (not re-measured).**
+One production finding: unused `TriggerMode`. `sms.provider.ts:28-29` needs the
+file opened. **Trap #25 is live** - the disable directive names a renamed rule and
+suppresses nothing.
+
+**17.9 - `app.json` native location configuration - FIXED in `18bdd73`.**
+**NOT PROVEN ON A DEVICE.** `tsc` cannot verify this file; the real gate is a
+custom dev build actually granting location. **Still missing: `scheme`.**
+
+**17.10 - The refresh interceptor cannot retry a concurrent 401.**
+`api.ts:37` requires `!isRefreshing`. Trap #74. **Not fixed.** **The SEQUENTIAL
+path is proven on device. The CONCURRENT case remains untested, and 9c's batch
+flushing is exactly what will hit it.**
+
+**17.11 - `recordedAt` preceding the activation fix - FIXED AND VERIFIED.**
+`d5aca8b`, verified in the database. ADR-011 D2/D3. **The general shape still
+matters:** `watchPositionAsync` replays a cached position on subscribe. **No
+re-delivery observed on Android at `distanceInterval: 0`. iOS is untested.**
+
+**17.12 - The tracker's queue is capped at 600 in memory.** On overflow the
+OLDEST fixes are dropped with a loud log. 9c replaces it. **Decide then whether
+overflow drops oldest, drops newest, or degrades the capture rate.** **At 10s
+cadence, 600 fixes is 100 minutes.**
+
+**17.13 - NOTHING STOPS THE TRACKER WHEN LEAVING THE SOS SCREEN.**
+`stopTracking()` is called from exactly one place: `_layout.tsx`, on
+`isAuthenticated` going false. **Navigating back does not stop it.** So `running`
+stays true and a second activation no-ops, keeping the FIRST session's
+`sessionId`. **CONFIRMED TWICE.** After one clean run the tracker was still
+flushing **nine minutes** past the end of the test. **LOAD-BEARING FOR ADR-014.**
+**`startTracking()` should probably detect a changed session and restart rather
+than no-op.** **Operational consequence: force-close Expo Go after every device
+test.**
+
+**17.14 - `contactsNotified` displays 0 while notifications dispatch.** Trap #82.
+**The honest fix is the same work as product idea 1.** **More dangerous with
+silent activation.**
+
+**17.15 - The tie-break has no automated test.** `893d65a` is reasoned and
+gate-checked. **But no test constructs a tied `receivedAt`.** `createIncident`
+exists in `fixtures.ts`; **what is still missing is a token fixture.**
+`receivedAt` is server-assigned inside `insertFixes`, so a genuine tie needs a
+real multi-fix batch through `recordTrackedFixes`, and reaching the public
+envelope needs an incident AND a token. **The nested select does NOT include
+`sequence`**, so such a test must assert on `recordedAt`. **Two options:** build
+the token fixture (~0.5h), or accept item 10 as the test.
+
+**17.16 - `SPRINT_ROADMAP.md:136` contradicts `:172-175` and ADR-009.**
+Line 136 lists movement/compass as 10B scope; 172-175 list it as explicitly OUT.
+**ADR-009 is right.**
+
+**17.17 - The two strategy documents are orphaned.** `TODO.md:228`
+`## Documentation status` is the natural home.
+
+**17.18 - `Evidence.encryptionKeyId` is never set.** **Evidence encryption is NOT
+implemented.** Azure Blob encrypts at rest by default, but **that is Azure
+holding the keys, not OPA-managed encryption.** **Do not claim encrypted evidence
+capture.** Trap #86.
+
+**17.19 - `Evidence.capturedAt` may never be populated.** Nullable. **If the
+upload path does not receive a capture time from the client, evidence carries
+only an UPLOAD time.** **VERIFY: read `evidence.controller.ts` and
+`dto/upload-evidence.dto.ts`.**
+
+**17.20 - The 50MB evidence cap is an OOM guard, not a policy.**
+`FileInterceptor` buffers multipart uploads in process memory. **A real
+constraint on video**, and an argument for short clips independent of platform
+restrictions. **Note production is a Burstable B1ms with 2 GiB RAM** - see 17.24b.
+
+**17.22 - `POST /journey/fixes` rejects whole batches for per-fix problems.**
+Three cases, one shape: `status === ENDED` -> Conflict before any fix is
+examined; `recordedAt` beyond future skew -> BadRequest from inside `.map()`;
+`recordedAt` before `startedAt - grace` -> same. Plus 17.6's negative `speed` via
+the global `ValidationPipe`. **In every case ONE bad fix in a batch of up to 200
+discards all 200.** **ADR-014 fixes the first; it should decide whether it covers
+the others.**
+
+**17.24b - The production Postgres is on a Burstable dev/test tier.**
+**Burstable B1ms, 1 vCore, 2 GiB.** Azure's own portal banner recommends General
+Purpose or Memory Optimized for production. **Now carrying a live application.**
+**Also relevant to cold-start latency**, which is why `/api/docs` needs two
+attempts before concluding anything.
+
+**17.25 - Two `sos.tsx` defects from a recovered transcript, UNVERIFIED.**
+- **No in-flight lock against repeated activation.** Panic-tapping or rapid "Try
+  Again" can fire multiple activations.
+- **`cancelledRef` is set but never checked**, so a cancel racing the countdown
+  reaching zero can still fire `activate()`.
+**Both come from an analysis in an earlier session's transcript, not from a read
+of the current file. Verify before acting.** The same analysis found the Sprint 9
+error paths are **built but untested** rather than unbuilt.
+
+---
+
+## 18. Open questions
+
+**CLOSED:** D1-D13, q4, q9, q10, q12, q15, q16, q19, q25 (reopens with SafeWalk).
+
+### CLOSED THIS SESSION
+
+- **Does the rotated production database password work? YES** - Prisma
+  authenticated and read `_prisma_migrations`. Ultra 17 could not answer this.
+- **Is production actually at 6 of 11 migrations? YES** - confirmed by name, then
+  brought to 11.
+- **Do the migrations replay on PostgreSQL 14.23? YES** - all five applied
+  cleanly, and the enum-typed partial index predicate survived.
+- **Is the partial index semantically correct in production? YES** - byte-
+  identical to local, `WHERE` clause and enum casts intact.
+- **Does `/home/prisma-tools` survive? YES** - `/home` is persistent App Service
+  storage, and the isolated CLI was still there at 6.19.3.
+- **Does the ADR-012 rename actually permit boot? YES** - the decided warning
+  appeared verbatim and Nest started.
+- **Is the API reachable from outside Azure? YES** - `/api/docs` 200, 3126 bytes.
+- **q44: Should `prisma migrate deploy` be added to CI? ANSWERED IN PRACTICE, NOT
+  BY DECISION.** A hosted runner cannot reach a private-access server. **Manual
+  migration from the App Service worked and is now the de facto procedure.**
+  **The decision that remains is whether to WRITE IT DOWN as the procedure (part
+  2 section 11 has the steps) or to stand up a self-hosted runner in the VNet.
+  The first is cheap and honest; the second is the real fix.**
+
+### THE THREE THAT BLOCK PROGRESS - ALL CHANGED
+
+**A. ~~The ADR-012 flag rename.~~ DONE.** Implemented, deployed, verified.
+**Replaced by: what does Redis actually do?** Until that is known, the primary
+production defect cannot be fixed responsibly. **It is a grep and a portal
+check.**
+
+**B. The 9c storage dependency.** `expo-sqlite` or `expo-file-system`. **Does
+Expo Go bundle the chosen one? A MEASUREMENT ON THE DEVICE.** If not: custom dev
+build -> EAS -> `eas.json`, which does not exist. **UNCHANGED.**
+
+**C. ADR-014 must be written before 9c.** **The DECISION is made** - part 2
+section 9b.9. **If 9c is written first, the queue's delete rule will be invented
+ad hoc and item 10 will fail in a way that looks like a 9c bug.** **UNCHANGED.**
+
+### Still open
+
+1. **Freshness thresholds.** `JOURNEY_SILENCE_SECONDS` defaults to 120.
+   `TIME_INTERVAL_MS` is 10s so twelve consecutive misses are needed before
+   SILENT - **but measured early-session intervals were 12.5-14.8s while GPS
+   settled. The real margin is narrower at the START of an incident.**
+3. **Is redaction itself recorded as an event?** The chain can now carry one.
+5. **Retention policy proper.** NDPC obligations live post-CAC. **54 local fixes
+   across two days on ONE session with no end and no retention sweep.**
+6. **Should `verify-journey-index.js` be reinstated?** Probably not.
+7. **Does `apps/website/eslint.config.mjs` have the same `no-undef` defect?**
+8. **`recv=` vs `rcv=` in the chain envelope.** Shipped as `rcv=`. Leave it.
+11. **Command Center or SafeWalk first?** **Superseded in part:** coordination is
+    deferred. **ADR-015 changes this again** - it makes the Command Centre
+    required, viewer-scope-only, once the freeze lifts. **Two of its six entry
+    criteria were met this session.**
+13. **A public batch form for the activation/retrigger wrappers?**
+14. **Tighten the SOS DTO `timestamp` to `@IsISO8601()`?** Same commit as 12b.
+    **Note `LocationRequestDto.timestamp` is `@IsString()` too.**
+17. **Should Swagger be gated?** **NOW URGENT AS A DECISION.** Section 17.8.
+18. **Does `redactSensitiveTrackingUrls` need more patterns?** Two lists, one
+    concept.
+20. **Should the website's mirrored types be generated?** One drift exists.
+21. **Should `jest.config.ts` gain `setupFiles: ['reflect-metadata']`?**
+    **Direct construction works with six- and seven-argument constructors, now
+    proven by two passing suites. The workaround is cheap enough that this may
+    not be worth changing** - but every future spec needing
+    `Test.createTestingModule` still hits trap #61.
+22. **There is no forgot-password flow.** No `PasswordReset` model. **A
+    locked-out user of an emergency app cannot raise an alarm.**
+23. **Temporal-dead-zone bug in `authStore.ts`?** **Force-logout has STILL never
+    been observed firing.** **If broken, the tracker will not stop on a failed
+    refresh - and given 17.13 that is the ONLY stop path.**
+26. **Should the tracker restart if stopped while an incident is open?**
+    **Probably wrong, definitely unreasoned.** Interacts with ADR-014.
+27. **Should `TIME_INTERVAL_MS` adapt?** 10s fixed drains battery on a long
+    incident and is too slow for a fast-moving one.
+28. **What ends a session from the client?** Nothing. **Correct today; clearly
+    wrong once SafeWalk exists.**
+29. **Should the pre-start guard compare delivery time rather than capture time?**
+    Two clocks (ADR-011 D5). **Instrument the log line first.**
+30. **Should `FLUSH_INTERVAL_MS` be a multiple of `TIME_INTERVAL_MS`?** **Leave
+    it.**
+32. **How does a hash payload evolve? THREE CASES, ONE ADR:** indoor positioning
+    fields entering the canonical FIX payload (7 keys); any new `source` value;
+    the TIMELINE's `computeHash` (6 keys). **Versioned payload plus versioned
+    verifier, or a separate related record?** **Note what the timeline spec
+    deliberately does NOT catch:** because the tests build the chain by calling
+    `recordEvent` and verify with `verifyChain`, a change to the canonical SHAPE
+    passes every test. **The shape is protected by this ADR, not by the suite.**
+33. **If activation is silent, how does the user know it worked?**
+34. **Is the app free and the record paid?**
+35. **Is the insurer channel pursued?**
+36. **Does the evidence upload path populate `capturedAt`?** A check, not a
+    decision.
+37. **Is evidence encryption built, or is the claim narrowed?**
+38. **Where does derived material live?**
+39. **Does `GPS_LOG` as an `EvidenceType` ever get used?** If never, consider
+    removing it rather than leaving an invitation to do it the weak way.
+40. **Does ADR-014's per-item policy extend to the skew checks and the negative
+    sentinels?** **Recommendation: yes, one policy.**
+41. **Who writes the "device went dark" event?** The chain is ready and nothing
+    produces it. **The strongest remaining claim in the white paper and a small,
+    well-defined piece of work.**
+42. **Should `recordEvent` accept an optional caller `tx`?** **A deadlock
+    question rather than a nesting question.**
+43. **Does the orchestrator tolerate FULLY NULL enrichment?** **PROMOTED - THIS
+    IS NOW AN OPERATIONAL QUESTION, NOT AN ARCHITECTURAL ONE.** ADR-015 section 4
+    asserts source-agnosticism; ADR-012 section 4 flags it as unmeasured.
+    `incident-orchestrator.service.ts:86` awaits `buildLocationIntelligence`.
+    **Production is running RIGHT NOW with all six sections suppressed. Verify
+    before anything creates a production incident.**
+45. **Should production move off the Burstable tier before a pilot?** **The
+    PostgreSQL 14-vs-16 half of this question is CLOSED** - the migrations
+    replay. The tier question remains.
+46. **Is `apps/api/package.json`'s `start` script worth fixing?** Section 17.23.
+    **More dangerous now that it would break a live service.**
+
+### NEW
+
+47. **What actually depends on Redis?** **The first thing to establish in the new
+    session.** Read `TODO.md:352`, then grep for `RedisService` consumers.
+    **Until this is answered, "fix Redis" is not a well-formed task.**
+48. **Does an Azure Cache for Redis instance exist in `opa-production`?** Portal
+    check. If not, `REDIS_URL=placeholder` may be a deliberate stub rather than a
+    misconfiguration - which changes the fix entirely.
+49. **Should the first production write be deliberate and controlled?** Issue
+    17.27. **The first real incident would exercise four untested-in-production
+    paths at once**, during an emergency. **A controlled `SYSTEM_TEST` activation
+    against production, with the Log stream open, would isolate them.** **Decide
+    this before a pilot, not during one.**
+50. **Should schema verification be scripted rather than ad hoc?** The
+    integration harness has `assertPartialIndex`; production got a hand-written
+    query. **If migrations become routine, that query belongs in a checked-in
+    script run after every `migrate deploy`.**
+
+---
+
+## 19. Estimate
+
+**Sprint 10B: ~88%. ~30 hours spent, 6-9 remaining.** UNCHANGED - this session's
+work was production.
+
+| # | Work | Est. | 10B at completion |
+|---|---|---|---|
+| - | ADR-014 install | 0.5h | ~88% |
+| - | 9c storage measurement on device | 0.25h | ~88% |
+| - | Render the tracking page | 0.5h | ~89% |
+| 9c | Offline buffer + retry queue | 4-6h | ~93% |
+| 10 | End-to-end test | 2-3h | **100%** |
+
+**PRODUCTION - the bring-up track is COMPLETE.** Ultra 17 estimated ~3h to a live
+production API. **Actual: roughly one session, including two installers, ten and
+seven replica test cases, and four round trips lost to Kudu paste behaviour.**
+
+**What remains on the production track:**
+
+| Work | Est. |
+|---|---|
+| Establish what depends on Redis (read `TODO.md:352`, grep, portal check) | 0.5-1h |
+| Fix or deliberately stub Redis | unscoped until the above |
+| Verify orchestrator null-enrichment tolerance (q43) | 0.25h |
+| Add a test gate to the CI workflow | 0.25h |
+| Write the migration procedure into `docs/` | 0.5h |
+| Decide and implement the Swagger policy | 0.25-0.5h |
+| A controlled first production write (q49) | 0.5h |
+| **TOTAL to a production system with no known operational defects** | **~2.5-3.5h** |
+
+**Tier 0b, all content already written: ADR-013 (0.5h), ADR-014 (0.5h),
+ADR-015 (0.5h), flag prose sweep (0.25h).**
+
+Other tiers: SOS DTO sentinel fix + q14 (0.5h, **reconsider under ADR-014**);
+lint to green (0.5-1h); tracker lifecycle 17.13 (0.5-1h, **now interacts with
+ADR-014**); `contactsNotified` (0.5h, or fold into product idea 1);
+battery/network telemetry capture (0.5h, free, **DTO says 0-100**); `scheme`
+(5 min); the canonical-payload evolution ADR (0.5h to decide, three cases); token
+fixture for the tie-break (0.5h); a "device went dark" event writer (unscoped,
+small); estate tidying and the BOM cleanup (1-2h); `capturedAt` and encryption
+checks (0.5h); 10C procurement carries no estimate.
+
+**Sprint 10 OVERALL has no honest percentage** because 10C is unestimated.
+10A+10B together are roughly 90%. **Sprint 11 is server-side substantially built
+but client-side unstarted.**
+
+### Item 10 - what it must show
+
+SOS tap -> incident created -> activation fix on the chain -> tracked fixes
+ingested -> page shows `RECEIVING` -> airplane mode -> `SILENT` after 120s ->
+reconnect -> buffered fixes flush -> back to `RECEIVING`.
+
+**That last transition is the single best proof the whole slice works**, and the
+first thing that will exercise **D5's in-batch DEDUPE**. **In-batch CHAINING has
+run** (~20 two-fix batches); **DEDUPE has not.**
+
+**Item 10 inherits five things:**
+- **The tracking page has never rendered**, and 54 real fixes exist locally.
+- **The tie-break is untested** - item 10 is its real test.
+- **ADR-014 must be installed first**, or the reconnect step fails on a 409 and
+  looks like a 9c bug.
+- **Airplane mode is the recoverable dark state** because GNSS is receive-only.
+  **The strongest honest answer to the kidnapper objection.**
+- **17.13 means the client may still hold the ENDED session's id at reconnect**,
+  so item 10 also exercises ADR-014's reacquire path whether or not it was
+  designed to.
+
+---
+
+## 20. Website + app-store enrollment - THE CLOCK IS RUNNING
+
+**UNCHANGED THIS SESSION.** No website or enrollment work was done.
+
+Gates iOS/Android distribution. **Mostly elapsed time** - active work ~5-8 hours,
+calendar 1-3 weeks. **The D-U-N-S number is in hand. Start the slow parts now.**
+
+### Identity facts - verify against the D&B record before typing into any form
+
+| Field | Value |
+|---|---|
+| Legal entity | **OPA Technologies Limited** |
+| CAC | **RC 9697630** |
+| D-U-N-S | **352294843** |
+| Phone | **+234 906 653 8149** (E.164 `+2349066538149`) |
+| Registered office | 18 Prince Hakeem Balogun Street, Glory Land Estate, Isheri-Olofin, Lagos State, Nigeria |
+| Domain | **opasafety.com** (live, Next.js 16.2.10 on Vercel) |
+| Bundle / package | **`com.opasafety.app`** (PERMANENT) |
+| App display name | **OPA** |
+| Expo slug | **opa** |
+
+**The single most common cause of failed organization verification is a name or
+address mismatch** between CAC, D&B, the website and the enrollment form.
+
+### Updating the D&B record
+
+- **The free self-service tools are documented as being for U.S.-based,
+  non-public companies.** A Nigerian entity likely needs the regional **Data
+  Update** route. **Verify the current Nigerian route on dnb.com directly.**
+- **Whoever submits must be an owner, director or officer.**
+- **Priority of fields: legal name, HQ address, phone.** Then set the website
+  field to `opasafety.com`.
+
+### The problem found earlier - not cosmetic
+
+A verifier reported *"No active website matches the exact domain
+opasafety.com"*. **That claim was FALSE - the site is live and serves fully.**
+Diagnosed as **zero search-engine and third-party footprint**: verifiers that
+*search* rather than *fetch* conclude it does not exist.
+
+**So Search Console and LinkedIn/Crunchbase work is not tidying - it is the
+actual blocker for organisation verification.**
+
+**Near-collision:** `opeansafety.com` is a real Nigerian safety-training company.
+
+### DONE (`e22cacf`)
+
+`robots.ts` and `sitemap.ts`, confirmed generated at build.
+
+**`robots.ts` disallows `/i/` and `/api/`, and neither is in the sitemap. THIS IS
+A SECURITY PROPERTY, NOT TIDINESS.** A crawled token URL would publish a live
+incident location into a search index. **Never add `/i/` or `/api/` "for
+completeness".**
+
+**One of FOUR defences for the same secret:** the request logger's
+`redactSensitivePath`; the exception filter's `redactSensitivePath` +
+`redactSensitiveTrackingUrls`; the tracking controller's `X-Robots-Tag`; and
+`robots.ts`. **Two of these were observed working in production this session** -
+the request logger emits its JSON line for every request, and the exception
+filter handles Azure's probe 404s.
+
+### OUTSTANDING - three guarded edits, each needs the file pasted first
+
+1. **`src/app/contact/page.tsx`** - add registered office and phone.
+2. **`src/components/layout/Footer.tsx`** - add a short legal-entity line.
+3. **`src/app/layout.tsx`** - add JSON-LD `Organization` with `legalName`, `url`,
+   `email`, `telephone` (`+2349066538149`), `identifier` (RC 9697630), `address`.
+   **This is what automated verifiers parse.**
+
+### THEN, in order
+
+1. **Deploy.** Commit is not deploy.
+2. **Verify the live output:**
+   ```powershell
+   curl.exe -s https://opasafety.com/robots.txt
+   curl.exe -s https://opasafety.com/sitemap.xml | Select-String -Pattern '/i/'
+   ```
+   First must show `Disallow: /i/` and `Disallow: /api/`. **Second must print
+   NOTHING.** **Caution: a failed fetch also prints nothing** (trap #51). **And
+   `curl` alone is an alias for `Invoke-WebRequest`** (trap #92) - use `curl.exe`.
+3. **Google Search Console and Bing Webmaster Tools.** **Days to weeks - start
+   now.**
+4. **Update the D&B record** for 352294843.
+5. **LinkedIn company page and Crunchbase entry.**
+
+### Enrollment - do not start until D&B activation completes
+
+**Both programs verify against the D&B RECORD, not the number.**
+
+**Apple Developer Program (~$99/yr).** Enroll from the Apple Developer app on an
+iPhone/iPad/Mac with biometrics - **same device throughout**. Enter your **legal**
+name. Entity type **Organization**. Supply D-U-N-S, HQ address, an **answerable**
+phone, and the website. **Then take the verification call.**
+
+**Google Play (~$25 one-time).** Choose **Organization**, not Personal -
+organization accounts also avoid the closed-testing gate. Link a Google Payments
+profile (**required even for a free app**). Verify contact email, contact phone,
+developer email and developer phone by OTP. Have the CAC certificate ready.
+
+**Sequence: website edits -> deploy -> Search Console -> wait out D&B activation
+-> Google first -> Apple second.**
+
+### Traps for this track
+
+- **Commit is not deploy. Deploy is not running. Running is not serving a real
+  request.** Traps #94 and #97. **All three of the first were separately proven
+  for the API this session; the fourth has never happened.**
+- **A live site is not a discoverable site.**
+- **`apps/website` has no tests** - gate on `npm run build`.
+- **`middleware` is deprecated in Next 16.2 in favour of `proxy`.**
+- **The phone must be answered Mon-Fri 9:00-5:00 WAT.** Apple calls it.
+- **A store build is a custom dev build.** **`app.json` is correct for one but
+  has NOT been proven on a device. `eas.json` still does not exist.**
+
+---
+
+# STATE TRANSITION FROM ULTRA 17
+
+**What is no longer true. Read this before trusting any memory of Ultra 17.**
+
+| Ultra 17 said | Ultra 18 measures |
+|---|---|
+| Production crash-loops on the provider validator's throw | **The API boots and serves. `Nest application successfully started`.** |
+| Production is ONE code change from booting | **That change is `13d20fc`, deployed in Actions run #77.** |
+| The database is 6 of 11 migrations | **11 of 11. `Database schema is up to date!`** |
+| The rotated password is UNVERIFIED | **Verified - Prisma authenticated against production.** |
+| There is no route to the production database | **Still true from outside. From the App Service, SSH now works because the container stays up.** |
+| Migrations cannot be applied while the app is down | **Still true, and no longer relevant - the app is up.** |
+| The migrations are believed to replay on PostgreSQL 14 | **Demonstrated. Including the enum-typed partial index.** |
+| Swagger at `api/docs` is "not urgent while nothing is deployed" | **Live, public, unauthenticated. Now a policy decision.** |
+| `OPA_ALLOW_MOCK_PROVIDERS` is the boot flag | **Retired. `OPA_BOOT_WITH_SUPPRESSED_MOCKS` is read; the old name appears nowhere in `apps/api/src`.** |
+| `provider-confidence.validator.ts` has never been read | **Read in full. Ultra 17 gaps 1 and 2 closed.** |
+| Unit suite is 20 suites / 236 tests | **20 suites / 238 tests.** |
+| `decision-log.md` is 990 lines with 12 ADRs | **1001 lines, still 12 ADRs, two of them now amended.** |
+| ADR-012's precondition is discharged but unimplemented | **Implemented, deployed, and its warning observed in production.** |
+| The three blockers are the flag rename, 9c storage, and ADR-014 | **The rename is done. Redis dependency analysis replaces it.** |
+
+**What is NEW and was in no previous handover:**
+- **`REDIS_URL` in production is the literal string `placeholder`.** Primary
+  remaining operational issue.
+- **No production write path has ever executed.** Issue 17.27.
+- **Kudu web SSH mangles pasted multi-command sequences** (traps #98, #99).
+- **The amendment convention in `decision-log.md` is `**Amended <date>:**`**, and
+  a search for "Amendment" will not find it.
+- **ADR-012 section 3 contradicts itself** - the prose promises remedies the
+  quoted block omits. Amended, not rewritten.
+
+**What has NOT changed:** Sprint 10B is still ~88%. The tracking page has still
+never rendered. 9c and item 10 are still the remaining 10B work. ADR-013, 014 and
+015 are still owed with their content already written. The mobile app is
+untouched. The website is untouched.
+
+---
+
+# END OF HANDOVER ULTRA 18
+
+**Three parts, generated at `13d20fc` - clean tree, pushed.**
+
+**Supersedes Ultra 2-17 including the Ultra 16 addendum.**
+
+**State at handover:**
+- Clean tree, pushed. **Three commits this session** (`3609876`, `270f7d9`,
+  `13d20fc`).
+- **PRODUCTION IS LIVE.** Boots, serves internally and externally, schema 11/11,
+  partial index verified.
+- **ADR-012 fully discharged** - decided, installed, amended, implemented,
+  deployed, and its warning observed in the production Log stream.
+- **Unit 20 suites / 238 tests.** Integration 6/24 (not re-measured).
+- **Redis is the primary remaining production operational issue.**
+- **No production write path has ever executed.**
+- **Sprint 10B ~88%** - unchanged.
+- **THREE ADRs still owed**, all with content written: 013, 014, 015.
+
+**Three new traps:**
+- **#98** - Kudu web SSH bracketed paste turns a multi-command line into
+  `exit=127`, which looks nothing like a database problem.
+- **#99** - `read -s` silently consumes the next pasted line, producing Prisma
+  `P1012` that reads like a schema fault.
+- **#100** - a long command with a trailing expression is a double-paste hazard;
+  verify in a SEPARATE command.
+
+**First actions in the new session:**
+1. **Save all three parts** and commit to `docs/handovers/` (glob: `Ultra-18-*`).
+2. `git log --oneline -5; git status -sb` - expect a handover commit at HEAD with
+   `13d20fc` below it.
+3. **Re-derive the ADR index** - the line numbers here are ARITHMETIC.
+4. **Confirm production is still up** - `/api/docs`, expect 200.
+5. **Establish what depends on Redis** before touching any configuration.
+6. **Verify the orchestrator tolerates fully null enrichment** (q43) before
+   anything creates a production incident.

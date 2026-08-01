@@ -6,6 +6,135 @@ not just the outcome.
 
 ---
 
+## ADR-012 - Mock emergency-intelligence providers may be registered in production when their outputs are provably suppressed, acknowledged by an explicitly named boot flag
+
+**Status: Accepted. Implementation to follow in a separate commit.**
+
+### 1. Context
+
+`ProviderConfidenceValidator.onModuleInit()` counts registered providers
+reporting `MOCK` confidence and throws unless `OPA_ALLOW_MOCK_PROVIDERS ===
+'true'` (strict equality). Six of seven providers are mock-backed. The flag is
+set in `apps/api/.env` for local development and is absent from Azure App
+Service.
+
+**Measured in Azure Log stream, 2026-08-01 UTC:** the production API initialises
+every module, maps every route, and then dies at the validator, repeating on
+each container restart. The full message names all six providers. This is the
+sole reason production does not serve requests, confirmed by observation rather
+than inference.
+
+**This is not a defect.** The gate is opt-in and deliberately not derived from
+`NODE_ENV`, so forgetting it fails closed. A mock geocoder returning a plausible
+invented address could send a responder to the wrong place.
+
+**Two remedies were evaluated and eliminated.** Response-level gating does not
+satisfy the validator, which is a boot-time check on registered providers rather
+than on response shape. Conditional registration does not work either: the six
+providers are concrete constructor parameters, and
+`incident-orchestrator.service.ts:86` awaits `buildLocationIntelligence` on the
+SOS activation path, so the module cannot be unregistered without breaking
+dependency resolution.
+
+### 2. Decision
+
+**The production state OPA requires is a single mode: mock providers registered,
+their outputs suppressed, boot permitted.** The existing mechanism already
+produces that state. Its name does not describe it.
+
+`OPA_ALLOW_MOCK_PROVIDERS` reads as permission to expose fabricated data, which
+is why three documents ban setting it in Azure. The flag is therefore **renamed
+to `OPA_BOOT_WITH_SUPPRESSED_MOCKS`**, and the throw is retained unchanged in
+mechanism.
+
+Three states, exhaustive:
+
+| Condition | Behaviour |
+|---|---|
+| No MOCK providers registered | Boot normally |
+| MOCK providers + `OPA_BOOT_WITH_SUPPRESSED_MOCKS === 'true'` | Boot with a warning; mock-backed outputs remain null |
+| MOCK providers + flag absent, or any other value | Refuse to boot |
+
+**The strict `=== 'true'` comparison is retained.** `TRUE`, `True`, `1`, `yes`,
+`on`, `false` and `''` all continue to fail. The existing test pinning this
+behaviour applies unchanged to the new name.
+
+**The rename is hard, not transitional.** `OPA_ALLOW_MOCK_PROVIDERS` stops being
+read. The old name has one known consumer, is absent from Azure, and an
+unrecognised variable fails closed - which is the correct outcome. A
+compatibility branch would be carried permanently for a variable nobody else
+sets.
+
+### 3. Message text
+
+**Warning, on permitted boot:**
+
+> Mock emergency-intelligence providers are registered. Current response
+> handling suppresses their outputs from user and responder responses. Boot
+> permitted because OPA_BOOT_WITH_SUPPRESSED_MOCKS=true.
+
+**Error, on refusal:** the existing message is retained in structure - it names
+every mock provider, explains the danger, and offers remedies rather than
+guessing. Only the flag name and the acknowledgement framing change:
+
+> Refusing to start because mock emergency-intelligence providers are registered
+> ({list}). The current response builder is designed to suppress their outputs,
+> but boot requires explicit acknowledgement with
+> OPA_BOOT_WITH_SUPPRESSED_MOCKS=true.
+
+**The provider list must stay in the message.** It is what makes the failure
+actionable.
+
+### 4. The suppression contract
+
+The flag acknowledges suppressed-provider operation. It does not permit
+fabricated data to surface. The following hold:
+
+- Emergency intelligence is **optional enrichment, not a prerequisite for
+  incident creation**. Raw device coordinates and the incident record remain
+  available regardless.
+- Each mock-backed enrichment section is omitted **independently, per provider**.
+- The orchestrator **must continue to handle null enrichment**. Its current
+  tolerance of a fully-null return is asserted in ADR-015 section 4 but has not
+  been measured; it should be verified before ADR-015's freeze lifts.
+- A suppressed mock provider must **never** surface fabricated data through any
+  response path.
+- **Before this flag is enabled in production, tests must pin the suppression
+  behaviour for all currently registered mock providers. Every future provider
+  must add equivalent coverage before it may coexist with this mode.**
+  Suppression is presently six hand-written checks in a 148-line method, not a
+  loop, and no test currently pins that every mock-backed section is omitted.
+  **This ADR does not claim that coverage exists today; it makes it a
+  precondition of setting the flag.** Deferring it to the next provider added
+  would leave the present six untested while the retained throw guards against
+  drift it cannot detect.
+
+**This shares its rationale with ADR-015 section 6b:** a provider that reports
+what it did not do corrupts a record whose value is that it can be verified.
+Suppression and honest failure reporting are the same principle applied to
+enrichment and to delivery.
+
+### 5. Consequences
+
+- Production boots once the flag is set under its new name in App Service.
+  **Production boot unblocks the remaining ADR-015 entry criteria, including
+  applying pending database migrations through the approved private-network
+  deployment path.** The current migration count and the access mechanism are
+  deployment facts and belong in the handover, not here.
+- `apps/api/.env` must be updated **in the same implementation session** as the
+  code change, before the next local `start:dev`. **The file remains untracked
+  and must not be committed.**
+- The three documents banning `OPA_ALLOW_MOCK_PROVIDERS` in Azure need their
+  prose updated to the new name, retaining the reasoning.
+- Setting the flag remains a deliberate, recorded act. It is not
+  `NODE_ENV`-derived and must not become so.
+
+### 6. What this does not decide
+
+Replacing the mock providers with real ones is procurement (Sprint 10C) and is
+unaffected. This ADR permits boot with suppression; it does not make suppressed
+enrichment a permanent acceptable state.
+
 ## ADR-011 - Tracker capture policy: cached replay, stationary silence,
 and the two clocks
 **Date:** 29 July 2026

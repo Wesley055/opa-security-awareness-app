@@ -85,6 +85,12 @@ guessing. Only the flag name and the acknowledgement framing change:
 **The provider list must stay in the message.** It is what makes the failure
 actionable.
 
+**Amended 1 August 2026:** The emitted refusal and permitted-boot messages
+follow the intent described in this section rather than treating the
+illustrative quotations as exhaustive. They retain the number and names of
+registered mock providers for operational diagnosis. This clarification does
+not change the suppression or acknowledgement semantics of this decision.
+
 ### 4. The suppression contract
 
 The flag acknowledges suppressed-provider operation. It does not permit
@@ -906,6 +912,12 @@ standard. Forgetting the flag fails CLOSED.
 
 Rejected: relying on provider naming conventions (easy to overlook, easy to
 break) and on `NODE_ENV` (misses staging/UAT).
+
+**Amended 1 August 2026:** ADR-012 supersedes the flag name and production
+policy recorded here. The validator throw remains fail-closed, but the hard
+rename is `OPA_BOOT_WITH_SUPPRESSED_MOCKS`. Exact lowercase `true` explicitly
+acknowledges booting with registered mock providers whose outputs are
+suppressed. The old `OPA_ALLOW_MOCK_PROVIDERS` name is retired and is not read.
 
 ---
 

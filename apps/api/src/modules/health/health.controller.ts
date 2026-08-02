@@ -16,7 +16,11 @@ export class HealthController {
   }
 
   @Get('ready')
-  @ApiOperation({ summary: 'Readiness check - are dependencies (database) reachable?' })
+  @ApiOperation({
+    summary: 'Readiness check - are required dependencies reachable?',
+    description:
+      'Optional dependencies are reported but do not fail the check.',
+  })
   async getReadiness(@Res({ passthrough: true }) res: Response) {
     const result = await this.healthService.getReadiness();
     res.status(

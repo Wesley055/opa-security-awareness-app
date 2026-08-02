@@ -38,12 +38,7 @@ describe('HealthService', () => {
     expect(result.status).toBe('degraded');
   });
 
-  // ADR-016 D5: graduation is atomic with the capability that needs Redis.
-  // This case cannot be written until a required-dependency set exists, and
-  // it is listed rather than omitted so the requirement stays visible in the
-  // suite instead of living only in the ADR. The implementation commit must
-  // replace this with a real passing test.
-  it.todo(
-    'reports Redis as down and readiness as degraded when Redis is required but unavailable',
-  );
+  // ADR-016 D5 graduation is tested in readiness-policy.spec.ts, where the
+  // required set is an explicit production input rather than a runtime toggle.
+  // The first test above pins HealthService's default production behaviour.
 });

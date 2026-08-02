@@ -1,6 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { RedisService } from '../../redis/redis.service';
+import {
+  dependencyState,
+  readinessVerdict,
+  type RedisReadinessState,
+} from './readiness-policy';
 
 export interface HealthStatus {
   status: 'ok';
@@ -10,7 +15,7 @@ export interface HealthStatus {
 export interface ReadinessStatus {
   status: 'ok' | 'degraded';
   database: 'up' | 'down';
-  redis: 'up' | 'down';
+  redis: RedisReadinessState;
   timestamp: string;
 }
 
@@ -37,14 +42,14 @@ export class HealthService {
       database = 'down';
     }
 
-    const redis: 'up' | 'down' = (await this.redis.isHealthy())
-      ? 'up'
-      : 'down';
-
-    const allUp = database === 'up' && redis === 'up';
+    const redisReachable = await this.redis.isHealthy();
+    const redis = dependencyState('redis', redisReachable);
 
     return {
-      status: allUp ? 'ok' : 'degraded',
+      status: readinessVerdict({
+        database: database === 'up',
+        redis: redisReachable,
+      }),
       database,
       redis,
       timestamp: new Date().toISOString(),

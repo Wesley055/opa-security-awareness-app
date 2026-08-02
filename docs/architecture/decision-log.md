@@ -6,6 +6,215 @@ not just the outcome.
 
 ---
 
+## ADR-016 - The readiness verdict covers current required capabilities: an optional dependency reports optional-down and does not fail the probe
+
+**Status: Accepted. Implementation to follow in a separate commit.**
+
+### 1. Context
+
+`/health/ready` returns HTTP 503 in production today, with a healthy API and a
+healthy database. Measured 1 August 2026:
+
+```
+HTTP/1.1 503 Service Unavailable
+Content-Type: application/json; charset=utf-8
+X-Powered-By: Express
+{"status":"degraded","database":"up","redis":"down","timestamp":"..."}
+```
+
+The response is Nest's, not Azure's - it carries `X-Powered-By: Express` and an
+`x-correlation-id`, so it passed through `RequestLoggingMiddleware` and out of
+`HealthController`. The chain is `health.service.ts:44`
+(`allUp = database === 'up' && redis === 'up'`) -> `:47`
+(`status: allUp ? 'ok' : 'degraded'`) -> `health.controller.ts:22-24`
+(`status === 'ok' ? 200 : 503`).
+
+Redis is unavailable by design. `REDIS_URL` in App Service is
+`redis://placeholder:6379` - a syntactically valid Redis URL whose hostname is
+intentionally unresolved while Redis-backed features remain deferred.
+`docs/TODO.md:355-357` records that deferral explicitly, and `:370-375` records
+that the work which would use Redis - the dispatch pass - is unstarted, with
+`incidents.service.ts:32`'s `redisDispatchPrepared: true` named as a placeholder.
+
+A sweep of `apps/api/src` (`scanned_ts=120`) found 38 Redis references. Twenty-
+eight are Redis defining itself, two are the placeholder metadata flag and its
+spec, one is the env schema, and the remainder are `health.service.ts`.
+**`RedisService.getClient()` has no callers anywhere in the tree.** Redis backs
+no production capability.
+
+**There is no current App Service availability impact from this readiness
+mismatch.** Azure App Service
+Health check is enabled and its probe path is `/health`, which is pure liveness -
+`getLiveness()` touches no dependency and carries `@HttpCode(HttpStatus.OK)`.
+Unhealthy instance removal is configured with a ten-minute load-balancing
+threshold. `/health/ready` still returns 503, and Redis continues to generate
+reconnect noise in the log stream.
+
+So this is not an outage. It is a semantic mismatch: Redis is optional in
+behaviour and mandatory in the readiness calculation. The risk is that the
+mismatch is invisible until the probe path changes, at which point Azure would
+remove and replace a healthy instance on a permanent 503, presenting as an
+application crash.
+
+Two further observations shaped this decision.
+
+**The route's Swagger summary is inconsistent with the implementation.**
+`health.controller.ts:19` describes readiness in terms of database reachability,
+while the service also makes Redis readiness-critical. This establishes an
+inconsistency between prose and code, not what was originally intended - the same
+defect class as the provider-validator comments corrected in `13d20fc`.
+
+**A three-state reality is being flattened to a binary at the boundary.**
+`ReadinessStatus` already distinguishes `ok` from `degraded` and reports each
+dependency independently. The service reduces the dependency state to a binary
+verdict, and the controller maps that verdict to HTTP 200 or 503.
+
+### 2. Decision
+
+**D1. Liveness and readiness remain separate routes with separate meanings.**
+`/health` answers whether the process is running and must not touch a
+dependency. `/health/ready` answers whether the application can serve its
+**current required capabilities**. The readiness verdict is not a fold over every
+reported dependency. The response may report optional infrastructure without
+treating its absence as inability to serve required capabilities.
+
+**D2. An optional dependency does not fail readiness.** A dependency that is not
+part of the current required-dependency set is reported as unavailable without
+forcing a non-ok status or a 503.
+
+**D3. The reported vocabulary is widened to make optionality explicit.**
+
+```ts
+redis: 'up' | 'down' | 'optional-down';
+```
+
+- `up` - reachable.
+- `down` - **required** and unavailable.
+- `optional-down` - unavailable, and the application can still serve its current
+  required capabilities.
+
+The intended production shape today:
+
+```json
+{ "status": "ok", "database": "up", "redis": "optional-down", "timestamp": "..." }
+```
+
+And once Redis is required but unavailable:
+
+```json
+{ "status": "degraded", "database": "up", "redis": "down", "timestamp": "..." }
+```
+
+Widening the union rather than leaving readers to infer optionality from
+`status: 'ok'` alongside `redis: 'down'` is deliberate. That inference is exactly
+the ambiguity that produced this investigation, and reproducing it one level down
+would be perverse. `/health/ready` has no known consumers, so this is the
+cheapest moment the contract will ever be explicit.
+
+**D4. Required-versus-optional is an explicit application policy. It is never
+inferred from configuration.** In particular, optionality must not be derived
+from whether `REDIS_URL` is set, absent, or well-formed. The current URL exists,
+is valid, and is intentionally stubbed - configuration presence carries no
+information about whether a capability depends on it.
+
+The initial policy is declared in application code as a reviewed
+required-dependency set. Redis is not in that set. It must not be controlled by
+the mere presence of `REDIS_URL` or by an independently editable environment
+toggle. A variable such as `REDIS_REQUIRED=false` would recreate exactly the
+policy drift this decision exists to prevent, by making a reviewed architectural
+statement editable from a portal blade.
+
+**D5. Graduation is explicit and atomic.** Redis moves from `optional-down`
+semantics to required `down` semantics **only in the same change set that
+deploys a production capability whose correctness depends on it**. That change
+set must include: provisioning, configuration, failure-path tests, the readiness
+update, and operational verification. A dependency must not become required by
+drift.
+
+**D6. The Azure probe path is pinned to `/health`.** `/health/ready` must not be
+used as the App Service health probe until every readiness-critical dependency is
+provisioned and verified. Because the portal is migrating this setting ("Health
+check is being moved to Configuration"), the pin is recorded in three places, not
+one: this ADR, the deployment section of `docs/TODO.md`, and a permanent
+production-operations runbook. A handover is not one of the three - handovers are
+historical records and are superseded. The Azure setting should also be checked
+during deployment verification.
+
+### 3. Consequences
+
+`/health/ready` returns 200 in production with Redis stubbed, and its body still
+reports Redis as unavailable - the information is preserved, the verdict changes.
+
+`ReadinessStatus.redis` becomes a three-value union. This is a contract change on
+a public endpoint, taken now precisely because it is free now.
+
+The readiness calculation gains a notion of which dependencies are required.
+That list is a deliberate, reviewable statement rather than a fold over whatever
+services happen to be injected.
+
+`health.controller.ts:19`'s summary should be corrected to describe what the
+route actually decides.
+
+### 4. What this does not decide
+
+**This ADR governs readiness only.** It does not decide how partial availability
+is handled elsewhere in the system, and there are at least two other instances of
+the same shape: `POST /journey/fixes` rejects a whole batch of up to 200 for one
+bad fix (issue 17.22, and ADR-014 fixes one case of it), and
+`emergency-intelligence.service.ts:50` orchestrates six providers under
+`Promise.all`, which is fail-fast. Open question 40 already recommends one policy
+for the ingestion family. Whether a single degradation policy should span all
+three is left open deliberately - the enrichment half is blocked on Sprint 10C
+and should not be decided at the same time as this.
+
+### 5. Rejected
+
+**Provisioning Azure Cache for Redis to satisfy the check.** Paying for a cache
+so that a health endpoint stops complaining about a service nothing uses inverts
+the reasoning. `docs/TODO.md:355-357` already defers provisioning until a feature
+needs it, and that deferral is correct.
+
+**Leaving `redis: 'up' | 'down'` and letting `status: 'ok'` imply optionality.**
+Recreates the ambiguity this ADR exists to remove. Rejected under D3.
+
+**Inferring optionality from configuration** - treating an unset or placeholder
+`REDIS_URL` as "optional". Rejected under D4. It would also make the policy
+silently reversible by an environment-variable edit.
+
+**Removing Redis from the readiness body entirely.** The information is useful;
+the verdict was the problem. Reporting a dependency and failing on it are
+separable, and this ADR separates them.
+
+**Removing `RedisService` and its module.** The dispatch pass is planned work
+(`docs/TODO.md:370-375`), the foundation is committed at `44ff065`, and deleting
+it would have to be undone. Redis is deferred, not abandoned.
+
+**Pointing the Azure probe at `/health/ready` "because it is more thorough."**
+Rejected under D6. With unhealthy instance removal configured at a ten-minute
+threshold, a permanent 503 would cause Azure to replace a healthy container, and
+it would present as an application crash.
+
+### 6. Implementation notes
+
+The implementation changes `health.service.ts` so that the required-dependency
+set is explicit and `allUp` is computed over that set rather than over every
+reported dependency. Redis continues to be probed and reported.
+
+Tests should pin, at minimum: Redis optional and down yields `status: 'ok'`,
+`redis: 'optional-down'`, and HTTP 200; **Redis marked required and unavailable
+yields `status: 'degraded'`, `redis: 'down'`, and HTTP 503**; database down
+yields `status: 'degraded'` and HTTP 503 regardless of Redis; and the
+controller's status-code mapping is asserted separately from the service's
+verdict, since the defect recorded here lived in the join between them.
+
+The graduation case is listed even though Redis is optional today. Without it,
+D3's three-state vocabulary is pinned by tests while D5's graduation behaviour
+exists only as prose - and a policy that exists only in prose is vulnerable to
+drifting away from implementation, which is exactly the inconsistency recorded in
+section 1.
+
+---
+
 ## ADR-012 - Mock emergency-intelligence providers may be registered in production when their outputs are provably suppressed, acknowledged by an explicitly named boot flag
 
 **Status: Accepted. Implementation to follow in a separate commit.**

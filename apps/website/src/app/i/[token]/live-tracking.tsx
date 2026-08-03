@@ -24,16 +24,31 @@ function formatTime(iso: string): string {
   });
 }
 
+/**
+ * One place for the age wording, so the alert age and the location age
+ * cannot drift apart. Floor, never round: on an emergency page, rounding
+ * up would claim more elapsed time than has actually passed. Clamped at
+ * zero because a device clock slightly ahead of the server must not
+ * render a negative age.
+ */
+function humanAge(minutes: number): string {
+  const safeMinutes = Math.max(0, Math.floor(minutes));
+  if (safeMinutes < 1) return 'less than a minute ago';
+  if (safeMinutes === 1) return '1 minute ago';
+  if (safeMinutes < 60) return `${safeMinutes} minutes ago`;
+  const hours = Math.floor(safeMinutes / 60);
+  if (hours < 24) {
+    return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+  }
+  const days = Math.floor(hours / 24);
+  return days === 1 ? '1 day ago' : `${days} days ago`;
+}
+
 // Was Date.now(). Server-rendered that WAS the server clock; client-side
 // it would silently become the browser clock. The caller passes
 // serverTime so the reading stays server-relative.
 function relativeMinutes(iso: string, now: number): string {
-  const minutes = Math.round((now - new Date(iso).getTime()) / 60000);
-  if (minutes < 1) return 'less than a minute ago';
-  if (minutes === 1) return '1 minute ago';
-  if (minutes < 60) return `${minutes} minutes ago`;
-  const hours = Math.round(minutes / 60);
-  return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+  return humanAge((now - new Date(iso).getTime()) / 60000);
 }
 
 function Shell({
@@ -257,11 +272,7 @@ function ageSeconds(serverTime: string, iso: string): number {
 
 function describeAge(seconds: number): string {
   if (seconds < 60) return 'moments ago';
-  const minutes = Math.round(seconds / 60);
-  if (minutes === 1) return '1 minute ago';
-  if (minutes < 60) return `${minutes} minutes ago`;
-  const hours = Math.round(minutes / 60);
-  return hours === 1 ? '1 hour ago' : `${hours} hours ago`;
+  return humanAge(seconds / 60);
 }
 
 function StreamStatus({
@@ -304,8 +315,8 @@ function StreamStatus({
   if (tracking.state === 'SILENT') {
     return (
       <p className="mt-3 rounded-md border-l-2 border-line bg-base px-4 py-3 text-xs text-muted">
-        No new location for {age}. The phone may have lost signal, battery or
-        connection. This does not mean the alert has ended.
+        Last location captured {age}. The phone may have lost signal, battery
+        or connection. This does not mean the alert has ended.
       </p>
     );
   }

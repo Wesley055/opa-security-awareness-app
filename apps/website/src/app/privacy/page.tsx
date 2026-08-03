@@ -15,18 +15,8 @@ export default function PrivacyPage() {
         Your privacy.
       </h1>
       <p className="mt-4 font-mono text-xs text-muted-2">
-        Last updated: {new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+        Last updated: August 3, 2026
       </p>
-
-      <div className="mt-8 rounded-lg border border-line bg-panel p-6">
-        <p className="text-sm text-muted">
-          This policy describes what OPA actually collects and how it is
-          actually used, based on the platform as built today. It is a
-          draft prepared for legal review and has not yet been finalized
-          by a qualified attorney. Do not treat this page as a completed
-          legal instrument until that review is complete.
-        </p>
-      </div>
 
       <div className="mt-12 space-y-10">
         <section>
@@ -35,9 +25,9 @@ export default function PrivacyPage() {
           </h2>
           <p className="mt-3 text-muted">
             OPA Technologies Limited (&ldquo;OPA,&rdquo; &ldquo;we,&rdquo;
-            &ldquo;us&rdquo;) operates the OPA emergency coordination
-            platform. This policy applies to the OPA mobile application,
-            the OPA website, and related services.
+            &ldquo;us&rdquo;) operates the OPA personal safety and live
+            incident awareness platform. This policy applies to the OPA
+            mobile application, the OPA website, and related services.
           </p>
         </section>
 

@@ -157,10 +157,13 @@ export default function ContactPage() {
         <h2 className="font-display text-2xl font-bold text-ink">
           OPA Technologies Limited
         </h2>
+        <p className="mt-2 font-mono text-xs text-muted-2">
+          RC 9697630 &middot; Registered in Nigeria
+        </p>
         <p className="mt-4 max-w-3xl text-muted">
-          Building trusted emergency coordination technology for
-          individuals, families, and hospitals. Nigeria first, global by
-          design.
+          Building trusted personal safety and live incident awareness
+          technology for individuals, families, organisations, and
+          partners. Nigeria first, global by design.
         </p>
 
         <div className="mt-8 grid gap-8 sm:grid-cols-2">

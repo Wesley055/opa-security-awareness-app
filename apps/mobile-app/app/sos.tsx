@@ -21,7 +21,7 @@ type ScreenState = 'countdown' | 'activating' | 'activated' | 'error';
 
 interface ActivationResult {
   status: string;
-  contactsNotified?: number;
+  notifications?: { queued: number; dispatched: boolean };
   incident?: { id: string } | null;
 }
 
@@ -295,7 +295,11 @@ export default function SosScreen() {
       <Text style={styles.activatedIcon}>OPA</Text>
       <Text style={styles.activatedTitle}>Emergency Activated</Text>
       <Text style={styles.activatedDetail}>
-        {result?.contactsNotified ?? 0} contact{result?.contactsNotified === 1 ? '' : 's'} notified
+        {result?.notifications?.queued === undefined
+          ? 'Emergency activated'
+          : result.notifications.queued === 0
+            ? 'Your existing emergency alert remains active'
+            : `${result.notifications.queued} alert${result.notifications.queued === 1 ? '' : 's'} queued`}
       </Text>
       {result?.incident?.id ? (
         <Text style={styles.incidentId}>Incident ID: {result.incident.id}</Text>

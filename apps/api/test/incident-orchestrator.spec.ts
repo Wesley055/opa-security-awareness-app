@@ -56,7 +56,10 @@ describe('IncidentOrchestratorController (integration)', () => {
   it('POST /incident-orchestrator/activate', async () => {
     orchestratorService.createCoordinatedIncident.mockResolvedValue({
       status: 'INCIDENT_ACTIVATED',
-      contactsNotified: 1,
+      notifications: {
+        queued: 1,
+        dispatched: false,
+      },
     });
 
     await request(app.getHttpServer())

@@ -16,9 +16,14 @@ export function Footer() {
             Terms
           </Link>
         </div>
-        <p className="font-mono text-xs text-muted-2">
-          OPA Emergency Intelligence &amp; Coordination Platform. Nigeria first, global by design.
-        </p>
+        <div className="flex flex-col items-center gap-1 sm:items-end">
+          <p className="font-mono text-xs text-muted-2">
+            Personal Safety &amp; Live Incident Awareness. Nigeria first, global by design.
+          </p>
+          <p className="font-mono text-xs text-muted-2">
+            &copy; 2026 OPA Technologies Limited &middot; RC 9697630
+          </p>
+        </div>
       </div>
     </footer>
   );

@@ -1,0 +1,633 @@
+# OPA - Handover Ultra 21 - DELTA
+# GENERATED: 2026-08-03, at commit ac25ae0 on main. PUSHED and DEPLOYED.
+#
+# THIS IS A DELTA. It supersedes Ultra 20 ONLY where stated.
+# Ultra 20 parts 1-3 remain AUTHORITATIVE for everything not listed here:
+#   docs/handovers/OPA-Handover-Ultra-20-part{1,2,3}.txt
+# The phase plan in Ultra 20 part 3 section 15 is UNCHANGED.
+#
+# LABELS USED THROUGHOUT:
+#   [M] MEASURED      - observed this session, with the instrument named
+#   [D] DECISION      - a choice taken, with its reason
+#   [R] RECOMMENDATION- judgement, not fact. Disagree freely.
+#   [I] INHERITED     - carried from Ultra 20, NOT re-measured this session
+
+
+================================================================================
+## RESUME HERE - READ THIS FIRST, THE REST IS RATIONALE
+================================================================================
+
+HEAD                main @ ac25ae0, porcelain=0, level with origin/main   [M]
+BRANCHES            main and origin/main ONLY. ci-test-gate deleted.      [M]
+SUITE               23 suites / 249 tests, 0 failed, jest_exit=0          [M]
+WEBSITE BUILD       exit 0, TypeScript passed, 13 routes                  [M]
+PRODUCTION          /health/ready 200, Content-Length: 94                 [M]
+CI                  gate + deploy guard LIVE on main. Runs #84/#85/#86    [M]
+
+SPRINT STATUS
+  10A   Tracking page RENDERS. Last open 10A unknown CLOSED.              [M]
+  10B   ~88%. UNCHANGED. NO 10B WORK WAS TOUCHED THIS SESSION.            [M]
+        Remaining: 9c offline queue (4-6h), item 10 end-to-end (2-3h).
+  10C   ~0%. Hard blocker. LARGER than recorded - no network layer.       [I]
+  11    Server-side substantially built, client-side unstarted.           [I]
+
+NEXT THREE ACTIONS
+  1. Commit this file to docs/handovers/ (glob: Ultra-21-*).
+  2. Phase 2 remainder: fix contactsNotified. MOBILE-APP work in sos.tsx,
+     NOT website. Decide cheap-vs-real BEFORE starting (section 10).
+  3. Phase 3: write the ADR-016 D6 production-operations runbook.
+
+BLOCKING ADRs - all four have content already written, blocked on typing
+  ADR-014  BLOCKS 9c. It IS 9c's queue delete rule.
+  ADR-017  BLOCKS 10C. Must precede any HTTP client in the providers.
+  ADR-013  evidence architecture + coordination boundary.
+  ADR-015  content committed at docs/handovers/ADR-015-content.txt,
+           NOT INSTALLED. Fifth session running.
+
+OUTSTANDING ISSUES OPENED THIS SESSION
+  21.1  GitHub Actions Node 20 runtime deprecation (warning today).
+  21.4  Website footer contradicts the tracking page. NOT cosmetic.
+  21.6  Next 16.2 middleware -> proxy deprecation.
+  Trap #109  base64url tokens do not survive terminal copy. CLICK, never copy.
+
+STILL TRUE AND STILL UNCOMFORTABLE
+  No production write path has ever executed. The deployed app has run
+  SELECT 1, which is a READ. Issue 17.27 and q49 stand.                   [I]
+
+
+================================================================================
+## 0. EXECUTIVE SUMMARY
+================================================================================
+
+Two things closed this session, one of them four sessions old.
+
+1. PHASE 1 IS FULLY CLOSED. [M] The CI test gate and deploy branch guard are on
+   main and proven by four Actions runs. The temporary branch is deleted from
+   both local and origin.
+
+2. THE TRACKING PAGE RENDERS. [M] Confirmed on screen, end to end, against
+   local Postgres. This had never been done in FOUR prior sessions. The cause
+   was never a code defect - see section 3.
+
+Three presentation defects found and fixed in the same file, verified on
+screen, committed at ac25ae0 and deployed. [M]
+
+NO SPRINT 10B WORK WAS TOUCHED. 10B REMAINS ~88%. 9c and item 10 are still the
+remaining 10B work. [M]
+
+[D] The user confirmed this session that the eight-phase order in Ultra 20 part
+3 section 15 STANDS UNCHANGED, and that any reordering must be called for
+explicitly rather than assumed. This handover records the plan in that order.
+
+
+================================================================================
+## 1. STATE AT HANDOVER - ALL MEASURED THIS SESSION
+================================================================================
+
+BRANCH: main. HEAD ac25ae0. porcelain=0. Level with origin/main.
+ci-test-gate DELETED locally and on origin (deleted tip was 646cf09).
+Only main and remotes/origin/main exist. [M]
+
+Commits added this session:
+  faa2e62  CI: gate deployment on tsc and the unit suite, restrict deploy to main
+  5c87c09  Docs: handover Ultra 20 (3 parts, 2101 insertions)
+  ac25ae0  Website: roll long durations into days, correct SILENT wording
+
+| Gate                          | Result                                  |
+|-------------------------------|-----------------------------------------|
+| npx jest (apps/api)           | 23 suites / 249 tests, 0 failed, exit 0 |
+| apps/website npm run build    | exit 0, TypeScript passed, 13 routes    |
+| /health/ready production      | 200, Content-Length: 94                 |
+| Actions runs #84, #85, #86    | all green, build AND deploy ran on each |
+
+PRODUCTION VERIFIED ON THE WIRE at 07:13 UTC: [M]
+{"status":"ok","database":"up","redis":"optional-down","timestamp":"..."}
+X-Powered-By: Express and x-correlation-id present - Nest's own response, not
+an Azure front-end. "database":"up" is a live SELECT 1 inside the process.
+
+NOT re-measured this session: npm run test:int, mobile tsc, npm run lint.
+THE MOBILE APP WAS NOT TOUCHED AT ALL.
+
+
+================================================================================
+## 2. PHASE 1 - CLOSED. THE FULL EVIDENCE CHAIN.
+================================================================================
+
+Ultra 20's body recorded the cherry-pick as the one unfinished action. It had
+already landed at faa2e62 before this session began. [M] Verified from git log,
+not inherited from either version of the handover text.
+
+FOUR RUNS, EACH PROVING SOMETHING DIFFERENT: [M]
+
+| Run | Branch / SHA          | Proves                                     |
+|-----|-----------------------|--------------------------------------------|
+| #82 | ci-test-gate/e17eab7  | gate runs; deploy SKIPPED off main         |
+| #83 | ci-test-gate/51c03ca  | gate BLOCKS - red on a failing test        |
+| #84 | main/faa2e62          | gate runs AND deploy RUNS on main          |
+| #86 | main/ac25ae0          | third consecutive gated deploy, green      |
+
+#84 was the missing piece: the difference between "the guard blocks
+everything" and "the guard blocks the right things."
+
+NOTE ON READING RUN STATUS - this cost time this session. A SKIPPED job does
+NOT turn a run red. A green check at run level does NOT prove deploy ran. Open
+the run and read the JOB LIST. Duration is a hint, not proof: #84 at 4m 59s vs
+#82 at 1m 39s was consistent with deploy having run, but only the job list
+settled it.
+
+ALSO NOTE: a commit touching only apps/website produces an API binary
+functionally identical to its parent, so a healthy /health/ready afterwards
+proves NOTHING about whether that run deployed. The Actions job list is the
+only instrument for that question.
+
+ISSUES 20.1 AND 20.2 ARE CLOSED. [M] The gate is on main; the deploy branch
+guard is live, so workflow_dispatch from a non-main branch can no longer reach
+production.
+
+
+================================================================================
+## 3. THE TRACKING PAGE - CLOSED AFTER FOUR SESSIONS
+================================================================================
+
+IT RENDERS. [M] Screenshot-confirmed, full page, correct data, correct state.
+
+THE CHAIN PROVEN END TO END:
+Postgres -> Nest -> SHA-256 token resolve -> Next server render -> hydration
+-> client poll via same-origin bridge -> DOM.
+
+THERE WAS NEVER A CODE DEFECT. [M] Three independent mundane causes each
+produced an IDENTICAL "This link is not valid" screen:
+
+1. EVERY EXISTING TOKEN HAD EXPIRED. Initial validity is 6 HOURS
+   (INITIAL_VALIDITY_MS). The tokens in the database expired 24-30 July.
+   renewEligibleTokens only touches tokens within an hour of expiry, and
+   nothing was running to drive it.
+
+2. A LITERAL PLACEHOLDER WAS OPENED. The website log shows
+   GET /i/%3Ctoken%3E - a URL-encoded "<token>" pasted from documentation.
+   It 200s and renders InvalidLink, correctly.
+
+3. TRAP #109 - A base64url TOKEN DOES NOT SURVIVE TERMINAL COPY RELIABLY.
+   A freshly minted, correct-length (22 char) token pasted from the console
+   produced NOT_FOUND. The SAME procedure with the URL CTRL+CLICKED rendered
+   the page immediately. DO NOT COPY TOKENS. CLICK THEM.
+
+WHY THIS WAS HARD TO DIAGNOSE: REVOKED and NOT_FOUND render identically by
+design, so an attacker cannot learn whether an incident ever existed. That
+same property makes three different failures look like one.
+
+WHAT WAS RULED OUT ALONG THE WAY, each cheap, each a real candidate: [M]
+  website build          clean, exit 0
+  OPA_API_URL            set, http://localhost:3000, correct
+  port collision         API 3000 via .env; website PINNED to 3001 in BOTH
+                         the dev and start scripts. Already solved by someone.
+  Docker                 opa-postgres and opa-redis, up 4 days, healthy
+  token existence        rows present
+  token expiry           this was cause 1
+  API reachability       404 in 153ms - Postgres answered, so not a timeout
+  token length           22 chars, correct
+
+[R] The lesson worth carrying: when a four-session-old symptom finally gets
+attention, budget the time for elimination rather than for a fix. Seven
+hypotheses were tested and cleared before the actual causes surfaced, and none
+of the clearing work was wasted - each closed a real unknown.
+
+
+================================================================================
+## 4. HOW TO REPRODUCE THE RENDER
+================================================================================
+
+PREREQUISITES, ALL VERIFIED THIS SESSION: [M]
+- Docker running: opa-postgres and opa-redis (trap #27 - containers, NOT
+  Windows services)
+- API on port 3000:      cd apps/api;     npm run start:dev
+- Website on port 3001:  cd apps/website; npm run dev
+- A LIVE, UNREVOKED token for an incident
+
+THE API MUST BE UP BEFORE THE PAGE LOADS. The Next server render calls
+fetchTracking immediately. If the API is down you get UNAVAILABLE, which is the
+page working correctly against a dead backend - a false negative that looks
+like a page bug.
+
+MINTING A TOKEN. There is NO HTTP endpoint that issues one. [M] Fifteen
+controllers were swept; none issues a tracking token. Issuance happens only
+inside the orchestrator's incident-creation transaction, which is the correct
+posture for a capability token. To mint for an EXISTING incident, construct the
+service directly:
+
+  require('reflect-metadata');
+  require('ts-node/register');
+  const { PrismaService } = require('./src/prisma/prisma.service');
+  const { IncidentAccessTokenService } =
+    require('./src/modules/incident-access/incident-access-token.service');
+  const prisma = new PrismaService();
+  await prisma.$connect();
+  const svc = new IncidentAccessTokenService(prisma);
+  const { token, record } = await svc.issue(INCIDENT_ID);
+  // print 'http://localhost:3001/i/' + token ON ITS OWN BARE LINE
+  // then CTRL+CLICK it. Do not select it. Do not copy it.
+  await prisma.$disconnect();
+
+Save as .cjs in apps/api, run once, DELETE IT (trap #64).
+
+[M] ts-node/register and reflect-metadata both resolve from the workspace root
+node_modules, so TypeScript source runs directly and no dist freshness question
+arises.
+
+[D] Direct construction is preferred over NestFactory.createApplicationContext.
+The latter boots schedulers, the dispatch worker, Redis and provider lifecycle
+hooks for a task that needs one service and a Prisma client. Direct
+construction also matches the project's own spec convention -
+incident-access-token.service.spec.ts:24 does exactly this.
+
+[M] PrismaService is a plain PrismaClient subclass with $connect on
+onModuleInit and $disconnect on onModuleDestroy. No constructor arguments.
+
+TOKEN FACTS WORTH KNOWING BEFORE MINTING: [M]
+- issue(incidentId, scope?, tx?) - only incidentId is required. Scope defaults
+  to FAMILY_BEARER.
+- INITIAL_VALIDITY_MS = 6 hours. ABSOLUTE_LIFETIME_MS = 7 days, set AT
+  ISSUANCE, so a fresh token on an old incident gets a full ceiling.
+- issue() does NOT revoke prior tokens. It only creates.
+- The raw token is returned ONCE and never persisted. Only the SHA-256 hash is
+  stored (ADR-008). Lost means re-issued; it cannot be recovered.
+
+
+================================================================================
+## 5. THE THREE PRESENTATION DEFECTS - FIXED AT ac25ae0
+================================================================================
+
+All three were in apps/website/src/app/i/[token]/live-tracking.tsx.
+
+21.2 - DOUBLED PHRASING. [M] The SILENT message read "No new location for 105
+hours ago". describeAge() already returns a relative phrase; the template
+prepended "for". NOW: "Last location captured {age}."
+
+[D] The wording change is not cosmetic. "captured" matches the field the age is
+computed from - incident.location.capturedAt, the DEVICE clock. "received"
+would have implied tracking.lastFixReceivedAt, the SERVER clock. The file is
+emphatic elsewhere about never conflating the two.
+
+21.3 - NO DAY ROLLOVER. [M] relativeMinutes() and describeAge() duplicated the
+same thresholds and both stopped at hours, so a five-day-old fix rendered as
+"110 hours ago".
+
+21.5 - NEGATIVE AGE UNGUARDED in relativeMinutes(). Found by review, NEVER
+OBSERVED. A device clock slightly ahead of serverTime would have rendered
+"-1 minutes ago". describeAge was already protected via ageSeconds' Math.max.
+
+THE FIX: one humanAge(minutes) helper. Both functions delegate to it.
+- [D] Math.floor throughout, NOT Math.round. On an emergency page, rounding UP
+  claims more elapsed time than has actually passed. 110 hours now reads
+  "4 days ago"; Math.round would have said 5.
+- [D] Math.max(0, ...) clamps negative ages.
+- ageSeconds() is UNTOUCHED - its Math.round(ms / 1000) rounds seconds, not
+  buckets, and is correct.
+- The clock-source comment stays attached to relativeMinutes().
+
+VERIFIED ON SCREEN: [M] "Alert triggered 4 days ago" and "Last location
+captured 4 days ago."
+
+FILE PINNED AFTER THE EDIT: [M]
+  bytes=12472  lines=389  LF, no BOM, trailing newline YES
+  sha256=d1b1fa85416950e98879671399c591c636b3fe4599e686563437e33419e644df
+  (before: 12123 bytes / 378 lines /
+   sha256=fe9001202ad97614bf95bd2697cf4cf4add49e2984d4e83c7526c130b6691299)
+
+[D] METHOD NOTE - AN INSTALLER WAS DELIBERATELY NOT USED, and the reasoning
+matters more than the outcome. The first installer draft PRINTED the whole-file
+result SHA without COMPARING it to a reviewed value. That is trap #108 exactly:
+an observation dressed as a gate. The expected SHA could not be honestly
+computed either - it would have been derived from a reconstruction of the file,
+so it would only have proved the installer agreed with itself.
+
+The gate used instead was `git diff -U5` read by the user, with
+`git checkout -- <path>` as free recovery on a committed file with a clean
+tree. FOR A SMALL EDIT TO A CLEAN TRACKED FILE, A HUMAN READING THE ACTUAL DIFF
+IS THE STRONGER GATE. The installer discipline remains correct for its own
+case: edits where a bad write is expensive to detect or undo.
+
+
+================================================================================
+## 6. THE TOKEN LEAK AND ITS REVOCATION - HANDLED
+================================================================================
+
+[M] A live token reached the session transcript via the website's own request
+log, which prints the full path including the token. Four tokens for incident
+7fdd3312 were revoked via svc.revokeAllForIncident(). Measured: revoked=4, and
+a follow-up audit confirmed all four rows now carry revokedAt.
+
+TWO CORRECTIONS TO CLAIMS MADE DURING THE SESSION, recorded because inherited
+wrong facts are this project's recurring failure mode:
+
+1. revokeAllForIncident filters on `revokedAt: null`, NOT on expiry. It revokes
+   EXPIRED-but-unrevoked tokens too. "Revoke every live token" is a misleading
+   description of it. There is also a per-record revoke(tokenId).
+
+2. The six tokens in the first audit query belonged to SIX DIFFERENT
+   INCIDENTS, one each - not six on one incident. Only cc79f8d4 was on
+   7fdd3312.
+
+TOKEN HANDLING RULES, EARNED THIS SESSION:
+- NEVER paste a token into a chat, document or transcript.
+- The WEBSITE's dev log prints the full path INCLUDING the token. Treat that
+  log as sensitive; do not paste it wholesale.
+- The API's request-logging middleware DOES redact it - verified on live
+  traffic this session: path:"/public/tracking/<redacted>". [M] First
+  observation of that redaction outside a spec file.
+- Diagnose tokens by LENGTH, HASH PREFIX and STATUS CODE, never by value.
+
+
+================================================================================
+## 7. NEW FINDINGS - MEASURED, NOT INHERITED
+================================================================================
+
+7.1 THE SCHEMA LINKS INCIDENT -> SESSION, NOT THE REVERSE. [M]
+JourneySession has NO incidentId; it links to userId. Incident carries
+journeySessionId. So a session belongs to a PERSON and can outlive or precede
+any emergency; an incident points at the session it adopted. This is a hard FK,
+not a time-window judgement. It is also why PublicIncidentSnapshot.tracking is
+OPTIONAL - a null journeySessionId means no stream, which is every incident
+raised before Sprint 10B step 4.
+
+7.2 ISSUE 17.13'S FINGERPRINT IS VISIBLE IN THE DATA. [M]
+FOUR incidents share ONE journey session - identical fix counts, identical
+lastFixReceivedAt. Nothing stops the tracker when leaving the SOS screen, so
+`running` stays true and a second activation no-ops while KEEPING THE FIRST
+SESSION'S ID. Four activations on 29 July all adopted the same session. This is
+direct database evidence for a defect previously confirmed only on device.
+
+7.3 THE FIX COUNT IS 298, NOT 54. [M] Ultra 20's number is stale. Session
+status ACTIVE with lastFixReceivedAt on 29 July - the session NEVER ENDED
+(17.13 again), it just stopped receiving. That is why the page renders SILENT
+rather than ENDED.
+
+7.4 REDIS CONNECTS FINE LOCALLY. [M] "Redis connection established / client
+ready / PING -> PONG" on boot. The ENOTFOUND reconnect noise is
+PRODUCTION-ONLY, where REDIS_URL is redis://placeholder:6379.
+
+7.5 THE LIVE BOOT FLAG IS OPA_BOOT_WITH_SUPPRESSED_MOCKS. [M] Read from the
+boot log. Six mock intelligence providers register and boot is permitted by
+this flag. This is the renamed flag the prose sweep is owed for
+(TODO.md 984, 993; SPRINT_ROADMAP.md 210, 396).
+
+7.6 contactsNotified DOES NOT APPEAR ON THE TRACKING PAGE AT ALL. [M]
+Confirmed by rendering the full page top to bottom. It is a MOBILE-APP defect
+in sos.tsx. Fixing it requires the app running, not the website. This resolves
+an ambiguity carried across several sessions.
+
+7.7 THE POLLING LOOP IS PROVEN ON LIVE TRAFFIC. [M] Ten consecutive 200s on
+/api/tracking/<token> at ~15s intervals, 89-148ms each. POLL_MS = 15000
+confirmed, same-origin bridge holding, the inFlight guard preventing pile-ups.
+First call 3.9s was cold compile. The browser never sees the API hostname and
+no cross-origin request ever carries the token.
+
+7.8 batteryLevel AND isCharging COLUMNS EXIST on every fix row. [M] Product
+idea 3 confirmed: the storage is built and hashed and the app has never
+captured either. Free telemetry, unclaimed.
+
+7.9 ISSUE 17.3 FIRED AGAIN - NINTH OCCURRENCE, WITH A TIMING CORRELATION. [M]
+"A worker process has failed to exit gracefully" appeared on a 48.7s run,
+having NOT appeared on a 27.7s run earlier the SAME session on the SAME code.
+That is consistent with it tracking WALL TIME, and with @Interval(2000) on
+NotificationDispatchWorker being the mechanism. DO NOT CLOSE BY OBSERVATION
+(trap #59). --forceExit in CI remains REJECTED - it would mask the very thing
+that needs fixing.
+
+7.10 THE TRACKING PAGE'S CLIENT IS ALREADY READY FOR ITEM 10. [M] In
+live-tracking.tsx, SILENT is deliberately NOT terminal, and neither is
+UNAVAILABLE - so a phone regaining signal brings the page back to life without
+a reload. That is precisely the airplane-mode transition item 10 must
+demonstrate. The client half of that test is already built.
+
+
+================================================================================
+## 8. NEW ISSUES
+================================================================================
+
+21.1 - GITHUB ACTIONS RUNTIME DEPRECATION. [M] Both build and deploy warn that
+Node.js 20 is deprecated and actions/checkout and actions/download-artifact are
+being FORCED onto Node 24. This is the ACTION runtime, unrelated to
+setup-node 22.x, so the suite's Node version is unaffected. A warning today, a
+broken pipeline the day GitHub stops forcing. Cheap version bump, separate
+commit. Reproduced on runs #84, #85 and #86.
+
+21.4 - THE WEBSITE FOOTER CONTRADICTS THE PAGE ABOVE IT. [M] The footer reads
+"OPA Emergency Intelligence & Coordination Platform." Two inches above it the
+tracking page states that OPA does NOT contact police, hospitals or emergency
+services. "Coordination Platform" is REJECTED positioning (Ultra 20 section 14)
+and claims exactly what ADR-013's viewer-never-console boundary declines.
+[R] NOT COSMETIC - it is the estate-email problem in miniature: claiming a
+capability that is not built, on a page a family member reads during an
+emergency.
+Footer.tsx ALSO owes a legal-entity line for D&B organisation verification
+(Ultra 20 section 20). TWO REASONS, ONE FILE, ONE EDIT.
+READ THE FILE BEFORE EDITING - the exact current wording is UNMEASURED.
+
+21.6 - middleware IS DEPRECATED IN NEXT 16.2 in favour of proxy. [M] Warns on
+every build and every dev start. The build output already labels the route
+"Proxy (Middleware)", so it still works. Same class as 21.1: fine until it
+isn't.
+
+TRAP #109 - A base64url TOKEN DOES NOT SURVIVE TERMINAL COPY RELIABLY. See
+section 3. Print URLs on a bare line and CTRL+CLICK them.
+
+TRAP #104 FIRED AGAIN, in a new costume. [M] A Read-Host prompt left waiting
+swallowed the NEXT pasted command as its input, hashed it, and reported a
+confident-looking `hash_matches=f`. The comparison never involved the token at
+all. A harness can produce a false result that looks like evidence; check that
+the harness actually received what you think it did.
+
+
+================================================================================
+## 9. CORRECTIONS TO ULTRA 20
+================================================================================
+
+| Ultra 20 said                          | Ultra 21 measures                  |
+|----------------------------------------|------------------------------------|
+| Cherry-pick of e17eab7 is unfinished   | DONE at faa2e62 before this        |
+|                                        | session. Verified from git log.    |
+| 54 real fixes exist locally            | 298 fixes, on ONE session shared   |
+|                                        | by FOUR incidents.                 |
+| (implied) contactsNotified may be a    | It does NOT appear on the tracking |
+| tracking-page concern                  | page. MOBILE APP ONLY.             |
+| Redis reconnect noise                  | PRODUCTION-ONLY. Redis connects    |
+|                                        | cleanly against local Docker.      |
+| The tracking page has never rendered   | IT RENDERS. Closed.                |
+
+[R] Ultra 20's own durable lesson applied again this session and should be
+restated: when a handover explains WHY something is urgent, check the
+MECHANISM, not just the conclusion. Reading the actual files changed the plan
+repeatedly - the schema's FK direction, the absence of an issuance endpoint,
+and contactsNotified's true location were all different from what a reasonable
+reading of the prior handover implied.
+
+
+================================================================================
+## 10. WHAT IS STILL OPEN - ORDER UNCHANGED
+================================================================================
+
+[D] THE PHASE PLAN IN ULTRA 20 PART 3 SECTION 15 IS AUTHORITATIVE AND
+UNCHANGED. The user confirmed this session that the order stands and that any
+change to it must be called for explicitly. Phase 1 is now complete; phase 2 is
+half complete.
+
+PHASE 2 - REMAINDER. Fix contactsNotified. MOBILE-APP work in sos.tsx, not
+website. Trap #82 - it is NOT a Redis problem.
+
+  DECIDE BEFORE STARTING, NOT DURING, which fix you are doing:
+    CHEAP: correct the return shape so the count is right. ~0.5h. The demo
+           needs this one.
+    REAL:  wire contact acknowledgement. NotificationStatus.ACKNOWLEDGED
+           exists and nothing sets it.
+
+  [M] NEW THIS SESSION, AND IT CHANGES THE ESTIMATE: recordAccess() records
+  LINK ACCESS, not contact acknowledgement. A tracking token can be forwarded,
+  shared, or opened twice by the same person. Building "contact acknowledged"
+  on top of "someone opened the link" assumes a token-to-contact relationship
+  that has NOT been verified to exist. THE REAL FIX MAY BE LARGER THAN
+  PREVIOUSLY RECORDED, not smaller. Verify the data model before scoping it.
+
+  PHASE 2 IS COMPLETE WHEN:
+    - contactsNotified renders a correct non-zero count on the device
+    - the full lifecycle runs end to end against LOCAL and is captured
+    - npx jest still returns 23 suites / 249 tests, 0 failed
+    - apps/website npm run build still returns exit 0
+    - nothing untracked remains in the tree (porcelain=0)
+
+PHASE 3 - The ADR-016 D6 production-operations runbook. STILL DOES NOT EXIST.
+Ultra 20 part 1 section 9 item 2 lists the four required contents. Also fix
+TODO.md:362-363 (says verify redis: up; the target is optional-down with 200)
+and :366-368 (written for ECONNREFUSED; production shows ENOTFOUND).
+  COMPLETE WHEN: the runbook exists in docs/, contains the probe-path warning,
+  the verbatim /health/ready target, the manual Prisma migration procedure, and
+  a deployment-verification step; and both TODO.md ranges are corrected.
+
+PHASE 4 - MEASURE expo-sqlite support in Expo Go. ~15 min, BINARY answer.
+Read apps/mobile-app/package.json (32 lines) FIRST for the SDK version -
+installing a package is a write AND picks the library before the decision.
+  COMPLETE WHEN: the answer is recorded as bundled or not-bundled, with the SDK
+  version that answer applies to.
+
+PHASE 5 - ADR-014, the ENDED-session fix contract. ~0.5h. Content already
+written in Ultra 19 part 2 section 9b.9. IT IS 9c'S QUEUE DELETE RULE.
+  COMPLETE WHEN: installed in decision-log.md above ADR-016 at line 9.
+
+PHASE 6 - 9c offline queue, then airplane-mode validation. 4-6h.
+  [I] The mobile queue is in-memory only, capped at MAX_QUEUED_FIXES=600, and
+  flushes OLDEST-FIRST. 9c MUST PRESERVE OLDEST-FIRST.
+  COMPLETE WHEN: fixes buffered across a network outage flush on reconnect and
+  the page returns from SILENT to RECEIVING without a reload.
+
+PHASE 7 - ADR-017, provider fault isolation. BEFORE any 10C HTTP client.
+  [I] emergency-intelligence.service.ts:50's Promise.all is FAIL-FAST; the
+  suppression contract at :86-157 runs only AFTER it resolves, so a rejecting
+  provider bypasses it entirely and kills SOS activation via the orchestrator's
+  unguarded await at :86. A 697-line spec contains ZERO failure tests.
+  LATENT TODAY - all six providers are static returns with no network layer.
+  LIVE the day 10C wires anything real.
+  [D] The ADR must require that DEVICE GPS IS ALWAYS RETURNED.
+
+PHASE 8 - Sprint 10C. UNSCOPED and LARGER than previously recorded: the
+providers have NO network layer at all, so the integration layer is built from
+nothing, not adapted. Procurement is also a real dependency.
+
+DO NOT START 9c BEFORE PHASES 4 AND 5. Decided three sessions ago. Written
+after, the queue delete rule gets invented ad hoc and item 10 fails on a 409
+that LOOKS LIKE A 9c BUG, so the wrong layer gets debugged.
+
+[R] A NATURAL STOPPING POINT EXISTS AFTER PHASE 5. Phases 2-5 are roughly 2-3
+hours and end with the demo in hand and three architectural unknowns closed.
+Phase 6 alone is 4-6 hours. A session with limited time is better spent
+finishing through phase 5 than starting phase 6 and stopping partway.
+
+ALSO OPEN, UNSCHEDULED: 21.1, 21.4, 21.6; issue 17.3; the Swagger gating
+decision (17.8, live and unauthenticated at /api/docs); lint to green (last
+measured 16 problems, two sessions ago); the prose sweep for
+OPA_BOOT_WITH_SUPPRESSED_MOCKS; `scheme` in app.json.
+
+
+================================================================================
+## 11. COMMERCIAL READINESS
+================================================================================
+
+[R] This section is judgement, not measurement. It exists so the engineering
+state and the commercial state are not confused for each other.
+
+DEMONSTRABLE TODAY, END TO END:
+  Public incident tracking page, rendered from real data              [M]
+  Tokenised SMS-style links opening in any browser, no login          [M]
+  Token security: hash-only storage, 6h expiry, 7d ceiling, revocation[M]
+  Same-origin bridge - the token never reaches client JavaScript      [M]
+  Token redaction in API logs, verified on live traffic               [M]
+  Production API deployed, healthy, gated by tests before deploy      [M]
+  Tamper-evident chained location fixes with a verifier               [I]
+
+DEMONSTRABLE BUT NOT YET DEMONSTRATED:
+  LIVE tracking in the RECEIVING state. The page has only ever been seen
+  rendering SILENT, against five-day-old fixes. The capability is built and
+  was proven on device at d5aca8b, but a FRESH DEVICE RUN is required to show
+  the live badge. [R] This is the single highest-value demo action remaining
+  and it costs one device run.
+  contactsNotified - currently displays 0 while notifications dispatch.
+
+NOT DEMOABLE, AND SHOULD NOT BE CLAIMED:
+  SafeWalk                    not started
+  Journey Intelligence        not started
+  Location Intelligence (10C) ~0%, no network layer in any provider
+  Command Centre              scoping discussed, not decided
+  Evidence capture            server-side only; NO encryption, capturedAt
+                              unverified. Do NOT claim encrypted evidence.
+  Background recording        source: 'background' is UNREACHABLE
+  Voice activation            Expo Go cannot run Porcupine; no eas.json
+
+[I] HONEST CAPABILITY STATEMENT, unchanged and still correct:
+"Records continuously while the app is open, at a verified 10-second cadence,
+on a tamper-evident chain."
+
+[I] TWO WORDS TO AVOID (ADR-015): "immutable" - the chains are TAMPER-EVIDENT;
+and any implication that on-device Picovoice processing is an existing asset.
+
+[I] THE CLOCK IS RUNNING ON ENROLMENT. CAC done (RC 9697630), D-U-N-S in hand
+(352294843). The blocker for organisation verification is NOT the website being
+live - it is the ABSENCE OF A SEARCH-ENGINE AND THIRD-PARTY FOOTPRINT.
+Search Console, Bing Webmaster, LinkedIn and Crunchbase are the actual gating
+work, and they are elapsed-time, not effort. START THE SLOW PARTS.
+
+
+================================================================================
+## 12. FIRST ACTIONS IN THE NEXT SESSION
+================================================================================
+
+1. Save this file and commit it to docs/handovers/ (glob: Ultra-21-*).
+
+2. Verify state:
+   $env:GIT_PAGER='cat'
+   cd C:\Projects\OPA; "probe=resume"; "current=" + (git branch --show-current); git log --oneline -4 | ForEach-Object { "log|$_" }; "porcelain=" + @(git status --porcelain).Count
+   EXPECT current=main, HEAD ac25ae0 (or later), porcelain=0.
+   If any .cjs shows as untracked, DELETE IT before staging (trap #64). Use
+   git status --porcelain, NOT a filesystem sweep -
+   apps/api/scripts/create-test-db.cjs is a TRACKED project file.
+
+3. Confirm the suite:
+   cd C:\Projects\OPA\apps\api; "probe=greencheck"; npx jest; "jest_exit=$LASTEXITCODE"
+   EXPECT 23 suites / 249 tests, 0 failed, no todo line. UNPIPED (trap #66).
+   A handle-leak warning may or may not appear. It does NOT change the verdict
+   and does NOT close issue 17.3.
+
+4. Confirm production:
+   curl.exe -s -i -m 60 '<host>/health/ready'
+   EXPECT 200, Content-Length: 94. curl.exe NOT curl (trap #92). Run it TWICE
+   before concluding anything - Burstable cold start (trap #94).
+
+5. Then phase 2's remainder, per section 10. Decide cheap-vs-real BEFORE
+   starting.
+
+REMEMBER THE WORKING METHOD: one command per step, reviewed before it is run,
+run and verified before the next is written. Every command carries a probe=
+token as a control on itself. Never assume file state - measure it.
+
+
+# END OF HANDOVER ULTRA 21
+# Delta to Ultra 20. Ultra 20 parts 1-3 remain authoritative where not
+# superseded above. Generated at ac25ae0 on main, level with origin.

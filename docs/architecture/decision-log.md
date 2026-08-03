@@ -215,6 +215,309 @@ section 1.
 
 ---
 
+## ADR-014 - Session-state and temporal fix failures are classified per item and returned in the success envelope; request-level validation stays request-level
+
+**Status: Accepted for the response envelope, the scope boundary and the
+implementation staging. The interaction between reacquisition and
+`START_GRACE_MS` is an OPEN QUESTION recorded in section 4 and is NOT decided
+by this ADR. The client half is design-only and has no implementation until 9c
+exists.**
+
+### 1. Context
+
+`journey-ingestion.service.ts` rejects a whole batch on a single bad item, in
+two places and for two different reasons.
+
+A session with status `ENDED` throws `ConflictException` before any fix is
+examined, so a batch buffered across a supersession is discarded entirely -
+including fixes captured while the session was still open. The temporal checks
+throw `BadRequestException` from inside `.map()`, so one bad `recordedAt`
+returns 400 for a batch of up to 200 otherwise-valid fixes.
+
+Measured bounds: `MAX_FUTURE_SKEW_MS = 5 minutes` forward;
+`floor = startedAt - START_GRACE_MS` with `START_GRACE_MS = 5 minutes` backward.
+
+**Partial acceptance is not a new idea in this API.** `recordTrackedFixes`
+already returns `skippedDuplicateInBatch` and `skippedAlreadyStored` - items not
+inserted on a call that succeeded. The response already says "some of your batch
+did not land"; it says it as anonymous counters no client can act on. This ADR
+makes an existing partial-acceptance path addressable rather than introducing
+one.
+
+**The case that makes it urgent.** Under issue 17.13 the tracker never stops
+when the user leaves the SOS screen, and `if (running) return` means a second
+activation no-ops while keeping the first session's id. After a supersession the
+client keeps capturing against the ended session, every fix with
+`recordedAt >= endedAt`. Supersession happens when a new incident starts - which
+is to say, during the emergency. Item 10's airplane-mode test is this scenario.
+
+**Caveat on reachability.** Nothing in `journey-ingestion.service.ts`,
+`journey-session.service.ts` or their specs sets `status = ENDED`. Whatever
+writes it lies outside the journey module and is UNMEASURED. Live data supports
+the same reading: the observed session is `ACTIVE` with a five-day-old
+`lastFixReceivedAt` - it never ended, it stopped receiving. **This ADR therefore
+governs a path whose frequency in production is unknown.** That does not change
+the contract; it changes how urgently the ENDED branch should be prioritised
+relative to 17.13, which is what keeps sessions open in the first place.
+
+### 2. Scope
+
+**ADR-014 changes only classifications occurring after the request has been
+parsed and authenticated.**
+
+| Layer | Example | Under ADR-014 |
+|---|---|---|
+| DTO / pipe validation | unparseable `recordedAt`, missing field | **unchanged** - request-level 400 |
+| Session existence and ownership | unknown id, another user's session | **unchanged** - request-level 404 |
+| Session *state* | session is `ENDED` | **per item** |
+| Per-fix temporal | future skew, precedes session | **per item** |
+
+**The 404 stays request-level as a security property, not a layering
+preference.** The service comment and two pinned tests are explicit that an
+unknown session and another user's session return the same 404, so the response
+never confirms an id is real but owned by someone else. A per-item rejection
+carrying `sessionId` would leak exactly that. Existence and ownership are never
+expressed per item.
+
+Structural invalidity is not classified per item because the DTO pipe rejects it
+before `ingest()` is entered. Converting it would mean redesigning request
+validation, which this ADR does not do.
+
+### 3. The three classifications
+
+Returned inside the success envelope, not thrown.
+
+**3.1 Transient - future skew.**
+
+```json
+{ "idempotencyKey": "...", "code": "FIX_RECORDED_TOO_FAR_IN_FUTURE",
+  "retryable": true, "retryAfter": "<recordedAt minus MAX_FUTURE_SKEW_MS>" }
+```
+
+`retryAfter = recordedAt - MAX_FUTURE_SKEW_MS` is the instant server time
+catches up enough for the identical fix to become acceptable. The server
+computes it because only the server knows its own clock; a client that guessed
+would be reasoning from the very clock that is wrong. Client: keep, wait,
+**resend unchanged**. A device clock ten minutes fast is a temporary
+disagreement, and deleting on it converts disagreement into permanent location
+loss.
+
+**3.2 Permanent against this session - ENDED mismatch.**
+
+```json
+{ "idempotencyKey": "...", "code": "FIX_RECORDED_AFTER_SESSION_ENDED",
+  "retryable": false, "resubmit": "reacquire",
+  "endedAt": "...", "recordedAt": "..." }
+```
+
+Accepted when `recordedAt < endedAt`; rejected as above when
+`recordedAt >= endedAt`. **`endedAt` is not currently selected** - the query
+selects `id, userId, status, startedAt` only, and the implementation must widen
+it. **A null `endedAt` on an `ENDED` session means reject-and-reacquire, never
+accept**: the boundary is unknown, so no fix can be proven to precede it.
+
+Client: reacquire, retag, resend - **subject to section 4.**
+
+**3.3 Permanent against this session - precedes the session.**
+
+```json
+{ "idempotencyKey": "...", "code": "FIX_PRECEDES_SESSION", "retryable": false }
+```
+
+`recordedAt < startedAt - START_GRACE_MS`. Client: delete and record permanent
+rejection - **subject to section 4.**
+
+`retryable` and `resubmit` are independent. `retryable: false` states that
+resending unchanged *against this session* will never succeed. It does not mean
+discard.
+
+### 4. OPEN ISSUE - reacquisition against the start floor
+
+**This section records an unresolved interaction. Nothing in it is accepted by
+this ADR, and section 3.3's delete instruction must not be implemented until it
+is resolved.**
+
+**Measured behaviour of reacquisition.** `resolveForActivation` takes the
+lifecycle advisory lock, then `findFirst` for a session with status `STARTED` or
+`ACTIVE` ordered by `startedAt` descending. **If one exists it is returned
+unchanged.** Only when none exists is a new row created, with `startedAt`
+defaulting to creation time. `startSession` surfaces both the resolved
+`startedAt` and a `reused` flag.
+
+**The collision.** A fix rejected under 3.2 is told to reacquire and resubmit.
+If reacquisition yields a session whose `startedAt` is later than the oldest
+buffered fix by more than `START_GRACE_MS`, that fix is then rejected under 3.3
+and deleted. **The recovery path defined in 3.2 can walk its own fixes into the
+permanent rejection defined in 3.3** - in the airplane-mode scenario item 10
+exists to demonstrate.
+
+**There is one condition, not two cases.** The question is always whether the
+oldest buffered fix clears `resolvedSession.startedAt - START_GRACE_MS`. Reuse
+of an existing open session makes that likely but does not guarantee it; a
+newly created session makes it unlikely but not impossible. The grace window
+absorbs write latency, not buffer duration. **Because `startSession` returns
+`startedAt`, the client can evaluate this condition before resubmitting rather
+than discovering it by rejection.**
+
+**CANDIDATE IMPLEMENTATION, NOT ACCEPTED: validate retagged fixes against an
+origin session echoed by the client.** The server would compute `floor` from the
+origin session rather than the destination, preserving the check's meaning while
+admitting legitimately buffered fixes.
+
+**This is a change to the trust model and cannot be adopted without deciding
+its invariants.** It introduces a second client-supplied session reference. At
+minimum, undecided: whether origin may equal destination; whether origin may
+itself be `ENDED`; whether origin may belong to a different incident or purpose;
+how long an origin reference remains valid; whether ownership failure returns
+the same 404 as section 2 (it must, for the same reason); and what replay
+protection applies to a reference that authorises acceptance of otherwise
+out-of-window data.
+
+**A second constraint on any bypass.** `recordTrackedFixes` derives the chain
+tail via `orderBy: { sequence: 'desc' }` and appends. Admitting historical fixes
+into a session already holding newer ones gives them **higher sequence numbers
+with older `recordedAt`** - the hash chain's order and time's order diverge. The
+chain is a demonstrated capability; any mechanism that admits out-of-order
+historical fixes must answer for it.
+
+**Also recorded, and not to be defaulted into:** permanent loss of
+outside-window buffered fixes may be the *correct* outcome for a session that
+ended with nothing succeeding it - the ordinary end-of-journey case. It is
+acceptable as a decision and unacceptable as an accident.
+
+### 5. The queue rule
+
+**This records the intended queue contract for 9c, so the rule is decided in
+advance rather than invented during implementation. Portions that depend on the
+unresolved interaction in section 4 are not yet implementable, and are marked
+below.**
+
+```
+2xx accepted                             -> delete
+retryable=true with retryAfter           -> keep, retry at retryAfter, unchanged
+retryable=false, resubmit=reacquire      -> RE-TAG and resend, do NOT delete
+                                            [DEFERRED - section 4]
+retryable=false, no resubmit path        -> delete, record permanent rejection
+                                            [DEFERRED where the classification
+                                             is FIX_PRECEDES_SESSION - section 4]
+network / 408 / 429 / 5xx                -> keep
+anything ambiguous                       -> keep
+```
+
+**Classification may legitimately change between attempts.** A fix held under
+`FIX_RECORDED_TOO_FAR_IN_FUTURE` whose session ends before `retryAfter` arrives
+reclassifies on retry as `FIX_RECORDED_AFTER_SESSION_ENDED`. The client re-reads
+the classification on every response and never caches a verdict against a queued
+item.
+
+**Retention ceiling.** An absolute queue-age ceiling applies to every retained
+item regardless of classification: before it, keep and retry; at it, delete and
+record permanent expiry. **The value is not decided here.** Two constraints bound
+it: `MAX_QUEUED_FIXES = 600` at the verified 10-second cadence is roughly 100
+minutes of continuous capture, so depth is already bounded independently; and a
+ceiling shorter than a plausible offline window defeats 9c's purpose. It is
+recorded as an explicit parameter so it cannot be set implicitly by an eviction
+policy written later.
+
+### 6. In-order flush
+
+**9c preserves oldest-first flushing as an explicit invariant.** `893d65a`
+orders by `receivedAt DESC, sequence DESC`, correct **only** because the tracker
+flushes in capture order. If 9c retried an old batch after newer ones succeeded,
+the newest `receivedAt` would carry the oldest `recordedAt` and the tracking page
+would present a stale position as current - on the page a family member reads
+during an emergency.
+
+**Consequence, recorded so it is not mistaken for a defect.** A fix held under
+`retryAfter` at the head of the queue holds the items behind it. With a
+uniformly fast device clock every fix is skewed alike, so the stream self-heals
+into a steady state running late by up to five minutes and correctly ordered.
+During that window the page renders SILENT, indistinguishable from signal loss.
+
+**Rejected: skip the held item and flush past it.** It breaks in-order flushing
+and forces the latest-fix query off `receivedAt` onto `recordedAt` - trading a
+bounded, self-correcting delay for a silent ordering hazard in the query that
+drives the live page.
+
+### 7. Implementation staging
+
+The controller is a pass-through returning the service result unwrapped, so the
+`ingest()` return type **is** the public contract.
+
+**Naming, decided.** `InsertFixesResult` is returned by `recordTrackedFixes`,
+which is also reached from `recordActivationFix` and the retrigger path. It is
+**not renamed** and its shape is unchanged. A new `IngestFixesResult` is
+introduced on the `ingest()` path only, carrying `accepted[]`, `rejected[]` and
+the existing `InsertFixesResult` counters. Phase A is therefore purely additive
+and touches no caller outside `ingest()`.
+
+**Phase A - type only.** Introduce `IngestFixesResult`. Behaviour unchanged.
+Invisible to clients.
+
+**Phase B - partition in `ingest()`.** The temporal checks live in `ingest()`'s
+`.map()`, and `recordTrackedFixes` never sees a `recordedAt` violation.
+Partitioning therefore happens in `ingest()`, which passes only surviving fixes
+down; `recordTrackedFixes` is unchanged and keeps its dedup counters. The two
+partitions merge in the envelope. Invisible to clients.
+
+**Phase C - return the envelope, stop throwing.** The coupled change. Today the
+client deletes on 2xx, so a half-rejected batch returning 2xx reads as complete
+success and rejected items are discarded unretried - worse than the whole-batch
+rejection being replaced. **Phase C lands with the client or after it. There is
+no safe ordering in which the server goes first.** Phases A and B being
+independently safe does not make C safe.
+
+**`tailSequence` and `tailHash` describe the accepted subset only**, not the
+submitted batch. Correct under partitioning but no longer obvious from the field
+names, and stated so a later reader does not assume the tail covers everything
+sent.
+
+### 8. Required test coverage
+
+Three pinned tests assert thrown exceptions and will not survive Phase C:
+`409s an ended session`, `rejects a fix from too far in the future`, and
+`rejects a fix from before the session started`. The 404 pair and the
+`accepts a fix at the current time` control remain valid unchanged.
+
+**Legacy expectations are not edited in place.** A second `describe('ADR-014')`
+block is added, made green first, and only then are superseded assertions
+removed - the discipline CI run #83 established. The suite baseline moves
+deliberately, and that is recorded in the handover so a later session does not
+read it as a regression.
+
+**None of the following are covered today, and all are behaviours this ADR
+defines. 9c is not complete without them:**
+
+1. A fix at `startedAt - START_GRACE_MS ± epsilon`. The existing test uses an
+   hour-old fix against a five-minute floor and passes on a 55-minute margin, so
+   it proves nothing about the boundary.
+2. A batch spanning `endedAt` - some fixes accepted, some rejected, in one
+   response.
+3. Reconnect resolving to an existing `ACTIVE` successor.
+4. Reconnect creating a new session, with buffered fixes older than its floor.
+5. Retag-and-resubmit end to end, which is the path section 4 leaves open.
+
+### 9. Consequences
+
+**In favour.** This ADR establishes the contract under which a batch spanning a
+supersession can deliver what was captured before the session ended. One bad
+timestamp no longer discards up to 200 good fixes. 9c is written against a
+recorded delete rule with its deferred portion named, rather than against no
+rule at all. q40 is closed at a boundary the code already has.
+
+**Against.** The response body becomes structured and both sides must parse it.
+A held skewed item delays the fixes behind it (section 6). The mobile queue
+remains in memory and dies with the process until 9c lands, so **the client half
+of this contract is foreground-only and non-durable in the interim** - any
+external claim about buffered tracking must say so. Section 4 remains open, so
+the reacquire path is specified but not yet safe to complete.
+
+**Not addressed here.** The `Promise.all` enrichment case in
+`emergency-intelligence.service.ts` is the third member of the whole-batch family
+and remains ADR-017's subject.
+
+---
+
 ## ADR-012 - Mock emergency-intelligence providers may be registered in production when their outputs are provably suppressed, acknowledged by an explicitly named boot flag
 
 **Status: Accepted. Implementation to follow in a separate commit.**

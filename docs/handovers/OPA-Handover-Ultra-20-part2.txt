@@ -1,0 +1,581 @@
+# OPA - Handover Ultra 20 - PART 2 of 3 (sections 9b-14)
+# Continues from part 1. Paste after it.
+#
+# GENERATED: 2026-08-02 (local), at commit 646cf09 on branch ci-test-gate.
+# main is at 8efedef, PUSHED and DEPLOYED.
+
+## 9b. WHAT THIS SESSION ESTABLISHED
+
+### 9b.1 ADR-016 SHIPPED - THE FULL EVIDENCE CHAIN
+
+**Every link measured. This is the section to quote about the readiness fix.**
+
+**1. The design decision (blocker A / q51), settled by argument then built.**
+The required-dependency set had to be **reviewable** (a reader sees at a glance
+that Redis is not required) AND **testable** (D5's graduation case must be
+writable without inventing a test-only hook, since D4 forbids an env toggle).
+
+Three shapes were considered. **A pure policy module won.** A third constructor
+parameter was rejected because Nest resolves by `design:paramtypes` and would
+try to inject a `Set` provider - a default value does not prevent that.
+
+**2. The mutability defect, caught in review before it shipped.** The first
+draft exported `REQUIRED_DEPENDENCIES: ReadonlySet<ReadinessDependency>`.
+**`ReadonlySet` is a compile-time view only; the underlying `Set` stays mutable
+at runtime**, so an importer could cast it and `.add('redis')` - making policy
+drift dynamically, exactly what D4 forbids. **Replaced with a frozen tuple as
+the exported policy and a private Set for lookups.** Verified at runtime:
+`REQUIRED_DEPENDENCIES.push('redis')` **throws**, length stays 1.
+**`readiness-policy.spec.ts` asserts `Object.isFrozen(...)` precisely because
+`readonly` and `ReadonlySet` vanish at compile time.**
+
+**3. Five installers, each reviewed then run, in a fail-safe order.**
+
+| Step | File | Lines | Suite after |
+|---|---|---|---|
+| 1 | CREATE `readiness-policy.ts` | 62 | `1 failed, 1 todo, 3 passed` (unchanged) |
+| 2 | CREATE `readiness-policy.spec.ts` | 61 | `1 failed, 1 todo, 10 passed` |
+| 3 | EDIT `health.service.ts` | 53->58 | **`0 failed, 1 todo, 11 passed`** |
+| 4 | EDIT `health.service.spec.ts` | 49->44 | **`11 passed, 11 total`, todo=0** |
+| 5 | EDIT `health.controller.ts` | 27->31 | unchanged |
+
+**The ordering is the point: the policy was proven correct by its own tests
+BEFORE `health.service.ts` depended on it.** Every intermediate state compiled
+and left the suite in a known-good shape, so stopping after any step was a clean
+stopping point.
+
+**4. The gates.** `tsc --noEmit` exit 0 at every step. Final focused suite
+`3 suites, 11 passed, 11 total`. **Full unpiped `npx jest`: 23 suites / 249
+tests, 0 failed, 28.0s.** Staged numstat: **143 insertions, 16 deletions across
+5 files.** Commit `8efedef`.
+
+**5. The deploy.** Push triggered run **#80**, 4m 45s, green. **The first probe
+at 21:51 UTC still returned the OLD body** (`Content-Length: 91`,
+`"redis":"down"`, 503) because the build had not rolled over. **That is trap #94
+in miniature: pushed is not built, built is not deployed, deployed is not
+serving.**
+
+**6. The shipping proof, on the wire at 21:58 UTC:**
+```
+HTTP/1.1 200 OK
+Content-Length: 94
+X-Powered-By: Express
+x-correlation-id: 20c7cec3-5580-4710-b27f-936b2bac67ae
+
+{"status":"ok","database":"up","redis":"optional-down","timestamp":"2026-08-02T21:58:58.616Z"}
+```
+**`X-Powered-By: Express` plus a correlation id prove this is Nest's own
+response, not an Azure front-end.** **`"database":"up"` is still a live
+`SELECT 1` executed inside the deployed process, so the change did not weaken
+the real check** - if Postgres went down this would be 503 again.
+
+**`Content-Length` alone distinguishes the two builds: 91 pre, 94 post.**
+Timestamps are fixed-width, so it is a reliable single-number check.
+
+### 9b.2 THE CI TEST GATE - BUILT AND PROVEN, NOT YET MERGED
+
+**The measured risk that motivated it:** run #80 built and deployed 249 tests'
+worth of code to production **without running any of them**. Run #79
+(`fc3d72c`, a DOCS-ONLY commit) also built and deployed. **Every push to `main`
+deploys.**
+
+**READING THE WORKFLOW CHANGED THE PLAN TWICE.** Ultra 19 summarised it; this
+session read all 79 lines. Two things it did not record:
+
+1. **`workflow_dispatch:` already exists (line 8).** That makes branch-based
+   verification possible at all.
+2. **The `deploy` job had NO branch condition** - only `needs: build`. **So a
+   manual dispatch from ANY branch would have built that branch and deployed it
+   straight to production.** The naive verification plan (branch, break a test,
+   dispatch) had a nasty failure mode: if the gate were misconfigured, `build`
+   succeeds and deliberately broken code ships.
+
+**Therefore the branch guard is a PREREQUISITE for safely testing the gate**,
+not an optional extra. Both changes shipped in `e17eab7`.
+
+**The change, 8 insertions:**
+```yaml
+      - name: Type check
+        run: npx tsc --noEmit
+        working-directory: apps/api
+
+      - name: Unit tests
+        run: npm run test --workspace apps/api
+```
+inserted **after Prisma generation** (the specs import `PrismaService`, so the
+client must exist) **and before Build API** (fail fast), plus:
+```yaml
+    if: github.ref == 'refs/heads/main'
+```
+on the `deploy` job, beside `runs-on` and `needs`.
+
+**THE VERIFICATION - BOTH CONTROLS PROVEN INDEPENDENTLY.**
+
+| Run | Branch / SHA | build | deploy | Meaning |
+|---|---|---|---|---|
+| #80 | `main` / `8efedef` | green | **ran, deployed** | the ungated baseline |
+| #81 | `main` / `8efedef` | cancelled | 0s, never ran | **dispatched on the WRONG branch, cancelled** |
+| #82 | `ci-test-gate` / `e17eab7` | **green** | **SKIPPED** | gate runs; guard holds |
+| #83 | `ci-test-gate` / `51c03ca` | **FAILED at Unit tests** | **SKIPPED** | **gate blocks** |
+
+**Run #82 detail, read from the log rather than assumed:**
+```
+Generate Prisma client  1s
+Type check              4s
+Unit tests             11s
+Build API               4s
+...
+Test Suites: 23 passed, 23 total
+Tests:       249 passed, 249 total
+Time:        9.52 s
+Ran all test suites.
+```
+**`Ran all test suites` with 23/249 is the line that matters** - jest exits 0 on
+zero matching tests, so "the step was green" and "the whole suite ran" are
+different claims. **Runner Node version confirmed as 22.23.1** from the
+setup-node log, so this is also the suite's first proven run on Node 22.
+
+**A timing anomaly worth explaining rather than waving past:** #82 took 1m 35s
+versus #80's 4m 45s, while doing MORE work. Cause: **npm cache hit (~196 MB
+restored), `Install dependencies` 16s instead of minutes.** The gate adds ~15s.
+
+**Run #83 detail - the half that actually matters:**
+```
+Unit tests  FAILED  14s
+  at Object.<anonymous> (src/modules/health/ci-gate-proof.spec.ts:4:18)
+  Test Suites: 1 failed, 23 passed, 24 total
+  Tests:       1 failed, 249 passed, 250 total
+  Ran all test suites.
+  Error: Process completed with exit code 1.
+Build API   SKIPPED  0s
+```
+**Type check PASSED in #83.** The proof file was type-valid and asserted
+something false, so **this was the TEST gate firing, not a compile error wearing
+its clothes.** The two gates are independent. **No artifact was produced**, so
+`deploy` had nothing to deploy even if the guard had not held.
+
+**THE TEMPORARY PROOF FILE WAS `apps/api/src/modules/health/ci-gate-proof.spec.ts`,
+5 lines, added in `51c03ca` and removed in `646cf09`. It must never reach
+`main`.**
+
+### 9b.3 THE INSTALLER DISCIPLINE - 44 FOR 44, WITH THREE NEW RULES EARNED
+
+Six installers, 7/11/11/12/12/11 replica cases, **every case re-run in full
+after every revision.**
+
+**1. PIN THE WHOLE-FILE RESULT SHA, NOT JUST THE FRAGMENTS.** Trap #108, and the
+most valuable thing learned this session. **Three independent replica cases** -
+step 3 C8, step 5 C7, CI C8 - inserted an unrelated line elsewhere in the source.
+**Every fragment check passed: anchors found exactly once, `anchorAfter`
+correct.** Only the result SHA caught it. Compute it over the EOL-normalised
+planned OUTPUT so it is independent of EOL/BOM/trailing-newline, which are
+preserved separately.
+
+**2. BEHAVIOURAL INVARIANTS BELONG IN PHASE 1 AS WELL AS PHASE 2.** Step 3's
+first version checked invariants only after writing, so a tampered installer
+modified a TRACKED file and needed `git checkout` to recover. Moved to run on
+the planned array too. **Rebuilt, the same case aborts with the file untouched
+at 53 lines.**
+
+**3. SEMANTIC CHECKS SURVIVE A REGENERATED SHA; A SHA DOES NOT.** Every
+installer was tested against a tampered CONTENT array with `EXPECT_SHA`
+regenerated. **The SHA gate printed "matches the reviewed draft" every time.**
+What caught the tamper:
+- step 1: required-set members parsed from the whole declaration block -> `[database, redis]`, 2 members
+- step 2: `it()=6 it.todo()=1` instead of 7/0
+- step 3: `allUp=1`
+- step 4: `skip/only=1`
+- step 5: `new_description=0`
+- CI: `guard=0 any_if=0`
+
+**4. A DEPENDENCY GUARD MUST CHECK EXPORTED DECLARATION FORMS.** The first
+version was `depText.indexOf(sym) !== -1 && depText.indexOf('export ') !== -1`,
+which **degenerates into a substring search** - one `export` anywhere satisfies
+the clause for every symbol. **A decoy file with the four names in a COMMENT, a
+non-exported `const dependencyState`, and one unrelated export PASSED it.**
+Fixed to `^export\s+function\s+NAME\s*\(` style, anchored, asserted by count.
+
+**5. AN IDEMPOTENCY OR ABSENCE CHECK MUST BE ANCHORED, NOT A SUBSTRING.**
+Measured: `readiness-policy.spec.ts` contains the string `it.todo` **in a
+comment** referring to the todo it replaces. A substring gate would have failed
+on its own correct content. Anchored to `^\s*it\.todo\s*\(`.
+
+**6. VERIFY THE PUBLISHED ARTIFACT'S GUARDS AGAINST ITSELF.** Extract the
+CONTENT array from the `.txt` about to be downloaded, hash it, compare with the
+embedded `EXPECT_SHA`. Done for every installer.
+
+**7. TRAP #104 FIRED AGAIN.** Step 5's case 11 harness silently failed to apply
+its tamper (`BLOCK_NEW` still 5 lines), so the installer ran normally and
+succeeded - **which could have been read as "the tamper was accepted".**
+**Rebuilt with `if(before===after){console.log('HARNESS FAILED');process.exit(2)}`.**
+
+**8. A CORRECT REFUSAL IS NOT A FAILURE.** Step 5 refused on first run:
+`FAIL target has no trailing newline; refusing to guess`. Every content check
+had passed; only the file-ending assumption was wrong. **Nothing was written.**
+The fix was to treat trailing newline as a preserved property like BOM, not to
+force it. **The SHA did not change**, because it pins content lines in canonical
+form.
+
+### 9b.4 THE MEASUREMENTS THAT CORRECTED THE RECORD
+
+**1. THE FULL SUITE IS 23 SUITES / 249 TESTS.** Ultra 19 recorded 20/238 while
+explicitly flagging it as not re-measured, and projected 21/243 by arithmetic.
+**Both wrong.** Measured locally (28.0s) and on CI (9.52s). **Pin this number;
+re-measure it rather than deriving it.**
+
+**2. q54 CLOSED: the extra suite is `apps/api/test/incident-orchestrator.spec.ts`**,
+visible in the full run output, outside `apps/api/src`.
+
+**3. `health.controller.ts` HAS NO TRAILING NEWLINE AND HAD AN 88-CHARACTER
+LINE.** Two independent signals that **Prettier has never been run on this
+file**. Its two neighbours in the same directory both have trailing newlines.
+**The ADR-016 edit incidentally dropped max line length to 78.**
+
+**4. THE CI WORKFLOW ALSO HAS NO TRAILING NEWLINE** - LF, no BOM, 78 `lf_only`
+against 79 lines, verified at byte level with `[System.IO.File]::ReadAllBytes`.
+
+**5. GIT COMPUTES A MINIMAL DIFF.** Replacing an 8-line block with an 8-line
+block produced `12 7`, not `13 8`, because the blank line and `    return {`
+appear in both and were reused as context. **Confirmed by reading `git diff -U2`
+rather than accepting the story.**
+
+**6. `body_paras` FROM REPEATED `-m` IS FLAGS MINUS ONE.** The subject is not
+part of `%b`.
+
+### 9b.5 WHAT DID NOT CHANGE, AND MATTERS
+
+- **The mobile app and website were not touched.** No `tsc`, no build, no lint.
+- **`npm run test:int` was not run.** Last known 6 suites / 24 tests.
+- **The tracking page has still never rendered.** Four sessions.
+- **No production write path has ever executed.** Issue 17.27.
+- **The DEMO-CRITICAL PATH block is still not installed.** Two sessions.
+- **ADR-013, 014, 015 and 017 are all still owed**, with content written.
+
+---
+
+## 10. The token leak - CLOSED. Historical record only.
+
+Fixed in `7b152cd`. `global-exception.filter.ts` read `path: request.originalUrl`
+raw. **The fix was FOUR sites, not two.** Observable in production: the Log
+stream shows the path firing for `/robots933456.txt`, `/` and `/favicon.ico`.
+
+**The durable lesson: when a handover explains WHY something is urgent, check
+the mechanism, not just the conclusion.** **Eight recurrences.** **A ninth this
+session, and it was consequential:** Ultra 19 described the CI workflow's gaps
+accurately but omitted `workflow_dispatch` and the unguarded deploy job. Reading
+the file changed the plan twice.
+
+---
+
+## 11. Production - LIVE, and its recorded defect is FIXED
+
+### Status - MEASURED THIS SESSION
+
+| Fact | State | Evidence |
+|---|---|---|
+| API process | running | `/health/ready` 200 |
+| `/health` (liveness) | 200 | Azure probe path |
+| **`/health/ready`** | **200** | **`Content-Length: 94`, `"redis":"optional-down"`** |
+| Database, from the APP | **up** | live `SELECT 1` inside Nest |
+| Schema | 11 of 11 | Ultra 18 |
+| `REDIS_URL` | `redis://placeholder:6379` | portal |
+| Azure health probe path | **`/health`** | portal, Monitoring |
+| Unhealthy instance removal | on, 10-minute threshold | same blade |
+| Deploy pipeline | **UNGATED on `main`** | run #80 |
+| Write paths | **NEVER EXERCISED** | no incident has ever been created |
+
+### The network model - UNCHANGED and permanent
+
+**`opa-api-production-server` is Private access (VNet Integration). Public
+access is greyed out.** The only route to the database is from inside the App
+Service, via Kudu SSH, **which requires a container that stays up** (trap #97).
+**CI migration remains impractical** - a hosted runner cannot reach it. q44.
+
+**Log stream works without SSH and is the correct instrument for anything
+boot-related.**
+
+### The migration procedure - STILL ONLY IN HANDOVERS. OWED BY ADR-016 D6.
+
+```
+Azure Portal -> opa-api-production -> Development Tools -> SSH -> Go
+
+printf '\e[?2004l'                                    # trap #98
+cd /home/prisma-tools
+ls node_modules/.bin/prisma && ./node_modules/.bin/prisma --version
+export DATABASE_URL='postgresql://USER:PASSWORD@HOST:5432/DB?sslmode=require'
+echo "len=${#DATABASE_URL}"                           # expect 160
+./node_modules/.bin/prisma migrate status --schema /home/site/wwwroot/prisma/schema.prisma; echo "exit=$?"
+./node_modules/.bin/prisma migrate deploy --schema /home/site/wwwroot/prisma/schema.prisma; echo "exit=$?"
+./node_modules/.bin/prisma migrate status --schema /home/site/wwwroot/prisma/schema.prisma; echo "exit=$?"
+history -c
+```
+
+**Notes that are not obvious:** `/home` is persistent App Service storage, so
+`/home/prisma-tools` survives restarts and redeploys; **`psql` is NOT
+installed**, so use the deployed Prisma client as a raw query runner on ONE line;
+`migrate status` exits 1 when migrations are pending, which is not a failure;
+**do NOT accept the CLI's offer to upgrade to Prisma 7.**
+
+### What is still owed on the production track
+
+1. **Cherry-pick `e17eab7` to `main`.** Part 1 section 9 item 1. **~10 min.**
+2. **The permanent production-operations runbook.** ADR-016 D6. ~0.5-1h.
+3. **Gate Swagger, or decide deliberately not to.** Issue 17.8, live and
+   unauthenticated at `/api/docs`. **Cheaper now that `/health` and
+   `/health/ready` exist as probes.**
+4. **The Burstable tier decision.** Issue 17.24b.
+5. **A controlled first production write** (q49).
+6. **Consider `test:int` in CI** via a Postgres service container. Not started.
+
+**"Booting locally is not deploying, deploying is not running, running is not
+serving a real request, serving is not passing your readiness probe" - and now a
+fifth: BUILT AND DEPLOYED IS NOT TESTED.**
+
+---
+
+## 12. The document estate
+
+### In the repo
+
+| Lines | Path |
+|---|---|
+| 1599 | `docs/TODO.md` |
+| 1210 | `docs/architecture/decision-log.md` |
+| 623 | `docs/SPRINT_ROADMAP.md` |
+| 469 | `docs/PARTNER_INTEGRATION_AND_DIFFERENTIATION.md` |
+| 286 | `docs/PANIC_SYSTEM_CAPABILITY_ASSESSMENT.md` |
+| 269 | `docs/VOICE_ACTIVATION_FEASIBILITY_STUDY.md` |
+| 194 | `docs/LAUNCH_AND_REGISTRATION_ROADMAP.md` |
+| 182 | `docs/architecture/emergency-intelligence-engine.md` |
+| 166 | `docs/REGISTRATIONS.md` |
+| 112 | `docs/architecture/system-overview.md` |
+| 98 | `docs/architecture/incident-lifecycle.md` |
+| 94 | `docs/future/ussd-fallback.md` (CONVERSION-DAMAGED, born damaged) |
+| ~88 | `docs/COMMERCIAL_ROADMAP.md` |
+| n/a | `docs/handovers/ADR-012-content.txt`, `ADR-015-content.txt` **NOT INSTALLED** |
+| n/a | `docs/handovers/OPA-Handover-Ultra-{13,15,16,17,18,19}-part{1,2,3}.txt` |
+
+**A permanent production-operations runbook STILL DOES NOT EXIST and is owed by
+ADR-016 D6.**
+
+### THE ENCODING TRAP - unchanged
+
+**`TODO.md` and `SPRINT_ROADMAP.md` carry a UTF-8 BOM and contain REAL mojibake**
+at `:352`, `:383`, `:628`, `:642`, `:884`. **`decision-log.md` is CLEAN** - its
+ADR-001..008 headings only LOOK broken because `Get-Content` misreads UTF-8 as
+ANSI (trap #63). **The cleanup applies to `TODO.md` and `SPRINT_ROADMAP.md`
+ONLY.** `bytes` minus `chars` is the cheap test.
+
+### Structural facts - RE-MEASURE, DO NOT TRUST
+
+**`TODO.md`** uses `## ====` banner / title / `## ====`. The bare banner is NOT
+unique - anchor on a multi-line combination. `### DONE` occurs 3 times.
+Banner map unchanged from Ultra 19; **`:8` Immediate** is the DEMO-CRITICAL PATH
+anchor, **`:352` Redis**, **`:362-363` NOW STALE** (says verify `redis: up`),
+**`:366-368`** written for `ECONNREFUSED` when production shows `ENOTFOUND`.
+
+**Sprint and phase map:**
+```
+Sprint 10A Incident Portal       SUBSTANTIALLY BUILT (page never rendered)
+Sprint 10B Live Tracking         IN PROGRESS ~88%
+Sprint 10C Location Intelligence CONFIRMED HARD BLOCKER - LARGER than recorded
+Sprint 11  Evidence Capture      SERVER-SIDE SUBSTANTIALLY BUILT
+Sprint 12  User Profile          NOT STARTED
+Phase 3 / Sprints 13-14          NOT STARTED
+```
+
+### Standing practice - IN FORCE
+
+> **Code commit first, gated on tests. Docs commit second, updating the Sprint
+> 10B progress section with the step, its SHA, and its MEASURED gate.**
+
+**Inverted deliberately six times now** - ADR-016's decision and its tests both
+landed before the implementation, and `194b32a`'s principle (tests that pin
+behaviour land BEFORE the change) was followed exactly: **`3e9b703` failed for
+five days until `8efedef` made it pass.** That is the principle working.
+
+**Record gates that could actually have failed.** For `8efedef` the honest gate
+is `tsc` exit 0 plus a full unpiped jest at 23/249 with 0 failed and todo=0. For
+`e17eab7` it is **runs #82 and #83 in GitHub Actions**, not a local check.
+
+### Still outstanding from the estate sweep
+
+Undated relative markers at `TODO.md:190` and `:557`; two competing "Phase A"s;
+SafeWalk's incomplete gate list in `COMMERCIAL_ROADMAP` C60-63, C8-9; the "log
+the record id, never the raw token" checkbox UNVERIFIED; the mojibake/BOM
+cleanup (two files only); **`SPRINT_ROADMAP.md:136` contradicts `:172-175` and
+ADR-009 - ADR-009 is right**; the two strategy docs are orphaned (`TODO.md:228`
+is the home); a Feature Readiness Matrix row for Sprint 11; **the schema-field-
+as-capability audit, starting with `NotificationStatus.ACKNOWLEDGED`,
+`redisDispatchPrepared`, and `isVerified: true` on mock records**; **the four
+OLD-FLAG prose hits at `TODO.md:984, 993` and `SPRINT_ROADMAP.md:210, 396`**;
+anywhere either document says production is down or "one code change from
+booting"; **and now `TODO.md:362-363` and `:366-368`, both made wrong by
+ADR-016.**
+
+### Downloads / DocStaging - unchanged
+
+42 `.docx` converted into `C:\Projects\OPA-DocStaging` plus `_INDEX.md`,
+deliberately outside the repo. **`docx_count=201` in Downloads.** Two
+divergent-version hazards, both trap #38: `OPA-Master-Roadmap-v2.docx` (35,486
+vs 35,776 bytes; the converted `.md` came from v1) and
+`OPA_Journey_Risk_Intelligence_Architecture_v1.0.docx` (520,882 vs 393,632
+bytes - **not duplicates**; 2592 lines, **never opened in any session**).
+
+**Two marketing documents produced, NOT committed.** **THE STAFF GUIDE NEEDS TWO
+CORRECTIONS** - it says location is captured at the moment of the press (false
+since 29 July), and any claim of background recording or encrypted evidence is
+false.
+
+---
+
+## 13. Strategy
+
+**UNCHANGED THIS SESSION - no strategy work was done.** Carried forward.
+
+### The honest claim list
+
+**What is true and worth leading with:** tokenized SMS links opening a live map
+in any browser with no download or login; a device-verified ten-second cadence;
+a tamper-evident record - location fixes and timeline events both chained, with
+a verifier.
+
+**TRUE AND NARROW:** *the backend is deployed and running in Azure with a fully
+migrated schema, the deployed application has executed a query against the
+production database, and its readiness endpoint reports healthy.* **That is an
+infrastructure fact, not a product claim.** **It does NOT mean the system has
+handled a real incident.**
+
+**Recommended framing: pre-pilot, seeking one or two design partners.**
+
+**Two things to fix before any demo:** render the tracking page, and the
+`contactsNotified` "0 contacts" bug. **~1h total, four sessions overdue.**
+
+### The demo-critical reasoning, which should not have to be re-derived
+
+- The product direction is institutional. `PARTNER_INTEGRATION_AND_DIFFERENTIATION.md`
+  ranks differentiators by defensibility and lands on **independence of the
+  record** and Nigerian channel fit - **explicitly NOT the hash chain.**
+  **Consumers want rescue; institutions want proof. OPA cannot provide rescue
+  and can provide proof.**
+- It survives the competitor the strategy docs named late - **the phone itself**
+  (Apple Emergency SOS with satellite, crash detection, Android Personal Safety:
+  free, pre-installed, deeper OS access). **You cannot out-consumer that. Apple
+  does not produce an admissible, independent record for a hospital's incident
+  file.**
+- **The largest remaining gap is not another backend capability. It is that
+  nothing has ever been demonstrated end to end.**
+- **The demo workflow is a SLICE ACROSS FOUR SPRINTS, not a Sprint 10 item.**
+  Incident creation (9, built), notifications (9, built but the count displays
+  0), tracking page (10A, built server-side, **never rendered**), incident
+  timeline (pre-10, built and chained). **Sprint 10B - the actually open sprint -
+  is NOT in that list.**
+- **Evidence capture is NOT part of the honest demo** and claiming it would
+  repeat the estate-email problem.
+
+**THE WHITE PAPER IS UN-GATED AND CHEAP.** Two constraints: its strongest claim,
+a "device went dark" attested event, **is not built** (q41); and **"immutable"
+is rejected vocabulary** (ADR-015) - tamper-evident.
+
+**THE QUESTION THAT DECIDES WHETHER B2B IS A DIRECTION OR A DESCRIPTION:**
+`TODO.md:1335-1339` sequences partner APIs AFTER product-market fit, and ADR-015
+knowingly inverts that, mitigating by building for ONE NAMED PARTNER. **Is there
+a named partner? Hospital outreach is drafted and not sent - the oldest open
+action item.**
+
+### Command Centre - scoping discussed, not decided
+
+**It is a WEB dashboard, not a mobile app.** **KEEP THE ADR-013 BOUNDARY:
+viewer, never console.** **Zero-download triggering is NOT possible today** -
+`sos.tsx` is the only trigger. For hospitals the real zero-download trigger is
+**hardware**, whose fixed known location solves the required lat/lng trivially.
+
+---
+
+## 14. Wider project context
+
+**UNCHANGED THIS SESSION.**
+
+### Registration - THE CLOCK IS RUNNING
+
+- **CAC DONE.** RC 9697630, OPA Technologies Limited.
+- **D-U-N-S IN HAND. 352294843.** Apple and Google Organization enrollment
+  unblocked, **pending a 2-3 day D&B activation window.**
+- **START THE SLOW PARTS NOW** - elapsed time, not effort.
+- **The free D&B self-service tools are documented as being for U.S.-based
+  non-public companies.** A Nigerian entity likely needs the regional **Data
+  Update** route. **Whoever submits must be an owner, director or officer.**
+- **The fields that decide developer-program verification are legal name, HQ
+  address and phone** - byte-identical to CAC and the website.
+- **NDPA registration is IN PROCESS.** The constraint on audio capture is
+  timing, not permission.
+- **Hospital outreach: drafted, not sent. The oldest open action item.**
+
+### Sprint status
+
+- **Sprint 9:** Pass 1 done, live-tested; WhatsApp confirmed across four
+  activations. Error paths **BUILT BUT UNTESTED**, plus two named defects.
+  **`contactsNotified` shows 0.**
+- **Sprint 10A:** built, locally verified. **The tracking page has still never
+  rendered.** 54 real fixes exist locally. **FOUR sessions.**
+- **Sprint 10C:** hard blocker. Procurement **and a from-scratch integration
+  layer** - the providers have no network code at all.
+- **Sprint 11:** server-side substantially built. `EvidenceModule` confirmed
+  initialising in production.
+
+### Voice activation - PICOVOICE STATUS UNCERTAIN
+
+**The user stated Picovoice is "not ready". Confirm before spending time.**
+**BLOCKER: Expo Go cannot run Porcupine** -> custom dev build -> EAS -> **no
+`eas.json`**. Backend is ready (`IncidentTrigger.VOICE_HELP_HELP`,
+`EmergencyTriggerType.VOICE`). **Porcupine's performance targets are ESTIMATES.**
+
+### Six product ideas. First three nearly free.
+
+1. **Contact acknowledgement.** `ACKNOWLEDGED` exists and NOTHING SETS IT.
+   Opening the tracking page already calls `recordAccess()`. **The largest
+   functional gap. The fix for the "0 contacts" bug and this idea are the same
+   work.** **It proves response time WITHOUT OPA participating in the response.**
+2. **"I am responding"** on the tracking page - the bystander-effect fix.
+3. **Surface battery.** `batteryLevel`/`isCharging` stored and hashed, **and the
+   app has never captured either.** Free telemetry. **The DTO says 0-100.**
+4. **Duress cancel.** `handleCancel` never calls the API.
+5. **Hardware trigger** (triple power press / held volume-down) - **80% of
+   wake-word for 10% of the cost, no mic, no App Store risk, no NDPA audio
+   question. BEFORE voice. This is the actual silent-activation mechanism.**
+6. **Automated incident report on resolution.** The OUTPUT of everything 10B
+   built, and **the sellable artifact in the partnership model.**
+
+### Silent activation - the unasked design question
+
+**Backend ready. App NOT silent** - five-second visible countdown, full-screen
+state changes, large button. **THE DESIGN QUESTION NOBODY HAS ASKED: if
+activation is silent, how does the user know it worked?** Screen confirmation
+defeats the purpose. **A single discreet haptic is the likely answer. Decide
+before building.** It interacts with the `contactsNotified` defect: a user who
+cannot look at the screen has no confirmation channel at all.
+
+### Positioning - "live" is EARNED, "background" is NOT
+
+**Rejected: "emergency coordination platform."** **Adopted:** *emergency
+alerting with a verifiable location record* / *live incident awareness*.
+**"Live" is earned as of `d5aca8b`** - 50 fixes, 10s cadence, verified chain.
+**Caveat: live WHILE THE APP IS IN THE FOREGROUND.** `source: 'background'` is
+unreachable. **Do not let "live" grow into "always".**
+
+**HONEST CAPABILITY STATEMENT:** *records continuously while the app is open, at
+a verified 10-second cadence, on a tamper-evident chain.*
+
+**Two words to avoid** (ADR-015): **"immutable"** - the chains are
+**tamper-evident**; and **on-device Picovoice processing is NOT an existing
+asset**.
+
+### Website
+
+Next.js 16.2.10 on Vercel, **no tests**, gated on `npm run build`. 18 `.tsx`
+files, **exactly ONE `'use client'` component**. **`middleware` is deprecated in
+Next 16.2 in favour of `proxy`.** `src/lib/tracking.ts` **casts** the API
+response rather than validating it, so **the website's types are a hand-mirrored
+copy of the API DTO with nothing keeping them in sync.** One drift exists (q20).
+
+---

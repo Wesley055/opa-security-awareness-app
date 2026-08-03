@@ -1,0 +1,785 @@
+# OPA - Handover Ultra 20 - PART 1 of 3 (sections 1-9)
+# Paste ALL THREE parts, in order, as the first messages in the new chat.
+#
+# GENERATED: 2026-08-02 (local), at commit 646cf09 on branch ci-test-gate.
+# main is at 8efedef, PUSHED and DEPLOYED.
+# Supersedes Ultra 19 parts 1-3. Merged, not appended.
+
+# OPA - Handover (Ultra 20)
+
+**Supersedes Ultra 2-19.**
+
+Ultra 13, 15, 16, 17, 18, 19 parts remain committed at `docs/handovers/` for
+history. **Commit these parts too** - section 9 item 0.
+
+## THIS SESSION: ADR-016 IMPLEMENTED, SHIPPED, AND VERIFIED IN PRODUCTION.
+## THE CI TEST GATE IS BUILT AND PROVEN BUT NOT YET ON `main`.
+
+| SHA | What | State |
+|---|---|---|
+| `16753bc` | Docs: handover Ultra 19 (3 parts, 3379 insertions) | **pushed** |
+| `8efedef` | API: implement ADR-016 (5 files, 143+/16-) | **pushed, DEPLOYED, VERIFIED** |
+| `e17eab7` | CI: test gate + deploy branch guard (1 file, 8+) | **on branch `ci-test-gate` ONLY** |
+| `51c03ca` | TEMPORARY deliberately failing test | on branch only, superseded |
+| `646cf09` | Remove the temporary test | on branch only, HEAD of branch |
+
+### THE FIRST THING THE NEW SESSION MUST KNOW
+
+**THERE IS AN AGREED EIGHT-PHASE PLAN. IT IS IN PART 3 SECTION 15 AND IT IS THE
+AUTHORITATIVE SEQUENCING.** Phase 1 (merge the CI gate to `main`) was
+**COMPLETED at `faa2e62`** after most of this handover was written. **Read the
+phase plan before picking up any work item from elsewhere in this document.**
+
+**CHECK WHICH BRANCH YOU ARE ON.** This session worked on `ci-test-gate` for
+part of its length. **`main` should now be at `faa2e62`** - the cherry-pick
+landed and was pushed. **The `ci-test-gate` branch still exists locally and on
+origin and should be deleted once the gated run is confirmed green.**
+
+**WHAT WAS STILL OPEN WHEN THE BODY OF THIS HANDOVER WAS WRITTEN** - and is
+recorded throughout it in that state - **was the cherry-pick of `e17eab7` onto
+`main`. That is now DONE.** Where the text below says "the one unfinished
+action", read it as history. **Verify against `git log` rather than trusting
+either version.**
+
+### THE FIVE THINGS THIS HANDOVER CARRIES HARDEST
+
+**1. ADR-016 IS DONE, END TO END.** Implemented, tested, pushed, deployed, and
+verified on the wire. `/health/ready` now returns **200** with
+`{"status":"ok","database":"up","redis":"optional-down"}`. Issue 19.1 closed,
+19.3 closed, q51 and q54 answered.
+
+**2. THE FULL SUITE IS 23 SUITES / 249 TESTS. Ultra 19's "20 suites / 238 tests"
+WAS STALE** and its projected "21/243" was arithmetic that was never measured.
+**Measured twice this session, locally and on CI.**
+
+**3. THE CI GATE IS PROVEN BUT NOT MERGED.** Run #82 (green tests) and run #83
+(deliberately failing test) proved both controls independently. **Until
+`e17eab7` reaches `main`, every push to `main` still deploys without running a
+single test.**
+
+**4. THE DEPLOY JOB HAD NO BRANCH GUARD AND `workflow_dispatch` WAS ALREADY
+ENABLED.** Ultra 19 never recorded the `workflow_dispatch` trigger. Together
+those meant **a manual dispatch from ANY branch would have deployed that branch
+straight to production.** `e17eab7` closes it. This was found by reading the
+workflow, not by inheriting a summary of it.
+
+**5. THREE OF THIS SESSION'S OWN PREDICTIONS WERE WRONG AND MEASUREMENT CAUGHT
+ALL THREE.** Line counts, numstat arithmetic, and a file-ending assumption. See
+section 8b. The pattern: **content claims held; derived arithmetic did not.**
+
+---
+
+## 1. Working method
+
+No file access. Manual command-and-paste: one command, the user runs it in
+PowerShell, pastes raw output back. One thing at a time. **Never assume file
+state - verify it.**
+
+**THE USER ASKED EXPLICITLY THIS SESSION: "i want every script to be step by
+step i will review and run and paste back the result back to you."** Honour
+this. One installer per step, reviewed before it is built, run and verified
+before the next is written.
+
+### Every command must carry its own control
+
+**A command whose interesting result is a zero or an absence must also print a
+number proving it reached real data.** `probe=` before everything.
+
+```powershell
+"probe=unique-token"; <rest of command>
+```
+
+**Trap #101 - THE PROBE TOKEN IS A CONTROL ON THE COMMAND ITSELF.** It did NOT
+fire this session (about 40 commands, all tokens matched), but it fired three
+times in Ultra 19. Keep checking it first.
+
+**Paste damage seen this session:** the first line was dropped or mangled twice
+(`lprobe=u20-adrs`, and a command echoed back without output). **The token
+itself survived both times.** Never anchor on line 1.
+
+### VERIFY, DO NOT PREDICT - THREE MISSES THIS SESSION
+
+All three were **derived arithmetic**, not content:
+
+- **`53 -> 55` lines for `health.service.ts` was wrong; it is 58.** Stated from
+  memory rather than computed. Fixed by simulating the edit before building.
+- **`numstat 13 8` was wrong; it is `12 7`.** Git computes a MINIMAL diff, so
+  shared lines inside a replaced block are reused rather than counted. **A naive
+  "8 lines out, 8 lines in" arithmetic overstates both sides.**
+- **`body_paras=3` was wrong; it is 2.** With repeated `-m` flags the FIRST
+  becomes the subject and is NOT part of `%b`. **body_paras = (number of -m
+  flags) - 1.**
+
+**And one assumption that a guard caught before it did damage:**
+`health.controller.ts` has **NO trailing newline**. The step 5 installer refused
+rather than guess, and the refusal was correct. See trap #106.
+
+**THE DURABLE LESSON: reconstructed file CONTENT was exact every time (byte
+counts matched to the byte). What failed was arithmetic ABOUT that content.
+Simulate and measure; do not compute in your head.**
+
+### PowerShell specifics
+
+Unchanged from Ultra 19 and all still live: no backslash escape (backtick,
+#56); quotes stripped from native args (#78); `**` not recursive (#83); `cd`
+persists (#87) - **relied on repeatedly this session**; `[System.IO.File]` and
+node ignore `cd` (#89) - **used deliberately for the byte-level EOL probe**;
+`$LASTEXITCODE` stale after a PS-level failure (#88); **a pipeline masks the
+exit code (#66) - jest and tsc were run UNPIPED every time**; `-LiteralPath`
+mandatory; `Get-Content` misreads UTF-8 as ANSI (#63) - **`decision-log.md`
+ADR-001..008 render mojibake and ARE CLEAN**; `-Encoding utf8` on write adds a
+BOM, so all writing goes through Node; **repeated `-m` flags for multi-paragraph
+commits**; `curl` is an alias, use `curl.exe` (#92); `Invoke-WebRequest` throws
+on 4xx/5xx with a possibly EMPTY body (#102) - **`curl.exe -s -i` is the
+instrument**; `Measure-Object -Line` counts non-empty only (#91); `---` in a
+pasted console block parses as an operator (#90).
+
+**THE BYTE-LEVEL FILE-PROPERTY PROBE - NEW AND WORTH KEEPING:**
+```powershell
+cd C:\Projects\OPA; "probe=X"; $p='ABSOLUTE\PATH'; $b=[System.IO.File]::ReadAllBytes($p); $t=[System.IO.File]::ReadAllText($p); "bytes=$($b.Length)"; "bom=" + ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF); "crlf=" + ([regex]::Matches($t,"`r`n").Count); "lf_only=" + ([regex]::Matches($t,"(?<!`r)`n").Count); "trailing_lf=" + ($b.Length -gt 0 -and $b[-1] -eq 10); "lines=" + @([System.IO.File]::ReadAllLines($p)).Count
+```
+**`lf_only` one LESS than `lines` proves no trailing newline.** This measures
+raw bytes and does not depend on any reconstruction being correct.
+
+### Querying Postgres
+
+**LOCAL, via Docker** - unchanged:
+```powershell
+"probe=db"; $q=[char]34; $sql = "SELECT sequence, source, " + $q + "recordedAt" + $q + " FROM " + $q + "JourneyLocationFix" + $q + " ORDER BY sequence DESC LIMIT 20;"; $sql | docker exec -i opa-postgres psql -U opa -d opa; "exit=$LASTEXITCODE"
+```
+
+**PRODUCTION - `/health/ready` IS NOW THE CHEAPEST DIAGNOSTIC.** One
+unauthenticated HTTP request returns a live `SELECT 1` result from inside the
+deployed app. **`Content-Length` alone distinguishes builds: 91 = pre-ADR-016,
+94 = post.**
+
+### Installer scripts - 44 FOR 44 ACROSS FOURTEEN SESSIONS
+
+**Six installers this session, all landed correctly.** One (step 5) correctly
+REFUSED on first run and was rebuilt - that is the discipline working, not a
+failure.
+
+Procedure unchanged: write a `.js`, deliver as `.txt`, user renames to `.cjs`,
+run once, delete before committing. **PLACEMENT SELECTS BY BYTE SIZE, NOT
+TIMESTAMP** (trap #38) - **exercised for real this session when a superseded
+11432-byte copy sat alongside the correct 12116-byte one and the gate picked
+correctly.**
+
+**RULES CONFIRMED OR EARNED THIS SESSION:**
+
+- **PIN THE WHOLE-FILE RESULT WITH A SHA-256, NOT JUST THE FRAGMENTS.** **This
+  is the single most valuable rule learned this session.** In three separate
+  replica cases (step 3 C8, step 5 C7, CI C8) **every fragment check passed -
+  anchors found exactly once - and the source still differed from the reviewed
+  file.** Only the whole-file result SHA caught it. Compute the SHA over the
+  EOL-normalised planned OUTPUT; it is then independent of EOL, BOM and
+  trailing-newline state, which are preserved separately.
+- **BEHAVIOURAL INVARIANTS MUST RUN IN PHASE 1 *AND* PHASE 2.** Phase 1 on the
+  planned array aborts before touching a tracked file; phase 2 on disk catches a
+  corrupted write. **Driven by a replica case where a tampered installer wrote
+  to a tracked file and only failed afterwards.**
+- **SEMANTIC CHECKS SURVIVE A REGENERATED SHA; A SHA DOES NOT.** Every installer
+  was replica-tested against a tampered CONTENT array with `EXPECT_SHA`
+  regenerated to match. **The SHA passed every time.** What caught the tamper
+  was the semantic assertion - required-set membership, `it.todo()` count,
+  guard presence.
+- **A DEPENDENCY GUARD MUST CHECK EXPORTED DECLARATION FORMS, NOT SYMBOL
+  MENTIONS.** A decoy file with the four symbol names in a COMMENT plus one
+  unrelated `export` passed the naive guard. Match `^export\s+function\s+NAME\s*\(`
+  etc., anchored, **asserted by count**.
+- **MEASURE EOL, BOM *AND TRAILING NEWLINE* FROM THE FILE ITSELF.** Trailing
+  newline is a third independent property. **Two files in this repo lack it.**
+- **AN OBSERVATION IS NOT A GATE.** Source line count is a NOTE; the result SHA
+  is the gate.
+- **VERIFY THE INSTALLER'S GUARDS AGAINST THE PUBLISHED ARTIFACT.** Extract the
+  CONTENT array from the `.txt` about to be downloaded, hash it, compare to the
+  embedded `EXPECT_SHA`. Self-consistency, not memory.
+- Two phases; phase 2 must be able to fail (`written === plannedContent` catches
+  a SAME-LENGTH substitution that a byte gate passes - **proven in all six**);
+  create-only installers refuse to overwrite a divergent file; recovery
+  instructions must match git state (`del` for untracked, `git checkout --` for
+  tracked); idempotency tied to content and single-line (#103); assert by count
+  (#42); one file, arrays of quoted strings; `node --check`; ASCII scan.
+
+**TEST THE INSTALLER AGAINST A REPLICA BEFORE SHIPPING IT.** This session:
+7, 11, 11, 12, 12 and 11 cases respectively. **Every revision re-runs ALL cases.**
+
+**TRAP #104 FIRED AGAIN - A TEST HARNESS CAN PRODUCE A FALSE RESULT.** In step
+5's case 11 the harness's string replacement silently did not match, so the
+installer ran normally and reported success. **Read as "the tamper was
+accepted", that is a false conclusion about the installer.** **Fix: the harness
+must ASSERT ITS OWN TAMPER APPLIED (`if(before===after) exit 2`) before drawing
+any conclusion.** Rebuilt, it worked.
+
+**Downloads** land in `C:\Users\mohammed.WESLEYWEST\Downloads`.
+
+### Environment recovery after a reboot
+
+**Postgres and Redis run in Docker locally, not as Windows services.** Trap #27.
+```powershell
+"probe=docker-start"; Start-Process "C:\Program Files\Docker\Docker\Docker Desktop.exe"; Start-Sleep -Seconds 45; docker ps --format "{{.Names}}|{{.Status}}"
+```
+**NOTE: the unit suite needs NO Docker** (`jest.config.ts` has no `globalSetup`).
+Only `npm run test:int` does.
+
+### DEVICE TESTING PROTOCOL - LOAD-BEARING, UNCHANGED
+
+**A fast refresh does NOT reset module state** (trap #80). Fully close Expo Go,
+reopen, one SOS, let the 5s countdown COMPLETE, stay on the SOS screen 90s,
+capture BOTH consoles, **force-close Expo Go afterwards** (issue 17.13).
+**`POST /journey/sessions` in the API log is the proof the new code ran.**
+
+### GitHub Actions UI - NEW THIS SESSION, AND IT BIT
+
+**Trap #107. See section 7.** The "Run workflow" button is on the WORKFLOW'S OWN
+PAGE, not "All workflows" and not "New workflow". Its branch selector
+**defaults to `main` and silently stays there.**
+
+---
+
+## 2. Current state
+
+**BRANCH: `ci-test-gate`. HEAD `646cf09`. Clean tree, level with
+origin/ci-test-gate.**
+**`main` IS AT `8efedef`, clean, level with origin/main.**
+
+```powershell
+$env:GIT_PAGER='cat'; cd C:\Projects\OPA; "probe=resume"; "current=" + (git branch --show-current); git log --oneline -4 | ForEach-Object { "log|$_" }; "status_sb=" + ((git status -sb) -join ' ~ '); "porcelain=" + @(git status --porcelain).Count; "main_at=" + (git rev-parse --short main); "ahead_of_main=" + @(git log --oneline main..ci-test-gate).Count
+```
+
+Expect `current=ci-test-gate`, `646cf09`/`51c03ca`/`e17eab7`/`8efedef`,
+`porcelain=0`, `main_at=8efedef`, `ahead_of_main=3`.
+
+### MEASURED THIS SESSION
+
+| Gate | Result |
+|---|---|
+| `npx tsc --noEmit` (`apps/api`) | **exit 0**, five separate runs |
+| `npx jest src/modules/health` (final) | **3 suites, 11 passed, 11 total**, todo=0 |
+| **FULL `npx jest`** | **23 suites / 249 tests, 0 failed**, 28.0s local |
+| Full jest on CI (Node 22) | **23 suites / 249 tests**, 9.52s |
+| `git diff --numstat` (ADR-016) | 5 files, **143 insertions, 16 deletions** |
+| `/health/ready` production | **200**, `Content-Length: 94` |
+
+**Not re-measured this session:** `npm run test:int` (was 6 suites / 24 tests);
+`apps/mobile-app` `tsc`; `apps/website` `npm run build`; `npm run lint` (was 16
+problems). **The mobile app and website were not touched at all.**
+
+**q54 ANSWERED: the extra jest suite is `apps/api/test/incident-orchestrator.spec.ts`**,
+outside `src`. `spec_count` under `src` plus this one accounts for the total.
+
+### PRODUCTION - MEASURED THIS SESSION, AFTER THE DEPLOY
+
+| Check | Result |
+|---|---|
+| `GET /health/ready` | **200 OK** |
+| Body | `{"status":"ok","database":"up","redis":"optional-down","timestamp":"..."}` |
+| `Content-Length` | **94** (was 91 pre-ADR-016) |
+| Headers | `X-Powered-By: Express`, `x-correlation-id` present - **Nest's own response** |
+| Database, from the app | **up** - live `SELECT 1` inside the deployed process |
+| Deploy run | **#80** for `8efedef`, 4m 45s, green |
+
+**THE SHIPPING PROOF, VERBATIM - capture this into the runbook:**
+```
+{"status":"ok","database":"up","redis":"optional-down","timestamp":"2026-08-02T21:58:58.616Z"}
+```
+
+### THE WORKER HANDLE LEAK - STILL EIGHT RUNS
+
+Issue 17.3. **A full unpiped `npx jest` ran this session and produced NO leak
+warning.** **DO NOT CLOSE IT BY OBSERVATION** (trap #59). It tracks wall time.
+
+### FILE LINE COUNTS - measured, after this session
+
+| File | Lines | Note |
+|---|---|---|
+| `docs/architecture/decision-log.md` | 1210 | 13 ADRs, ADR-016 at line 9, ADR-012 at 218. CRLF, no BOM |
+| `apps/api/src/modules/health/readiness-policy.ts` | **62** | **NEW**, LF, no BOM |
+| `apps/api/src/modules/health/readiness-policy.spec.ts` | **61** | **NEW**, LF, no BOM, 7 tests |
+| `apps/api/src/modules/health/health.service.ts` | **58** | was 53. LF, no BOM, trailing newline YES |
+| `apps/api/src/modules/health/health.service.spec.ts` | **44** | was 49. LF, no BOM, trailing newline YES |
+| `apps/api/src/modules/health/health.controller.ts` | **31** | was 27. LF, no BOM, **NO trailing newline** |
+| `apps/api/src/modules/health/health.module.ts` | 9 | UNTOUCHED |
+| `.github/workflows/main_opa-api-production.yml` | **87** | was 79. LF, no BOM, **NO trailing newline**. ON BRANCH ONLY |
+| `docs/TODO.md` | 1599 | BOM + CRLF. **The DEMO-CRITICAL PATH block is STILL NOT INSTALLED** |
+| `docs/SPRINT_ROADMAP.md` | 623 | BOM + CRLF |
+
+**COMPLETE:** everything through Sprint 10B item 9b, ADR-010/011/012, the
+production bring-up chain, and **ADR-016 decided, implemented, pushed, deployed
+and verified on the wire**.
+
+### Honest progress
+
+**Sprint 10B ~88%. UNCHANGED.** This session touched no 10B work. Remaining:
+persistence (9c) and the end-to-end test (10).
+
+**Sprint 10A effectively complete. THE TRACKING PAGE HAS STILL NEVER RENDERED** -
+54 real fixes exist locally. **Four sessions now.**
+
+**Sprint 10C ~0%**, and larger than previously recorded (no network layer at all
+in the providers).
+
+**Production: LIVE, fully migrated, and its one recorded semantic defect is
+FIXED and VERIFIED.** Remaining production-track items are the CI gate merge and
+the runbook.
+
+---
+
+## 3. Verified facts about the codebase
+
+### Environment
+
+- Node **v26.5.0** locally, **v22.23.1 on the CI runner** (measured this
+  session), **v22.22.2 on the App Service**. Prisma **6.19.3**.
+  **PostgreSQL 16.14 local Docker; 14.23 production.** Next.js 16.2.10 website.
+- **TypeScript supports `satisfies`** - `as const satisfies readonly T[]`
+  compiles, measured. So TS >= 4.9.
+- **`noUncheckedIndexedAccess` is ON** in `apps/api`. **A mapped type over a
+  literal union (`Record<'a'|'b', boolean>`) does NOT trip it** - measured.
+- **Prisma 7.9.1 exists. DO NOT UPGRADE casually.**
+- Docker: `opa-postgres`, `opa-redis`. `psql` NOT on host PATH, NOT on App
+  Service. **Azure CLI (`az`) NOT installed.** Portal and Kudu SSH only.
+- Git `core.autocrlf=true`. **LF->CRLF warnings when staging LF files are
+  EXPECTED AND CORRECT.**
+- **PRETTIER HAS NEVER BEEN RUN ON `health.controller.ts`** - it had an 88-char
+  line and no trailing newline. Two independent signals, same conclusion. **Do
+  not assume repo-wide formatting.**
+
+### THE HEALTH MODULE - THE SUBJECT OF ADR-016, NOW IMPLEMENTED
+
+`apps/api/src/modules/health/`. **Five files: module (9), controller (31),
+service (58), service spec (44), policy (62), policy spec (61).**
+
+#### `readiness-policy.ts` - 62 lines, NEW - THE POLICY LIVES HERE
+
+```ts
+export type ReadinessDependency = 'database' | 'redis';
+export type RedisReadinessState = 'up' | 'down' | 'optional-down';
+export type ReadinessVerdict = 'ok' | 'degraded';
+
+export const REQUIRED_DEPENDENCIES = Object.freeze([
+  'database',
+] as const satisfies readonly ReadinessDependency[]);
+
+const REQUIRED_DEPENDENCY_SET: ReadonlySet<ReadinessDependency> =
+  new Set<ReadinessDependency>(REQUIRED_DEPENDENCIES);
+
+export function dependencyState(dependency, reachable, required = REQUIRED_DEPENDENCY_SET): RedisReadinessState
+export function readinessVerdict(reachability: Readonly<Record<ReadinessDependency, boolean>>, required = REQUIRED_DEPENDENCY_SET): ReadinessVerdict
+```
+
+**WHY `Object.freeze` ON A TUPLE RATHER THAN AN EXPORTED `ReadonlySet`:**
+`ReadonlySet` is a COMPILE-TIME VIEW ONLY. The underlying `Set` stays mutable at
+runtime, so an importer could cast it and call `.add('redis')` - **making policy
+drift dynamically, which is exactly what ADR-016 D4 forbids.** The frozen tuple
+is the exported policy; the Set is private. **`REQUIRED_DEPENDENCIES.push()`
+throws at runtime - measured.** `readiness-policy.spec.ts` asserts
+`Object.isFrozen(...)` for precisely this reason.
+
+**TO GRADUATE REDIS (ADR-016 D5): add `'redis'` to that array. That is the
+ENTIRE mechanism. There is no other place optionality is decided.**
+
+#### `health.service.ts` - 58 lines
+
+Imports `dependencyState`, `readinessVerdict`, `type RedisReadinessState` from
+`./readiness-policy`. `ReadinessStatus.database` stays **narrow** (`'up'|'down'`);
+only `redis` widens to `RedisReadinessState`. `allUp` is GONE. Redis is still
+probed via `this.redis.isHealthy()` and still reported.
+
+#### `health.controller.ts` - 31 lines
+
+The readiness `@ApiOperation` is now `summary` + `description`:
+`'Readiness check - are required dependencies reachable?'` /
+`'Optional dependencies are reported but do not fail the check.'`
+**It deliberately does NOT name Redis** (would go stale) **and does NOT cite
+ADR-016** (a public API document). Liveness summary untouched.
+**Max line length dropped 88 -> 78 as a side effect.**
+
+#### The tests - 11 total across three suites, todo=0
+
+`readiness-policy.spec.ts` holds **D5's graduation case as a REAL test**: it
+passes an explicit `new Set(['database','redis'])` as the `required` argument.
+**That argument is part of the PRODUCTION signature, so the test invents no
+hook** - no setter, no DI token, no env switch, no mocked module constant.
+`health.service.spec.ts`'s `it.todo` was replaced by a comment pointing at it.
+
+**A LEFTOVER WORTH KNOWING:** `health.service.spec.ts:21` still has
+`const redisState: string = result.redis;`. That intermediate was needed when
+the union was `'up'|'down'`; now it is redundant. **Left deliberately** -
+rewriting an assertion in the same commit that makes it pass is a separate
+decision.
+
+### THE REDIS PICTURE - UNCHANGED
+
+**One consumer: `health.service.ts`.** `RedisService.getClient()` has no
+callers. `REDIS_URL` is **`redis://placeholder:6379`** - a valid URL with an
+intentionally unresolved hostname. `env.validation.ts`'s `z.string().url()`
+works correctly. **Redis backs no production capability.**
+
+### THE CI WORKFLOW - `.github/workflows/main_opa-api-production.yml`
+
+**READ IN FULL THIS SESSION. 79 lines before, 87 after `e17eab7`.**
+**LF, no BOM, NO TRAILING NEWLINE.**
+
+Triggers: `push: branches: [main]` **and `workflow_dispatch:`** (line 8).
+**Ultra 19 never recorded `workflow_dispatch`.**
+
+Two jobs: `build` (checkout, setup-node 22.x with npm cache, `npm ci`,
+prisma:generate, **[NEW] Type check, [NEW] Unit tests**, Build API, Assemble
+standalone deploy folder, Upload artifact) and `deploy`
+(`needs: build`, **[NEW] `if: github.ref == 'refs/heads/main'`**, download
+artifact, azure/login, azure/webapps-deploy@v3).
+
+**STILL NO `prisma migrate deploy`** - a hosted runner cannot reach a
+private-access server. Manual-from-App-Service remains the procedure. q44.
+
+**ORYX GENERATES THE STARTUP COMMAND:**
+`PATH="$PATH:/home/site/wwwroot" node dist/src/main.js`. **No Dockerfile.**
+
+### AZURE - unchanged from Ultra 19
+
+App Service `opa-api-production`, South Africa North, hostname
+`opa-api-production-g4f6cxdyanfbaub0.southafricanorth-01.azurewebsites.net`.
+**Health check ENABLED, probe path `/health`**, unhealthy instance removal on,
+10-minute threshold. Portal banner: "Health check is being moved to
+Configuration" - the realistic route by which the path gets changed by accident.
+
+Postgres flexible server `opa-api-production-server`, PostgreSQL 14.23,
+Burstable B1ms, 1 vCore, 2 GiB, resource group `opa-production`,
+**Private access (VNet Integration), public access GREYED OUT**. Migrations
+11 of 11. Connection URL length 160.
+
+### The rest of the codebase - CARRIED FORWARD FROM ULTRA 19, NOT RE-VERIFIED
+
+**Emergency intelligence:** service 161 lines CRLF; seven providers, 466 lines,
+**ZERO network layer** - no fetch/axios/http/timeout/catch/throw. `Promise.all`
+at `:50` is fail-fast but **LATENT**. Mock data is Ikeja-anchored and sets
+`isVerified: true`. 697-line spec has **zero failure tests**.
+
+**Orchestrator** 457 lines: `intelligence` assigned, carried, returned, **never
+dereferenced**; `:74` already returns null enrichment. q43 closed four ways.
+
+**Incident timeline:** `recordEvent` opens its OWN `$transaction` with
+`pg_advisory_xact_lock(3, hashtext(incidentId))`. **Three lock namespaces.**
+Issue 17.1 (writes after commit at 336/376/388/408) is a DEADLOCK question.
+
+**Evidence:** 50MB `FileInterceptor`, sha256 before upload, dedupe on
+`incidentId_sha256`. **No encryption, no client capture, `capturedAt`
+unverified.**
+
+**Mobile** (`apps/mobile-app`, UNTOUCHED for two sessions): no `eas.json`;
+no background capability; `journey-tracker.ts` 385 lines is a module-scope
+singleton, `FLUSH_INTERVAL_MS=15000`, `TIME_INTERVAL_MS=10000`,
+`DISTANCE_INTERVAL_M=0`, `MAX_QUEUED_FIXES=600`, **in-memory queue only (that is
+9c)**, **flushes oldest-first and 9c MUST PRESERVE THAT**. `sos.tsx` 417 lines
+is the only location capture; `contactsNotified` is rendered and WRONG;
+`handleCancel` never calls the API.
+
+**Spec conventions:** services use direct construction with `as never`;
+controllers use `Test.createTestingModule` + `createNestApplication` + supertest
+and **PASS** - trap #61 is narrower than Ultra 18 recorded.
+
+### LINE ENDINGS - MIXED. MEASURE EVERY TIME.
+
+`modules/health` LF no BOM (**`health.controller.ts` and the workflow have NO
+TRAILING NEWLINE**); `emergency-intelligence.service.ts` CRLF; orchestrator and
+`incident-timeline` CRLF; `docs/TODO.md` and `SPRINT_ROADMAP.md` BOM+CRLF;
+`decision-log.md` CRLF no BOM; `docs/handovers/` CRLF no BOM.
+
+---
+
+## 4. Contracts
+
+**UNCHANGED THIS SESSION.** `POST /journey/sessions` idempotent by construction.
+`POST /journey/fixes` - **CHANGING UNDER ADR-014**: the ENDED check at
+`journey-ingestion.service.ts:107` fires before any fix is examined, `endedAt`
+is NOT selected at `:95`, and the skew checks throw from inside `.map()` so
+**ONE bad `recordedAt` 400s the ENTIRE batch of up to 200.**
+
+Canonical modules: `canonical-fix.ts` 178 lines / 22 tests,
+`canonical-chain.ts` 167 / 27. **Seven-key closed payload; timeline's
+`computeHash` is six keys. q32 - ONE ADR, THREE cases.**
+
+Integration harness: 6 suites / 24 tests, **not re-measured**. Still no token
+fixture, so the tie-break has no automated test.
+
+Website: `live-tracking.tsx` is the only `'use client'` component,
+`POLL_MS = 15000`, no tests, `npm run build` is the gate, **the page has never
+rendered**.
+
+---
+
+## 5. Settled decisions
+
+**`docs/architecture/decision-log.md`, 1210 lines, NEWEST FIRST, 13 ADRs.**
+**RE-DERIVED THIS SESSION AND CONFIRMED:**
+
+| ADR | Line | | ADR | Line |
+|---|---|---|---|---|
+| **016** | **9** | | 006 | 1133 |
+| 012 | 218 | | 005 | 1150 |
+| 011 | 353 | | 004 | 1164 |
+| 010 | 517 | | 003 | 1178 |
+| 009 | 649 | | 002 | 1190 |
+| 008 | 988 | | 001 | 1202 |
+| 007 | 1110 | | | |
+
+```powershell
+cd C:\Projects\OPA; $p='C:\Projects\OPA\docs\architecture\decision-log.md'; "probe=adrs"; "lines=$((Get-Content -LiteralPath $p).Count)"; $h=@(); $n=0; Get-Content -LiteralPath $p | ForEach-Object { $n++; if ($_ -match '^#+\s*ADR-\d+') { $h += "$n|" + $_.Trim() } }; "adr_count=$($h.Count)"; $h
+```
+Expect `lines=1210`, `adr_count=13`. **Any new ADR goes above ADR-016 at line 9.**
+**ADR-001..008 headings render as mojibake and the file is CLEAN** (trap #63).
+
+**ADR-016 IS NOW FULLY DISCHARGED** - decided (`fc3d72c`), pinned by tests
+(`3e9b703`), implemented (`8efedef`), deployed, and verified on the wire.
+**Except D6**, which requires a permanent production-operations runbook that
+still does not exist.
+
+**THREE ADRs STILL OWED, ALL WITH CONTENT ALREADY WRITTEN:**
+- **ADR-013** - evidence architecture + coordination boundary. Part 2 9b.10.
+- **ADR-014** - the ENDED-session fix contract. Part 2 9b.9, FULL content.
+- **ADR-015** - multi-entry platform. **Content COMMITTED at
+  `docs/handovers/ADR-015-content.txt` but NOT INSTALLED.** Trap #95, FOURTH
+  session running.
+- **A FOURTH IS WANTED: ADR-017, provider fault isolation, BEFORE 10C.**
+
+---
+
+## 6. Rejected - do not re-propose
+
+All Ultra 19 rejections stand. **Additions from this session:**
+
+- **A `ReadonlySet` as the EXPORTED policy value.** Compile-time only; the
+  runtime Set stays mutable. Use a frozen tuple.
+- **A generic `DependencyState` type shared by database and redis.** ADR-016
+  widens ONLY Redis; a shared union invites widening `database` later.
+- **A third `HealthService` constructor parameter for the required set.** Nest
+  resolves by `design:paramtypes` and would try to inject a `Set` provider; a
+  default value does not prevent that. It would need `@Optional() @Inject()` plus
+  a module provider - real DI machinery for a policy that never varies.
+- **A service-level test for D5's graduation.** There is no way to hand the
+  service a different required set without adding the hook D4 rejects. **The
+  policy-level test is stronger, not a compromise.**
+- **A single-line 148-char Swagger summary**, and equally the 4-line wrapped
+  form whose string line is still 125 chars. **`summary` + `description` is the
+  answer** - max line 71, and it reads correctly in Swagger UI.
+- **Naming Redis in the Swagger summary** (goes stale) or **citing ADR-016 in it**
+  (internal architecture does not belong in a public API document).
+- **Adding a trailing newline to `health.controller.ts` or the workflow.** An
+  unrelated fix riding along in a scoped commit.
+- **`--forceExit` on the CI jest run.** Issue 17.3 leaks a handle; masking it
+  would hide the very thing that needs fixing.
+- **`npm run test:int` in CI.** Needs a live Postgres and `opa_test` - a
+  service-container job, separate work.
+- **Merging `ci-test-gate` into `main` with all three commits.** It would put a
+  commit on `main` that WOULD HAVE FAILED the gate. Cherry-pick `e17eab7`.
+- **Re-running workflow #81** (the cancelled `main` dispatch). It would repeat
+  the mistake.
+
+---
+
+## 7. Traps
+
+#1-104 stand in Ultra 12-19. **NEW AND RESTATED:**
+
+**#38 - SELECT BY BYTE SIZE, NOT TIMESTAMP.** **Exercised for real:** a
+superseded 11432-byte installer sat in Downloads next to the correct 12116-byte
+one and the gate picked correctly (`files=2`, `matching=1`).
+
+**#59 - DO NOT CLOSE A FLAKY BUG BY OBSERVATION.** A full jest run produced no
+handle-leak warning. **Issue 17.3 stays open.**
+
+**#66 - A PIPELINE MASKS THE EXIT CODE.** Every jest and tsc run this session
+was unpiped. **The `git commit | ForEach-Object` pattern DOES mask it** - verify
+separately afterwards.
+
+**#94 - DEPLOYED, RUNNING, SERVING, AND PASSING READINESS ARE FOUR DIFFERENT
+THINGS.** **A fifth is now proven: BUILT AND DEPLOYED IS NOT TESTED.** Run #80
+deployed 249 tests' worth of code without running one of them.
+
+**#101 - THE PROBE TOKEN IS A CONTROL ON THE COMMAND ITSELF.** Did not fire this
+session. Keep checking it.
+
+**#104 - A TEST HARNESS CAN PRODUCE A FALSE RESULT. FIRED AGAIN.** A tamper
+harness whose string replacement did not match let the installer run normally
+and report success. **The harness must assert its own tamper applied before any
+conclusion is drawn.**
+
+105. **NEW - REPEATED `-m` FLAGS: `body_paras` IS ONE FEWER THAN THE FLAG
+    COUNT.** The first `-m` becomes the SUBJECT and is not part of `%b`. Three
+    flags produce two body paragraphs. **Predicting 3 and measuring 2 looks like
+    a lost paragraph and is not.**
+
+106. **NEW - TRAILING NEWLINE IS A THIRD INDEPENDENT FILE PROPERTY.** EOL and
+    BOM are not enough. `health.controller.ts` and the CI workflow both have LF,
+    no BOM, and **NO trailing newline**, while their neighbours have one.
+    **An installer that assumes a trailing newline computes a WRONG result SHA
+    and refuses - which is correct behaviour, but costs a rebuild.** Measure it
+    from raw bytes: `lf_only` one less than `lines` means no trailing newline.
+
+107. **NEW - GITHUB ACTIONS "RUN WORKFLOW" DEFAULTS TO `main` AND WILL DEPLOY
+    IT.** The button is on the WORKFLOW'S OWN PAGE (left sidebar entry), not
+    "All workflows" (which never shows it) and not "New workflow" (which creates
+    a file). **The branch selector says `Branch: main` and stays there unless
+    changed.** A dispatch was launched against `main` this session and had to be
+    cancelled. **With no deploy branch guard, that would have deployed `main` to
+    production.** **ALWAYS verify the run header shows the intended commit SHA
+    and branch tag BEFORE walking away.**
+
+108. **NEW - FRAGMENT CHECKS CAN ALL PASS ON A FILE THAT DIFFERS.** Anchors
+    found exactly once, `anchorAfter` correct, and the source still not the
+    reviewed file. **Proven in three independent replica cases.** **Only a
+    whole-file result SHA catches it.**
+
+---
+
+## 8. What changed this session
+
+**`16753bc`** - Ultra 19 handover, 3 files, 3379 insertions (1519+1104+756,
+verified by arithmetic against measured line counts).
+
+**`8efedef` - ADR-016 implemented. 5 files, 143 insertions, 16 deletions.
+PUSHED, DEPLOYED (run #80), VERIFIED ON THE WIRE.**
+Built as **five separate reviewed installers**, in an order where every
+intermediate state compiled and the suite was in a known-good shape:
+1. create `readiness-policy.ts` (62) - suite unchanged, `1 failed 1 todo 3 passed`
+2. create `readiness-policy.spec.ts` (61) - `1 failed 1 todo 10 passed`, **policy
+   proven correct BEFORE anything depended on it**
+3. edit `health.service.ts` (53->58) - **THE RED TURNED GREEN**, `0 failed 1 todo 11 passed`
+4. edit `health.service.spec.ts` (49->44) - **todo=0**, 11 passed
+5. edit `health.controller.ts` (27->31) - Swagger prose
+
+**`e17eab7` - CI test gate + deploy branch guard. 1 file, 8 insertions.
+ON BRANCH `ci-test-gate` ONLY. NOT on `main`.**
+
+**`51c03ca` / `646cf09`** - a deliberately failing test added then removed, to
+prove the gate blocks. **The tree at `646cf09` is identical to `e17eab7`'s.**
+
+## 8b. CORRECTIONS TO ULTRA 19 - APPLY THESE
+
+| Ultra 19 said | Ultra 20 measures |
+|---|---|
+| Full suite is "20 suites / 238 tests", projected 21/243 | **23 suites / 249 tests.** The baseline was stale AND the projection was unmeasured arithmetic. |
+| q54: "the 20th jest suite is unidentified" | **`apps/api/test/incident-orchestrator.spec.ts`**, outside `src`. |
+| The CI workflow triggers on push to main (only) | **`workflow_dispatch:` is ALSO defined, at line 8.** Never recorded before. |
+| (implicitly) the deploy job is safe | **It had NO branch condition.** A dispatch from any branch would have deployed to production. |
+| Trap #61 "what actually bites is unproven" | Still unproven, but **a THIRD controller-style spec now passes**; and a plain non-Nest spec file (`readiness-policy.spec.ts`) works fine. |
+
+**AND THREE CORRECTIONS TO THIS SESSION'S OWN PREDICTIONS** - all arithmetic,
+none content: `53->55` should have been 58; `numstat 13 8` should have been
+`12 7`; `body_paras=3` should have been 2.
+
+---
+
+## 9. NEXT - the work order
+
+### 0. FIRST. FIVE MINUTES.
+
+**Commit these three parts to `docs/handovers/`.** **NOTE: you are on branch
+`ci-test-gate`. Decide whether to switch to `main` first** - the handover
+belongs on `main`.
+
+```powershell
+cd C:\Projects\OPA; "probe=handover-save"; New-Item -ItemType Directory -Force -Path 'docs\handovers' | Out-Null; $src=@(Get-ChildItem -LiteralPath "$env:USERPROFILE\Downloads" -Filter 'OPA-Handover-Ultra-20-*.txt' -File | Sort-Object LastWriteTime -Descending | Group-Object { $_.Name -replace ' \(\d+\)','' } | ForEach-Object { $_.Group[0] }); "files=$($src.Count)"; $src | ForEach-Object { $_.LastWriteTime.ToString('HH:mm:ss') + '|bytes=' + $_.Length + '|' + $_.Name }; $src | ForEach-Object { $n = $_.Name -replace ' \(\d+\)',''; Copy-Item -LiteralPath $_.FullName -Destination ('docs\handovers\' + $n) -Force }; git add docs/handovers; git status --short
+```
+**Expect `files=3`.** Glob says **Ultra-20** and uses `-20-*`.
+
+### 1. THE ONE UNFINISHED ACTION - GET THE CI GATE ONTO `main`. ~10 MINUTES.
+
+**This is the highest-value remaining item and it is nearly done.** Until it
+lands, **every push to `main` deploys without running a single test.**
+
+**Decision already taken: CHERRY-PICK `e17eab7`, do not merge the branch.**
+Merging would put `51c03ca` - a commit containing a deliberately failing test -
+onto `main`'s history, where it would be misleading.
+
+**The command that was written but NEVER RUN** (verify first, then act):
+```powershell
+$env:GIT_PAGER='cat'; cd C:\Projects\OPA; "probe=treecheck"; "diff_e17_to_646=" + @(git diff --name-only e17eab7 646cf09).Count; "diff_main_to_e17="; git diff --name-only 8efedef e17eab7 | ForEach-Object { "f|$_" }; "log="; git log --oneline main..ci-test-gate | ForEach-Object { "l|$_" }
+```
+Expect `diff_e17_to_646=0` (the branch tip's tree equals `e17eab7`'s), exactly
+one file in the main->e17eab7 diff (the workflow), and 3 commits ahead.
+
+Then:
+```powershell
+$env:GIT_PAGER='cat'; cd C:\Projects\OPA; "probe=cherry"; git switch main; "current=" + (git branch --show-current); git cherry-pick e17eab7 | ForEach-Object { "cp|$_" }; "porcelain=" + @(git status --porcelain).Count; git log --oneline -3 | ForEach-Object { "log|$_" }
+```
+
+**Then push, and WATCH THE RUN.** This push triggers a real deploy **through the
+new gate for the first time**. Expect the run to show Type check and Unit tests
+before Build API, and `deploy` to RUN (not skip), because `github.ref` is now
+`refs/heads/main`.
+
+**Then delete the temporary branch:**
+```powershell
+cd C:\Projects\OPA; "probe=cleanup"; git branch -D ci-test-gate; git push origin --delete ci-test-gate 2>&1 | ForEach-Object { "p|$_" }; git branch -a | ForEach-Object { "b|$_" }
+```
+
+**IF THE CHERRY-PICK IS ABANDONED, THE BRANCH AND ITS PROOF STILL EXIST AT
+`origin/ci-test-gate`. Do not delete the branch before the gate is on `main`.**
+
+### 2. THE PRODUCTION-OPERATIONS RUNBOOK - OWED BY ADR-016 D6. ~0.5-1h.
+
+**A permanent runbook DOES NOT EXIST.** ADR-016 D6 pinned the probe path in
+three places and **explicitly said a handover is NOT one of them**, because
+handovers are superseded. It must contain:
+
+1. **The App Service health probe path is `/health`** and must not be changed to
+   `/health/ready` until every readiness-critical dependency is provisioned and
+   verified. **Why: unhealthy-instance removal with a 10-minute threshold would
+   cycle a healthy container on a permanent 503 and present as a crash.**
+2. **The `/health/ready` verification target, verbatim:**
+   `{"status":"ok","database":"up","redis":"optional-down"}` with **HTTP 200**
+   and **`Content-Length: 94`**.
+3. **The manual Prisma migration procedure** - part 2 section 11, including
+   traps #98 (bracketed paste) and #99 (`read -s` eats the next line).
+4. **A deployment-verification step that checks the Azure health-check path**,
+   because the portal is migrating that setting to Configuration.
+
+**AND UPDATE `docs/TODO.md:362-363`, which is now WRONG.** It says to verify
+`/health/ready` shows `redis: up` after provisioning Redis. **Under ADR-016 the
+deferred-state target is `redis: optional-down` with HTTP 200.**
+**Also `TODO.md:366-368`** describes an `ECONNREFUSED` symptom; production shows
+`ENOTFOUND`.
+
+### 3. THE DEMO-CRITICAL PATH - STILL NOT INSTALLED. ~1h, DISPROPORTIONATE VALUE.
+
+**Two sessions running.** The full verbatim block and its installer spec are in
+**Ultra 19 part 1 section 0b**, committed at
+`docs/handovers/OPA-Handover-Ultra-19-part1.txt`. **The working tree still does
+not contain it.**
+
+Render the tracking page (~0.5h, **never done in FOUR sessions**, 54 real fixes
+exist locally) -> fix `contactsNotified` (~0.5h, trap #82, NOT a Redis problem)
+-> run the lifecycle end to end against LOCAL and capture it.
+
+### 4. THE REMAINING ADRs - blocked on nothing but typing
+
+- **ADR-014** - ENDED-session fix contract. Part 2 9b.9. **~0.5h. DO THIS
+  BEFORE 9c** - it is 9c's queue delete rule.
+- **ADR-017** - provider fault isolation. Part 2 9b.5. **BEFORE 10C.** ~0.5h.
+- **ADR-013** - evidence architecture. Part 2 9b.10. ~0.5h.
+- **ADR-015** - content committed, NOT installed. ~0.5h.
+
+### 5. Sprint 10B - SEQUENCING UNCHANGED
+
+**ADR-014 -> the storage measurement -> 9c -> item 10. DO NOT START 9c FIRST.**
+The storage question is binary and takes ~15 minutes: read
+`apps/mobile-app/package.json` (32 lines) for the SDK version, then establish
+whether Expo Go bundles `expo-sqlite`/`expo-file-system`. Bundled -> 9c is 4-6h.
+Not bundled -> custom dev build, EAS, an `eas.json` that does not exist.
+
+### GAPS - things this handover does NOT know
+
+1. **Whether the cherry-pick succeeded** - it had not been run when this was
+   written.
+2. **Whether a gated deploy works end to end.** The gate has never run on a
+   `push` event, only `workflow_dispatch`.
+3. **`npm run test:int`, mobile `tsc`, website `build`, and `lint` were not run
+   this session.**
+4. **Nothing has ever exercised a production WRITE path.** `SELECT 1` is a read.
+   Issue 17.27 stands.
+5. **Whether Expo Go bundles `expo-sqlite` for this SDK.**
+6. **`Evidence.capturedAt` population is unverified.**
+
+---

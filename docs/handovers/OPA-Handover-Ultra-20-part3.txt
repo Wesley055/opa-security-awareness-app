@@ -1,0 +1,735 @@
+# OPA - Handover Ultra 20 - PART 3 of 3 (sections 15-20)
+# Continues from part 2. Paste after it.
+#
+# GENERATED: 2026-08-02 (local), at commit 646cf09 on branch ci-test-gate.
+# main is at 8efedef, PUSHED and DEPLOYED.
+
+## 15. Resume here
+
+**THE BASELINE: PRODUCTION IS RUNNING AND HEALTHY. `main` IS GREEN AND PUSHED.
+THE WORKING TREE IS ON A TEMPORARY BRANCH WITH ONE COMMIT THAT MUST REACH
+`main`.**
+
+**Docker must be running for anything local EXCEPT the unit suite** - part 1
+section 1 if the machine has rebooted. **`npx jest` needs no Docker;
+`npm run test:int` does.**
+
+```powershell
+$env:GIT_PAGER = 'cat'
+cd C:\Projects\OPA; "probe=resume"; "current=" + (git branch --show-current); git log --oneline -4 | ForEach-Object { "log|$_" }; "status_sb=" + ((git status -sb) -join ' ~ '); "porcelain=" + @(git status --porcelain).Count; "main_at=" + (git rev-parse --short main)
+```
+
+**A HANDOVER CANNOT CONTAIN ITS OWN SHA.** Expect **`current=ci-test-gate`**,
+HEAD `646cf09`, `main_at=8efedef`, `porcelain=0`. **If a handover commit is at
+HEAD, it was committed after this was written - fine. If `current=main` and the
+workflow change is present, the cherry-pick already happened - verify and skip to
+item 2.**
+
+**If any `.cjs` shows as untracked, delete it before staging** (trap #64). Use
+`git status --porcelain`, NOT a filesystem sweep -
+`apps/api/scripts/create-test-db.cjs` is a TRACKED project file.
+
+### FIRST FIVE MINUTES
+
+1. **Save these parts and commit them to `docs/handovers/`.** Part 1 section 9
+   item 0. Glob says **Ultra-20** and uses `-20-*`. **Decide whether to do this
+   on `main` or the branch - `main` is the right home.**
+2. **Confirm which branch you are on.** This is unusual for this project and is
+   the single most likely source of confusion.
+3. **Confirm the suite is green:**
+   ```powershell
+   cd C:\Projects\OPA\apps\api; "probe=greencheck"; npx jest; "jest_exit=$LASTEXITCODE"
+   ```
+   **Expect `23 suites / 249 tests, 0 failed`, `jest_exit=0`, and NO todo line.**
+   Any other shape means something changed.
+4. **Confirm production is still healthy:**
+   ```powershell
+   cd C:\Projects\OPA; "probe=ready"; curl.exe -s -i -m 60 'https://opa-api-production-g4f6cxdyanfbaub0.southafricanorth-01.azurewebsites.net/health/ready'; "exit=$LASTEXITCODE"
+   ```
+   **Expect `200`, `Content-Length: 94`, and
+   `{"status":"ok","database":"up","redis":"optional-down",...}`.**
+   **`curl.exe`, not `curl`** (trap #92). **Cold start on Burstable can be slow -
+   run it twice before concluding anything** (trap #94). **`Content-Length: 91`
+   would mean an OLD build is somehow serving.**
+
+### THE AGREED PHASE PLAN - THIS IS THE AUTHORITATIVE SEQUENCING
+
+**Agreed with the user at the end of this session. It supersedes any looser
+ordering elsewhere in this handover.** The ordering is dependency-driven: each
+phase either removes a risk that makes later work safer, or resolves an unknown
+that later work would otherwise guess at.
+
+```
+PHASE 1  Merge CI gate to main                    ~10-15 min   [DONE - faa2e62]
+              |
+PHASE 2  Render the Incident Portal / tracking page   30-60 min
+         Fix contactsNotified
+              |
+PHASE 3  Finish the ADR-016 runbook (D6)              30-60 min
+              |
+PHASE 4  MEASURE expo-sqlite support in Expo Go       ~15 min
+              |
+PHASE 5  Write ADR-014                                30-60 min
+              |
+PHASE 6  Implement 9c, then airplane-mode validation  4-6 hrs
+              |
+PHASE 7  Write ADR-017 (design BEFORE any HTTP client)  ~0.5 hr
+              |
+PHASE 8  Sprint 10C implementation                    unscoped
+```
+
+**THREE TRACKS, and phases can be reasoned about within them:**
+- **Track A - Production safety:** phases 1 and 3.
+- **Track B - Demo readiness:** phase 2.
+- **Track C - Feature completion:** phases 4-8.
+
+**THE DEPENDENCIES THAT MAKE THE ORDER NON-ARBITRARY:**
+
+- **Phase 1 first** because every subsequent code change becomes safer, and
+  because the unguarded `deploy` job was a live production hazard. **Nothing
+  depended on delaying it.** **COMPLETED THIS SESSION at `faa2e62`.**
+- **Phase 4 BEFORE phase 5.** The storage answer is binary and it changes what
+  ADR-014 must say about the client half of the contract. **Writing ADR-014
+  first means writing it against an assumption.**
+- **Phase 5 BEFORE phase 6.** ADR-014 IS 9c's queue delete rule. Written after,
+  the rule gets invented ad hoc and the airplane-mode test fails on a 409 that
+  **looks like a 9c bug**, so the wrong layer gets debugged.
+- **Phase 7 BEFORE phase 8.** Once a working integration exists, a
+  fault-isolation refactor competes with it. ADR-017 must define provider
+  boundaries, timeout policy, retries, partial failures and orchestration
+  **before the first HTTP client is written.**
+- **Phase 3 depends on nothing** - it documents already-shipped work - which is
+  why it sits after the demo rather than before it.
+
+**TWO CAVEATS RECORDED WHEN THE PLAN WAS AGREED:**
+
+1. **Phase 2's estimate is the least trustworthy number on the list.** It
+   assumes the page renders. It has never been attempted, and it depends on: the
+   website building at all (**not measured for three sessions**), the local API
+   running, Docker up, a valid tracking token existing, and
+   `src/lib/tracking.ts`'s hand-mirrored types still matching the API DTO
+   (**one known drift, q20**). **Treat phase 2 as "resolve the uncertainty",
+   not "spend an hour".** A rendering failure is a good outcome - it converts a
+   hidden unknown into a known bug.
+2. **`contactsNotified` has a cheap fix and a real fix, and they are not the
+   same work.** The cheap one corrects the return shape so the count is right
+   (trap #82). The real one wires contact acknowledgement -
+   `NotificationStatus.ACKNOWLEDGED` exists and nothing sets it, while opening
+   the tracking page already calls `recordAccess()`. **The demo needs the cheap
+   one. Decide which you are doing before starting, not during.**
+
+**A NATURAL STOPPING POINT EXISTS AFTER PHASE 5.** Phases 1-5 total roughly
+2-3 hours and end with three architectural unknowns closed and a demo in hand.
+Phase 6 alone is 4-6 hours. **If a session has limited time, finishing through
+phase 5 leaves the project materially better than starting phase 6 and stopping
+partway.**
+
+### THEN, in order (detail for the phases above)
+
+1. **GET THE CI GATE ONTO `main`. [PHASE 1 - DONE at `faa2e62`.]** Part 1
+   section 9 item 1 has the exact commands. **What REMAINS of phase 1: delete
+   the temporary branch, locally and on origin, once the gated run is confirmed
+   green.** Verify the trees, `git switch main`, `git cherry-pick e17eab7`,
+   push, **watch the run** (the first `push`-event run through the gate, and the
+   first time `deploy` should RUN rather than skip).
+
+2. **WRITE THE PRODUCTION-OPERATIONS RUNBOOK.** Owed by ADR-016 D6. Part 1
+   section 9 item 2 lists the four required contents. **Also fix
+   `docs/TODO.md:362-363`**, which now states the wrong target. **~0.5-1h.**
+
+3. **THE DEMO-CRITICAL PATH.** Part 1 section 9 item 3; the verbatim `TODO.md`
+   block is in **Ultra 19 part 1 section 0b**, committed at
+   `docs/handovers/OPA-Handover-Ultra-19-part1.txt`. **Render the tracking page
+   (~0.5h, never done in FOUR sessions), fix `contactsNotified` (~0.5h, trap #82,
+   NOT a Redis problem), then run the lifecycle end to end against LOCAL and
+   capture it.** **Does not depend on 9c or item 10.** **If you want something
+   visible rather than more infrastructure, this is it.**
+
+4. **ADR-014** (part 2 of Ultra 19, section 9b.9 - full content). **~0.5h. It
+   unblocks 9c.**
+
+5. **ADR-017 - PROVIDER FAULT ISOLATION.** Ultra 19 part 2 section 9b.5 has the
+   analysis and the four regression assertions. **Write it BEFORE 10C wires any
+   network-backed provider**, because afterwards the safe refactor competes with
+   a working integration. **~0.5h.**
+
+6. **ADR-013** and **ADR-015** (already drafted at
+   `docs/handovers/ADR-015-content.txt`). **~0.5h each.**
+
+7. **The 9c storage decision** - read `apps/mobile-app/package.json` (32 lines)
+   for the SDK version, then establish what Expo Go bundles. **A MEASUREMENT,
+   ~15 minutes.**
+
+8. **9c** - 4-6h. **9. Item 10** - 2-3h.
+
+**DO NOT START 9c BEFORE ITEMS 4 AND 7. DECIDED TWO SESSIONS AGO.** ADR-014 IS
+9c's queue delete rule - written after, the rule gets invented ad hoc and item
+10's reconnect step fails on a 409 that **looks like a 9c bug**, so the wrong
+layer gets debugged. And the storage question is **binary**.
+
+10. **Decide the Swagger policy.** Issue 17.8 - a live public unauthenticated
+    endpoint. **Cheaper to gate now that `/health` and `/health/ready` exist.**
+
+11. **The prose sweep for the renamed boot flag** - `TODO.md` 984, 993;
+    `SPRINT_ROADMAP.md` 210, 396. **Do NOT touch `docs/handovers/`.**
+
+12. **`scheme` in `app.json`.** One line.
+
+**Also cheap:** lint has one production finding
+(`incident-orchestrator.service.ts:6`, unused `TriggerMode` - **look before
+deleting; it may indicate the silent-activation mode path is under-wired**) plus
+11 mechanical `consistent-type-imports` and three others. 0.5-1h to green.
+**Do not run `eslint --fix` as a bundle.** **Not re-measured for two sessions.**
+
+**Nothing is blocked on code. Four ADRs are blocked on nothing but typing.
+Production is running, healthy, and its one recorded defect is fixed and
+verified on the wire. The CI gate is built and proven and needs one
+cherry-pick.**
+
+---
+
+## 16. Scope - Sprint 10B
+
+**UNCHANGED. Nothing in 10B was touched this session.**
+
+**DONE:** schema, state machine, append-only fixes, ingestion endpoint,
+idempotency and ordering, latest-location query, incident linkage, website live
+position, session start endpoint, mobile base URL resolution, the mobile sender
+device-verified, the newest-fix tie-break, `app.json` native config.
+
+**REMAINING: offline queue (9c), end-to-end test (10).**
+
+**Out of scope:** ETA, arrival detection, route intelligence, risk scoring,
+WebSockets, geofencing, `VERIFIED_CONTACT`/`AUTHORIZED_RESPONDER` tiers, OTP
+re-issue, responder features, location *history* access for tokens.
+
+---
+
+## 17. Known issues
+
+### CLOSED THIS SESSION
+
+**19.1 - `/health/ready` returns 503 in production. CLOSED.** ADR-016
+implemented at `8efedef`, deployed via run #80, verified on the wire: **200,
+`Content-Length: 94`, `{"status":"ok","database":"up","redis":"optional-down"}`.**
+
+**19.3 - `main` carries a deliberately failing test at `3e9b703`. CLOSED.**
+`8efedef` made it pass; both were pushed together. **`main` is green.**
+
+**q51 / blocker A - how is the required-dependency set declared and made
+testable? ANSWERED.** A frozen tuple plus two pure functions in
+`readiness-policy.ts`. **Graduating Redis means adding `'redis'` to that array
+and nothing else.**
+
+**q54 - what is the extra jest suite? ANSWERED.**
+`apps/api/test/incident-orchestrator.spec.ts`, outside `apps/api/src`.
+
+### NEW THIS SESSION
+
+**20.1 - NEW - THE CI TEST GATE IS PROVEN BUT NOT ON `main`.**
+`e17eab7` exists only on branch `ci-test-gate`. **Until it is cherry-picked,
+every push to `main` builds and deploys without running a single test.** Runs
+#82 and #83 proved both the gate and the deploy branch guard. **Not a defect in
+the code - an unfinished action.**
+
+**20.2 - NEW - THE `deploy` JOB WAS UNGUARDED AND `workflow_dispatch` WAS
+ENABLED.** Any manual dispatch from any branch would have deployed that branch
+to production. **This nearly happened: run #81 was dispatched against `main` by
+accident and cancelled.** Fixed by `e17eab7`'s `if: github.ref ==
+'refs/heads/main'` - **but the fix is not on `main` yet, so the hazard is live.**
+
+**20.3 - NEW - `health.service.spec.ts:21` HAS A NOW-REDUNDANT INTERMEDIATE.**
+`const redisState: string = result.redis;` existed to avoid a compile error when
+the union was `'up'|'down'`. **Harmless, deliberately left.** Tidy it in a
+separate commit if at all.
+
+### OPEN - CARRIED FORWARD
+
+**17.3 - The unit suite leaks a handle.** **Eight runs recorded. A full unpiped
+`npx jest` this session produced NO warning.** **DO NOT CLOSE BY OBSERVATION**
+(trap #59). It tracks WALL TIME. The production Log stream shows
+`NotificationDispatchWorker` ticking every 2 seconds via `@Interval(2000)` - the
+exact scheduler implicated. **Fix the mechanism** (`.unref()` or stop the
+scheduler in teardown). **NOTE: `--forceExit` in CI is REJECTED** - it would
+mask this.
+
+**17.8 - Swagger published unconditionally at `api/docs`.** `main.ts` 35-53, no
+environment gate, no auth. **Live, publicly reachable, unauthenticated.**
+**Gating it costs less than it used to**, now that `/health` and `/health/ready`
+are better probes.
+
+**17.23 - `apps/api/package.json`'s `start` script points at the wrong path.**
+`start` is `node dist/main.js`; the compiled entry is `dist/src/main.js`.
+**Harmless while Oryx generates the startup command; it breaks the moment anyone
+sets an explicit App Service startup command from the package script.**
+
+**17.26 - Redis in production. RECLASSIFIED, NOT CLOSED.** A deliberate stub with
+one consumer. **The defect it exposed - the readiness verdict - is now FIXED.**
+What remains: the reconnect loop is log noise every ~4 seconds. **Decide whether
+to quieten it** - `TODO.md:366-368`'s polish item is written for `ECONNREFUSED`
+and production shows `ENOTFOUND`, so it needs rewriting before it is actioned.
+
+**17.27 - No production write path has ever executed. STILL TRUE.** The deployed
+app has executed `SELECT 1`. **That is a READ.** No incident created, no fix
+ingested, no notification dispatched, no tracking token issued. **The first
+production incident will exercise, simultaneously and for the first time: the
+orchestrator against null enrichment (now known safe - q43), the notification
+worker against a real payload column, the hash chain against production Postgres
+14, and the advisory locks under real concurrency.** **Consider a deliberate,
+controlled first write rather than discovering the rest at once during a real
+emergency.** q49.
+
+**17.1 - Timeline events written outside the transaction. STILL OPEN.**
+The orchestrator's `$transaction` closes at line 326; every `recordEvent` fires
+after it, at 336, 376, 388, 408. A crash between commit and 336 leaves an
+incremented `retriggerCount` with no event recording where the person was.
+**Fixing it is HARDER than it looks** - making the write atomic means passing the
+caller's `tx` into `recordEvent`, **but `recordEvent` takes an advisory lock, so
+an outer transaction holding a lock the inner one waits on becomes a DEADLOCK
+rather than harmless nesting.**
+
+**17.2 - `recordEvent` sequence race. FIXED AND PROVEN.** `96cf7de` added the
+lock; `3da28b7` proved it serialises with a control case.
+
+**17.4 - SMS character-count guard missing.** 154 chars with a realistic name.
+
+**17.5 - `buildTrackingUrl` doc comment** still describes old incident-id
+behaviour. Cosmetic.
+
+**17.6 - THE NEGATIVE-SENTINEL FAMILY - HALF FIXED.**
+iOS `CLLocation` signals *invalid reading* with a negative number: **`course` is
+`-1` whenever invalid, INCLUDING a stationary device**; **`speed` is negative
+whenever invalid**; **`horizontalAccuracy` is negative when the location is
+invalid.**
+
+| DTO / file | Field | Status |
+|---|---|---|
+| `JourneyFixDto` | `heading` | **FIXED** `edec8c4` |
+| `JourneyFixDto` | `speed`, `accuracy` | **GAP** - `@Min(0)`, no transform |
+| `create-incident-request.dto.ts` | all three | **GAP** - client-mitigated only |
+| `LocationRequestDto` | `speed`, `accuracy` | **GAP**, `@Min(0)` no transform |
+| `journey-tracker.ts`, `sos.tsx:181` | | **SANITISED** `fa087a6` |
+
+**ADR-010 D1 commits to fixing the SOS DTO in a separate commit. STILL not
+done.** **Why `speed` matters:** `forbidNonWhitelisted` is true and validation is
+per request, so **one negative speed on one fix 400s the ENTIRE batch of up to
+200.** Ordinary cause: a phone sitting still. **STILL UNPROVEN - every device run
+has been Android. An iOS device run, stationary, is the test that matters.**
+
+**17.7 - Lint - 16 problems: 15 errors + 1 warning (not re-measured for two
+sessions).** One production finding: unused `TriggerMode`. **Trap #25 is live** -
+the disable directive names a renamed rule.
+
+**17.9 - `app.json` native location configuration - FIXED in `18bdd73`. NOT
+PROVEN ON A DEVICE.** **Still missing: `scheme`.**
+
+**17.10 - The refresh interceptor cannot retry a concurrent 401.**
+`api.ts:37` requires `!isRefreshing`. Trap #74. **The SEQUENTIAL path is proven
+on device. The CONCURRENT case remains untested, and 9c's batch flushing is
+exactly what will hit it.**
+
+**17.11 - `recordedAt` preceding the activation fix - FIXED AND VERIFIED.**
+`d5aca8b`. **iOS untested.**
+
+**17.12 - The tracker's queue is capped at 600 in memory.** On overflow the
+OLDEST fixes are dropped with a loud log. 9c replaces it. **At 10s cadence, 600
+fixes is 100 minutes.**
+
+**17.13 - NOTHING STOPS THE TRACKER WHEN LEAVING THE SOS SCREEN.**
+`stopTracking()` is called from exactly one place: `_layout.tsx`, on
+`isAuthenticated` going false. **Navigating back does not stop it.** So
+`running` stays true and a second activation no-ops, **keeping the FIRST
+session's `sessionId`.** **CONFIRMED TWICE.** After one clean run the tracker was
+still flushing **nine minutes** past the end of the test. **LOAD-BEARING FOR
+ADR-014.** **Force-close Expo Go after every device test.**
+
+**17.14 - `contactsNotified` displays 0 while notifications dispatch.** Trap #82.
+**The honest fix is the same work as product idea 1.** **One of the two
+demo-blocking fixes.**
+
+**17.15 - The tie-break has no automated test.** `893d65a` is reasoned and
+gate-checked, but **no test constructs a tied `receivedAt`.** **Two options:**
+build the token fixture (~0.5h), or accept item 10 as the test.
+
+**17.16 - `SPRINT_ROADMAP.md:136` contradicts `:172-175` and ADR-009.**
+**ADR-009 is right.**
+
+**17.17 - The two strategy documents are orphaned.** `TODO.md:228` is the home.
+
+**17.18 - `Evidence.encryptionKeyId` is never set.** **Evidence encryption is NOT
+implemented.** Azure Blob encrypts at rest by default, but **that is Azure
+holding the keys, not OPA-managed encryption.** **Do not claim encrypted
+evidence capture.** Trap #86.
+
+**17.19 - `Evidence.capturedAt` may never be populated.** **VERIFY: read
+`evidence.controller.ts` and `dto/upload-evidence.dto.ts`.**
+
+**17.20 - The 50MB evidence cap is an OOM guard, not a policy.**
+`FileInterceptor` buffers multipart uploads in process memory. **Production is a
+Burstable B1ms with 2 GiB RAM.**
+
+**17.22 - `POST /journey/fixes` rejects whole batches for per-fix problems.**
+Three cases, one shape. **ONE bad fix in a batch of up to 200 discards all 200.**
+**ADR-014 fixes the first; it should decide whether it covers the others.** q40.
+
+**17.24b - The production Postgres is on a Burstable dev/test tier.**
+**B1ms, 1 vCore, 2 GiB.** Azure's own banner recommends General Purpose or
+Memory Optimized for production. **Now carrying a live application.**
+
+**17.25 - Two `sos.tsx` defects from a recovered transcript, UNVERIFIED.**
+No in-flight lock against repeated activation; `cancelledRef` set but never
+checked. **Verify before acting.**
+
+**19.2 - `emergency-intelligence.service.ts:50`'s `Promise.all` IS FAIL-FAST AND
+NOTHING TESTS IT.** **LATENT, NOT PRESENT** - all six providers are static
+returns with no network layer. **Becomes live the day any real provider is
+wired in, which is Sprint 10C.** The suppression contract at `:86-157` runs only
+after `Promise.all` resolves, so a rejecting provider bypasses it entirely and
+kills the SOS activation via the orchestrator's unguarded `await` at `:86`.
+**A 697-line spec file contains zero failure tests.** **Needs ADR-017 before
+10C.**
+
+---
+
+## 18. Open questions
+
+**CLOSED:** D1-D13, q4, q9, q10, q12, q15, q16, q19, q25 (reopens with
+SafeWalk), q43, q47, **q51, q54**.
+
+### CLOSED THIS SESSION
+
+- **q51: What shape should the required-dependency set take? A FROZEN TUPLE plus
+  two pure functions in `readiness-policy.ts`.** Reviewable in one line, testable
+  by passing an explicit set as a production argument. **`Object.freeze` is
+  load-bearing: `ReadonlySet` is compile-time only.**
+- **q54: What is the 20th jest suite? `apps/api/test/incident-orchestrator.spec.ts`.**
+  And the total is **23 suites / 249 tests**, not 20/238.
+
+### THE TWO THAT BLOCK PROGRESS
+
+**A. The 9c storage dependency.** `expo-sqlite` or `expo-file-system`. **Does
+Expo Go bundle the chosen one for this project's SDK version? A MEASUREMENT.**
+**Read `apps/mobile-app/package.json` (32 lines) FIRST for the SDK version** -
+installing a package is a write and also picks the library before the decision is
+made. If not bundled: custom dev build -> EAS -> `eas.json`, which does not
+exist.
+
+**B. ADR-014 must be written before 9c.** **The DECISION is made** - Ultra 19
+part 2, 9b.9. **If 9c is written first, the queue's delete rule will be invented
+ad hoc and item 10 will fail in a way that looks like a 9c bug.**
+
+### Still open
+
+1. **Freshness thresholds.** `JOURNEY_SILENCE_SECONDS` defaults to 120,
+   `TIME_INTERVAL_MS` is 10s, **but measured early-session intervals were
+   12.5-14.8s while GPS settled. The real margin is narrower at the START of an
+   incident.**
+3. **Is redaction itself recorded as an event?**
+5. **Retention policy proper.** NDPC obligations live post-CAC. **54 local fixes
+   across two days on ONE session with no end and no retention sweep.**
+6. **Should `verify-journey-index.js` be reinstated?** Probably not.
+7. **Does `apps/website/eslint.config.mjs` have the same `no-undef` defect?**
+8. **`recv=` vs `rcv=` in the chain envelope.** Shipped as `rcv=`. Leave it.
+11. **Command Center or SafeWalk first?** Coordination is deferred.
+13. **A public batch form for the activation/retrigger wrappers?**
+14. **Tighten the SOS DTO `timestamp` to `@IsISO8601()`?** Same commit as 12b.
+17. **Should Swagger be gated?** Section 17.8.
+18. **Does `redactSensitiveTrackingUrls` need more patterns?**
+20. **Should the website's mirrored types be generated?** One drift exists.
+21. **What exactly does trap #61 break?** **Still unproven.**
+    `Test.createTestingModule` + `createNestApplication` works for controllers -
+    two specs prove it - and a plain non-Nest spec works fine. **Is anything
+    currently blocked by it? Probably not.**
+22. **There is no forgot-password flow.** **A locked-out user of an emergency app
+    cannot raise an alarm.**
+23. **Temporal-dead-zone bug in `authStore.ts`?** **Force-logout has STILL never
+    been observed firing.** **If broken, the tracker will not stop on a failed
+    refresh - and given 17.13 that is the ONLY stop path.**
+26. **Should the tracker restart if stopped while an incident is open?**
+27. **Should `TIME_INTERVAL_MS` adapt?**
+28. **What ends a session from the client?** Nothing. **Correct today; clearly
+    wrong once SafeWalk exists.**
+29. **Should the pre-start guard compare delivery time rather than capture time?**
+30. **Should `FLUSH_INTERVAL_MS` be a multiple of `TIME_INTERVAL_MS`?** Leave it.
+32. **How does a hash payload evolve? THREE CASES, ONE ADR:** indoor positioning
+    fields entering the canonical FIX payload (7 keys); any new `source` value;
+    the TIMELINE's `computeHash` (6 keys). **Note what the timeline spec
+    deliberately does NOT catch:** because the tests build the chain by calling
+    `recordEvent` and verify with `verifyChain`, **a change to the canonical
+    SHAPE passes every test.**
+33. **If activation is silent, how does the user know it worked?**
+34. **Is the app free and the record paid?**
+35. **Is the insurer channel pursued?**
+36. **Does the evidence upload path populate `capturedAt`?** A check.
+37. **Is evidence encryption built, or is the claim narrowed?**
+38. **Where does derived material live?**
+39. **Does `GPS_LOG` as an `EvidenceType` ever get used?**
+40. **Does ADR-014's per-item policy extend to the skew checks and the negative
+    sentinels?** **Recommendation: yes, one policy.** **A FAMILY OF FOUR:**
+    ingestion batches (17.22), negative sentinels (17.6), the readiness verdict
+    (**decided in ADR-016 and now SHIPPED**), and enrichment orchestration (19.2,
+    undecided). **ADR-016 deliberately did NOT extend itself to cover the
+    others.**
+41. **Who writes the "device went dark" event?** The chain is ready and nothing
+    produces it. **This is the white paper's strongest claim and it is not
+    built.**
+42. **Should `recordEvent` accept an optional caller `tx`?** **A deadlock
+    question.**
+44. **Should `prisma migrate deploy` be added to CI?** **ANSWERED IN PRACTICE:**
+    a hosted runner cannot reach a private-access server; manual migration from
+    the App Service worked. **The decision that remains is whether to WRITE IT
+    DOWN as the procedure or stand up a self-hosted runner in the VNet.**
+    **ADR-016 D6 gives the write-down a home: the operations runbook.**
+45. **Should production move off the Burstable tier before a pilot?**
+46. **Is `apps/api/package.json`'s `start` script worth fixing?** Section 17.23.
+48. **Does an Azure Cache for Redis instance exist in `opa-production`?**
+    **NARROWED, NOT CLOSED.** **Still check before any future provisioning.**
+49. **Should the first production write be deliberate and controlled?** Issue
+    17.27. **A controlled `SYSTEM_TEST` activation with the Log stream open would
+    isolate the remaining three unknowns.**
+50. **Should schema verification be scripted rather than ad hoc?**
+52. **Should `buildLocationIntelligence` degrade per-provider instead of
+    all-or-nothing?** **Recommendation: yes, via ADR-017, before 10C.**
+    **The ADR must require that device GPS is ALWAYS returned.**
+53. **Does anything downstream dereference `intelligence.surroundings` or
+    `intelligence.routes`?** The only two null-able containers, and the honest
+    residue of q43. **Narrow and cheap.**
+55. **Should the Redis reconnect loop be quietened, and how?**
+    `TODO.md:366-368`'s polish item is written for `ECONNREFUSED`; production
+    shows `ENOTFOUND`. **Decide now that ADR-016 has shipped.**
+
+### NEW
+
+56. **Should `npm run test:int` run in CI?** It needs a live Postgres and
+    `opa_test`, so a Postgres service container. **Deliberately excluded from
+    `e17eab7`'s scope.** Worth doing, separate work.
+57. **Should the CI gate also run mobile `tsc` and the website `build`?**
+    Neither is currently gated anywhere. The workflow deploys only the API, but
+    a broken website build would still reach Vercel independently.
+58. **Should `apps/api` adopt Prettier consistently?** **Measured evidence it is
+    not run:** `health.controller.ts` had an 88-char line and no trailing
+    newline; the CI workflow also has no trailing newline. **Low priority, but it
+    is why installers must measure file-ending properties every time.**
+
+---
+
+## 19. Estimate
+
+**Sprint 10B: ~88%. ~30 hours spent, 6-9 remaining.** UNCHANGED - this session's
+work was production, architecture and CI.
+
+| # | Work | Est. | 10B at completion |
+|---|---|---|---|
+| - | ADR-014 install | 0.5h | ~88% |
+| - | 9c storage measurement | 0.25h | ~88% |
+| - | Render the tracking page | 0.5h | ~89% |
+| 9c | Offline buffer + retry queue | 4-6h | ~93% |
+| 10 | End-to-end test | 2-3h | **100%** |
+
+**THE OPEN LOOP FROM THIS SESSION:**
+
+| Work | Est. |
+|---|---|
+| Cherry-pick `e17eab7` to `main`, push, watch the gated run, delete the branch | **0.25h** |
+| Production-operations runbook + `TODO.md` deployment updates | 0.5-1h |
+| **TOTAL to close** | **~1h** |
+
+**ADRs owed, all content written or analysed: ADR-013 (0.5h), ADR-014 (0.5h),
+ADR-015 (0.5h), ADR-017 provider fault isolation (0.5h).**
+
+**DEMO-CRITICAL PATH: ~1h and the highest value per hour on this list.**
+
+Other tiers: SOS DTO sentinel fix + q14 (0.5h, **reconsider under ADR-014**);
+lint to green (0.5-1h); tracker lifecycle 17.13 (0.5-1h); `contactsNotified`
+(0.5h, or fold into product idea 1); battery/network telemetry capture (0.5h,
+free); `scheme` (5 min); the canonical-payload evolution ADR (0.5h, three
+cases); token fixture for the tie-break (0.5h); a "device went dark" event
+writer; estate tidying and the BOM cleanup (1-2h); `capturedAt` and encryption
+checks (0.5h); `test:int` in CI (unscoped).
+
+**Sprint 10C carries no estimate and is LARGER than previously recorded** - the
+providers have no network layer at all, so the integration layer is built from
+nothing, not adapted. **Plus ADR-017 before any of it.**
+
+**Sprint 10 OVERALL has no honest percentage.** 10A+10B together are roughly 90%.
+**Sprint 11 is server-side substantially built but client-side unstarted.**
+
+### Item 10 - what it must show
+
+SOS tap -> incident created -> activation fix on the chain -> tracked fixes
+ingested -> page shows `RECEIVING` -> airplane mode -> `SILENT` after 120s ->
+reconnect -> buffered fixes flush -> back to `RECEIVING`.
+
+**That last transition is the single best proof the whole slice works**, and the
+first thing that will exercise **D5's in-batch DEDUPE**. **In-batch CHAINING has
+run** (~20 two-fix batches); **DEDUPE has not.**
+
+**Item 10 inherits five things:** the tracking page has never rendered; the
+tie-break is untested; **ADR-014 must be installed first**; airplane mode is the
+recoverable dark state because GNSS is receive-only (**the strongest honest
+answer to the kidnapper objection**); and **17.13 means the client may still hold
+the ENDED session's id at reconnect**, so item 10 also exercises ADR-014's
+reacquire path.
+
+---
+
+## 20. Website + app-store enrollment - THE CLOCK IS RUNNING
+
+**UNCHANGED THIS SESSION.** No website or enrollment work was done.
+
+Gates iOS/Android distribution. **Mostly elapsed time** - active work ~5-8 hours,
+calendar 1-3 weeks. **The D-U-N-S number is in hand. Start the slow parts now.**
+
+### Identity facts - verify against the D&B record before typing into any form
+
+| Field | Value |
+|---|---|
+| Legal entity | **OPA Technologies Limited** |
+| CAC | **RC 9697630** |
+| D-U-N-S | **352294843** |
+| Phone | **+234 906 653 8149** (E.164 `+2349066538149`) |
+| Registered office | 18 Prince Hakeem Balogun Street, Glory Land Estate, Isheri-Olofin, Lagos State, Nigeria |
+| Domain | **opasafety.com** (live, Next.js 16.2.10 on Vercel) |
+| Bundle / package | **`com.opasafety.app`** (PERMANENT) |
+| App display name | **OPA** |
+| Expo slug | **opa** |
+
+**The single most common cause of failed organization verification is a name or
+address mismatch** between CAC, D&B, the website and the enrollment form.
+
+### The problem found earlier - not cosmetic
+
+A verifier reported *"No active website matches the exact domain
+opasafety.com"*. **That claim was FALSE - the site is live and serves fully.**
+Diagnosed as **zero search-engine and third-party footprint**: verifiers that
+*search* rather than *fetch* conclude it does not exist.
+**So Search Console and LinkedIn/Crunchbase work is not tidying - it is the
+actual blocker for organisation verification.**
+
+**Near-collision:** `opeansafety.com` is a real Nigerian safety-training company.
+
+### DONE (`e22cacf`)
+
+`robots.ts` and `sitemap.ts`, confirmed generated at build.
+**`robots.ts` disallows `/i/` and `/api/`, and neither is in the sitemap. THIS IS
+A SECURITY PROPERTY, NOT TIDINESS.** A crawled token URL would publish a live
+incident location into a search index. **Never add `/i/` or `/api/` "for
+completeness".** **One of FOUR defences for the same secret.**
+
+### OUTSTANDING - three guarded edits, each needs the file pasted first
+
+1. **`src/app/contact/page.tsx`** - add registered office and phone.
+2. **`src/components/layout/Footer.tsx`** - add a short legal-entity line.
+3. **`src/app/layout.tsx`** - add JSON-LD `Organization` with `legalName`, `url`,
+   `email`, `telephone` (`+2349066538149`), `identifier` (RC 9697630), `address`.
+   **This is what automated verifiers parse.**
+
+### THEN, in order
+
+1. **Deploy.** Commit is not deploy.
+2. **Verify the live output:**
+   ```powershell
+   curl.exe -s https://opasafety.com/robots.txt
+   curl.exe -s https://opasafety.com/sitemap.xml | Select-String -Pattern '/i/'
+   ```
+   First must show `Disallow: /i/` and `Disallow: /api/`. **Second must print
+   NOTHING.** **Caution: a failed fetch also prints nothing** (trap #51).
+3. **Google Search Console and Bing Webmaster Tools.** **Days to weeks - start
+   now.**
+4. **Update the D&B record** for 352294843.
+5. **LinkedIn company page and Crunchbase entry.**
+
+### Enrollment - do not start until D&B activation completes
+
+**Both programs verify against the D&B RECORD, not the number.**
+
+**Apple Developer Program (~$99/yr).** Enroll from the Apple Developer app on an
+iPhone/iPad/Mac with biometrics - **same device throughout**. Enter your
+**legal** name. Entity type **Organization**. Supply D-U-N-S, HQ address, an
+**answerable** phone, and the website. **Then take the verification call.**
+
+**Google Play (~$25 one-time).** Choose **Organization**, not Personal. Link a
+Google Payments profile (**required even for a free app**). Verify contact email,
+contact phone, developer email and developer phone by OTP. Have the CAC
+certificate ready.
+
+**Sequence: website edits -> deploy -> Search Console -> wait out D&B activation
+-> Google first -> Apple second.**
+
+### Traps for this track
+
+- **Commit is not deploy. Deploy is not running. Running is not serving a real
+  request. Serving is not passing your readiness probe. Built and deployed is not
+  tested.** Traps #94 and #97.
+- **A live site is not a discoverable site.**
+- **`apps/website` has no tests** - gate on `npm run build`.
+- **`middleware` is deprecated in Next 16.2 in favour of `proxy`.**
+- **The phone must be answered Mon-Fri 9:00-5:00 WAT.** Apple calls it.
+- **A store build is a custom dev build.** **`app.json` is correct for one but
+  has NOT been proven on a device. `eas.json` still does not exist.**
+
+---
+
+# STATE TRANSITION FROM ULTRA 19
+
+**What is no longer true. Read this before trusting any memory of Ultra 19.**
+
+| Ultra 19 said | Ultra 20 measures |
+|---|---|
+| `/health/ready` returns 503 in production | **200.** `{"status":"ok","database":"up","redis":"optional-down"}`, `Content-Length: 94`. |
+| `main` is red locally and `3e9b703` is held unpushed | **`main` is GREEN and PUSHED at `8efedef`.** Both commits went up together. |
+| Blocker A: how is the required-dependency set declared? | **ANSWERED.** Frozen tuple + two pure functions in `readiness-policy.ts`. |
+| Full suite "20 suites / 238 tests", projected 21/243 | **23 suites / 249 tests.** Measured locally and on CI. |
+| q54: the 20th jest suite is unidentified | **`apps/api/test/incident-orchestrator.spec.ts`.** |
+| The CI workflow triggers on push to `main` | **`workflow_dispatch:` is ALSO defined** and was never recorded. |
+| (nothing said) the deploy job's branch safety | **It had NO branch guard.** Any dispatch from any branch would have deployed to production. |
+| ADR-016 implementation is owed | **DONE and VERIFIED ON THE WIRE.** Only D6's runbook remains. |
+| Installer count 38 for 38 | **44 for 44.** Six more, all landed. |
+
+**What is NEW and was in no previous handover:**
+- **ADR-016 is implemented, deployed and verified**; issues 19.1 and 19.3 closed.
+- **`readiness-policy.ts` exists** and is where the required-dependency set lives.
+- **A CI test gate and deploy branch guard exist at `e17eab7`, proven by Actions
+  runs #82 and #83, but are NOT on `main`.**
+- **Four new traps: #105 `-m` body paragraph count, #106 trailing newline as a
+  third file property, #107 GitHub Actions dispatch defaults to `main`, #108
+  fragment checks pass on a file that differs.**
+- **The whole-file result SHA is now the primary installer gate**, with semantic
+  invariants as the thing that survives a regenerated SHA.
+
+**What has NOT changed:** Sprint 10B is still ~88%. **The tracking page has still
+never rendered - FOUR sessions.** 9c and item 10 are still the remaining 10B
+work. ADR-013, 014, 015 and 017 are still owed with their content already
+written. The mobile app is untouched. The website is untouched. **No production
+write path has ever executed.** The DEMO-CRITICAL PATH block is still not
+installed.
+
+---
+
+# END OF HANDOVER ULTRA 20
+
+**Three parts, generated on branch `ci-test-gate` at `646cf09`, with `main` at
+`8efedef` and level with origin.**
+
+**Supersedes Ultra 2-19.**
+
+**State at handover:**
+- **THE WORKING TREE IS ON `ci-test-gate`, NOT `main`.** Check first.
+- **PRODUCTION IS LIVE AND HEALTHY** - `/health/ready` 200,
+  `"redis":"optional-down"`, schema 11/11.
+- **`main` IS GREEN** - 23 suites / 249 tests, 0 failed, todo=0.
+- **ADR-016 IS FULLY DISCHARGED EXCEPT D6's RUNBOOK.**
+- **THE CI TEST GATE IS PROVEN BUT NOT MERGED** - one cherry-pick away.
+- **Sprint 10B ~88%** - unchanged, untouched.
+- **FOUR ADRs owed**: 013, 014, 015, 017.
+
+**First actions in the new session:**
+1. **Save all three parts** and commit to `docs/handovers/` (glob: `Ultra-20-*`).
+2. `git branch --show-current` - **expect `ci-test-gate`.**
+3. **Cherry-pick `e17eab7` onto `main`**, push, watch the first gated run, then
+   delete the temporary branch locally and on origin.
+4. **Write the production-operations runbook** (ADR-016 D6) and fix
+   `TODO.md:362-363`.
+5. **Install the DEMO-CRITICAL PATH block** (Ultra 19 part 1 section 0b) and do
+   the two half-hour fixes. **Sequencing for everything after: ADR-014 ->
+   storage measurement -> 9c. Do not start 9c first.**

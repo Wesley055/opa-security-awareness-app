@@ -1,7 +1,10 @@
+import { ConflictException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { makeTestClient, prismaTest } from './prisma-test-client';
 import { createSession, createUser, sleep, waitFor } from './fixtures';
 import { JourneySessionService } from '../../src/modules/journey/journey-session.service';
+import { JourneyIngestionService } from '../../src/modules/journey/journey-ingestion.service';
+import { PrismaService } from '../../src/prisma/prisma.service';
 
 /**
  * Trap #11, service level.
@@ -231,5 +234,68 @@ describe('JourneySessionService concurrency', () => {
       where: { userId: user.id },
     });
     expect(sessions).toHaveLength(1);
+  });
+
+  it('prevents ingestion from appending after a concurrent end wins', async () => {
+    const user = await createUser();
+    const session = await createSession(user.id, { status: 'ACTIVE' });
+    const ingestion = new JourneyIngestionService(
+      clientB as unknown as PrismaService,
+      service,
+    );
+
+    let aEnded = false;
+    let bSettled = false;
+    let release: (() => void) | null = null;
+
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    const a = clientA.$transaction(async (tx) => {
+      const result = await service.endSession(tx, user.id, session.id);
+      expect(result?.session.status).toBe('ENDED');
+      aEnded = true;
+      await held;
+    }, TX);
+
+    await waitFor(() => aEnded);
+
+    const b = ingestion
+      .ingest(user.id, {
+        sessionId: session.id,
+        fixes: [
+          {
+            idempotencyKey: 'concurrent-after-end',
+            source: 'foreground',
+            latitude: Number(LAT),
+            longitude: Number(LNG),
+            recordedAt: new Date().toISOString(),
+          },
+        ],
+      })
+      .finally(() => {
+        bSettled = true;
+      });
+
+    await sleep(HOLD_MS);
+    expect(bSettled).toBe(false);
+
+    if (release) {
+      (release as () => void)();
+    }
+
+    await a;
+    await expect(b).rejects.toBeInstanceOf(ConflictException);
+
+    const stored = await prismaTest.journeySession.findUniqueOrThrow({
+      where: { id: session.id },
+    });
+    expect(stored.status).toBe('ENDED');
+
+    const fixes = await prismaTest.journeyLocationFix.count({
+      where: { journeySessionId: session.id },
+    });
+    expect(fixes).toBe(0);
   });
 });

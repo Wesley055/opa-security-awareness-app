@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto';
+import { ConflictException } from '@nestjs/common';
 import { prismaTest } from './prisma-test-client';
 import { createSession, createUser } from './fixtures';
 import { JourneySessionService } from '../../src/modules/journey/journey-session.service';
+import { JourneyIngestionService } from '../../src/modules/journey/journey-ingestion.service';
+import { PrismaService } from '../../src/prisma/prisma.service';
 import { canonicalChainEnvelope } from '../../src/modules/journey/canonical-chain';
 import { canonicalFixPayload } from '../../src/modules/journey/canonical-fix';
 
@@ -198,6 +201,126 @@ describe('JourneySessionService', () => {
 
       expectedPrevious = row.hash;
     }
+  });
+
+  it('ends a STARTED session with database time and USER_ENDED', async () => {
+    const user = await createUser();
+    const session = await createSession(user.id, { status: 'STARTED' });
+
+    const result = await prismaTest.$transaction(
+      (tx) => service.endSession(tx, user.id, session.id),
+      TX,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result?.alreadyEnded).toBe(false);
+    expect(result?.session.status).toBe('ENDED');
+    expect(result?.session.endedReason).toBe('USER_ENDED');
+    expect(result?.session.endedAt).not.toBeNull();
+    expect(result?.session.endedAt?.getMilliseconds()).toBeGreaterThanOrEqual(0);
+
+    const stored = await prismaTest.journeySession.findUniqueOrThrow({
+      where: { id: session.id },
+    });
+    expect(stored.status).toBe('ENDED');
+    expect(stored.endedReason).toBe('USER_ENDED');
+    expect(stored.endedAt?.getTime()).toBe(result?.session.endedAt?.getTime());
+  });
+
+  it('ends an ACTIVE session', async () => {
+    const user = await createUser();
+    const session = await createSession(user.id, { status: 'ACTIVE' });
+
+    const result = await prismaTest.$transaction(
+      (tx) => service.endSession(tx, user.id, session.id),
+      TX,
+    );
+
+    expect(result?.session.status).toBe('ENDED');
+    expect(result?.alreadyEnded).toBe(false);
+  });
+
+  it('re-ending preserves the original endedAt and endedReason', async () => {
+    const user = await createUser();
+    const originalEndedAt = new Date('2026-08-03T18:30:00.123Z');
+    const session = await createSession(user.id, {
+      status: 'ENDED',
+      endedAt: originalEndedAt,
+      endedReason: 'TIMED_OUT',
+    });
+
+    const result = await prismaTest.$transaction(
+      (tx) => service.endSession(tx, user.id, session.id),
+      TX,
+    );
+
+    expect(result?.alreadyEnded).toBe(true);
+    expect(result?.session.endedAt?.getTime()).toBe(originalEndedAt.getTime());
+    expect(result?.session.endedReason).toBe('TIMED_OUT');
+
+    const stored = await prismaTest.journeySession.findUniqueOrThrow({
+      where: { id: session.id },
+    });
+    expect(stored.endedAt?.getTime()).toBe(originalEndedAt.getTime());
+    expect(stored.endedReason).toBe('TIMED_OUT');
+  });
+
+  it('returns the same null for unknown and foreign-owned sessions', async () => {
+    const caller = await createUser();
+    const owner = await createUser();
+    const foreign = await createSession(owner.id);
+
+    const unknown = await prismaTest.$transaction(
+      (tx) =>
+        service.endSession(
+          tx,
+          caller.id,
+          '11111111-1111-4111-8111-111111111111',
+        ),
+      TX,
+    );
+
+    const notOwned = await prismaTest.$transaction(
+      (tx) => service.endSession(tx, caller.id, foreign.id),
+      TX,
+    );
+
+    expect(unknown).toBeNull();
+    expect(notOwned).toBeNull();
+  });
+
+  it('makes the existing ingestion 409 reachable after a real end', async () => {
+    const user = await createUser();
+    const session = await createSession(user.id, { status: 'ACTIVE' });
+    const ingestion = new JourneyIngestionService(
+      prismaTest as unknown as PrismaService,
+      service,
+    );
+
+    await prismaTest.$transaction(
+      (tx) => service.endSession(tx, user.id, session.id),
+      TX,
+    );
+
+    await expect(
+      ingestion.ingest(user.id, {
+        sessionId: session.id,
+        fixes: [
+          {
+            idempotencyKey: 'after-end',
+            source: 'foreground',
+            latitude: Number(LAT),
+            longitude: Number(LNG),
+            recordedAt: new Date().toISOString(),
+          },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    const count = await prismaTest.journeyLocationFix.count({
+      where: { journeySessionId: session.id },
+    });
+    expect(count).toBe(0);
   });
 
   it('resolveForActivation reuses an open session and creates one otherwise', async () => {

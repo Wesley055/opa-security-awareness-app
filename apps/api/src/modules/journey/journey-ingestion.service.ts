@@ -13,6 +13,7 @@ import type {
   InsertFixesResult,
   JourneyFixInput,
 } from './journey-session.service';
+import type { EndJourneySessionDto } from './dto/end-session.dto';
 import type { IngestFixesDto } from './dto/ingest-fixes.dto';
 import type {
   JourneySessionDto,
@@ -90,8 +91,74 @@ export class JourneyIngestionService {
     });
   }
 
+  /**
+   * End the caller's session. Idempotent: ending an already-ended session
+   * succeeds and returns the ORIGINAL endedAt rather than a fresh one.
+   *
+   * Lives here rather than on JourneySessionService for the same reason
+   * startSession does: D7 forbids that service from opening a transaction,
+   * and this class exists to own it.
+   */
+  async endSession(
+    userId: string,
+    sessionId: string,
+  ): Promise<EndJourneySessionDto> {
+    return this.prisma.$transaction(async (tx) => {
+      const result = await this.journeySessionService.endSession(
+        tx,
+        userId,
+        sessionId,
+      );
+
+      // Unknown session and another user's session are the SAME 404. The
+      // service returns null for both so this cannot accidentally split
+      // them. Matches ingest() exactly.
+      if (result === null) {
+        throw new NotFoundException('Journey session not found.');
+      }
+
+      const { session, alreadyEnded } = result;
+
+      // Unreachable on this path - status and endedAt are one write. The
+      // guard exists for a row ended by some future owner that failed to set
+      // them: ADR-014 section 3.2 treats a null endedAt on an ENDED session
+      // as reject-and-reacquire, so serialising null here would be worse
+      // than failing.
+      if (session.endedAt === null || session.endedReason === null) {
+        throw new Error(
+          'journey: session ' +
+            session.id +
+            ' is ENDED without endedAt or endedReason',
+        );
+      }
+
+      return {
+        sessionId: session.id,
+        // Return the endpoint invariant explicitly rather than widening from
+        // the stored JourneySessionStatus field.
+        status: JourneySessionStatus.ENDED,
+        endedAt: session.endedAt.toISOString(),
+        endedReason: session.endedReason,
+        alreadyEnded,
+      };
+    });
+  }
+
   async ingest(userId: string, dto: IngestFixesDto): Promise<InsertFixesResult> {
     return this.prisma.$transaction(async (tx) => {
+      // Serialise the state verdict with session ending. Without this the
+      // status read below is taken outside any lock, and a concurrent
+      // endSession can commit ENDED between this read and insertFixes -
+      // which would then append to an ended session, because insertFixes
+      // uses status only for the STARTED -> ACTIVE promotion and does not
+      // reject ENDED.
+      //
+      // The 2-arg ingestion lock, matching insertFixes. Advisory locks are
+      // reentrant within a transaction so insertFixes re-taking it later is
+      // free. Ingestion NEVER takes the 1-arg lifecycle lock, so this cannot
+      // cycle with endSession's lifecycle-then-ingestion order.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(2, hashtext(${dto.sessionId}))`;
+
       const session = await tx.journeySession.findUnique({
         where: { id: dto.sessionId },
         select: { id: true, userId: true, status: true, startedAt: true },

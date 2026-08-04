@@ -11,6 +11,7 @@ describe('JourneyIngestionService', () => {
   let service: JourneyIngestionService;
 
   const journeySessionService = {
+    endSession: jest.fn(),
     recordTrackedFixes: jest.fn(),
     resolveForActivation: jest.fn(),
   };
@@ -143,6 +144,91 @@ describe('JourneyIngestionService', () => {
   // Control: nothing above passes merely because every call throws.
   it('accepts a fix at the current time', async () => {
     await expect(service.ingest(USER, dto() as never)).resolves.toBeDefined();
+  });
+
+  it('takes the session lock before reading ingestion state', async () => {
+    await service.ingest(USER, dto() as never);
+
+    const lockOrder = prisma.$executeRaw.mock.invocationCallOrder[0];
+    const readOrder =
+      prisma.journeySession.findUnique.mock.invocationCallOrder[0];
+
+    if (lockOrder === undefined || readOrder === undefined) {
+      throw new Error('expected lock and state-read invocation order');
+    }
+
+    expect(lockOrder).toBeLessThan(readOrder);
+  });
+
+  describe('endSession', () => {
+    const endedAt = new Date('2026-08-03T20:00:00.123Z');
+
+    const endedSession = {
+      id: SESSION,
+      status: 'ENDED',
+      endedAt,
+      endedReason: 'USER_ENDED',
+    };
+
+    it('returns the ended session in wire shape', async () => {
+      journeySessionService.endSession.mockResolvedValue({
+        session: endedSession,
+        alreadyEnded: false,
+      });
+
+      const result = await service.endSession(USER, SESSION);
+
+      expect(result).toEqual({
+        sessionId: SESSION,
+        status: 'ENDED',
+        endedAt: endedAt.toISOString(),
+        endedReason: 'USER_ENDED',
+        alreadyEnded: false,
+      });
+      expect(journeySessionService.endSession).toHaveBeenCalledWith(
+        prisma,
+        USER,
+        SESSION,
+      );
+    });
+
+    it('404s when the lower service returns null', async () => {
+      journeySessionService.endSession.mockResolvedValue(null);
+
+      await expect(service.endSession(USER, SESSION)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it('preserves the stored reason and timestamp on an idempotent retry', async () => {
+      journeySessionService.endSession.mockResolvedValue({
+        session: {
+          ...endedSession,
+          endedReason: 'TIMED_OUT',
+        },
+        alreadyEnded: true,
+      });
+
+      const result = await service.endSession(USER, SESSION);
+
+      expect(result.endedAt).toBe(endedAt.toISOString());
+      expect(result.endedReason).toBe('TIMED_OUT');
+      expect(result.alreadyEnded).toBe(true);
+    });
+
+    it('fails closed for an invalid ENDED row missing its terminal facts', async () => {
+      journeySessionService.endSession.mockResolvedValue({
+        session: {
+          ...endedSession,
+          endedAt: null,
+        },
+        alreadyEnded: true,
+      });
+
+      await expect(service.endSession(USER, SESSION)).rejects.toThrow(
+        'is ENDED without endedAt or endedReason',
+      );
+    });
   });
 
   describe('startSession', () => {

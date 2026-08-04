@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import {
   JourneyPurpose,
+  JourneySessionEndReason,
   JourneySessionStatus,
   type JourneySession,
   type Prisma,
@@ -45,6 +46,12 @@ export interface InsertFixesResult {
   /** Chain head after this call, or null when the session has no fixes. */
   tailSequence: number | null;
   tailHash: string | null;
+}
+
+export interface EndSessionResult {
+  session: JourneySession;
+  /** True when the session was already ENDED and this call wrote nothing. */
+  alreadyEnded: boolean;
 }
 
 /** Enough of an Incident to route a retrigger fix. Structural so callers
@@ -104,6 +111,84 @@ export class JourneySessionService {
 
     // purpose is a tag only. Nothing in 10B may branch on it.
     return tx.journeySession.create({ data: { userId, purpose } });
+  }
+
+  /**
+   * End a session the caller owns.
+   *
+   * Returns null when the session does not exist OR belongs to another user.
+   * The two are deliberately indistinguishable here so the caller cannot
+   * accidentally render them differently: an unknown id and someone else's
+   * id are the SAME 404 (ADR-009). Ownership is never expressed as a 403.
+   *
+   * IDEMPOTENT. An already-ENDED session is returned unchanged with
+   * alreadyEnded=true and NO write, preserving the original endedAt and
+   * endedReason. A retry on a flaky connection is a success, not a 409.
+   *
+   * LOCK ORDER: lifecycle (1-arg) then ingestion (2-arg), matching
+   * recordRetriggerFix and the orchestrator. No path in this service takes
+   * them in the opposite order, so the pair cannot deadlock.
+   *
+   * Taking the ingestion lock puts this write in the same serialised region
+   * as ingest()'s state verdict, which ingest() now takes under the same lock
+   * before its status read. The lock alone is not sufficient: insertFixes
+   * reads status only for the STARTED -> ACTIVE promotion and does not reject
+   * ENDED, so an unlocked pre-read in ingest() would survive serialisation as
+   * a stale verdict. Both halves are required.
+   */
+  async endSession(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    sessionId: string,
+  ): Promise<EndSessionResult | null> {
+    // $executeRaw, not $queryRaw: pg_advisory_xact_lock returns void and
+    // there is no Prisma type to deserialize a void column into.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(2, hashtext(${sessionId}))`;
+
+    const session = await tx.journeySession.findUnique({
+      where: { id: sessionId },
+    });
+
+    // Same null for both cases, deliberately. See the docblock.
+    if (session === null || session.userId !== userId) {
+      return null;
+    }
+
+    if (session.status === JourneySessionStatus.ENDED) {
+      return { session, alreadyEnded: true };
+    }
+
+    // D3: the clock comes from the DATABASE, truncated at the source. endedAt
+    // is timestamp(3) and PostgreSQL ROUNDS on store, so an untruncated
+    // microsecond tail would be stored as a different millisecond than the
+    // one this transaction observed. Same reasoning as insertFixes, and the
+    // same reason a Node clock is wrong here.
+    const clockRows = await tx.$queryRaw<Array<{ ended_at: Date }>>`
+      SELECT date_trunc('milliseconds', now()) AS ended_at
+    `;
+    const clockRow = clockRows[0];
+    if (clockRow === undefined) {
+      throw new Error('journey: transaction clock query returned no row');
+    }
+
+    // status, endedAt and endedReason are ONE write. ADR-014 section 3.2
+    // rules that a null endedAt on an ENDED session means
+    // reject-and-reacquire, never accept - so an ENDED row without endedAt
+    // must never exist, not even momentarily.
+    const ended = await tx.journeySession.update({
+      where: { id: sessionId },
+      data: {
+        status: JourneySessionStatus.ENDED,
+        endedAt: clockRow.ended_at,
+        endedReason: JourneySessionEndReason.USER_ENDED,
+      },
+    });
+
+    // The incident, if any, is deliberately UNTOUCHED. Ending a journey is a
+    // telemetry event, not an incident outcome. ADR-008 is explicit that
+    // "incident closed" and "still open" must never be conflated.
+    return { session: ended, alreadyEnded: false };
   }
 
   /** The position captured when an incident was raised. */

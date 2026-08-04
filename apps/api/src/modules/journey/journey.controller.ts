@@ -1,4 +1,12 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import type { JwtPayload } from '../auth/jwt.strategy';
@@ -29,6 +37,24 @@ export class JourneyController {
     @Body() dto: StartSessionDto,
   ) {
     return this.journeyIngestionService.startSession(request.user.sub, dto);
+  }
+
+  /**
+   * Idempotent. Ending an already-ended session succeeds and returns the
+   * ORIGINAL endedAt. Does NOT close an attached incident - ending a
+   * journey is a telemetry event, not an incident outcome.
+   *
+   * version: '4' matches Prisma's @default(uuid()). If that default is ever
+   * changed to a different UUID version, this pipe starts rejecting valid
+   * ids with a 400 and the failure will not point here.
+   */
+  @Post('sessions/:sessionId/end')
+  endSession(
+    @Req() request: AuthenticatedRequest,
+    @Param('sessionId', new ParseUUIDPipe({ version: '4' }))
+    sessionId: string,
+  ) {
+    return this.journeyIngestionService.endSession(request.user.sub, sessionId);
   }
 
   @Post('fixes')

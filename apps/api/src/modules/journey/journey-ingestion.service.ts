@@ -26,6 +26,40 @@ export const MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
 export const START_GRACE_MS = 5 * 60 * 1000;
 
 /**
+ * One rejected fix in the future ADR-014 ingest envelope.
+ *
+ * Phase A deliberately leaves code as string. Phase B owns the complete
+ * classification vocabulary and will tighten it when the server begins
+ * producing classifications.
+ */
+export interface RejectedFix {
+  idempotencyKey: string;
+  code: string;
+  retryable: boolean;
+  resubmit?: 'reacquire';
+}
+
+/**
+ * The ingest() envelope defined by ADR-014 section 7.
+ *
+ * Additive: it extends InsertFixesResult rather than replacing it, so
+ * recordTrackedFixes, recordActivationFix and the retrigger path retain
+ * their existing contracts.
+ *
+ * Phase A introduces this type only. ingest() still returns
+ * InsertFixesResult, still throws its existing exceptions, and exposes no
+ * runtime response change. Phases B and C will populate and return this
+ * envelope in coordination with the mobile client.
+ *
+ * tailSequence and tailHash describe the accepted subset only, not the
+ * submitted batch.
+ */
+export interface IngestFixesResult extends InsertFixesResult {
+  accepted: string[];
+  rejected: RejectedFix[];
+}
+
+/**
  * Owns the transaction so JourneySessionService does not have to. D7 keeps
  * that service free of PrismaService precisely so the advisory locks stay
  * transaction-scoped; this is the seam that satisfies it.

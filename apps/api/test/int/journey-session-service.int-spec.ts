@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import { prismaTest } from './prisma-test-client';
-import { createSession, createUser } from './fixtures';
+import { createIncident, createSession, createUser } from './fixtures';
 import { JourneySessionService } from '../../src/modules/journey/journey-session.service';
 import { JourneyIngestionService } from '../../src/modules/journey/journey-ingestion.service';
 import { PrismaService } from '../../src/prisma/prisma.service';
@@ -321,6 +321,102 @@ describe('JourneySessionService', () => {
       where: { journeySessionId: session.id },
     });
     expect(count).toBe(0);
+  });
+
+  it('reuses an ACTIVE linked session for a retrigger', async () => {
+    const user = await createUser();
+    const session = await createSession(user.id, { status: 'ACTIVE' });
+    const incident = await createIncident(user.id, {
+      journeySessionId: session.id,
+    });
+
+    const result = await prismaTest.$transaction(
+      (tx) =>
+        service.recordRetriggerFix(tx, {
+          incident: {
+            id: incident.id,
+            userId: user.id,
+            journeySessionId: session.id,
+            retriggerCount: 1,
+          },
+          latitude: LAT,
+          longitude: LNG,
+          recordedAt: new Date(),
+        }),
+      TX,
+    );
+
+    expect(result.sessionId).toBe(session.id);
+    expect(result.incidentRelinked).toBe(false);
+
+    const storedIncident = await prismaTest.incident.findUniqueOrThrow({
+      where: { id: incident.id },
+    });
+    expect(storedIncident.journeySessionId).toBe(session.id);
+
+    const fixes = await prismaTest.journeyLocationFix.findMany({
+      where: { journeySessionId: session.id },
+    });
+    expect(fixes).toHaveLength(1);
+    expect(fixes[0]?.source).toBe('retrigger');
+  });
+
+  it('moves a retrigger from an ENDED session to a fresh linked session', async () => {
+    const user = await createUser();
+    const endedSession = await createSession(user.id, {
+      status: 'ENDED',
+      endedAt: new Date(),
+      endedReason: 'USER_ENDED',
+    });
+    const incident = await createIncident(user.id, {
+      journeySessionId: endedSession.id,
+    });
+
+    const result = await prismaTest.$transaction(
+      (tx) =>
+        service.recordRetriggerFix(tx, {
+          incident: {
+            id: incident.id,
+            userId: user.id,
+            journeySessionId: endedSession.id,
+            retriggerCount: 2,
+          },
+          latitude: LAT,
+          longitude: LNG,
+          recordedAt: new Date(),
+        }),
+      TX,
+    );
+
+    expect(result.sessionId).not.toBe(endedSession.id);
+    expect(result.incidentRelinked).toBe(true);
+
+    const storedIncident = await prismaTest.incident.findUniqueOrThrow({
+      where: { id: incident.id },
+    });
+    expect(storedIncident.journeySessionId).toBe(result.sessionId);
+
+    const oldFixes = await prismaTest.journeyLocationFix.count({
+      where: { journeySessionId: endedSession.id },
+    });
+    expect(oldFixes).toBe(0);
+
+    const newFixes = await prismaTest.journeyLocationFix.findMany({
+      where: { journeySessionId: result.sessionId },
+    });
+    expect(newFixes).toHaveLength(1);
+    expect(newFixes[0]?.source).toBe('retrigger');
+
+    const freshSession = await prismaTest.journeySession.findUniqueOrThrow({
+      where: { id: result.sessionId },
+    });
+    expect(freshSession.status).toBe('ACTIVE');
+
+    const original = await prismaTest.journeySession.findUniqueOrThrow({
+      where: { id: endedSession.id },
+    });
+    expect(original.status).toBe('ENDED');
+    expect(original.endedReason).toBe('USER_ENDED');
   });
 
   it('resolveForActivation reuses an open session and creates one otherwise', async () => {

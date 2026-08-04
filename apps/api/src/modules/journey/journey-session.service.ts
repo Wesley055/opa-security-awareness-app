@@ -48,6 +48,13 @@ export interface InsertFixesResult {
   tailHash: string | null;
 }
 
+export interface RetriggerFixResult extends InsertFixesResult {
+  /** Session that now owns this retrigger fix. */
+  sessionId: string;
+  /** True when the incident FK was changed to this session. */
+  incidentRelinked: boolean;
+}
+
 export interface EndSessionResult {
   session: JourneySession;
   /** True when the session was already ENDED and this call wrote nothing. */
@@ -224,7 +231,22 @@ export class JourneySessionService {
     ]);
   }
 
-  /** The position captured when an existing incident was retriggered. */
+  /**
+   * Record the position captured when an existing incident is retriggered.
+   *
+   * An ENDED session is terminal. A retrigger is an affirmative new SOS
+   * action, so it starts or reuses a fresh open session rather than appending
+   * a post-endedAt fix to the old one.
+   *
+   * The incident FK is updated in this same transaction before the fix is
+   * inserted. Public tracking follows incident.journeySession, so creating
+   * a fresh session without relinking the incident would leave the family
+   * watching a stale session.
+   *
+   * LOCK ORDER remains lifecycle then ingestion. The orchestrator already
+   * holds the lifecycle lock, but this method takes it defensively and
+   * reentrantly so future callers cannot race a concurrent session end.
+   */
   async recordRetriggerFix(
     tx: Prisma.TransactionClient,
     params: {
@@ -238,14 +260,43 @@ export class JourneySessionService {
       isCharging?: boolean | null;
       recordedAt: Date;
     },
-  ): Promise<InsertFixesResult> {
+  ): Promise<RetriggerFixResult> {
     const { incident } = params;
 
-    const sessionId =
-      incident.journeySessionId ??
-      (await this.resolveForActivation(tx, incident.userId)).id;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${incident.userId}))`;
 
-    return this.insertFixes(tx, sessionId, [
+    const linkedSession =
+      incident.journeySessionId === null
+        ? null
+        : await tx.journeySession.findUnique({
+            where: { id: incident.journeySessionId },
+            select: { id: true, status: true },
+          });
+
+    let sessionId = linkedSession?.id ?? null;
+    let incidentRelinked = false;
+
+    if (
+      linkedSession === null ||
+      linkedSession.status === JourneySessionStatus.ENDED
+    ) {
+      const resolved = await this.resolveForActivation(tx, incident.userId);
+      sessionId = resolved.id;
+
+      if (incident.journeySessionId !== sessionId) {
+        await tx.incident.update({
+          where: { id: incident.id },
+          data: { journeySessionId: sessionId },
+        });
+        incidentRelinked = true;
+      }
+    }
+
+    if (sessionId === null) {
+      throw new Error('journey: retrigger session resolution returned null');
+    }
+
+    const result = await this.insertFixes(tx, sessionId, [
       {
         // retriggerCount makes each retrigger its own key while keeping a
         // retry of the same retrigger idempotent.
@@ -261,6 +312,12 @@ export class JourneySessionService {
         recordedAt: params.recordedAt,
       },
     ]);
+
+    return {
+      ...result,
+      sessionId,
+      incidentRelinked,
+    };
   }
 
   /**

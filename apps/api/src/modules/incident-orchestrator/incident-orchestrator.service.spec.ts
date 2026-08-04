@@ -90,6 +90,8 @@ describe('IncidentOrchestratorService', () => {
       receivedAt: new Date(),
       tailSequence: 1,
       tailHash: 'b'.repeat(64),
+      sessionId: 'journey-session-1',
+      incidentRelinked: false,
     });
     // Default: no recent incident, so the normal creation path runs.
     prisma.incident.findFirst.mockResolvedValue(null);
@@ -425,6 +427,39 @@ describe('IncidentOrchestratorService', () => {
       expect(result.status).toBe('INCIDENT_RETRIGGERED');
       expect(result.incident?.id).toBe('incident-existing');
       expect(result.deduplicated).toBe(true);
+    });
+
+    it('returns the session selected by the retrigger writer', async () => {
+      primeActivation();
+      const existing = {
+        id: 'incident-existing',
+        userId: 'user-123',
+        journeySessionId: 'ended-session',
+        createdAt: new Date(Date.now() - 20_000),
+        retriggerCount: 0,
+      };
+      prisma.incident.findFirst.mockResolvedValue(existing);
+      prisma.incident.update.mockResolvedValue({
+        ...existing,
+        retriggerCount: 1,
+      });
+      journeySessionService.recordRetriggerFix.mockResolvedValue({
+        inserted: 1,
+        skippedDuplicateInBatch: 0,
+        skippedAlreadyStored: 0,
+        receivedAt: new Date(),
+        tailSequence: 0,
+        tailHash: 'c'.repeat(64),
+        sessionId: 'fresh-session',
+        incidentRelinked: true,
+      });
+
+      const result = await service.createCoordinatedIncident(
+        'user-123',
+        activationDto,
+      );
+
+      expect(result.incident?.journeySessionId).toBe('fresh-session');
     });
 
     it('does not create a second incident on retrigger', async () => {

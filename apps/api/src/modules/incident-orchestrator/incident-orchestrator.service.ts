@@ -222,20 +222,24 @@ export class IncidentOrchestratorService {
         // audit event, not the position. recordRetriggerFix is
         // self-healing - it resolves and links a session of its own when
         // incident.journeySessionId is null.
-        await this.journeySessionService.recordRetriggerFix(tx, {
-          incident: updated,
-          latitude: dto.latitude,
-          longitude: dto.longitude,
-          accuracy: dto.accuracy,
-          speed: dto.speed,
-          heading: dto.heading,
-          batteryLevel: dto.batteryLevel,
-          isCharging: dto.isCharging,
-          recordedAt,
-        });
+        const retriggerFix =
+          await this.journeySessionService.recordRetriggerFix(tx, {
+            incident: updated,
+            latitude: dto.latitude,
+            longitude: dto.longitude,
+            accuracy: dto.accuracy,
+            speed: dto.speed,
+            heading: dto.heading,
+            batteryLevel: dto.batteryLevel,
+            isCharging: dto.isCharging,
+            recordedAt,
+          });
 
         return {
-          incident: updated,
+          incident: {
+            ...updated,
+            journeySessionId: retriggerFix.sessionId,
+          },
           deduplicated: true as const,
           retriggeredAt,
           trackingUrl: null,

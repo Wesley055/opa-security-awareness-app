@@ -2,10 +2,105 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JourneySessionService } from './journey-session.service';
-import { JourneyIngestionService } from './journey-ingestion.service';
+import {
+  JourneyIngestionService,
+  MAX_FUTURE_SKEW_MS,
+  START_GRACE_MS,
+  classifyJourneyFixes,
+} from './journey-ingestion.service';
 
 const USER = 'user-1';
 const SESSION = 'session-1';
+
+describe('classifyJourneyFixes', () => {
+  const NOW = Date.parse('2026-08-04T12:00:00.000Z');
+  const FLOOR = NOW - 60_000;
+
+  function classify(recordedAtMs: number) {
+    return classifyJourneyFixes(
+      [
+        {
+          idempotencyKey: 'boundary-fix',
+          source: 'foreground',
+          latitude: 6.5244,
+          longitude: 3.3792,
+          recordedAt: new Date(recordedAtMs).toISOString(),
+        },
+      ],
+      FLOOR,
+      NOW,
+    );
+  }
+
+  it('accepts a fix exactly at the session floor', () => {
+    const result = classify(FLOOR);
+    expect(result.accepted).toHaveLength(1);
+    expect(result.rejected).toHaveLength(0);
+  });
+
+  it('rejects a fix one millisecond before the session floor', () => {
+    const result = classify(FLOOR - 1);
+    expect(result.accepted).toHaveLength(0);
+    expect(result.rejected).toEqual([
+      expect.objectContaining({
+        code: 'FIX_PRECEDES_SESSION',
+        retryable: false,
+      }),
+    ]);
+  });
+
+  it('accepts a fix exactly at the future-skew ceiling', () => {
+    const result = classify(NOW + MAX_FUTURE_SKEW_MS);
+    expect(result.accepted).toHaveLength(1);
+    expect(result.rejected).toHaveLength(0);
+  });
+
+  it('rejects a fix one millisecond beyond the future-skew ceiling', () => {
+    const result = classify(NOW + MAX_FUTURE_SKEW_MS + 1);
+    expect(result.accepted).toHaveLength(0);
+    expect(result.rejected).toEqual([
+      expect.objectContaining({
+        code: 'FIX_RECORDED_TOO_FAR_IN_FUTURE',
+        retryable: false,
+      }),
+    ]);
+  });
+
+  it('partitions a mixed batch without early exit', () => {
+    const acceptedAt = new Date(NOW).toISOString();
+    const rejectedAt = new Date(
+      NOW + MAX_FUTURE_SKEW_MS + 1,
+    ).toISOString();
+
+    const result = classifyJourneyFixes(
+      [
+        {
+          idempotencyKey: 'accepted',
+          source: 'foreground',
+          latitude: 6.5244,
+          longitude: 3.3792,
+          recordedAt: acceptedAt,
+        },
+        {
+          idempotencyKey: 'rejected',
+          source: 'foreground',
+          latitude: 6.5244,
+          longitude: 3.3792,
+          recordedAt: rejectedAt,
+        },
+      ],
+      FLOOR,
+      NOW,
+    );
+
+    expect(result.accepted.map((fix) => fix.idempotencyKey)).toEqual([
+      'accepted',
+    ]);
+    expect(result.rejected.map((fix) => fix.idempotencyKey)).toEqual([
+      'rejected',
+    ]);
+  });
+});
 
 describe('JourneyIngestionService', () => {
   let service: JourneyIngestionService;
@@ -139,6 +234,52 @@ describe('JourneyIngestionService', () => {
     await expect(
       service.ingest(USER, dto({ recordedAt: old }) as never),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('derives the lower boundary from startedAt minus START_GRACE_MS', async () => {
+    const startedAt = new Date(Date.now() - 60_000);
+    const floor = startedAt.getTime() - START_GRACE_MS;
+
+    prisma.journeySession.findUnique.mockResolvedValue({
+      ...openSession,
+      startedAt,
+    });
+
+    await expect(
+      service.ingest(
+        USER,
+        dto({ recordedAt: new Date(floor).toISOString() }) as never,
+      ),
+    ).resolves.toBeDefined();
+
+    journeySessionService.recordTrackedFixes.mockClear();
+
+    await expect(
+      service.ingest(
+        USER,
+        dto({ recordedAt: new Date(floor - 1).toISOString() }) as never,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(journeySessionService.recordTrackedFixes).not.toHaveBeenCalled();
+  });
+
+  it('writes no accepted survivors when one fix is rejected in Phase B', async () => {
+    const valid = dto().fixes[0];
+    const future = {
+      ...valid,
+      idempotencyKey: 'future-key',
+      recordedAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+    };
+
+    await expect(
+      service.ingest(
+        USER,
+        { sessionId: SESSION, fixes: [valid, future] } as never,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(journeySessionService.recordTrackedFixes).not.toHaveBeenCalled();
   });
 
   // Control: nothing above passes merely because every call throws.

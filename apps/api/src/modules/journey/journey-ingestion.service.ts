@@ -14,7 +14,10 @@ import type {
   JourneyFixInput,
 } from './journey-session.service';
 import type { EndJourneySessionDto } from './dto/end-session.dto';
-import type { IngestFixesDto } from './dto/ingest-fixes.dto';
+import type {
+  IngestFixesDto,
+  JourneyFixDto,
+} from './dto/ingest-fixes.dto';
 import type {
   JourneySessionDto,
   StartSessionDto,
@@ -25,16 +28,17 @@ export const MAX_FUTURE_SKEW_MS = 5 * 60 * 1000;
 /** Tolerance for a fix captured just before the session row was written. */
 export const START_GRACE_MS = 5 * 60 * 1000;
 
-/**
- * One rejected fix in the future ADR-014 ingest envelope.
- *
- * Phase A deliberately leaves code as string. Phase B owns the complete
- * classification vocabulary and will tighten it when the server begins
- * producing classifications.
- */
+/** Temporal rejection codes implemented by ADR-014 Phase B. */
+export type RejectedFixCode =
+  | 'FIX_RECORDED_TOO_FAR_IN_FUTURE'
+  | 'FIX_PRECEDES_SESSION';
+
+/** One rejected fix in the future ADR-014 ingest envelope. */
 export interface RejectedFix {
   idempotencyKey: string;
-  code: string;
+  code: RejectedFixCode;
+  /** Original wire value, retained for response detail and diagnostics. */
+  recordedAt: string;
   retryable: boolean;
   resubmit?: 'reacquire';
 }
@@ -57,6 +61,70 @@ export interface RejectedFix {
 export interface IngestFixesResult extends InsertFixesResult {
   accepted: string[];
   rejected: RejectedFix[];
+}
+
+export interface ClassifiedJourneyFixes {
+  accepted: JourneyFixInput[];
+  rejected: RejectedFix[];
+}
+
+/**
+ * Pure ADR-014 Phase B temporal classifier.
+ *
+ * Both boundaries are inclusive for acceptance: exactly at floor and
+ * exactly at the future-skew ceiling are accepted. HTTP exceptions remain
+ * the responsibility of ingest(), so Phase C can expose this result without
+ * removing Nest semantics from a utility function.
+ */
+export function classifyJourneyFixes(
+  fixes: readonly JourneyFixDto[],
+  floorMs: number,
+  nowMs: number,
+): ClassifiedJourneyFixes {
+  const accepted: JourneyFixInput[] = [];
+  const rejected: RejectedFix[] = [];
+
+  for (const fix of fixes) {
+    const recordedAt = new Date(fix.recordedAt);
+    const timestampMs = recordedAt.getTime();
+
+    if (timestampMs > nowMs + MAX_FUTURE_SKEW_MS) {
+      rejected.push({
+        idempotencyKey: fix.idempotencyKey,
+        code: 'FIX_RECORDED_TOO_FAR_IN_FUTURE',
+        recordedAt: fix.recordedAt,
+        // Phase B is invisible. Phase C decides retryable and retryAfter
+        // together when the mobile client can act on both.
+        retryable: false,
+      });
+      continue;
+    }
+
+    if (timestampMs < floorMs) {
+      rejected.push({
+        idempotencyKey: fix.idempotencyKey,
+        code: 'FIX_PRECEDES_SESSION',
+        recordedAt: fix.recordedAt,
+        retryable: false,
+      });
+      continue;
+    }
+
+    accepted.push({
+      idempotencyKey: fix.idempotencyKey,
+      source: fix.source,
+      latitude: fix.latitude,
+      longitude: fix.longitude,
+      accuracy: fix.accuracy ?? null,
+      speed: fix.speed ?? null,
+      heading: fix.heading ?? null,
+      batteryLevel: fix.batteryLevel ?? null,
+      isCharging: fix.isCharging ?? null,
+      recordedAt,
+    });
+  }
+
+  return { accepted, rejected };
 }
 
 /**
@@ -212,38 +280,31 @@ export class JourneyIngestionService {
       const now = Date.now();
       const floor = session.startedAt.getTime() - START_GRACE_MS;
 
-      const fixes: JourneyFixInput[] = dto.fixes.map((fix) => {
-        const recordedAt = new Date(fix.recordedAt);
-        const t = recordedAt.getTime();
+      const classified = classifyJourneyFixes(dto.fixes, floor, now);
+      const firstRejected = classified.rejected[0];
 
-        if (t > now + MAX_FUTURE_SKEW_MS) {
+      // Phase B remains invisible to clients. If any item is rejected,
+      // preserve the original whole-request exception and write NONE of
+      // the accepted survivors. Phase C may stop throwing only when the
+      // mobile client can delete accepted items selectively.
+      if (firstRejected !== undefined) {
+        if (
+          firstRejected.code === 'FIX_RECORDED_TOO_FAR_IN_FUTURE'
+        ) {
           throw new BadRequestException(
-            'recordedAt is too far in the future: ' + fix.recordedAt,
+            'recordedAt is too far in the future: ' +
+              firstRejected.recordedAt,
           );
         }
-        if (t < floor) {
-          throw new BadRequestException(
-            'recordedAt precedes the session: ' + fix.recordedAt,
-          );
-        }
 
-        return {
-          idempotencyKey: fix.idempotencyKey,
-          source: fix.source,
-          latitude: fix.latitude,
-          longitude: fix.longitude,
-          accuracy: fix.accuracy ?? null,
-          speed: fix.speed ?? null,
-          heading: fix.heading ?? null,
-          batteryLevel: fix.batteryLevel ?? null,
-          isCharging: fix.isCharging ?? null,
-          recordedAt,
-        };
-      });
+        throw new BadRequestException(
+          'recordedAt precedes the session: ' + firstRejected.recordedAt,
+        );
+      }
 
       return this.journeySessionService.recordTrackedFixes(tx, {
         sessionId: session.id,
-        fixes,
+        fixes: classified.accepted,
       });
     });
   }

@@ -1,0 +1,684 @@
+# OPA - Handover Ultra 22 - DELTA
+# GENERATED: 2026-08-03, at commit f5a8ab2 on main. PUSHED.
+#
+# THIS IS A DELTA. It supersedes Ultra 21 ONLY where stated.
+# Ultra 21 remains AUTHORITATIVE for everything not listed here:
+#   docs/handovers/OPA-Handover-Ultra-21.txt
+# Ultra 20 parts 1-3 remain authoritative where Ultra 21 did not supersede them.
+# The phase plan in Ultra 20 part 3 section 15 is UNCHANGED.
+# Phases 1, 2, 4 and 5 are now CLOSED.
+#
+# LABELS: [M] MEASURED  [D] DECISION  [R] RECOMMENDATION  [I] INHERITED
+
+
+================================================================================
+## RESUME HERE - READ THIS FIRST
+================================================================================
+
+HEAD                main @ f5a8ab2, porcelain=0, level with origin/main      [M]
+API SUITE           23 suites / 249 tests, 0 failed, jest_exit=0, 56.1s      [M]
+MOBILE TSC          exit 0, NO ERRORS. First run in several sessions.        [M]
+WEBSITE BUILD       exit 0, TypeScript passed, 13 routes                     [M]
+DECISION LOG        docs/architecture/decision-log.md, 14 ADRs               [M]
+
+SPRINT STATUS
+  10B   ~90%. Phase 2 closed this session. Remaining: 9c (4-6h),
+        item 10 end-to-end (2-3h).                                           [M]
+  10C   ~0%. Unchanged.                                                      [I]
+
+PHASES
+  1     CLOSED (Ultra 21).
+  2     CLOSED THIS SESSION at f5a8ab2. See section 4.
+  3     NOT STARTED. D6 runbook still does not exist.                        [I]
+  4     CLOSED THIS SESSION. See section 2.
+  5     CLOSED THIS SESSION at 258c3d2. See section 3.
+  6     9c. UNBLOCKED. Starts with ADR-014 section 4 OPEN - see section 3.1.
+  7     ADR-017 provider fault isolation. UNCHANGED.                         [I]
+  8     10C. UNCHANGED.                                                      [I]
+
+NEXT THREE ACTIONS
+  1. Commit this file to docs/handovers/ (glob: Ultra-22-*).
+  2. Measure what writes status = ENDED (section 5). It is NOT in
+     apps/api/src. 9c cannot test ADR-014's central path without this.
+  3. Phase 3 (D6 runbook) or Phase 6 (9c). Read installed ADR-014 first.
+
+STILL TRUE AND STILL UNCOMFORTABLE
+  No production write path has ever executed. The deployed app has run
+  SELECT 1, which is a READ. Issue 17.27 and q49 stand.                      [I]
+
+
+================================================================================
+## 0. EXECUTIVE SUMMARY
+================================================================================
+
+Four things closed. One had been carried for five sessions.
+
+1. PHASE 4 CLOSED. [M] expo-sqlite is in SDK 54's own bundled-modules manifest
+   at ~16.0.10, read from this repo. SQLCipher remains out of reach in Expo Go.
+
+2. PHASE 5 CLOSED. [M] ADR-014 installed at docs/architecture/decision-log.md
+   line 218, committed 258c3d2, gated and deployed on CI run #88.
+
+3. PHASE 2 CLOSED. [M] contactsNotified fixed at f5a8ab2 - and it was NOT the
+   defect Ultra 21 recorded. See section 4.
+
+4. THE PUBLIC SITE NO LONGER CLAIMS UNBUILT CAPABILITIES in its footer, privacy
+   policy, terms or contact page. [M] Commits 3016411 and 1434355. Twelve
+   further "coordination" instances remain and are DELIBERATELY DEFERRED -
+   section 6.
+
+[D] ADR-014 WAS NOT INSTALLED AS PREVIOUSLY WRITTEN. Its inherited content ended
+in an OPEN SCOPE QUESTION under a heading reading "FULL CONTENT, DECIDED".
+Resolving that exposed a collision inside the contract itself: the recovery path
+in its own section 3.2 walks its fixes into the permanent rejection in its own
+section 3.3. The installed version records that as OPEN.
+
+[M] Commits this session:
+  6000a85  Docs: handover Ultra 21
+  258c3d2  Docs: install ADR-014, per-item fix classification contract
+  3016411  Website: correct footer positioning and add legal entity
+  1434355  Website: remove draft-review disclaimers, correct coordination claims
+  f5a8ab2  Mobile: align activation UI with queued notification contract
+
+
+================================================================================
+## 1. STATE AT HANDOVER - ALL MEASURED
+================================================================================
+
+BRANCH main, HEAD f5a8ab2, porcelain=0, level with origin/main. [M]
+
+| Gate                             | Result                                 |
+|----------------------------------|----------------------------------------|
+| npx jest (apps/api)              | 23 suites / 249 tests, 0 failed, exit 0|
+| npx tsc --noEmit (apps/mobile)   | exit 0, no output                      |
+| apps/website npm run build       | exit 0, TypeScript passed, 13 routes   |
+| CI run #88 (258c3d2)             | build 1m55s, deploy 2m49s, both RAN    |
+
+[M] CI #88 read from the JOB LIST, not the run-level tick. Total 4m 57s,
+2 annotations. Fourth consecutive gated deploy on main.
+
+[M] The 2 warnings are issue 21.1 - Node 20 runtime deprecation on
+actions/checkout and actions/download-artifact. Fourth run showing it.
+
+[M] ISSUE 17.3 FIRED AGAIN - TENTH OCCURRENCE, on a 56.1s run. Consistent with
+Ultra 21 section 7.9's wall-time correlation. Does NOT change the verdict.
+--forceExit remains REJECTED.
+
+NOT measured this session: npm run test:int, npm run lint, /health/ready.
+
+### 1.1 TWO DEPLOYMENT PIPELINES, NOT ONE - NEW [M]
+
+THE WEBSITE IS ON VERCEL AT opasafety.com. The API is on Azure via GitHub
+Actions. BOTH fire on every push to main. This is not recorded in any prior
+handover.
+
+CONSEQUENCES, all measured from the Vercel deployment list:
+- A green Actions run says NOTHING about whether the website deployed, and
+  vice versa. Ultra 21 section 2's "read the job list" advice covers the API
+  ONLY.
+- VERCEL DEPLOYS EVERY COMMIT TO PRODUCTION, including docs-only ones. 6000a85
+  and 258c3d2 both got full production deploys for changes touching nothing
+  under apps/website. The Vercel list is therefore NOT a signal of website
+  change.
+- THE DEPLOY BRANCH GUARD COVERS ONE PIPELINE. ci-test-gate/51c03ca - Ultra 21
+  section 2's deliberately-failing commit - was correctly skipped by Actions
+  but VERCEL DEPLOYED IT to a Preview URL. No production exposure, branch since
+  deleted, but the guard built in Phase 1 is half a guard.
+
+[I] The user intends to MOVE THE WEBSITE TO AZURE, deferred for cost.
+[R] That migration is not a DNS swap. Ultra 21 section 3 records the tracking
+page working through a SAME-ORIGIN BRIDGE - /api/tracking/[token] proxies to the
+API so the token never reaches client JavaScript. That is a security property
+and it must be re-verified wherever the site is hosted. Issue 21.6's
+middleware -> proxy deprecation touches the same layer.
+
+[R] SEARCH CONSOLE VERIFICATION SHOULD BE DOMAIN-LEVEL VIA DNS TXT. It survives
+the Vercel -> Azure move untouched; a file or meta-tag verification on the
+Vercel deployment would break on migration.
+
+[M] /sitemap.xml and /robots.txt BOTH EXIST as routes. The Search Console
+sitemap prerequisite is already satisfied.
+
+
+================================================================================
+## 2. PHASE 4 - CLOSED. THE ANSWER AND ITS LIMIT.
+================================================================================
+
+SDK VERSION [M] - apps/mobile-app/package.json, 32 lines, read not modified:
+  expo ^54.0.8, react-native 0.81.5, react 19.1.0, expo-router ~6.0.24,
+  expo-location ~19.0.8, expo-secure-store ~15.0.8, zustand ^5.0.14.
+  expo-sqlite is NOT a dependency.
+
+THE MEASUREMENT [M] - apps/mobile-app/node_modules/expo/bundledNativeModules.json:
+  expo_sqlite_version = ~16.0.10
+  package_resolves    = NO
+
+WHAT THAT PROVES: expo-sqlite is part of SDK 54, and `npx expo install
+expo-sqlite` will pin 16.0.x rather than latest. Manifest membership is Expo's
+own statement of SDK inclusion.
+
+WHAT IT DOES NOT PROVE: that the Expo Go BINARY ON THE DEVICE carries the native
+module. [R] Closes on the first import in Expo Go, which phase 6 does
+incidentally. Failure mode if wrong is loud and immediate.
+
+SQLCIPHER [HYPOTHESIS, documentary]: not supported in Expo Go; requires
+useSQLCipher in app.json plus `npx expo prebuild`. No eas.json in this repo.
+=> AN ENCRYPTED-AT-REST QUEUE IS OUT OF SCOPE FOR EXPO GO.
+
+[R] Not a regression - fixes are already plaintext in memory. But a SQLite queue
+is a new DURABLE artifact on disk and that should be a decision, not a side
+effect. expo-secure-store 15.0.8 is already a dependency: a key there plus
+ciphertext blobs in SQLite stays entirely inside Expo Go.
+
+[M] expo-sqlite/kv-store is a drop-in AsyncStorage replacement. There is no
+AsyncStorage dependency today.
+
+
+================================================================================
+## 3. PHASE 5 - ADR-014 INSTALLED. WHY IT WAS NEVER 0.5h.
+================================================================================
+
+INSTALLED at docs/architecture/decision-log.md line 218, above ADR-012.
+303 insertions, ZERO deletions. Committed 258c3d2. [M]
+
+RECORDED AS 0.5h ACROSS SIX HANDOVERS because "the content is already written."
+It took a full session. The content WAS written - and it ended with an OPEN
+SCOPE QUESTION that no handover summary ever surfaced. [M]
+
+[D] SCOPE RESOLVED, then NARROWED against the code:
+  - First answer: per-item outcomes for EVERY independently classifiable
+    failure. REJECTED - DTO-level failures are rejected by the validation pipe
+    before ingest() is entered.
+  - INSTALLED BOUNDARY: per-item for session-STATE and temporal classification
+    inside JourneyIngestionService. Request-level validation stays
+    request-level.
+
+[D] THE 404 STAYS REQUEST-LEVEL AS A SECURITY PROPERTY. [M] The service comment
+and two pinned tests are explicit that an unknown session and another user's
+session return the SAME 404. A per-item rejection carrying sessionId would leak
+exactly what that conceals.
+
+MEASURED CONSTANTS [M], journey-ingestion.service.ts:
+  MAX_FUTURE_SKEW_MS = 5 * 60 * 1000
+  START_GRACE_MS     = 5 * 60 * 1000   "tolerance for a fix captured just
+                                        before the session row was written"
+  floor = session.startedAt.getTime() - START_GRACE_MS
+  Accepted window: [startedAt - 5min, now + 5min]
+
+[M] ingest() selects id, userId, status, startedAt ONLY. endedAt is NOT
+selected. ADR-014 cannot distinguish pre-end from post-end fixes until it is.
+
+[M] The controller is a PASS-THROUGH. InsertFixesResult IS the public contract.
+[D] NOT renamed - recordTrackedFixes returns it and is also reached from
+recordActivationFix and the retrigger path. A new IngestFixesResult wraps it on
+the ingest() path only, so Phase A is purely additive.
+
+[M] PARTIAL ACCEPTANCE ALREADY EXISTS. recordTrackedFixes returns
+skippedDuplicateInBatch and skippedAlreadyStored - items not inserted on a call
+that succeeded. ADR-014 makes an existing partial-acceptance path addressable
+rather than introducing a new philosophy. [R] Keep this argument; it materially
+lowers review friction.
+
+### 3.1 THE COLLISION ADR-014 RECORDS AS OPEN - READ BEFORE 9c [M]
+
+resolveForActivation takes the lifecycle advisory lock, then findFirst for a
+session with status STARTED or ACTIVE ordered by startedAt DESC. IF ONE EXISTS
+IT IS RETURNED UNCHANGED. Only when none exists is a new row created, with
+startedAt defaulting to creation time. startSession surfaces both the resolved
+startedAt and a `reused` flag.
+
+THE COLLISION: a fix rejected as recorded-after-session-ended is told to
+reacquire and resubmit. If the resolved session's startedAt is later than the
+oldest buffered fix by more than START_GRACE_MS, that fix is then rejected as
+PRECEDING the session and deleted. ADR-014's own recovery path walks its fixes
+into ADR-014's own permanent rejection - in the airplane-mode scenario item 10
+exists to demonstrate.
+
+[D] ONE CONDITION, not two cases: does the oldest buffered fix clear
+resolvedSession.startedAt - START_GRACE_MS. Session reuse makes that likely, not
+certain. The grace absorbs WRITE LATENCY, not buffer duration.
+
+[D] Because startSession returns startedAt, THE CLIENT CAN EVALUATE THIS BEFORE
+RESUBMITTING rather than discovering it by rejection.
+
+[D] The candidate fix - echoing an origin session so the server computes floor
+from it - is recorded as CANDIDATE, NOT ACCEPTED. It introduces a second
+client-supplied session reference, which is a TRUST MODEL change, and its
+invariants are undecided.
+
+[M] A SECOND CONSTRAINT ON ANY BYPASS: recordTrackedFixes derives the chain tail
+via orderBy sequence DESC and appends. Admitting historical fixes into a session
+already holding newer ones gives them HIGHER SEQUENCE with OLDER recordedAt -
+the hash chain's order and time's order diverge. This reaches the tamper-evident
+chain, not just the latest-fix query.
+
+
+================================================================================
+## 4. PHASE 2 - CLOSED, AND ULTRA 21 SECTION 7.6 WAS WRONG
+================================================================================
+
+[M] contactsNotified DOES NOT EXIST ANYWHERE IN apps/api/src. Swept, zero hits.
+The server has never sent it.
+
+Ultra 21 section 7.6 recorded this as "a MOBILE-APP defect in sos.tsx" requiring
+the app running. IT IS NOT A MOBILE-APP DEFECT. The client was correct:
+sos.tsx:298 rendered `result?.contactsNotified ?? 0`, and the `?? 0` fired
+because the field arrives undefined. sos.tsx:24 declared it OPTIONAL, so
+TypeScript never complained.
+
+[M] A STALE MOCK CONCEALED THE GAP. apps/api/test/incident-orchestrator.spec.ts
+mocked `contactsNotified: 1` - a field production code never produces. The test
+passed because it mocked the thing that would have had to change.
+
+### 4.1 THE REAL CONTRACT [M]
+
+The orchestrator returns:
+  notifications: { queued: notificationRows.length, dispatched: false }
+
+AND notificationRows COUNTS CHANNEL ROWS, NOT CONTACTS. It is a flatMap over
+active contacts producing:
+  SMS       always
+  WHATSAPP  always
+  EMAIL     only when contact.email exists
+
+SO ONE CONTACT PRODUCES 2 OR 3 ROWS. Two contacts with emails produce 6. The
+old screen would have said "6 contacts notified" for two people.
+
+[M] WHATSAPP ROWS ARE QUEUED UNCONDITIONALLY, and Ultra 21 section 11 records
+WhatsApp as PENDING APPROVAL. A third of queued rows are for a channel that
+cannot deliver. queued therefore overstates even as a count of plausible alerts.
+
+[M] A RETRIGGER RETURNS queued: 0, deliberately - no new notifications are sent
+and the family already holds a working link.
+
+[M] dispatched IS ALWAYS false at response time. Dispatch belongs to
+NotificationDispatchWorker (ADR-001, ADR-003). Nothing has been sent when the
+response returns.
+
+### 4.2 WHAT WAS SHIPPED [D]
+
+Client-side only. NO production API change.
+
+  sos.tsx:24   contactsNotified?: number
+            -> notifications?: { queued: number; dispatched: boolean }
+
+  sos.tsx:298  three explicit states:
+               undefined -> "Emergency activated"
+               0         -> "Your existing emergency alert remains active"
+               > 0       -> "N alert(s) queued"
+
+  spec mock    contactsNotified: 1
+            -> notifications: { queued: 1, dispatched: false }
+
+[D] "notified" and "alerted" were both REJECTED: dispatched is explicitly false,
+so neither is provable. "queued" is what the server can support.
+[D] "contacts" was REJECTED: the number counts rows.
+[D] The zero branch avoids claiming a queue when the server says none was made.
+
+[R] ANY FUTURE UI OR METRIC USING queued MUST NOT LABEL IT "CONTACTS". A proper
+per-recipient model - queued / dispatched / delivered / acknowledged - belongs
+after 9c, once the semantics are designed.
+
+
+================================================================================
+## 5. NOTHING WRITES status = ENDED
+================================================================================
+
+[M] Swept apps/api/src for ENDED|endedAt. Every hit is a READ, a COMMENT or a
+TEST: tracking-state.ts:63 reads it to render the badge, tracking-state.spec
+mocks it, the rest is prose in public-tracking, incident-access-token, evidence
+and the snapshot DTO. NO update or updateMany sets it anywhere.
+
+Corroborated by Ultra 21 section 7.3 - the live session is ACTIVE with a
+five-day-old lastFixReceivedAt. It never ended; it stopped receiving.
+
+CONSEQUENCE FOR PHASE 6: ADR-014's ENDED branch is UNREACHABLE from application
+code. ITEM 10 CAN PASS GREEN WITHOUT EVER EXERCISING IT. Testing it requires
+fixing 17.13's lifecycle hole or setting the status manually in the database.
+
+[R] Measure what writes ENDED BEFORE starting 9c, not during.
+
+
+================================================================================
+## 6. PUBLIC CLAIMS - WHAT WAS FIXED AND WHAT WAS DELIBERATELY LEFT
+================================================================================
+
+### 6.1 FIXED [M]
+
+3016411 - Footer.tsx. "OPA Emergency Intelligence & Coordination Platform"
+REPLACED with "Personal Safety & Live Incident Awareness." Added
+"(c) 2026 OPA Technologies Limited - RC 9697630".
+
+1434355 - three files:
+  privacy/page.tsx  draft-review disclaimer panel REMOVED (counsel has reviewed
+                    and approved); "emergency coordination platform" ->
+                    "personal safety and live incident awareness platform";
+                    Last updated PINNED to a date string.
+  terms/page.tsx    same disclaimer removed; Last updated pinned.
+  contact/page.tsx  "emergency coordination technology" -> "personal safety and
+                    live incident awareness technology"; added
+                    "RC 9697630 - Registered in Nigeria".
+
+[M] BOTH Last updated lines were `new Date().toLocaleDateString(...)`, so every
+legal page claimed it had been updated TODAY, every day, forever. Now pinned.
+
+[M] Verified live on the wire after deploy: draft_panel=False,
+personal_safety=True, footer_old=False, footer_new=True.
+
+### 6.2 DELIBERATELY DEFERRED [D]
+
+TWELVE further "coordination" instances remain across six files. [M] The user
+decided to defer them rather than churn copy before the product changes, and to
+do ONE public-claims audit after 9c. That decision stands.
+
+  apps\website\src\app\layout.tsx:28   title "OPA - Emergency Intelligence &
+                                       Coordination"
+  layout.tsx:32                        description "OPA connects victims,
+                                       families, hospitals, and responders in
+                                       real time - coordinating emergencies,
+                                       not just sending alerts."
+  layout.tsx:34,36                     openGraph title and description, same
+  (twitter: card fields NOT READ - the read stopped at line 40. The live HTML
+   shows a twitter:description carrying the same string.)
+  about/page.tsx:46                    "emergency intelligence and coordination
+                                       platform"
+  hospitals/page.tsx:20,40,44          "Emergency contact coordination";
+                                       "A COMMAND CENTER designed for emergency
+                                       coordination"; "improve emergency
+                                       coordination"
+  terms/page.tsx:37,50                 "OPA is an emergency coordination
+                                       platform"; "OPA is a coordination tool"
+
+[R] TWO OF THESE ARE MORE SERIOUS THAN THE FOOTER WAS:
+  - layout.tsx:32 is the GLOBAL META DESCRIPTION. It appears on every page,
+    is what a search engine indexes, and is what renders when anyone shares an
+    OPA link. It names hospitals and responders, neither of which is built.
+  - hospitals/page.tsx:40 markets a COMMAND CENTER. ADR-013 section 7 states the
+    boundary as VIEWER, NEVER CONSOLE and lists command centre as deferred.
+    Ultra 21 section 11 lists it as "scoping discussed, not decided." That page
+    is a POSITIONING DECISION, not a word swap - 101 lines, NOT YET READ.
+  - terms.tsx:37,50 are in a document now presented as counsel-approved.
+
+[R] THE ONE TIME-SENSITIVE ITEM: whatever is in layout.tsx when Google first
+crawls is what gets indexed and cached, and re-crawls are slow. DECIDE BEFORE
+SUBMITTING TO SEARCH CONSOLE - either fix layout.tsx first (10-15 min) or defer
+the submission until after the audit. The user has chosen to defer the
+submission for now.
+
+### 6.3 JUDGED DEFENSIBLE AND DELIBERATELY NOT CHANGED [D]
+
+  HowItWorks.tsx:37     "Coordination / The right people move, in the right
+                        order" - tags name SMS live, push live, WhatsApp
+                        pending, priority-ordered contacts, and acknowledgement
+                        tracking marked in-progress. Honest, and it flags the
+                        unbuilt part.
+  SecuritySection.tsx:41 "Coordination only works if it can be trusted" -
+                        rhetorical framing; the body is about privacy and
+                        integrity.
+
+
+================================================================================
+## 7. LEGAL ENTITY AND VERIFICATION - MEASURED FROM SOURCE DOCUMENTS
+================================================================================
+
+[M] From the CAC certified extract, 21 July 2026:
+  Company           OPA TECHNOLOGIES LIMITED
+  RC Number         9697630
+  Registered        21 July 2026, PRIVATE COMPANY LIMITED BY SHARES
+  Registered office 18, Prince Hakeem Balogun Street, Glory Land Estate,
+                    Isheri-Olofin, Lagos State, Nigeria
+  Email             CHARLESIBHADE@OPASAFETY.COM
+  Status            ACTIVE
+  Share capital     1,000,000 NGN
+  Director / PSC    Ibhade Charles Wesley, +2349066538149
+
+[M] D-U-N-S 352294843, verified through national registry match to CAC RC
+9697630 (from commit eb2024b's message).
+
+[M] META BUSINESS VERIFICATION: VERIFIED, 22 July 2026. Legal name, address,
+phone and https://opasafety.com/ all on file and matched.
+[R] That is third-party proof of existence - exactly the footprint Ultra 21
+section 11 named as the D&B blocker. It also gates WhatsApp Business Platform
+access, which bears directly on section 4.1's undeliverable WHATSAPP rows.
+CHECK WHETHER WHATSAPP APPROVAL IS NOW ACTIONABLE.
+
+[D] THE REGISTERED OFFICE IS ALSO THE DIRECTOR'S RESIDENTIAL ADDRESS. It is
+therefore DELIBERATELY NOT PUBLISHED on the website. Staged approach agreed:
+entity name, RC number and support@opasafety.com now; street address and a
+phone number only when a dedicated business office and business line exist.
+[M] support@ and privacy@ are both provisioned. The contact page already routes
+nine departments.
+
+[M] The CAC principal-business-activity clause DOES mention emergency
+coordination. [R] That is a statement of what the company is PERMITTED to do,
+not what the product does today. Do not use it to justify site copy.
+
+
+================================================================================
+## 8. NEW TRAPS - ALL COST TIME THIS SESSION
+================================================================================
+
+TRAP #110 - Select-String HAS NO -Recurse. That is Get-ChildItem's parameter;
+-Include filters a supplied path list rather than walking a tree. Use
+`Get-ChildItem -Recurse -File | Select-String`.
+
+TRAP #111 - A `>>` CONTINUATION PROMPT SWALLOWS PASTED TEXT AS SCRIPT. A pasted
+error block was consumed by a console left mid-multiline, which choked on the
+`+` markers and produced a wall of parser errors that looked like a new failure.
+Same family as #104. CTRL+C to clear, then paste ONE line.
+
+TRAP #112 - AN INSTALLER THAT NORMALISES LINE ENDINGS DESTROYS THE REVIEW GATE.
+Reading with .replace(/\r\n/g,'\n') and writing LF rewrites every line of a CRLF
+file, so `git diff` shows the WHOLE FILE changed instead of the insertion. Detect
+EOL from the file, reuse it, and guard on mixed endings. The guard caught this
+before any write.
+
+TRAP #113 - Get-Content -Raw STRIPS THE TRAILING NEWLINE in PowerShell 5.1. An
+edit that reads with -Raw and writes with WriteAllText silently removes it, and
+the diff gains a phantom tail change. USE [System.IO.File]::ReadAllText when the
+file will be written back.
+
+TRAP #114 - POWERSHELL OPERATOR PRECEDENCE INSIDE A METHOD CALL. This:
+    [System.IO.File]::WriteAllText($p, ($n.Replace($a,$b)) -replace "`n",$eol)
+parses as THREE arguments and throws "Cannot find an overload... argument count
+3". Worse, a following unconditional statement still printed "WROTE" - A FALSE
+SUCCESS MESSAGE. Assign to a variable on its own line first, and report a
+measured byte count rather than announcing success.
+
+TRAP #115 - HERE-STRINGS DO NOT NEST, and JSX with backticks and ${...} cannot
+survive a PowerShell double-quoted string. TWO WORKING ROUTES: hand-edit in an
+editor and let `git diff` be the gate; or BASE64-ENCODE the payload, write it to
+a .b64 file, decode it in Node, and print the decode for review BEFORE writing.
+The second worked and is repeatable.
+
+[M] NOTE ON sos.tsx LINE ENDINGS: the file was LF-ONLY before this session
+(crlf=0, lf=421), unlike its neighbours. It was converted to CRLF during the
+edit. If a future diff on that file looks unexpectedly large, this is why.
+
+[R] THE METHOD THAT KEEPS WORKING: `git diff --stat` FIRST. "303 insertions,
+zero deletions" was the single number that proved no line-ending rewrite before
+a word of the body was read. Then `git diff -U5` read by a human. Then stage and
+commit as SEPARATE steps - never in the same paste as the diff.
+
+
+================================================================================
+## 9. CORRECTIONS TO ULTRA 21
+================================================================================
+
+| Ultra 21 said                          | Ultra 22 measures                  |
+|----------------------------------------|------------------------------------|
+| decision-log.md (no directory)         | docs/architecture/decision-log.md. |
+|                                        | docs/decision-log.md DOES NOT      |
+|                                        | EXIST.                             |
+| "installed above ADR-016 at line 9"    | The log orders by DESCENDING ADR   |
+|                                        | NUMBER. ADR-014 went above ADR-012 |
+|                                        | at line 218. Line 9 is ADR-016.    |
+| ADR-014 content complete, ~0.5h        | Ended in an OPEN SCOPE QUESTION.   |
+|                                        | Full session.                      |
+| 7.6 contactsNotified is a MOBILE-APP   | The client was CORRECT. The field  |
+| defect in sos.tsx                      | never existed server-side. A stale |
+|                                        | test mock concealed it.            |
+| (implied) one deployment pipeline      | TWO. Actions -> Azure for the API, |
+|                                        | Vercel -> opasafety.com for the    |
+|                                        | site. The branch guard covers one. |
+
+ALSO STALE: ADR-015's own header says it installs "above ADR-011 at line 9".
+Line 9 is ADR-016. DO NOT TRANSFER EITHER LINE-9 INSTRUCTION. [M]
+
+[M] ADR-015-content.txt is 493 lines / 27288 bytes, still NOT INSTALLED, SIXTH
+session running. Its line 303 states the conclusion that matters: 9c STAYS
+TIER-1, so ADR-014 retains its consumer. Lines 298-301 confirm ADR-014 remains
+correct and should still be installed; its client half has no implementation
+until 9c exists. Lines 292-294: the queue is in memory and dies with the
+process, so the "live" claim is FOREGROUND-ONLY AND NON-DURABLE until 9c.
+
+[M] TWO STALE STATUS LINES IN THE DECISION LOG, deliberately NOT changed:
+  line 11   ADR-016 "Implementation to follow in a separate commit" - it is
+            implemented; /health/ready returns 200 with redis optional-down.
+  line 521  ADR-012 identical wording - it is implemented;
+            OPA_BOOT_WITH_SUPPRESSED_MOCKS is live in the boot log.
+One line each. [R] Batch with the next docs commit.
+
+
+================================================================================
+## 10. WHAT IS STILL OPEN
+================================================================================
+
+PHASE 3 - the ADR-016 D6 production-operations runbook. STILL DOES NOT EXIST.
+Ultra 20 part 1 section 9 item 2 lists the four required contents. Also fix
+TODO.md:362-363 and :366-368.
+  COMPLETE WHEN: the runbook exists in docs/, contains the probe-path warning,
+  the verbatim /health/ready target, the manual Prisma migration procedure and
+  a deployment-verification step; and both TODO.md ranges are corrected.
+
+PHASE 6 - 9c offline queue, then airplane-mode validation. 4-6h.
+  READ INSTALLED ADR-014 SECTIONS 4, 5 AND 8 FIRST.
+  [I] MAX_QUEUED_FIXES=600, flushes OLDEST-FIRST. 9c MUST PRESERVE THAT.
+  [M] The retention ceiling is an EXPLICIT PARAMETER and is NOT YET DECIDED.
+  [M] ADR-014 section 8 lists FIVE test behaviours that do not exist today. The
+      boundary case matters most: the current spec uses an HOUR-old fix against
+      a FIVE-MINUTE floor, so it passes on a 55-minute margin and proves nothing
+      about the boundary.
+  COMPLETE WHEN: fixes buffered across an outage flush on reconnect and the page
+  returns from SILENT to RECEIVING without a reload.
+
+PHASE 7 - ADR-017 provider fault isolation. UNCHANGED. [I]
+  NOTE: ADR-017 IS ALREADY ALLOCATED to this. NEXT FREE NUMBER IS 018.
+
+PHASE 8 - 10C. UNCHANGED, UNSCOPED, larger than recorded. [I]
+  [R] 10C IS LOCATION INTELLIGENCE - the provider integration layer. It is NOT
+  the durable offline work. That is 9c. The two were conflated in discussion
+  this session; the distinction decides the order.
+
+ALSO OPEN, UNSCHEDULED: 21.1 (fourth run of the Node 20 warning); 21.6
+(middleware -> proxy); issue 17.3 (tenth occurrence); Swagger gating (17.8);
+lint to green; the OPA_BOOT_WITH_SUPPRESSED_MOCKS prose sweep; `scheme` in
+app.json; ADR-013 and ADR-015 still uninstalled; the twelve coordination
+instances in section 6.2; the website's Vercel -> Azure migration.
+
+
+================================================================================
+## 11. COMMERCIAL
+================================================================================
+
+Ultra 21 section 11 stands except where section 7 above supersedes it.
+
+[M] WHAT CHANGED: Meta business verification is DONE. The public site's footer,
+privacy policy, terms and contact page no longer claim unbuilt capabilities. The
+legal entity and RC number are published.
+
+[R] THE ENROLMENT WORK IS STILL THE ONLY THING THAT GETS SLOWER BY WAITING.
+Search Console, Bing Webmaster, LinkedIn, Crunchbase. Elapsed time, not effort.
+Nothing in phases 3-8 competes for the same hours. SEE SECTION 6.2 FIRST -
+decide layout.tsx before Google crawls.
+
+[R] A platform-positioning discussion came up this session. ADR-015 ALREADY
+CONTAINS THAT THESIS - "OPA as a hardware and telemetry event middleware, with
+the mobile app as a first-class client", Accepted in principle, implementation
+FROZEN. ADR-013 section 7 already draws the partner boundary: VIEWER, NEVER
+CONSOLE. The useful question is whether to UNFREEZE ADR-015, not whether to
+draft a fourth version of the same idea.
+
+[D] ADR-015's SMS-FIRST FRAMING was reaffirmed this session: do not assume every
+user has downloaded the app, has mobile data, or can open a live page
+immediately. SMS is the dependable baseline; the app is one client. [R] That
+sharpens section 4.1 - queueing a WHATSAPP row for every contact
+unconditionally inflates the count with the least reliable channel.
+
+
+================================================================================
+## 12. FIRST ACTIONS IN THE NEXT SESSION
+================================================================================
+
+1. Commit this file to docs/handovers/ (glob: Ultra-22-*).
+
+2. Verify state:
+   $env:GIT_PAGER='cat'
+   cd C:\Projects\OPA; "probe=resume"; "current=" + (git branch --show-current); git log --oneline -5 | ForEach-Object { "log|$_" }; "porcelain=" + @(git status --porcelain).Count
+   EXPECT current=main, HEAD f5a8ab2 (or later), porcelain=0.
+   Any .cjs, .ps1 or .b64 untracked - DELETE IT (trap #64).
+   apps/api/scripts/create-test-db.cjs is TRACKED and will not appear.
+
+3. Confirm the suite:
+   cd C:\Projects\OPA\apps\api; "probe=greencheck"; npx jest; "jest_exit=$LASTEXITCODE"
+   EXPECT 23 suites / 249 tests, 0 failed. UNPIPED (trap #66). A handle-leak
+   warning may appear; it does NOT change the verdict and does NOT close 17.3.
+
+4. Measure what writes status = ENDED. Section 5. It is not in apps/api/src.
+
+5. Then phase 3 (D6 runbook, lighter) or phase 6 (9c, 4-6h).
+
+REMEMBER THE WORKING METHOD: one command per step, reviewed before it is run,
+run and verified before the next is written. Every command carries a probe=
+token. Never assume file state - measure it.
+
+[R] THIS SESSION'S OWN LESSON: six confident statements were overturned by a
+subsequent read - the decision-log path, the "line 9" placement, the scope of
+ADR-014's per-item rule, the completeness of a 95-line source window, the
+location of the contactsNotified defect, and the assumption of a single
+deployment pipeline. Each cost ONE READ to disprove and would have cost a COMMIT
+to discover afterwards. Budget for elimination, not for a fix.
+
+
+================================================================================
+## AMENDMENT — MEASUREMENTS COMPLETED AFTER GENERATION
+================================================================================
+
+[M] INTEGRATION BASELINE IS NOW MEASURED.
+
+`npm run test:int` completed successfully against `opa_test` on PostgreSQL
+16.14:
+
+- 6 suites / 24 tests
+- 0 failed
+- exit 0
+- 10.84s
+- 11 migrations applied
+- no pending migrations
+- partial-index semantics verified at runtime
+
+This supersedes section 1's statement that `npm run test:int` was not measured.
+
+[M] THE ENDED-OWNER INVESTIGATION IS COMPLETE.
+
+A repo-wide sweep confirmed that no production application path writes
+`JourneySession.status = ENDED`. The only production
+`journeySession.update(...)` found is `insertFixes` promoting
+`STARTED -> ACTIVE` while updating `lastFixReceivedAt`.
+
+This discharges section 5's recommendation to measure what writes ENDED before
+9c. The result is: nothing currently owns any end transition.
+
+[M] SECTION 3.1'S COLLISION CANNOT FIRE TODAY.
+
+The reacquisition/start-floor collision remains a valid future contract risk,
+but it is not currently reachable because no production path creates an ENDED
+session. In addition, `resolveForActivation` reuses the existing STARTED-or-ACTIVE
+session unchanged, preserving its original `startedAt`; current reuse therefore
+does not create a newer floor.
+
+The collision becomes reachable only after a real lifecycle owner begins writing
+ENDED and a successor session can be created. It must be re-evaluated before 9c
+implements reacquire-and-resubmit against live ENDED sessions.
+# END OF HANDOVER ULTRA 22
+# Delta to Ultra 21. Generated at f5a8ab2 on main, level with origin.

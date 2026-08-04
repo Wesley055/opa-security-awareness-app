@@ -8,7 +8,7 @@ not just the outcome.
 
 ## ADR-016 - The readiness verdict covers current required capabilities: an optional dependency reports optional-down and does not fail the probe
 
-**Status: Accepted. Implementation to follow in a separate commit.**
+**Status: Accepted. Implemented.**
 
 ### 1. Context
 
@@ -516,11 +516,85 @@ the reacquire path is specified but not yet safe to complete.
 `emergency-intelligence.service.ts` is the third member of the whole-batch family
 and remains ADR-017's subject.
 
+### 10. Amendment - reachable ENDED lifecycle and retrigger routing
+
+Measured after commits `bf51d2e` and `73d829e`.
+
+The supersession transition described elsewhere in this ADR is not reachable
+from the implemented incident lifecycle. `resolveForActivation` reuses an
+existing STARTED-or-ACTIVE session rather than ending it as SUPERSEDED, so the
+documented transition has no implementation path today. It should not be relied
+upon when reasoning about current behaviour without a separate decision defining
+what supersedes what. This amendment records the implemented behaviour; it does
+not assign an owner to SUPERSEDED.
+
+The "In favour" reasoning recorded in section 9 assumes that the supersession
+transition described elsewhere in this ADR is reachable. Until an implementation
+path and a separate decision define what supersedes what, that reasoning should
+be read as applying to the intended future lifecycle rather than the current
+implementation.
+
+A retrigger against an incident whose linked journey session is missing or
+ENDED does not append a fix to the missing or terminal link. Inside the existing
+orchestrator transaction, `recordRetriggerFix`:
+
+1. takes the lifecycle advisory lock;
+2. resolves an available open session, creating one only when none exists;
+3. atomically updates `Incident.journeySessionId` when the selected session
+   differs from the incident's current link; and
+4. writes the retrigger fix to the selected session.
+
+A linked STARTED-or-ACTIVE session is reused unchanged. The guard applies to
+every ENDED reason currently representable; it is not narrowed to USER_ENDED.
+ADMIN_ENDED has no owner or admin surface today and must be reconsidered when
+one is introduced.
+
+At the time this amendment was accepted, no mobile workflow exercised the
+end-session API. The retrigger behaviour described here therefore represents
+the server contract independently of current client adoption. Future client
+support should implement this server contract rather than redefine it.
+
+Public tracking selects only the newest fix from the incident's currently
+linked journey session. Relinking therefore resumes the current-location view
+on the selected session. Fixes belonging to earlier sessions remain stored and
+are not modified or deleted, but they are not reachable through this
+current-session public-tracking query. This does not implement incident-to-
+session history or a segmented historical viewer. Representing multiple
+journey segments for a single incident remains a separate design decision.
+
+#### Mutation evidence
+
+Both load-bearing protections were demonstrated by mutation and then restored
+byte-exactly.
+
+Removing only the ENDED branch from `recordRetriggerFix` caused:
+
+`moves a retrigger from an ENDED session to a fresh linked session`
+
+to fail. The retrigger selected the old ENDED session and the incident was not
+relinked. This demonstrates that the ENDED guard is the mechanism that
+preserves terminal-session immutability.
+
+Removing the ingestion pre-read advisory lock caused:
+
+`prevents ingestion from appending after a concurrent end wins`
+
+to fail. The concurrent ingestion completed successfully and wrote a new fix
+after the session had already transitioned to ENDED, returning `inserted = 1`
+instead of rejecting with `ConflictException`. The failure therefore
+demonstrates that the advisory lock is the mechanism that prevents successful
+post-END writes. The observed behaviour is neither a timing artifact nor a
+unique-index side effect.
+
+After each mutation, the committed file was restored byte-for-byte. The
+integration baseline returned to 6 suites and 32 tests passing, and the
+repository returned to a clean (`porcelain=0`) state.
+
 ---
 
 ## ADR-012 - Mock emergency-intelligence providers may be registered in production when their outputs are provably suppressed, acknowledged by an explicitly named boot flag
 
-**Status: Accepted. Implementation to follow in a separate commit.**
+**Status: Accepted. Implemented.**
 
 ### 1. Context
 
@@ -1276,8 +1350,6 @@ solution to that exact race and is the model when it is fixed.
 
 ### Open
 
-- Late fixes after supersession: proposal is to accept into ENDED when
-  `recordedAt < endedAt`, else reject as permanent.
 - Whether redaction is itself recorded as an event.
 - Retention policy proper; NDPC obligations are live post-CAC.
 - Whether `redactSensitiveTrackingUrls` and `SENSITIVE_PATH_PREFIXES` should

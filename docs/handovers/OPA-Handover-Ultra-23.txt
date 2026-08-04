@@ -1,0 +1,490 @@
+# OPA - Handover Ultra 23 - DELTA
+# GENERATED: 2026-08-03, at commit bf51d2e on main. PUSHED.
+#
+# THIS IS A DELTA. It supersedes Ultra 22 ONLY where stated.
+# Ultra 22 remains AUTHORITATIVE for everything not listed here:
+#   docs/handovers/OPA-Handover-Ultra-22.txt
+# Ultra 21 and Ultra 20 parts 1-3 remain authoritative where not superseded.
+# The phase plan in Ultra 20 part 3 section 15 is UNCHANGED.
+#
+# LABELS: [M] MEASURED  [D] DECISION  [R] RECOMMENDATION  [I] INHERITED
+
+
+================================================================================
+## RESUME HERE - READ THIS FIRST
+================================================================================
+
+HEAD                main @ bf51d2e, porcelain=0, level with origin/main      [M]
+API TSC             exit 0, no output                                        [M]
+UNIT SUITE          24 suites / 256 tests, 0 failed, jest_exit=0, 45.9s      [M]
+INT SUITE           6 suites / 30 tests, 0 failed, int_exit=0, 14.1s         [M]
+DECISION LOG        docs/architecture/decision-log.md, 14 ADRs. UNCHANGED.   [I]
+
+SPRINT STATUS
+  10B   ~90%. UNCHANGED FROM ULTRA 22 - and that is correct, see section 0.
+        Remaining: 9c (4-6h), item 10 end-to-end (2-3h).                     [M]
+  10C   ~0%. Unchanged.                                                      [I]
+
+PHASES
+  1,2,4,5   CLOSED (Ultra 21 / Ultra 22).
+  3         NOT STARTED. D6 runbook still does not exist.                    [I]
+  6         9c. UNBLOCKED, and now has a real terminal state to buffer
+            against. ADR-014 section 4 remains OPEN.                         [I]
+  7         ADR-017 provider fault isolation. UNCHANGED.                     [I]
+  8         10C. UNCHANGED.                                                  [I]
+
+NEXT THREE ACTIONS
+  1. Commit this file to docs/handovers/OPA-Handover-Ultra-23.txt.
+  2. RUN THE MUTATION TEST described in section 3.1. It is mandated by
+     journey-session-concurrency.int-spec.ts's own header, that file changed
+     this session, and it was NOT run. The concurrency guarantee shipped
+     ASSERTED, not DEMONSTRATED.
+  3. Decide recordRetriggerFix (section 4). It is the emergency path writing
+     into a terminal session.
+
+STILL TRUE AND STILL UNCOMFORTABLE
+  No production write path has ever executed. The deployed app has run
+  SELECT 1, which is a READ. Issue 17.27 and q49 stand.                      [I]
+
+
+================================================================================
+## 0. EXECUTIVE SUMMARY
+================================================================================
+
+A lifecycle that had no owner now has one.
+
+[M] Three commits, all pushed:
+  daa8cf4  Docs: add handover Ultra 22 with lifecycle and integration
+           amendments
+  de2bfc5  Docs: provisional Journey Session End contract note, USER_ENDED
+           path only
+  bf51d2e  API: add idempotent Journey Session End lifecycle
+           8 files, 576 insertions, 1 deletion
+
+[M] THE PERCENTAGE DID NOT MOVE, AND THAT IS THE HONEST NUMBER. Ultra 22
+scoped 10B's remainder as 9c and item 10. Both are untouched. ADR-009 lists
+10B items 5-8 as shipped with the mobile sender, end-to-end test and silence
+detection outstanding - session termination was never on that list. This was
+an UNCOUNTED GAP, not a scheduled item. 10B is 90% before and after; the 90%
+is simply more load-bearing now.
+
+[M] WHAT WAS MEASURED BEFORE ANY CODE WAS WRITTEN:
+  - Nothing in the repository writes status = ENDED. Swept repo-wide with
+    git grep, word-boundaried. All 31 hits are schema, migration, reads,
+    comments or test fixtures.
+  - The ONLY production journeySession.update is in insertFixes, promoting
+    STARTED -> ACTIVE alongside lastFixReceivedAt.
+  - The lifecycle was DESIGNED on 2026-07-26 and never implemented:
+    JourneySessionEndReason already carries five values, endedReason and
+    endedAt already exist on the model, and @@index([status,
+    lastFixReceivedAt]) exists with a docstring naming the silence reaper.
+    THE GAP WAS OWNERSHIP, NOT DESIGN. No migration was required.
+
+[D] The decision NOT to write a platform ADR was taken and held. Ultra 22
+section 11 already records that ADR-015 contains the platform thesis, frozen.
+A proposed ADR-018 covering partner integration was rejected as a fourth
+restatement of it, and because its dispatch APIs contradict ADR-013 section
+7's VIEWER, NEVER CONSOLE boundary.
+
+
+================================================================================
+## 1. STATE AT HANDOVER - ALL MEASURED
+================================================================================
+
+BRANCH main, HEAD bf51d2e, porcelain=0, level with origin/main. [M]
+
+| Gate                             | Result                                 |
+|----------------------------------|----------------------------------------|
+| npx tsc --noEmit (apps/api)      | exit 0, no output                      |
+| npx jest (apps/api)              | 24 suites / 256 tests, 0 failed        |
+| npm run test:int (apps/api)      | 6 suites / 30 tests, 0 failed          |
+
+[M] BASELINE MOVED DELIBERATELY: unit 23/249 -> 24/256, int 6/24 -> 6/30.
+The new unit suite is test/journey.controller.spec.ts. The other new tests
+are additions to existing files. A later session must not read this as
+unexplained growth.
+
+[M] INT SUITE ENVIRONMENT, first time recorded in a handover:
+PostgreSQL 16.14, database opa_test at localhost:5432, 11 migrations applied,
+no pending migrations, partial index semantics verified at runtime by
+test/int/assert-schema.ts.
+
+[M] ISSUE 17.3 DID NOT FIRE on the final 45.9s unit run, having fired on a
+46.4s run earlier in the same session. Ultra 22 recorded a tenth consecutive
+occurrence and Ultra 21 section 7.9 proposed a wall-time correlation.
+[R] THAT CORRELATION IS NOW WEAKER THAN RECORDED. Two runs of near-identical
+duration, one with the warning and one without. Treat it as intermittent
+rather than duration-driven. --forceExit remains REJECTED.
+
+NOT measured this session: npm run lint, /health/ready, apps/mobile tsc,
+apps/website build. None were touched.
+
+### 1.1 LINE ENDINGS DIFFER BY DIRECTORY - NEW [M]
+
+The journey source files under apps/api/src are LF in the working copy, and
+git warns "LF will be replaced by CRLF the next time Git touches it" on every
+diff. The handover and docs files committed this session are CRLF.
+
+[R] This is pre-existing and was NOT introduced by this session's edits - the
+insertion-only diffs prove it. Record it so a future large diff on these
+files is not misread. Same class of note as Ultra 22's sos.tsx entry.
+
+
+================================================================================
+## 2. WHAT SHIPPED - THE USER_ENDED PATH
+================================================================================
+
+[M] Route: POST /journey/sessions/:sessionId/end
+    JwtAuthGuard, userId from request.user.sub, no request body.
+    @Param('sessionId', new ParseUUIDPipe({ version: '4' })).
+
+[M] FILES:
+  journey-session.service.ts     endSession() - fifth public method
+  journey-ingestion.service.ts   endSession() wrapper + ingest() lock
+  journey.controller.ts          the route
+  dto/end-session.dto.ts         EndJourneySessionDto (NEW)
+
+### 2.1 THE CONTRACT AS BUILT [D]
+
+  - Unknown session and another user's session return the SAME 404. The
+    SERVICE returns one indistinguishable null for both, so no caller can
+    accidentally split them. Never a 403. (ADR-009, ADR-014 section 2.)
+  - IDEMPOTENT. An already-ENDED session returns alreadyEnded=true with NO
+    write. The original endedAt and endedReason are preserved. A retry on a
+    flaky connection is a success, not a 409.
+  - endedAt comes from the DATABASE clock via
+    SELECT date_trunc('milliseconds', now()), copying insertFixes exactly.
+    NOT new Date(). endedAt is timestamp(3) and PostgreSQL ROUNDS on store,
+    so an untruncated tail would be stored as a different millisecond.
+  - status, endedAt and endedReason are ONE write. ADR-014 section 3.2 rules
+    that a null endedAt on an ENDED session means reject-and-reacquire, so
+    an ENDED row without endedAt must never exist, not even momentarily.
+  - AN ATTACHED OPEN INCIDENT IS UNTOUCHED. Incident.status is not changed.
+    Ending a journey is a telemetry event, not an incident outcome. ADR-008
+    is explicit that "incident closed" and "still open" must never be
+    conflated.
+
+[D] endedReason on the wire is the ENUM, not the 'USER_ENDED' literal. On the
+alreadyEnded path the stored reason is whatever ended the session, and once a
+second owner exists that will not always be USER_ENDED. status IS the 'ENDED'
+literal - it is invariant across owners. The asymmetry is deliberate.
+
+[M] ENDING FREES THE USER. The partial unique index
+journey_session_one_active_per_user covers WHERE status IN ('STARTED',
+'ACTIVE') only - hand-added SQL at migration lines 90-94, invisible to
+Prisma. So an ENDED session vacates the slot and the next activation creates
+a new row. Pinned by an integration test. Without this, ending would change a
+badge and nothing else.
+
+### 2.2 THE STATUS CODE IS 201, PINNED BY TEST [D]
+
+[M] Nest defaults @Post to 201 Created, confirmed by the existing
+incident-orchestrator.spec.ts which asserts .expect(201).
+
+[D] The end route therefore returns 201, INCLUDING on the alreadyEnded retry
+that creates nothing. This was considered and left as-is rather than adding
+@HttpCode(HttpStatus.OK). test/journey.controller.spec.ts pins it and its
+docblock records that changing it moves both assertions together and is a
+BREAKING CHANGE for any client reading the status. Decide before a client
+depends on it.
+
+
+================================================================================
+## 3. THE RACE THAT SHIPPING THIS CREATED, AND CLOSED
+================================================================================
+
+[M] insertFixes reads session.status ONLY to decide the STARTED -> ACTIVE
+promotion. IT DOES NOT REJECT ENDED. The ENDED rejection lives in
+JourneyIngestionService.ingest, before insertFixes is reached.
+
+THE RACE: ingest() read status outside any lock. A concurrent endSession
+could commit ENDED between that read and the insert, and insertFixes would
+append to an ended session on a verdict that was already stale.
+
+[M] THIS RACE DID NOT EXIST BEFORE THIS COMMIT, because nothing wrote ENDED.
+It was created by the endpoint and is therefore closed by it.
+
+[D] THE FIX IS TWO HALVES, AND BOTH ARE REQUIRED:
+  1. ingest() now takes the 2-arg session lock BEFORE its status read.
+  2. endSession takes the 1-arg lifecycle lock THEN the 2-arg session lock.
+
+A lock alone is not sufficient - without half 1, ingest still blocks (inside
+insertFixes) and the stale verdict survives serialisation.
+
+[M] LOCK ORDER IS LIFECYCLE-THEN-SESSION, and this MATCHES EXISTING CODE
+rather than inventing a rule. recordRetriggerFix and the orchestrator both do
+it. Verified by reading every public write path: recordActivationFix,
+recordRetriggerFix and recordTrackedFixes all reach insertFixes as their LAST
+call, and only recordRetriggerFix holds both - lifecycle first. NO PATH TAKES
+SESSION-THEN-LIFECYCLE, so no cycle is reachable.
+
+[M] COST: the session lock is now held for the whole ingest transaction
+rather than only its write tail. Two concurrent ingests on the SAME session
+serialise where they previously overlapped during DTO mapping. Different
+sessions are unaffected.
+
+### 3.1 THE MUTATION TEST WAS NOT RUN - DO THIS FIRST [M]
+
+journey-session-concurrency.int-spec.ts's header states, in the file, that a
+mutation test must be re-run whenever that file changes. THE FILE CHANGED
+THIS SESSION AND THE MUTATION TEST WAS NOT RUN.
+
+That header exists because of a measured trap: in that suite, BLOCKING PROVES
+OVERLAP, NOT THE LOCK. Remove the lock and the second transaction still
+blocks - on the unique index instead. Only the OUTCOME assertions are
+mutation-sensitive.
+
+TO RUN IT:
+  1. In journey-ingestion.service.ts, DELETE the line at the head of
+     ingest():
+       await tx.$executeRaw`SELECT pg_advisory_xact_lock(2, hashtext(${dto.sessionId}))`;
+  2. cd apps/api; npm run test:int
+  3. EXPECT 'prevents ingestion from appending after a concurrent end wins'
+     to FAIL, with a fix row present and no ConflictException.
+  4. RESTORE the line. Re-run. Expect green.
+
+[R] IF IT PASSES WITH THE LOCK DELETED, the test proves nothing and the
+guarantee in section 3 is false. Until this is run, the concurrency
+protection is ASSERTED, NOT DEMONSTRATED, and the next handover should say so.
+
+
+================================================================================
+## 4. OPEN AND UNDECIDED - recordRetriggerFix [M]
+================================================================================
+
+    const sessionId =
+      incident.journeySessionId ??
+      (await this.resolveForActivation(tx, incident.userId)).id;
+
+A user ends their journey while the incident is still OPEN - which section
+2.1 explicitly permits. They then retrigger the SOS.
+incident.journeySessionId is non-null and points at the now-ENDED session, so
+the ?? fallback NEVER FIRES, and recordActivationFix appends into a terminal
+session. INGEST'S 409 IS BYPASSED ENTIRELY because the orchestrator does not
+go through ingest().
+
+No lock helps. It is a correct read of a legitimately ended session.
+
+[M] UNDECIDED. Raised repeatedly this session and not resolved. Two options:
+  (a) extend the fallback to treat ENDED as null, so a retrigger resolves a
+      fresh session. Three lines. Widens scope beyond USER_ENDED.
+  (b) accept, and pin it with a test that DOCUMENTS the behaviour so it is
+      found by reading the suite rather than by a family watching a fix land
+      in an ended session.
+
+[R] This is the EMERGENCY path writing into a terminal state. It should not
+carry another session undecided.
+
+
+================================================================================
+## 5. WHAT THE READS SETTLED THAT DOCUMENTS DID NOT
+================================================================================
+
+[M] ADR-014's SUPERSESSION TRIGGER DOES NOT EXIST. ADR-014 line ~250 states
+supersession happens when a new incident starts, "which is to say, during the
+emergency", and builds its section 3.2 rejection path on it. But
+incident-orchestrator.service.ts:268 calls resolveForActivation, which REUSES
+any STARTED-or-ACTIVE session and never ends one. There is no supersession in
+the code.
+=> SUPERSEDED is CONTRADICTED, not merely deferred. Do not implement it on
+the strength of ADR-014's description without re-deciding what supersedes
+what.
+
+[M] ADR-009 AND ADR-014 DISAGREE. ADR-009's "Open" list still carries: "Late
+fixes after supersession: proposal is to accept into ENDED when recordedAt <
+endedAt, else reject as permanent." ADR-014 section 3.2 implements exactly
+that as accepted contract. One document calls it open, the other calls it
+decided.
+
+[M] NOTHING CLOSES AN INCIDENT. A sweep of incidents.service.ts for
+close|CLOSED|resolve returned ZERO hits. INCIDENT_RESOLVED therefore has no
+possible owner today - nothing can cascade from an incident that never ends.
+
+[M] TIMED_OUT IS DELIBERATELY DEFERRED, not overlooked. ADR-009's
+"Deliberately not built" section names silence detection and records the
+commercial consequence: SafeWalk is gated on 10B PLUS this. The reaper index
+exists; the reaper does not.
+
+[M] ADMIN_ENDED has no admin surface.
+
+### 5.1 THE DOCS BATCH, DELIBERATELY DEFERRED [D]
+
+Not made in the endpoint commit, by decision. All belong in one docs commit:
+  - ADR-014: amend to record that its supersession trigger does not exist.
+  - ADR-009: close or supersede the "late fixes after supersession" open item
+    that ADR-014 now owns.
+  - decision-log.md line 11 (ADR-016) and line 523 (ADR-012): both still say
+    "Implementation to follow in a separate commit" for work that IS
+    implemented. Carried since Ultra 22 section 9.
+  - DELETE docs/handovers/ADR-012-content.txt. ADR-012 is installed at
+    decision-log line 523, so that file is now a stale duplicate and a
+    source-of-truth hazard.
+  - KEEP docs/handovers/ADR-015-content.txt. Still the uninstalled source,
+    seventh session running.
+
+
+### 5.2 ADR-014 SECTION 3.2 CANNOT BE IMPLEMENTED NEXT [R]
+
+An obvious next step is "now that ENDED sessions exist, implement ADR-014
+section 3.2's recordedAt < endedAt handling and the reacquire flow." TWO
+MEASURED REASONS NOT TO, both recorded here so the argument does not have to
+be rediscovered:
+
+1. [M] ADR-014 SECTION 4 IS STILL OPEN, and its own text states that section
+   3.3's delete instruction MUST NOT BE IMPLEMENTED until it is resolved.
+   Section 3.2's recovery path tells a rejected fix to reacquire and
+   resubmit; section 3.3 then deletes it as preceding the session. Building
+   3.2 first means building the path that walks fixes into an unresolved
+   permanent rejection. That was harmless while ENDED was unreachable. It is
+   not harmless now.
+
+2. [M] SECTION 3.2 WAS WRITTEN FOR A SCENARIO THAT DOES NOT EXIST. ADR-014
+   line ~250 frames the ENDED branch as supersession during an emergency.
+   Measured, the orchestrator reuses sessions and never supersedes. So 3.2
+   now governs the ORDINARY USER-ENDED case instead - which ADR-014 line ~385
+   separately names as possibly the CORRECT outcome for permanent loss of
+   out-of-window fixes, "acceptable as a decision and unacceptable as an
+   accident."
+
+[R] RESOLVE SECTION 4 FIRST, or explicitly re-scope 3.2 against the
+user-ended case. Do not implement it on the strength of its existing text.
+
+
+================================================================================
+## 6. NEW TRAPS
+================================================================================
+
+TRAP #116 - .NET METHODS DO NOT HONOUR POWERSHELL'S CURRENT DIRECTORY.
+`cd` changes the shell's location but not [Environment]::CurrentDirectory, so
+[System.IO.File]::ReadAllBytes('docs\x') resolves against C:\Windows\system32
+while Test-Path on the SAME string resolves correctly. The two disagree
+silently inside one command. ALWAYS resolve to an absolute path first:
+  $p = (Resolve-Path $relative).Path
+Resolve-Path also fails loudly on a missing file rather than reaching into
+system32, so a wrong path cannot masquerade as a wrong file.
+
+[M] TRAP #111 RECURRED TWICE. A new command pasted onto a prompt line still
+holding the previous one parsed as a single statement and produced a wall of
+binding errors. CTRL+C and confirm a clean prompt before every paste.
+
+[R] THE METHOD THAT KEPT WORKING, and is now proven twice on production code:
+write a Node .cjs installer that (1) detects EOL and BOM per file, (2)
+requires every anchor to appear EXACTLY ONCE, (3) asserts post-edit
+invariants, (4) writes ALL files or NONE, (5) reads back and compares, and
+(6) reports measured byte counts rather than announcing success. Then
+git diff --stat as the gate, then stage and commit as separate steps. Two
+installers ran this session with zero rework. Delete the .cjs before staging
+(trap #64).
+
+
+================================================================================
+## 7. WHAT IS STILL OPEN
+================================================================================
+
+PHASE 3 - the ADR-016 D6 production-operations runbook. STILL DOES NOT EXIST.
+Ultra 20 part 1 section 9 item 2 lists the four required contents. Also fix
+TODO.md:362-363 and :366-368.                                              [I]
+
+PHASE 6 - 9c offline queue, then airplane-mode validation. 4-6h.            [I]
+  READ INSTALLED ADR-014 SECTIONS 4, 5 AND 8 FIRST.
+  [M] 9c now has a REAL terminal state to buffer against. Before this
+  session, ADR-014's ENDED branch was unreachable and item 10 could have
+  passed green without ever exercising it.
+  [I] MAX_QUEUED_FIXES=600, flushes OLDEST-FIRST. 9c MUST PRESERVE THAT.
+  [M] The retention ceiling remains an EXPLICIT PARAMETER, NOT YET DECIDED.
+
+PHASE 7 - ADR-017 provider fault isolation. UNCHANGED. NEXT FREE ADR IS 018.
+PHASE 8 - 10C location intelligence. UNCHANGED, UNSCOPED.                  [I]
+
+REQUESTED AND NOT YET SCHEDULED - AUTOMATIC LOCATION RENEWER [D]
+
+The user asked for this to be carried forward and raised when the journey
+lifecycle work landed. It has landed, so it is recorded here.
+
+THE IDEA: if a victim is kidnapped and location sharing is forcibly stopped,
+or the person is moving for an extended period, the app should automatically
+renew or maintain location reporting WITHOUT user interaction, preserving
+continuity for responders.
+
+[D] IT NEEDS ITS OWN ADR. It touches tracker behaviour, privacy, battery
+management and incident escalation - four areas with existing decisions.
+
+[R] NAME THIS CONFLICT IN THE ADR'S CONTEXT SECTION RATHER THAN DISCOVERING
+IT IN IMPLEMENTATION: "maintain tracking without user interaction" and "the
+user can end their own session" are in DIRECT TENSION. A renewer that
+overrides or reopens a USER_ENDED session makes USER_ENDED ADVISORY RATHER
+THAN TERMINAL - which is a change to the contract shipped at bf51d2e, not a
+feature built on top of it. The distinction to decide is whether the renewer
+may act on an ENDED session at all, or only on one that went SILENT while
+still open. Those are very different products.
+
+[R] THREE EXISTING DECISIONS IT MUST BE READ AGAINST:
+  - ADR-009's privacy framing and its "Deliberately not built" list, which
+    already defers silence detection - the renewer arguably REQUIRES it, so
+    the two may be one piece of work rather than two.
+  - ADR-008's tracking-link semantics, especially the rule that "incident
+    closed" and "link expired while still OPEN" must never be conflated.
+  - ADR-011's tracker capture policy and the two clocks.
+
+[R] It is ALSO the strongest argument yet for deciding recordRetriggerFix
+(section 4): both are about what happens to telemetry after a session
+reaches a terminal state.
+
+
+ALSO OPEN, UNSCHEDULED:
+  - The mutation test (section 3.1). Highest priority of these.
+  - recordRetriggerFix (section 4).
+  - The docs batch (section 5.1).
+  - The 201-vs-200 decision (section 2.2), now pinned by test.
+  - [M] PRISMA 6.19.3, with 7.9.1 AVAILABLE - a major version. ADR-009 warns
+    that a future migrate dev can silently emit
+    DROP INDEX journey_session_one_active_per_user. A major upgrade is
+    exactly when that risk is highest. assert-schema.ts is the defence and it
+    runs on every int run.
+  - layout.tsx:32 - the global meta description naming hospitals and
+    responders. TIME-SENSITIVE: whatever is there when Google first crawls is
+    what gets cached. DECIDE BEFORE SUBMITTING TO SEARCH CONSOLE.
+  - The twelve coordination instances (Ultra 22 section 6.2); 21.1; 21.6;
+    17.3; Swagger gating; lint to green; ADR-013 and ADR-015 uninstalled;
+    website Vercel -> Azure migration.
+
+
+================================================================================
+## 8. FIRST ACTIONS IN THE NEXT SESSION
+================================================================================
+
+1. Commit this file to docs/handovers/OPA-Handover-Ultra-23.txt (CRLF, to
+   match its neighbours).
+
+2. Verify state:
+   $env:GIT_PAGER='cat'
+   cd C:\Projects\OPA; "probe=resume"; "current=" + (git branch --show-current); git log --oneline -5 | ForEach-Object { "log|$_" }; "porcelain=" + @(git status --porcelain).Count
+   EXPECT current=main, HEAD bf51d2e (or later), porcelain=0.
+   Any .cjs, .ps1 or .b64 untracked - DELETE IT (trap #64).
+
+3. Confirm both suites:
+   cd C:\Projects\OPA\apps\api; "probe=green"; npx jest; "jest_exit=$LASTEXITCODE"
+   EXPECT 24 suites / 256 tests. UNPIPED (trap #66).
+   cd C:\Projects\OPA\apps\api; "probe=green-int"; npm run test:int; "int_exit=$LASTEXITCODE"
+   EXPECT 6 suites / 30 tests.
+
+4. RUN THE MUTATION TEST. Section 3.1.
+
+5. Decide recordRetriggerFix. Section 4.
+
+6. Then phase 3 (D6 runbook, lighter) or phase 6 (9c, 4-6h).
+
+REMEMBER THE WORKING METHOD: one command per step, reviewed before it is run,
+run and verified before the next is written. Every command carries a probe=
+token. Never assume file state - measure it.
+
+[R] THIS SESSION'S OWN LESSON: the schema had already decided things the
+documents had not. Five end reasons, a reaper index and a partial index
+excluding ENDED were all sitting in a migration from 26 July, unread. The
+session began by planning to DESIGN a lifecycle and discovered, in two reads,
+that the design existed and only the ownership was missing. READ THE SCHEMA
+BEFORE DESIGNING AGAINST IT.
+
+
+# END OF HANDOVER ULTRA 23
+# Delta to Ultra 22. Generated at bf51d2e on main, level with origin.

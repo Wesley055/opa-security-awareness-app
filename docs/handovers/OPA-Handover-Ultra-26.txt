@@ -1,0 +1,636 @@
+# OPA - Handover Ultra 26 - DELTA
+# GENERATED: 2026-08-05, at commit bc455fc on main. PUSHED.
+#
+# THIS IS A DELTA. It supersedes Ultra 25 ONLY where stated.
+# Ultra 25 remains AUTHORITATIVE for everything not listed here:
+#   docs/handovers/OPA-Handover-Ultra-25.txt
+# Ultra 24, 23, 22, 21 and 20 parts 1-3 remain authoritative where not
+# superseded. The phase plan in Ultra 20 part 3 section 15 is UNCHANGED.
+#
+# LABELS: [M] MEASURED  [D] DECISION  [R] RECOMMENDATION  [I] INHERITED
+
+
+================================================================================
+## RESUME HERE - READ THIS FIRST
+================================================================================
+
+HEAD                main @ bc455fc, porcelain=0, level with origin/main      [M]
+MOBILE TSC          exit 0, no output                                        [M]
+MOBILE SUITE        2 suites / 32 tests, 0 failed, jest_exit=0               [M]
+API TSC             NOT RUN THIS SESSION                                     [I]
+API UNIT SUITE      NOT RUN THIS SESSION. Ultra 25 recorded 24/264.          [I]
+API INT SUITE       NOT RUN THIS SESSION. Ultra 25 recorded 6/32.            [I]
+DECISION LOG        docs/architecture/decision-log.md, 14 ADRs.
+                    ADR-014 section 11 grew from FOUR decisions to NINE
+                    across three commits this session.                       [M]
+
+  [R] RUN THE API SUITES FIRST NEXT SESSION. apps/api was not touched by any
+  of this session's seven commits, so 264/32 SHOULD still hold - but that is
+  an inference, not a measurement, and Ultra 25 warned that a number which
+  moved without a commit is exactly the thing nobody notices.
+
+SPRINT STATUS
+  10B   ESTIMATE ONLY, NOT A MEASUREMENT. The three build items in Ultra 25
+        section 5.3's ordering are DONE. The validation item has not started
+        and one new defect was introduced. See section 6 for the ordered
+        remainder and section 4 for the defect.                              [R]
+  10C   ~0%. Unchanged.                                                      [I]
+
+THE HEADLINE, AND IT IS GOOD NEWS
+DURABLE BUFFERING NOW EXISTS. Ultra 25's standing warning - "a durable store
+exists; durable buffering does not" - STOPS BEING TRUE AT bc455fc. The tracker
+writes every captured fix into SQLite, replays oldest-first from durable rows,
+deletes only after a 2xx, and detects delete shortfalls. `let queue:
+TrackedFix[]` is GONE from journey-tracker.ts, verified by an installer guard
+that fails on any surviving reference.                                       [M]
+
+THE HEADLINE, RESTATED HONESTLY
+9c WORKS IN TESTS AND HAS NEVER RUN. Every test in this session mocks the
+store. journey-queue-store.spec.ts mocks `openDatabaseAsync`. THE SQL HAS BEEN
+READ BY A PERSON AND NEVER BY SQLITE. No fix has passed through a real
+database, on a device or anywhere else. Read every green checkmark below with
+that sentence attached.                                                      [M]
+
+NEXT ACTIONS - IN ORDER, AND THE ORDER MATTERS
+  1. Commit this file to docs/handovers/OPA-Handover-Ultra-26.txt (CRLF).
+  2. Verify state and run ALL FOUR suites, including the two API suites this
+     session did not run. Section 8 has the commands.
+  3. ITEM 5 - decide the HTTP 400 head-of-line policy. ADR ONLY, NO CODE.
+     Section 4 states the defect. This is a decision with a data-loss
+     dimension and it must be recorded before item 6 implements it.
+  4. ITEM 6 - replay outcome classification. Section 3 has the measured
+     server contract; no further investigation is needed.
+  5. ITEM 7 - restart and concurrency tests.
+  6. ITEM 8a - measure whether Expo Go SDK 54 includes SQLite. HALF AN HOUR,
+     AND IT GATES EVERYTHING AFTER IT.
+  7. ITEM 8b - airplane-mode end to end. ESTIMATE IS CONDITIONAL ON 8a.
+  8. ITEM 9 - remove migration seams. ITEM 10 - final validation, Ultra 27.
+
+STILL TRUE AND STILL UNCOMFORTABLE
+No production write path has ever executed. Ultra 25 section 7.3's chain
+stands in full and NOTHING THIS SESSION TOUCHED IT. Issue 17.27, q49, and
+ADR-012 section 4's test-coverage precondition are all UNCHANGED.            [I]
+
+
+================================================================================
+## 0. EXECUTIVE SUMMARY
+================================================================================
+
+[M] SEVEN COMMITS, ALL PUSHED:
+  400e015  Docs: install handover Ultra 25
+  37b6da6  Docs: decide ended-session rows, capture-sequence ownership and
+           durable depth bound
+  e62b706  Mobile: open the durable Journey queue and restore capture
+           sequence at start
+  2f8cd5b  Docs: define the durable queue mutation contract
+  184892e  Mobile: durable queue mutation contract with depth-bound
+           enforcement
+  56da26a  Docs: decide capture-path durable writes and sequence gap handling
+  bc455fc  Mobile: replace the in-memory Journey queue with durable SQLite
+           buffering
+
+| Commit  | Purpose                                                          |
+|---------|------------------------------------------------------------------|
+| 400e015 | Ultra 25 installed - its own step 1, which Ultra 23's never ran   |
+| 37b6da6 | ADR-014 s11 - three decisions, first subsection headings in s11   |
+| e62b706 | Tracker opens the store, restores captureSeq, widens debug seam   |
+| 2f8cd5b | ADR-014 s11 - enqueue returns a result, not a boolean             |
+| 184892e | Store: mutation result, trimToDepth, depth bound, 5 new tests     |
+| 56da26a | ADR-014 s11 - capture-path write handling and sequence gaps       |
+| bc455fc | The in-memory array is deleted. Durable buffering is live.        |
+
+[D] THE DECISION-BEFORE-CODE PATTERN HELD FOR ALL SEVEN. Ultra 25 section 8.7
+inverted the old habit deliberately; this session ran it four more times
+(37b6da6 -> e62b706, 2f8cd5b -> 184892e, 56da26a -> bc455fc) and it changed
+the design every time. The clearest instance: writing the mutation contract
+surfaced the capture-sequence ownership question, which did not exist in the
+original two-decision framing and which the code would otherwise have decided
+silently. See section 7.1.
+
+[M] ADR-014 SECTION 11 GREW FROM FOUR DECISIONS TO NINE. It also gained its
+FIRST SUBSECTION HEADINGS - before 37b6da6 the section was unheaded prose. The
+four original decisions remain unheaded above five new `####` subsections. See
+section 7.4 for why that asymmetry should be fixed later, not now.
+
+[M] THE SERVER CONTRACT FOR FIX INGEST WAS MEASURED, NOT ASSUMED. Ultra 25
+section 5.3 item 4 recorded that nothing decided what to do with rows owned by
+an ended session, and the ADR text installed at 37b6da6 said the server gap
+was unmeasured. IT IS NOW MEASURED. Section 3 has the full contract. The
+short version: 409 means ENDED and nothing else on that path.
+
+[M] A DEFECT WAS INTRODUCED AT bc455fc AND IT IS NAMED HERE RATHER THAN
+DISCOVERED LATER. HTTP 400 now blocks the queue permanently. Section 4.
+
+[M] MOBILE TEST COUNT: 21 -> 32, in three steps.
+  21 -> 24   e62b706, three durable-initialization cases
+  24 -> 29   184892e, five depth-bound and trim cases
+  29 -> 32   bc455fc, projection, shortfall, deferred eviction
+
+
+================================================================================
+## 1. STATE AT HANDOVER
+================================================================================
+
+BRANCH main, HEAD bc455fc, porcelain=0, level with origin/main.           [M]
+
+| Gate                             | Result                                 |
+|----------------------------------|----------------------------------------|
+| npx tsc --noEmit (apps/mobile)   | exit 0, no output                      |
+| npm test (apps/mobile-app)       | 2 suites / 32 tests, 0 failed          |
+| npx tsc --noEmit (apps/api)      | NOT RUN THIS SESSION                   |
+| npx jest (apps/api)              | NOT RUN THIS SESSION                   |
+| npm run test:int (apps/api)      | NOT RUN THIS SESSION                   |
+
+[R] THE THREE UNMEASURED GATES ARE THE FIRST THING TO RUN. This session was
+entirely mobile and docs; apps/api has no commit between ff2e556 and bc455fc.
+Ultra 25 section 1 states the rule plainly: a number that changed without a
+commit is something nobody moved. Expect 24/264 and 6/32. VERIFY IT.
+
+[M] LINE ENDINGS ARE NOW MIXED WITHIN apps/mobile-app/src/services, and the
+state CHANGED DURING THE SESSION:
+  journey-tracker.ts         CRLF throughout. 385 lines -> 493 lines.
+  journey-tracker.spec.ts    LF at session start; CRLF by the end. Git
+                             converted it on the e62b706 `git add`, exactly
+                             as the warning predicted.
+  journey-queue-store.ts     LF-only, 278 -> ~390 lines.
+  journey-queue-store.spec.ts LF-only, 432 -> ~580 lines.
+This is not a regression and nothing depends on it. It is recorded because
+any installer that asserts a single convention across these four files WILL
+FAIL, and because the spec file's convention changed under us mid-session.
+Every installer this session read the convention from the file and wrote it
+back unchanged; keep doing that.                                          [M]
+
+[M] tracker line numbers moved. `log` was at 128 in Ultra 25 and is at 140
+now. Ultra 25 section 6.3's line references to journey-tracker.ts are STALE.
+The file is 493 CRLF lines.
+
+NOT measured this session: npm run lint (see 7.5), /health/ready,
+apps/website build, any device run of any kind.
+
+
+================================================================================
+## 2. WHAT SHIPPED
+================================================================================
+
+### 2.1 THE STORE'S MUTATION CONTRACT - 184892e [M]
+
+`enqueue` no longer returns a boolean. It takes an options object and returns
+a result:
+
+  interface EnqueueJourneyFixOptions {
+    maxQueuedFixes: number;
+    deferOverflowEviction: boolean;
+  }
+
+  interface JourneyQueueMutationResult {
+    inserted: boolean;
+    dropped: number;
+    durableDepth: number;
+  }
+
+  async enqueue(input, options): Promise<JourneyQueueMutationResult>
+  async trimToDepth(maxQueuedFixes): Promise<JourneyQueueTrimResult>
+
+[D] THE BOUND AND THE DEFERRAL ARE SEPARATE FIELDS, AND THIS WAS ARGUED. A
+nullable bound (`maxQueuedFixes: number | null`, null meaning deferred) was
+proposed and REJECTED by the operator, correctly: null would have to mean both
+"no bound exists" and "the bound exists but is not enforced right now", and
+only the second is ever true. The bound remains defined while enforcement is
+deferred. Recorded in ADR-014 s11 so the reasoning survives the code.
+
+[M] `inserted` still means what it meant: `result.changes === 1` from the
+`INSERT OR IGNORE`, read from that statement's own result before the metadata
+write. The store spec's existing test at `reads insert changes before the
+metadata statement` pins that ordering and STILL PASSES - but note it now
+guards a THREE-statement transaction while only pinning the first two. See
+7.3.
+
+[M] EVICTION AND TRIM SHARE ONE SQL CONSTANT. `EVICT_OLDEST_SQL` deletes by
+`queue_id IN (SELECT ... ORDER BY queue_id ASC LIMIT ?)`. Both call sites use
+it, so `ORDER BY queue_id ASC` appears exactly twice in the store: once there,
+once in `listOldest`.
+
+### 2.2 THE TRACKER IS NOW DURABLE - bc455fc [M]
+
+`enqueue()` is a synchronous wrapper that calls `enqueueDurable()` and
+attaches an explicit catch. `flush()` reads `listOldest(MAX_BATCH)`, projects,
+posts, deletes acknowledged keys, compares counts, and trims in a `finally`.
+
+[D] THE CAPTURE CALLBACK USES AN EXPLICIT REJECTION HANDLER, NOT A FLOATING
+PROMISE. `watchPositionAsync` does not await the promise a callback returns,
+so the durable write cannot be awaited. Three options were weighed: floating
+promise, staging array with a drain loop, and an explicit catch. The catch
+won. A staging array would reintroduce a second in-memory buffer that dies
+with the process - the exact loss 9c removes - and SQLite's exclusive
+transaction already provides the serialization the staging array was buying.
+An unhandled rejection would lose a fix with no local signal, which is
+indistinguishable from a fix never captured. Recorded at 56da26a.
+
+[D] CAPTURE SEQUENCE GAPS ARE CORRECT. `captureSeq` increments synchronously
+before the async write, so the key is minted first and stays stable across
+retries. A failed write burns a number that never reaches a row. The
+requirement is monotonic uniqueness, not contiguity. NEVER decrement or reuse
+a burned sequence: reuse mints a duplicate key, and Ultra 25 section 6.2
+established that key identity is load-bearing for LOCAL DELETION as well as
+server dedupe. Recorded at 56da26a.
+
+[M] THE IN-MEMORY ARRAY IS VERIFIABLY GONE. The installer failed closed on any
+of: `queue.length`, `queue.push(`, `queue.slice(`, `queue.filter(`,
+`let queue:`. All five measured 0 before the write.
+
+### 2.3 THE PROJECTION, AND WHY IT NEEDED ITS OWN TEST [M]
+
+`toPayload(row: StoredJourneyFix): TrackedFix` exists because
+`StoredJourneyFix EXTENDS TrackedFix`. That inheritance means the compiler
+will let `listOldest()`'s output go straight to `api.post` WITHOUT COMPLAINT -
+excess property checks fire only on object literals, never on variables. With
+`forbidNonWhitelisted: true`, `queueId` and `sessionId` would 400 the entire
+batch of up to 200 fixes ON THE EMERGENCY PATH, with `tsc` exiting 0 and every
+call-count assertion passing.
+
+[R] THE TEST THAT GUARDS THIS ASSERTS THE EXACT KEY SET ON THE WIRE:
+`expect(Object.keys(sent[0]).sort()).toEqual([...])` against the seven
+TrackedFix keys. A test that only checks `toHaveBeenCalledWith` on the URL, or
+counts calls, WOULD NOT CATCH IT. If that test is ever weakened, this failure
+returns and returns silently.
+
+[M] accuracy and speed are omitted, not nulled, in both directions. `mapRow`
+produces an ABSENT key for a NULL column and `toPayload` preserves that with
+`!== undefined`. "Column is NULL" and "key absent from JSON" are different
+things to a whitelisting validator.
+
+
+================================================================================
+## 3. THE FIX-INGEST SERVER CONTRACT - MEASURED
+================================================================================
+
+[M] Read from apps/api/src/modules/journey/journey-ingestion.service.ts, 311
+lines. This closes the "server gap" the ADR text at 37b6da6 recorded as
+unmeasured.
+
+| Condition                          | Response                             |
+|------------------------------------|--------------------------------------|
+| session missing OR wrong owner     | 404 NotFoundException                |
+| session status === ENDED           | 409 ConflictException                |
+| recordedAt precedes session        | 400 BadRequestException              |
+| recordedAt too far in future       | 400 BadRequestException              |
+
+[M] 409 IS UNAMBIGUOUS ON THIS PATH. Nothing else in the ingest flow throws
+ConflictException. A 409 on a fix batch means ENDED and nothing else, so the
+client can branch on status alone without parsing a message string. ADR-014
+s11's ended-session rule IS implementable as written.
+
+[M] 404 IS DELIBERATELY AMBIGUOUS AND MUST STAY THAT WAY.
+`session === null || session.userId !== userId` throws the SAME exception with
+the SAME message. This refuses to confirm a session's existence to a
+non-owner, which is correct. THE CONSEQUENCE FOR THE CLIENT: a 404 can NEVER
+be read as "this row is dead, drop it." It may be a transient identity or auth
+problem. Keep the rows.
+
+[M] CLASSIFICATION IS BATCH-LEVEL, AND THAT IS SUFFICIENT. The ENDED check
+runs once per request against `dto.sessionId`, before any per-item validation.
+Combined with the fact that the payload carries no session id, a batch is
+single-session by construction, so there is nothing a per-item classification
+would add for THIS rule. ADR-014 s11 says per-item classification is not
+exposed; that remains true and now does not matter for the ended-session case.
+
+[M] THE COMMENT AT LINES 251-256 IS A WARNING WORTH CARRYING FORWARD. The
+ENDED verdict is read inside the transaction specifically because
+`insertFixes` DOES NOT ITSELF REJECT ENDED - it uses status only for the
+STARTED -> ACTIVE promotion. The 409 guard is the SOLE protection against
+appending to an ended session, and it lives OUTSIDE `insertFixes`. Any future
+path reaching `insertFixes` by another route bypasses it silently.
+
+[M] PHASE B REMAINS INVISIBLE TO CLIENTS. Lines 286-289: if any item is
+rejected, the original whole-request exception is preserved and NONE of the
+accepted survivors are written. Phase C may stop throwing only when the mobile
+client can delete accepted items selectively.
+
+
+================================================================================
+## 4. THE DEFECT bc455fc INTRODUCED - HTTP 400 HEAD-OF-LINE BLOCKING
+================================================================================
+
+[M] THIS IS THE NEXT DECISION AND IT IS NAMED HERE SO IT CANNOT BE
+REDISCOVERED AS A SURPRISE AT ITEM 10.
+
+The mechanism, in three measured facts:
+  1. The server rejects the WHOLE batch on any bad item and writes no
+     survivors (section 3, lines 286-289).
+  2. The client keeps every row on any non-2xx - correct, and required by
+     trap 74.
+  3. The queue NO LONGER DIES WITH THE PROCESS.
+
+Together: ONE ROW WITH A TEMPORAL FAULT BLOCKS EVERY ROW BEHIND IT,
+PERMANENTLY. It is retried every cycle and fails identically every cycle.
+Before bc455fc, process death cleared this. Nothing clears it now.
+
+[M] BOTH 400 CONDITIONS ARE REACHABLE IN PRACTICE, NOT HYPOTHETICAL. A row
+persisted across a restart is BY DEFINITION old, which is the `recordedAt
+precedes the session` case. Device clock skew produces the future-skew case.
+These are exactly the rows 9c exists to protect.
+
+[D] TWO CANDIDATE POLICIES, NEITHER COSMETIC, BOTH WITH REAL COSTS:
+
+  POISON-ROW EVICTION. On 400, drop the oldest row (or the row named in the
+  message), log at high severity, continue next cycle. The queue drains. THE
+  COST: it deletes captured emergency data on a CLIENT-SIDE INFERENCE about
+  which row is bad, and the server's message is the only evidence.
+
+  HALT AND SURFACE. On 400, stop and raise a distinct persistent fault. Loses
+  nothing. THE COST: the queue is stuck until Phase C, and a stuck emergency
+  queue is its own failure.
+
+[R] DECIDE IT IN ADR-014 BEFORE WRITING ITEM 6. This is the pattern that has
+held seven times and this is the decision most likely to be made silently by
+whoever writes the retry code first. It is also a PRODUCT question - whether a
+fix that the server will never accept is worth holding forever - and it should
+not be settled by an implementation detail.
+
+
+================================================================================
+## 5. WHAT IS TESTED AND WHAT IS NOT
+================================================================================
+
+### 5.1 TESTED, AND DEMONSTRATED NOT VACUOUS [M]
+
+The run emits these, which proves the assertions drove real branches:
+  `flushed 1 fixes, 0 still durable`
+  `INTEGRITY FAULT - replay delete shortfall: expected 2 and actual 1`
+  `DEFERRED OVERFLOW - dropped 4 oldest fixes after replay`
+  `durable queue ready - 12 rows, captureSequence=44`
+  `DURABLE QUEUE UNAVAILABLE - not tracking`
+Same standard Ultra 25 section 2.3 applied to the permission test: a log line
+from inside the branch, not just a passing expectation.
+
+Covered: durable open before session acquisition (asserted by
+`invocationCallOrder`, not merely by call counts); capture sequence restore;
+fail-closed on store rejection; the wire-shape projection; delete shortfall
+raising a fault and stopping the cycle; deferred eviction after replay;
+depth-bound eviction inside enqueue; deferral while replay is in flight;
+trim-to-depth with and without excess; invalid bound rejected before any
+transaction opens.
+
+### 5.2 NOT TESTED [M]
+
+  - ANY REAL SQLITE. Every store test mocks `openDatabaseAsync`; every
+    tracker test mocks the whole store module.
+  - Restart behaviour. Ultra 25 section 6.3 notes a unit test cannot kill a
+    process and `jest.resetModules()` is a PROXY - name it that way in the
+    test title so nobody promotes "module state resets" into "survives
+    process death."
+  - Replay concurrency beyond the `flushing` re-entry guard.
+  - The 400 path, the 404 path, and the 409 path as distinct behaviours -
+    they currently share one catch.
+  - The tracker's overflow log line (`QUEUE OVERFLOW`) - reachable only when
+    `enqueue` returns a nonzero `dropped`, which no tracker test does.
+
+
+================================================================================
+## 6. WHAT IS LEFT IN 10B - THE ORDER IS THE POINT
+================================================================================
+
+[R] WORK THESE IN ORDER. Each item's output is the next item's input, and
+items 5 and 8a are gates rather than tasks.
+
+  ITEM 5   HTTP 400 HEAD-OF-LINE POLICY.        ~1h.  ADR ONLY, NO CODE.
+           Section 4 states the defect and both candidate policies.
+           Blocks item 6, which implements whatever this decides.
+
+  ITEM 6   REPLAY OUTCOME CLASSIFICATION.       ~2-3h.
+           409 -> ENDED, stop the cycle, log distinctly (a persistent 409
+             will recur every cycle, which is intended per ADR-014 s11 4.3).
+           404 -> INDETERMINATE. Keep rows, stop the cycle, never delete.
+             Section 3 explains why 404 can never mean "dead."
+           400 -> per item 5.
+           5xx / network -> retry unchanged.
+           The server side is already measured. No investigation needed.
+
+  ITEM 7   RESTART AND CONCURRENCY TESTS.       ~1-2h.
+           NARROWER THAN IT LOOKS: delete-shortfall and deferred-trim are
+           ALREADY covered (5.1). What is missing is restart behaviour via
+           `jest.resetModules()` and replay concurrency.
+
+  ITEM 8a  EXPO GO SQLITE MEASUREMENT.          ~0.5h. THIS IS A GATE.
+           Does the installed SDK 54 Expo Go runtime include the required
+           SQLite implementation, or does this need a development build?
+           Ultra 25 section 5.4 explicitly declines to assume either way.
+           IF IT NEEDS A DEV BUILD, ITEM 8b'S ESTIMATE IS MEANINGLESS until
+           that build exists, and dev-build setup has its own lead time.
+
+  ITEM 8b  ITEM 10 - AIRPLANE-MODE END TO END.  2-3h IF 8a IS CLEAN.
+           First contact between this code and a real database. THIS IS THE
+           ESTIMATE TO TRUST LEAST. Everything to date has been read, not
+           run; this session found a projection trap, a shape trap and three
+           bad invariants purely by reading, and a device run has more
+           surface than any of them.
+
+  ITEM 9   REMOVE MIGRATION SEAMS.              ~0.5h.
+           Two named members: `resetTrackerStateForTests()` and
+           `flushForTests()`. Neither is imported by the app. Whether
+           `flushForTests` should go is ARGUABLE - a replay trigger may stay
+           useful - so decide rather than delete reflexively.
+
+  ITEM 10  FINAL VALIDATION AND ULTRA 27.       ~1h.
+           All four suites, lint (see 7.5), device verification, handover.
+
+[R] TOTAL: 8-11 HOURS IF 8a COMES BACK CLEAN. UNBOUNDED IF IT DOES NOT.
+Do not collapse 8a and 8b into one estimate; they are different tasks and
+only one of them has a known shape.
+
+NOT IN 10B, DO NOT LET THEM CREEP IN:
+  - Phase C, server and client together. ADR-014 section 7 forbids the server
+    going first, and per-item classification does not exist.
+  - ADR-014 section 4, reacquire. bc455fc does not touch it: rows keep their
+    original session and their original key. Still deferred, still harder
+    than it looks (Ultra 24 section 7.1).
+
+
+================================================================================
+## 7. FINDINGS AND OUTSTANDING GAPS
+================================================================================
+
+### 7.1 THE PATTERN PAID OUT AGAIN, AND HERE IS THE RECEIPT [M]
+
+Ultra 25 section 8.7: write the decision before the code that depends on it.
+Four more instances this session. The clearest:
+
+The operator's stated scope was TWO decisions - ended-session rows and the
+600-fix overflow. Drafting the second forced the question of WHERE the depth
+bound is enforced, which forced the question of who mints the idempotency key,
+which produced a THIRD decision - capture-sequence ownership - that was in
+nobody's plan. Had the code gone first, `enqueue` would have incremented the
+sequence or not by accident, and the reason would exist nowhere.
+
+[R] THE COST IS ONE COMMIT. Keep paying it.
+
+### 7.2 THE INSTALLER PATTERN, NOW WITH TWO NEW GUARDS [R]
+
+Ultra 25 section 8.5's shape is unchanged and still correct. Two additions
+proved their worth this session:
+
+  LENGTH DELTA. Assert `replacement.Length - anchor.Length` equals
+  `updated.Length - text.Length`. Catches a `.Replace` that hit more than
+  intended - which no invariant count can see.
+
+  STRUCTURAL COUNT. Assert `## ADR-` heading count is unchanged before and
+  after. Same idea, different axis.
+
+  DERIVED HEADING LEVEL. Rather than hardcoding `####`, find the nearest
+  heading above the anchor and take its level + 1. This removed an entire
+  class of guess from the doc installers.
+
+[R] AND ONE ANTI-PATTERN, THREE TIMES THIS SESSION: an invariant pinned at a
+count that cannot hold. `-eq 1` on a phrase that legitimately occurs twice
+(`invocationCallOrder`), `-eq 8` where the correct answer was 7, `-eq 0` on
+`queued: 0` which survives correctly in an IDLE_STATE constant. This is the
+MIRROR of Ultra 25 section 8.4's `-lt 1` problem: one can never fail, the
+other can never pass. Both come from choosing a count by intuition instead of
+by counting. EVERY ONE OF THESE ABORTED BEFORE WRITING. The guards worked.
+
+### 7.3 THE THREE-STATEMENT TRANSACTION AND ITS HALF-GUARD [M]
+
+`enqueue` now runs INSERT, metadata UPSERT, count, and conditionally DELETE
+inside one `withExclusiveTransactionAsync`. The existing test `reads insert
+changes before the metadata statement` still passes but now pins only the
+first two statements of four.
+
+[M] MEASURED AND WORTH KNOWING: expo-sqlite's `Transaction` class EXTENDS
+`SQLiteDatabase` (SQLiteDatabase.d.ts line 416), so `getFirstAsync`,
+`getAllAsync` and `runAsync` are all available on the `txn` object. Line 102
+of the same file states that any query inside the transaction MUST run on
+`txn`. The bc455fc installer enforces this with a guard that fails on any
+`this.database.` inside a transaction body - a stray one would read a depth
+outside the exclusive lock, and no mocked test would catch it because the mock
+gives `database` and `transaction` separate identities.
+
+### 7.4 ADR-014 SECTION 11 IS NOW STRUCTURALLY ASYMMETRIC [M]
+
+Before 37b6da6 the section had ZERO subsection headings. It now has five
+`####` subsections sitting BELOW four unheaded prose decisions.
+
+[R] HEAD THE ORIGINAL FOUR IN A LATER PASS. Not now - this commit should stay
+one thing - but a reader arriving at section 11 will see two different
+documentation conventions in one section and reasonably wonder which is
+current. Both are.
+
+[M] ALSO NOTE: `MAX_QUEUED_FIXES = 600` now appears twice inside section 11 -
+once in section 4.1's age-retention carve-out (line ~612 before this
+session's edits) and once in the depth-bound subsection. They agree. A reader
+should confirm the second is a refinement rather than a duplicate.
+
+### 7.5 LINT - NOW FIVE SESSIONS [I]
+
+`npm run lint` has not been run in FIVE sessions. Baseline presumed red.
+apps/mobile-app still has NO lint configuration at all. UNMEASURED. This
+session added roughly 400 lines of mobile TypeScript to a directory with no
+linter.
+
+### 7.6 CARRIED FORWARD FROM ULTRA 25, UNCHANGED [I]
+
+  - TWO ADRs REMAIN UNINSTALLED: ADR-013 and ADR-015. Ultra 25 section 7.4
+    stands in full, including that ADR-013 section 7 holds the VIEWER, NEVER
+    CONSOLE boundary that Sprint 11's Command Center runs straight into.
+    THE NEXT FREE ADR NUMBER IS STILL 018.
+  - PHASE 3, the ADR-016 D6 production-operations runbook. STILL DOES NOT
+    EXIST. Also TODO.md:362-363 and :366-368.
+  - PHASE 7, ADR-017 provider fault isolation.
+  - PHASE 8, 10C location intelligence. UNSCOPED.
+  - START_GRACE_MS still 5 minutes in code, still undecided in the ADR.
+  - Issue 17.3, the ~46s jest warning threshold. No new data point this
+    session - the mobile suite runs in 3-7s and is a different suite.
+  - The 201-vs-200 decision; layout.tsx:32 meta description (TIME-SENSITIVE);
+    automatic location renewer; ADR-018 tracking continuity; the twelve
+    coordination instances; 21.1; 21.6; Swagger gating; website Vercel ->
+    Azure migration.
+
+
+================================================================================
+## 8. FIRST ACTIONS IN THE NEXT SESSION
+================================================================================
+
+1. Commit this file to docs/handovers/OPA-Handover-Ultra-26.txt (CRLF, to
+   match its neighbours). VERIFY Ultra 25 AND Ultra 24 ARE BOTH STILL THERE:
+   Get-ChildItem docs\handovers -Filter *.txt | Select-Object Name
+
+2. Verify state:
+   $env:GIT_PAGER='cat'
+   cd C:\Projects\OPA; "probe=resume"; "current=" + (git branch --show-current); git log --oneline -5 | ForEach-Object { "log|$_" }; "porcelain=" + @(git status --porcelain).Count
+   EXPECT current=main, HEAD bc455fc (or later), porcelain=0.
+   Any .cjs, .ps1 or .b64 untracked - DELETE IT (trap #64).
+
+3. Confirm ALL FOUR suites. THE TWO API ONES WERE NOT RUN LAST SESSION:
+   cd C:\Projects\OPA\apps\api; "probe=green"; npx jest; "jest_exit=$LASTEXITCODE"
+   EXPECT 24 suites / 264 tests. UNPIPED (trap #66).
+   cd C:\Projects\OPA\apps\api; "probe=green-int"; npm run test:int; "int_exit=$LASTEXITCODE"
+   EXPECT 6 suites / 32 tests.
+   cd C:\Projects\OPA\apps\api; "probe=green-tsc"; npx tsc --noEmit; "tsc_exit=$LASTEXITCODE"
+   cd C:\Projects\OPA\apps\mobile-app; "probe=green-mobile"; npm test; "jest_exit=$LASTEXITCODE"
+   EXPECT 2 suites / 32 tests.
+
+4. ITEM 5. Decide the HTTP 400 policy in ADR-014 section 11. Section 4 has
+   both candidates and their costs. ADR ONLY. NO CODE IN THAT COMMIT.
+
+5. ITEM 6, then 7, then 8a. DO NOT REORDER 8a AFTER 8b.
+
+6. DO NOT SHIP PHASE C BEFORE THE CLIENT CAN READ THE ENVELOPE. Unchanged.
+
+REMEMBER THE WORKING METHOD: one command per step, reviewed before it is run,
+run and verified before the next is written. Every command carries a probe=
+token. Never assume file state - measure it.
+
+
+================================================================================
+## 9. TRAPS ADDED THIS SESSION
+================================================================================
+
+### TRAP #122 - PowerShell -Path DOES NOT EXPAND `**`, AND FAILS SILENTLY [M]
+
+  Select-String -Path apps\api\src\**\*.ts -Pattern '...'
+
+returned NOTHING and did not error. `**` is treated as a single `*`, so only
+one directory level below `src\` was searched. The correct form is:
+
+  Get-ChildItem apps\api\src -Recurse -Filter *.ts | Select-String -Pattern '...'
+
+[R] THIS IS THE THIRD PATH-RESOLUTION TRAP IN THE FAMILY (#120, #121) AND THE
+ONLY ONE THAT FAILS SILENTLY. An empty result reads exactly like "no matches
+exist." It cost one full round of reasoning about a file that was there all
+along.
+
+### TRAP #123 - [bool] ON `git diff --quiet` IS ALWAYS FALSE [M]
+
+  "changed=" + [bool](git diff --quiet -- path/to/file)
+
+prints `changed=False` whether or not the file changed. `--quiet` writes
+nothing to stdout and signals through the EXIT CODE, so the pipeline receives
+`$null` and `[bool]$null` is `False`. The correct form:
+
+  git diff --quiet -- path/to/file
+  "changed=" + ($LASTEXITCODE -ne 0)
+
+[R] SAME FAMILY AS TRAP #119: git communicating through a channel the
+pipeline discards. Prefer `git status --porcelain` for whole-tree state; it
+is harder to misread.
+
+### TRAP #124 - AN INVARIANT PINNED AT AN IMPOSSIBLE COUNT [M]
+
+Three instances this session, all caught before writing. See 7.2. The failure
+mode is not the count being wrong - the guard handles that correctly - it is
+the TEMPTATION to loosen the check to a minimum or a range in response. DO
+NOT. A `-ge 1` invariant cannot distinguish four call sites from five, which
+is precisely what these checks exist to do. Fix the number, keep the equality.
+
+### TRAP #125 - SINGLE QUOTES INSIDE SINGLE-QUOTED JS STRING ARRAYS [M]
+
+Inside a Node installer, a line like
+
+  '    sessionId: 'session-1',',
+
+closes the string early and produces a syntax error pointing at the value.
+`node --check` caught it before any write. [R] KEEP `node --check` IN EVERY
+INSTALLER PIPELINE. It is one line and it caught this in under a second.
+
+
+# END OF HANDOVER ULTRA 26
+# Delta to Ultra 25. Generated at bc455fc on main, level with origin.

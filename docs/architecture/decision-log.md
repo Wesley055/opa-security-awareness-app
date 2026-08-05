@@ -626,6 +626,25 @@ read-then-delete after acknowledged delivery requires the exclusive form.
 Supporting web would require a separate queue implementation with separately
 specified semantics rather than weakening the mobile emergency path.
 
+After acknowledged delivery, the replay layer compares the number of
+acknowledged idempotency keys with SQLite's `changes` count from the atomic
+delete. A shortfall is an integrity fault. The current replay cycle stops,
+all remaining rows stay durable, a high-severity error records the expected
+and actual counts, and the client must not report complete success or continue
+flushing later rows in that cycle.
+
+The rows whose keys matched have already been deleted atomically because the
+server acknowledged them. The stop rule therefore protects what remains rather
+than attempting an impossible rollback. A nonzero shortfall is diagnostic of
+local key-identity drift, including an idempotency-key collision, and continuing
+past it would compound an unknown queue-integrity failure. The next scheduled
+flush may retry the remaining durable rows after the fault has been surfaced.
+
+Idempotency-key uniqueness is therefore load-bearing twice: it prevents server
+duplication and makes local acknowledged deletion exact. Persisting
+`captureSequence` across process death is part of that integrity guarantee, not
+merely a convenience for key formatting.
+
 ---
 
 ## ADR-012 - Mock emergency-intelligence providers may be registered in production when their outputs are provably suppressed, acknowledged by an explicitly named boot flag

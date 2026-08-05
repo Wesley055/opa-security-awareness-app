@@ -130,6 +130,40 @@ let durabilityAvailable = false;
 let durabilityFault: string | null = null;
 
 /**
+ * Replay outcomes are a SEPARATE fault domain from store failures. ADR-014
+ * section 11: neither slot may overwrite the other, and one category never
+ * clears the other.
+ *
+ * The `kind` discriminant exists so that no consumer parses `message` to
+ * learn what happened. `message` is for logs and diagnostics only.
+ */
+export type ReplayFault =
+  | { kind: 'HTTP_400'; status: 400; message: string }
+  | { kind: 'HTTP_404'; status: 404; message: string }
+  | { kind: 'HTTP_409'; status: 409; message: string }
+  | {
+      kind: 'DELETE_SHORTFALL';
+      expected: number;
+      actual: number;
+      message: string;
+    };
+
+/**
+ * Emergency-ceiling eviction is a POLICY event: not a store failure and not
+ * a replay outcome. ADR-014 section 11 keeps it out of both fault slots.
+ */
+export type QueueEvictionDiagnostic = {
+  kind: 'FAULTED_QUEUE_EMERGENCY_EVICTION';
+  dropped: number;
+  durableDepth: number;
+  ceiling: number;
+  message: string;
+} | null;
+
+let replayFault: ReplayFault | null = null;
+let evictionDiagnostic: QueueEvictionDiagnostic = null;
+
+/**
  * Wall clock at the moment tracking started. Anything captured before it is
  * a cached reading replayed by watchPositionAsync on subscribe.
  */
@@ -379,10 +413,20 @@ async function flush(forSession: string): Promise<void> {
       // ADR-014 section 11 integrity fault. Rows whose keys matched are
       // already deleted; the remainder stay durable. Stop the cycle rather
       // than continue past a detected inconsistency.
-      durabilityFault =
+      // ADR-014 section 11. A shortfall is a disagreement discovered during
+      // REPLAY, not a store operation failure, so it belongs to replayFault.
+      // The numbers are carried as fields: nothing may parse `message` to
+      // recover them.
+      const shortfallMessage =
         'replay delete shortfall: expected ' + String(keys.length) +
         ' and actual ' + String(removed);
-      log('INTEGRITY FAULT - ' + durabilityFault);
+      replayFault = {
+        kind: 'DELETE_SHORTFALL',
+        expected: keys.length,
+        actual: removed,
+        message: shortfallMessage,
+      };
+      log('INTEGRITY FAULT - ' + shortfallMessage);
       durableQueued = await store.count();
       return;
     }
@@ -561,6 +605,8 @@ export function trackerDebugState(): {
   durableQueued: number;
   durabilityAvailable: boolean;
   durabilityFault: string | null;
+  replayFault: ReplayFault | null;
+  evictionDiagnostic: QueueEvictionDiagnostic;
 } {
   return {
     running: running,
@@ -570,6 +616,8 @@ export function trackerDebugState(): {
     durableQueued: durableQueued,
     durabilityAvailable: durabilityAvailable,
     durabilityFault: durabilityFault,
+    replayFault: replayFault,
+    evictionDiagnostic: evictionDiagnostic,
   };
 }
 
@@ -598,4 +646,6 @@ export function resetTrackerStateForTests(): void {
   durableQueued = 0;
   durabilityAvailable = false;
   durabilityFault = null;
+  replayFault = null;
+  evictionDiagnostic = null;
 }

@@ -37,6 +37,8 @@ const IDLE_STATE = {
   durableQueued: 0,
   durabilityAvailable: false,
   durabilityFault: null,
+  replayFault: null,
+  evictionDiagnostic: null,
 };
 
 function storeMock(captureSequence = 0, queued = 0) {
@@ -179,6 +181,8 @@ describe('journey-tracker lifecycle', () => {
       durableQueued: 12,
       durabilityAvailable: true,
       durabilityFault: null,
+      replayFault: null,
+      evictionDiagnostic: null,
     });
 
     stopTracking();
@@ -248,9 +252,17 @@ describe('journey-tracker lifecycle', () => {
     await startTracking();
     await flushForTests();
 
-    expect(trackerDebugState().durabilityFault).toContain(
-      'expected 2 and actual 1',
-    );
+    expect(trackerDebugState().replayFault).toMatchObject({
+      kind: 'DELETE_SHORTFALL',
+      expected: 2,
+      actual: 1,
+      message: expect.stringContaining('expected 2 and actual 1'),
+    });
+
+    // The relocation must MOVE the fault, not copy it. Without this the
+    // test would pass with both slots populated. ADR-014 section 11: one
+    // category never clears - or occupies - the other.
+    expect(trackerDebugState().durabilityFault).toBeNull();
 
     stopTracking();
   });
@@ -297,6 +309,8 @@ describe('journey-tracker lifecycle', () => {
       durableQueued: 0,
       durabilityAvailable: false,
       durabilityFault: 'Durable Journey tracking is not supported on web.',
+      replayFault: null,
+      evictionDiagnostic: null,
     });
   });
 });

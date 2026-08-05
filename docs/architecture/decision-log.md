@@ -612,6 +612,20 @@ This decision does **not** set an age-retention ceiling. The existing
 `MAX_QUEUED_FIXES = 600` remains the independent depth bound, while the
 time-based retention limit remains an explicit open product decision.
 
+The durable Journey queue is supported on Android and iOS. The Expo web
+target is not an emergency-tracking client and does not provide an alternate
+queue implementation. Journey queue initialization on web must fail closed;
+the web application must not claim durable offline tracking. The existing
+`web` script is a development convenience and is not evidence that emergency
+tracking must work in browsers.
+
+Restricting the queue to Android and iOS buys a concrete guarantee:
+`withExclusiveTransactionAsync` is unavailable on web, and the non-exclusive
+`withTransactionAsync` can be interrupted by other async queries. The queue's
+read-then-delete after acknowledged delivery requires the exclusive form.
+Supporting web would require a separate queue implementation with separately
+specified semantics rather than weakening the mobile emergency path.
+
 ---
 
 ## ADR-012 - Mock emergency-intelligence providers may be registered in production when their outputs are provably suppressed, acknowledged by an explicitly named boot flag

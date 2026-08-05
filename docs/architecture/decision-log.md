@@ -1032,6 +1032,52 @@ queue from growing until device storage is exhausted. This is deliberately
 conservative, and it stops short of pretending that evidence retention can be
 unlimited on a finite device.
 
+#### The tracker's test seams are permanent, not migration scaffolding
+
+**Context.** `journey-tracker.ts` exports two members that the application
+never imports: `resetTrackerStateForTests()` and `flushForTests()`. Both were
+introduced while the durable queue was being built, and the 10B plan listed
+their removal as a cleanup item on the assumption that they were temporary.
+
+**Measured.** They are not temporary. `flushForTests()` drives every replay
+cycle in the tracker spec, including all of the replay-classification tests -
+without it a test would have to wait on the real fifteen-second interval or
+manipulate timers to observe a single flush. `resetTrackerStateForTests()` is
+called in both `beforeEach` and `afterEach` of the lifecycle suite; the
+tracker is a module-scope singleton, so without an explicit reset each test
+would inherit the previous test's state.
+
+Removing either would require rewriting the whole spec around fake timers or
+module isolation. Module isolation in particular was measured during item 7
+and carries its own friction: a re-imported module binds to different mock
+instances than the file's static imports, and a dynamic import needs
+`--experimental-vm-modules` under this Babel configuration.
+
+**Decision. Both members are retained as permanent test seams.**
+
+They are not migration leftovers and are not scheduled for removal. Their
+names are also retained: `ForTests` states the contract plainly at every call
+site, which is worth more than a shorter name.
+
+**Constraints on both.**
+
+- Neither may be imported by application code. The `Nothing in the app
+  imports this` comment on each is a rule, not an observation.
+- `flushForTests()` may trigger a replay cycle. It must not bypass, weaken or
+  reorder any part of one - in particular it must not skip the re-entry
+  guard, the delete-shortfall check, or the eviction restrictions.
+- `resetTrackerStateForTests()` must clear every module-scope variable the
+  tracker owns. Any new state added to the tracker is added here in the same
+  change. A reset that misses a field produces cross-test contamination that
+  presents as an unrelated intermittent failure.
+
+**Rationale.** A seam that the tests depend on is infrastructure, whatever it
+was called when it was written. Deleting it to satisfy a cleanup item would
+trade working coverage for a tidier export list, and the coverage is the part
+that has value. Naming the decision here stops the item being reopened by a
+later reader who finds two exported functions the application never calls.
+
+
 ---
 
 ## ADR-012 - Mock emergency-intelligence providers may be registered in production when their outputs are provably suppressed, acknowledged by an explicitly named boot flag

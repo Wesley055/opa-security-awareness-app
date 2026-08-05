@@ -75,6 +75,23 @@ function storedRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function axiosRejection(status: number) {
+  // isAxiosError checks this flag. A fixture without it classifies as a
+  // generic network failure and the test would pass while proving nothing.
+  return Object.assign(new Error('request failed with status ' + String(status)), {
+    isAxiosError: true,
+    response: { status: status, data: {} },
+  });
+}
+
+function replayingStore(rows = 1) {
+  const store = storeMock(0, rows);
+  store.listOldest.mockResolvedValue([storedRow()]);
+  store.deleteAcknowledged.mockResolvedValue(1);
+  store.count.mockResolvedValue(rows);
+  return store;
+}
+
 function grantAndAcquire(): { remove: jest.Mock } {
   const remove = jest.fn();
 
@@ -312,5 +329,144 @@ describe('journey-tracker lifecycle', () => {
       replayFault: null,
       evictionDiagnostic: null,
     });
+  });
+
+  it.each([
+    [400, 'HTTP_400', 'REPLAY REJECTED 400'],
+    [404, 'HTTP_404', 'REPLAY INDETERMINATE 404'],
+    [409, 'HTTP_409', 'REPLAY REJECTED 409'],
+  ])(
+    'classifies a %i replay rejection, keeps every row and halts',
+    async (status, kind) => {
+      const store = replayingStore();
+      grantAndAcquire();
+      mockedOpenStore.mockResolvedValue(store);
+      mockedPost.mockRejectedValue(axiosRejection(status));
+
+      await startTracking();
+      await flushForTests();
+
+      expect(trackerDebugState().replayFault).toMatchObject({
+        kind: kind,
+        status: status,
+      });
+      expect(store.deleteAcknowledged).not.toHaveBeenCalled();
+      expect(trackerDebugState().durabilityFault).toBeNull();
+
+      stopTracking();
+    },
+  );
+
+  it('treats a 401 as transient and never sets a replay fault', async () => {
+    const store = replayingStore();
+    grantAndAcquire();
+    mockedOpenStore.mockResolvedValue(store);
+    mockedPost.mockRejectedValue(axiosRejection(401));
+
+    await startTracking();
+    await flushForTests();
+
+    expect(trackerDebugState().replayFault).toBeNull();
+    expect(store.deleteAcknowledged).not.toHaveBeenCalled();
+
+    stopTracking();
+  });
+
+  it('suppresses steady-state trim while a replay fault is set', async () => {
+    const store = replayingStore();
+    grantAndAcquire();
+    mockedOpenStore.mockResolvedValue(store);
+    mockedPost.mockRejectedValue(axiosRejection(400));
+
+    await startTracking();
+    await flushForTests();
+
+    expect(store.trimToDepth).not.toHaveBeenCalled();
+
+    stopTracking();
+  });
+
+  it('clears the replay fault when a later cycle receives a 2xx', async () => {
+    const store = replayingStore();
+    grantAndAcquire();
+    mockedOpenStore.mockResolvedValue(store);
+    mockedPost.mockRejectedValueOnce(axiosRejection(400));
+
+    await startTracking();
+    await flushForTests();
+
+    expect(trackerDebugState().replayFault).toMatchObject({ kind: 'HTTP_400' });
+
+    mockedPost.mockResolvedValue({ data: {} });
+    store.count.mockResolvedValue(0);
+    await flushForTests();
+
+    expect(trackerDebugState().replayFault).toBeNull();
+    expect(store.trimToDepth).toHaveBeenCalledWith(600);
+
+    stopTracking();
+  });
+
+  it('raises the enqueue bound to the emergency ceiling while faulted', async () => {
+    const store = replayingStore();
+    grantAndAcquire();
+    mockedOpenStore.mockResolvedValue(store);
+    mockedPost.mockRejectedValue(axiosRejection(409));
+
+    await startTracking();
+    await flushForTests();
+
+    const capture = mockedLocation.watchPositionAsync.mock.calls[0]?.[1] as
+      | ((position: unknown) => void)
+      | undefined;
+
+    expect(capture).toBeDefined();
+    capture?.({ coords: { latitude: 1, longitude: 2 }, timestamp: Date.now() });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(store.enqueue).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        maxQueuedFixes: 1200,
+        deferOverflowEviction: false,
+      }),
+    );
+
+    stopTracking();
+  });
+
+  it('records an emergency eviction diagnostic without touching either fault', async () => {
+    const store = replayingStore();
+    store.enqueue.mockResolvedValue({
+      inserted: true,
+      dropped: 3,
+      durableDepth: 1200,
+    });
+
+    grantAndAcquire();
+    mockedOpenStore.mockResolvedValue(store);
+    mockedPost.mockRejectedValue(axiosRejection(409));
+
+    await startTracking();
+    await flushForTests();
+
+    const capture = mockedLocation.watchPositionAsync.mock.calls[0]?.[1] as
+      | ((position: unknown) => void)
+      | undefined;
+
+    capture?.({ coords: { latitude: 1, longitude: 2 }, timestamp: Date.now() });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(trackerDebugState().evictionDiagnostic).toMatchObject({
+      kind: 'FAULTED_QUEUE_EMERGENCY_EVICTION',
+      dropped: 3,
+      ceiling: 1200,
+    });
+    expect(trackerDebugState().replayFault).toMatchObject({ kind: 'HTTP_409' });
+    expect(trackerDebugState().durabilityFault).toBeNull();
+
+    stopTracking();
   });
 });

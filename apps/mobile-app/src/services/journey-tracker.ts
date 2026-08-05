@@ -32,6 +32,7 @@
  * second buffer would die with the process and reintroduce the loss this
  * replaces. Write serialization comes from the exclusive transaction.
  */
+import { isAxiosError } from 'axios';
 import * as Location from 'expo-location';
 import { api } from './api';
 import { openJourneyQueueStore } from './journey-queue-store';
@@ -60,12 +61,25 @@ const TIME_INTERVAL_MS = 10000;
  */
 const DISTANCE_INTERVAL_M = 0;
 
-/** ArrayMaxSize(200) on IngestFixesDto. Larger flushes are chunked. */
+/**
+ * ArrayMaxSize(200) on IngestFixesDto. ONE batch of up to 200 is attempted
+ * per flush cycle - replay is not chunked, so a deep queue drains over
+ * successive cycles rather than in a single pass.
+ */
 const MAX_BATCH = 200;
 
 /**
- * Memory is finite even though the queue discipline says never drop. Three
- * full batches is the ceiling; 9c replaces this with real persistence.
+ * Storage-safety ceiling used ONLY while replayFault is non-null. ADR-014
+ * section 11. Expressed as a multiple of MAX_BATCH so the relationship
+ * cannot drift, and deliberately NOT stated as a duration: TIME_INTERVAL_MS
+ * is a minimum interval, not a fixed capture cadence.
+ */
+const MAX_FAULTED_QUEUED_FIXES = 6 * MAX_BATCH;
+
+/**
+ * Ordinary steady-state durable retention depth. 9c made the queue durable,
+ * so this is no longer a memory guard: it is the depth the queue is trimmed
+ * back to when replay is healthy. ADR-014 section 11.
  */
 const MAX_QUEUED_FIXES = 600;
 
@@ -317,24 +331,50 @@ async function enqueueDurable(
     fix.speed = speed;
   }
 
+  // ADR-014 section 11. The TRACKER owns the bound; the store stays free of
+  // replay policy and simply enforces the number it is handed.
+  const faulted = replayFault !== null;
+
   // deferOverflowEviction tracks the in-flight replay cycle. Evicting rows a
   // flush is holding would make the delete count fall short of the keys sent
   // and raise a false integrity fault.
+  //
+  // The EMERGENCY ceiling is never deferred. Deferral protects an ordinary
+  // replay batch from the steady-state bound; it must not disable the
+  // storage-safety ceiling. A false shortfall cannot result, because the
+  // ceiling only applies once replayFault is already set.
   const result = await store.enqueue(
     { sessionId: forSession, fix, captureSequence: captureSeq },
     {
-      maxQueuedFixes: MAX_QUEUED_FIXES,
-      deferOverflowEviction: flushing,
+      maxQueuedFixes: faulted ? MAX_FAULTED_QUEUED_FIXES : MAX_QUEUED_FIXES,
+      deferOverflowEviction: flushing && !faulted,
     },
   );
 
   durableQueued = result.durableDepth;
 
   if (result.dropped > 0) {
-    log(
-      'QUEUE OVERFLOW - dropped ' + String(result.dropped) +
-        ' oldest fixes, durable depth ' + String(result.durableDepth),
-    );
+    if (faulted) {
+      // A POLICY event, not a store failure and not a replay outcome.
+      // ADR-014 section 11 keeps it out of both fault slots, and it clears
+      // neither.
+      const emergencyMessage =
+        'emergency ceiling eviction - dropped ' + String(result.dropped) +
+        ' oldest fixes at ceiling ' + String(MAX_FAULTED_QUEUED_FIXES);
+      evictionDiagnostic = {
+        kind: 'FAULTED_QUEUE_EMERGENCY_EVICTION',
+        dropped: result.dropped,
+        durableDepth: result.durableDepth,
+        ceiling: MAX_FAULTED_QUEUED_FIXES,
+        message: emergencyMessage,
+      };
+      log('FAULTED QUEUE EMERGENCY EVICTION - ' + emergencyMessage);
+    } else {
+      log(
+        'QUEUE OVERFLOW - dropped ' + String(result.dropped) +
+          ' oldest fixes, durable depth ' + String(result.durableDepth),
+      );
+    }
   }
 
   if (!result.inserted) {
@@ -406,17 +446,22 @@ async function flush(forSession: string): Promise<void> {
       { timeout: FLUSH_TIMEOUT_MS },
     );
 
+    // A 2xx proves the queue head is acceptable to the server, so any
+    // persistent replay fault is resolved. ADR-014 section 11. This runs
+    // BEFORE the delete, so a shortfall in this same cycle can immediately
+    // set it again - which is why it is not cleared in the finally block.
+    replayFault = null;
+
     const keys = rows.map((row) => row.idempotencyKey);
     const removed = await store.deleteAcknowledged(keys);
 
     if (removed !== keys.length) {
       // ADR-014 section 11 integrity fault. Rows whose keys matched are
       // already deleted; the remainder stay durable. Stop the cycle rather
-      // than continue past a detected inconsistency.
-      // ADR-014 section 11. A shortfall is a disagreement discovered during
-      // REPLAY, not a store operation failure, so it belongs to replayFault.
-      // The numbers are carried as fields: nothing may parse `message` to
-      // recover them.
+      // than continue past a detected inconsistency. A shortfall is a
+      // disagreement discovered during REPLAY, not a store operation
+      // failure, so it belongs to replayFault. The numbers are carried as
+      // FIELDS: nothing may parse `message` to recover them.
       const shortfallMessage =
         'replay delete shortfall: expected ' + String(keys.length) +
         ' and actual ' + String(removed);
@@ -437,28 +482,68 @@ async function flush(forSession: string): Promise<void> {
         String(durableQueued) + ' still durable',
     );
   } catch (error: unknown) {
-    // EVERY rejection is retryable, including ones that look like auth
-    // failures - see trap 74. Nothing is discarded here.
-    log(
-      'flush failed - KEEPING ' + String(durableQueued) + ' durable rows',
-      error,
-    );
+    // NOTHING is ever discarded here - trap 74 and ADR-014 section 11. Every
+    // branch below retains every row. Classification decides only whether a
+    // PERSISTENT fault is raised, never whether data is dropped.
+    //
+    // isAxiosError is the library's own guard. A structural check would
+    // accept any unrelated object carrying a response.status.
+    const status = isAxiosError(error) ? error.response?.status : undefined;
+    const detail = errorMessage(error);
+
+    if (status === 400) {
+      // Two conditions with opposite lifetimes share this status, and the
+      // wire cannot distinguish them under Phase B. Retain, halt, surface.
+      replayFault = { kind: 'HTTP_400', status: 400, message: detail };
+      log('REPLAY REJECTED 400 - halting, KEEPING all durable rows');
+    } else if (status === 404) {
+      // INDETERMINATE. A 404 is deliberately ambiguous server-side: it may
+      // be a transient identity or auth problem, so it can never mean the
+      // row is dead.
+      replayFault = { kind: 'HTTP_404', status: 404, message: detail };
+      log('REPLAY INDETERMINATE 404 - halting, rows never deleted');
+    } else if (status === 409) {
+      // ENDED. Recurs every cycle by design until Phase C.
+      replayFault = { kind: 'HTTP_409', status: 409, message: detail };
+      log('REPLAY REJECTED 409 - session ENDED, KEEPING all durable rows');
+    } else if (status === 401) {
+      // Transient authentication recovery. Reachable when the refresh
+      // interceptor is already refreshing and cannot retry this request.
+      // Deliberately does NOT set replayFault, and must not clear one.
+      log('REPLAY AUTH 401 - transient, retrying next cycle');
+    } else {
+      log(
+        'flush failed - KEEPING ' + String(durableQueued) + ' durable rows',
+        error,
+      );
+    }
   } finally {
     flushing = false;
 
-    // Eviction deferred during the cycle is applied now. ADR-014 section 11.
-    try {
-      const trimmed = await store.trimToDepth(MAX_QUEUED_FIXES);
-      durableQueued = trimmed.durableDepth;
+    // ADR-014 section 11. Normal steady-state eviction is suppressed while a
+    // persistent replay fault is set: the oldest rows are exactly what a
+    // halted queue has been holding longest. The emergency ceiling still
+    // applies, but it is enforced in enqueue, not here.
+    //
+    // No early return - a return inside finally would swallow the pending
+    // completion of the try block.
+    if (replayFault !== null) {
+      log('TRIM SUPPRESSED - replay faulted, no steady-state eviction');
+    } else {
+      // Eviction deferred during the cycle is applied now.
+      try {
+        const trimmed = await store.trimToDepth(MAX_QUEUED_FIXES);
+        durableQueued = trimmed.durableDepth;
 
-      if (trimmed.dropped > 0) {
-        log(
-          'DEFERRED OVERFLOW - dropped ' + String(trimmed.dropped) +
-            ' oldest fixes after replay',
-        );
+        if (trimmed.dropped > 0) {
+          log(
+            'DEFERRED OVERFLOW - dropped ' + String(trimmed.dropped) +
+              ' oldest fixes after replay',
+          );
+        }
+      } catch (error: unknown) {
+        log('deferred trim failed', error);
       }
-    } catch (error: unknown) {
-      log('deferred trim failed', error);
     }
   }
 }

@@ -31,6 +31,8 @@
  */
 import * as Location from 'expo-location';
 import { api } from './api';
+import { openJourneyQueueStore } from './journey-queue-store';
+import type { JourneyQueueStore } from './journey-queue-store';
 
 /** How often a flush is attempted. */
 const FLUSH_INTERVAL_MS = 15000;
@@ -117,6 +119,11 @@ let flushing = false;
 let queue: TrackedFix[] = [];
 let captureSeq = 0;
 
+let queueStore: JourneyQueueStore | null = null;
+let durableQueued = 0;
+let durabilityAvailable = false;
+let durabilityFault: string | null = null;
+
 /**
  * Wall clock at the moment tracking started. Anything captured before it is
  * a cached reading replayed by watchPositionAsync on subscribe.
@@ -129,6 +136,57 @@ function log(message: string, extra?: unknown): void {
     return;
   }
   console.log('[journey-tracker] ' + message, extra);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Opens the durable queue and restores the persisted capture sequence
+ * before any fix is captured.
+ *
+ * openJourneyQueueStore() already enforces the ADR-014 section 11 platform
+ * boundary and calls initialize() itself, so this function does NOT repeat
+ * either check. Any rejection fails closed: tracking does not start.
+ *
+ * NOT DECIDED: whether a runtime storage fault on a supported platform
+ * should degrade to the pre-9c in-memory path instead of failing closed.
+ * The store does not yet distinguish a platform rejection from a runtime
+ * one, and inferring it from the message text would be a guess.
+ */
+async function initializeDurableQueue(): Promise<boolean> {
+  if (queueStore !== null) {
+    return true;
+  }
+
+  try {
+    const store = await openJourneyQueueStore();
+    const persistedCaptureSequence = await store.getCaptureSequence();
+    const persistedCount = await store.count();
+
+    queueStore = store;
+    captureSeq = Math.max(captureSeq, persistedCaptureSequence);
+    durableQueued = persistedCount;
+    durabilityAvailable = true;
+    durabilityFault = null;
+
+    log(
+      'durable queue ready - ' + String(durableQueued) +
+        ' rows, captureSequence=' + String(captureSeq),
+    );
+
+    return true;
+  } catch (error: unknown) {
+    queueStore = null;
+    durableQueued = 0;
+    durabilityAvailable = false;
+    durabilityFault = errorMessage(error);
+
+    log('DURABLE QUEUE UNAVAILABLE - not tracking', error);
+
+    return false;
+  }
 }
 
 /**
@@ -286,6 +344,17 @@ export async function startTracking(): Promise<void> {
     return;
   }
 
+  const durable = await initializeDurableQueue();
+  if (!durable) {
+    running = false;
+    return;
+  }
+
+  if (!running || gen !== generation) {
+    log('stopped while opening the durable queue');
+    return;
+  }
+
   const id = await acquireSession();
   if (!id) {
     running = false;
@@ -375,11 +444,50 @@ export function stopTracking(): void {
   );
 }
 
-/** Test and diagnostic hook. Not used by the app. */
+/**
+ * Test and diagnostic hook. Not used by the app.
+ *
+ * `queued` is the live IN-MEMORY depth. `durableQueued` is the row count
+ * read at initialization. They are different numbers until the durable
+ * enqueue package lands.
+ */
 export function trackerDebugState(): {
   running: boolean;
   sessionId: string | null;
   queued: number;
+  captureSequence: number;
+  durableQueued: number;
+  durabilityAvailable: boolean;
+  durabilityFault: string | null;
 } {
-  return { running: running, sessionId: sessionId, queued: queue.length };
+  return {
+    running: running,
+    sessionId: sessionId,
+    queued: queue.length,
+    captureSequence: captureSeq,
+    durableQueued: durableQueued,
+    durabilityAvailable: durabilityAvailable,
+    durabilityFault: durabilityFault,
+  };
+}
+
+/**
+ * Test-only state reset. Nothing in the app imports this.
+ *
+ * stopTracking() owns the subscription, timer and running flag; this only
+ * clears what it does not.
+ */
+export function resetTrackerStateForTests(): void {
+  stopTracking();
+
+  generation = 0;
+  flushing = false;
+  queue = [];
+  captureSeq = 0;
+  trackingStartedAtMs = 0;
+
+  queueStore = null;
+  durableQueued = 0;
+  durabilityAvailable = false;
+  durabilityFault = null;
 }

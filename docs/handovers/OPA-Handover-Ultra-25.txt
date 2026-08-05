@@ -1,0 +1,753 @@
+# OPA - Handover Ultra 25 - DELTA
+# GENERATED: 2026-08-05, at commit ff2e556 on main. PUSHED.
+#
+# THIS IS A DELTA. It supersedes Ultra 24 ONLY where stated.
+# Ultra 24 remains AUTHORITATIVE for everything not listed here:
+#   docs/handovers/OPA-Handover-Ultra-24.txt
+# Ultra 23, 22, 21 and 20 parts 1-3 remain authoritative where not superseded.
+# The phase plan in Ultra 20 part 3 section 15 is UNCHANGED.
+#
+# LABELS: [M] MEASURED  [D] DECISION  [R] RECOMMENDATION  [I] INHERITED
+
+
+================================================================================
+## RESUME HERE - READ THIS FIRST
+================================================================================
+
+HEAD                main @ ff2e556, porcelain=0, level with origin/main      [M]
+API TSC             exit 0, no output                                        [M]
+API UNIT SUITE      24 suites / 264 tests, 0 failed, jest_exit=0             [M]
+API INT SUITE       6 suites / 32 tests, 0 failed, int_exit=0                [M]
+MOBILE TSC          exit 0, no output - FIRST TIME EVER MEASURED             [M]
+MOBILE SUITE        2 suites / 21 tests, 0 failed, jest_exit=0 - NEW         [M]
+DECISION LOG        docs/architecture/decision-log.md, 14 ADRs.
+                    ADR-014 gains section 11 across three commits: created
+                    once and amended twice.                                  [M]
+
+SPRINT STATUS
+  10B   ~94%. AN ESTIMATE, NOT A MEASUREMENT.                                [R]
+        Ultra 24's remainder was 9c client-side and item 10. Measured
+        underneath it: the mobile TEST HARNESS now exists (Ultra 24
+        section 7.2 CLOSED) and the durable queue STORE exists and is
+        tested. NOTHING CALLS IT.                                            [M]
+  10C   ~0%. Unchanged.                                                      [I]
+
+NEXT THREE ACTIONS
+  1. Commit this file to docs/handovers/OPA-Handover-Ultra-25.txt (CRLF).
+  2. TRACKER INTEGRATION. journey-tracker.ts is BYTE-UNCHANGED this session
+     and imports nothing from journey-queue-store.ts. Section 5.3 lists the
+     five things integration must resolve, three of which are decided in
+     ADR-014 section 11 and two of which are not decided anywhere.
+  3. Before or with it: WIDEN trackerDebugState(). It returns only
+     { running, sessionId, queued }. Persisted captureSeq and per-fix session
+     ownership are now ADR-mandated and NEITHER IS OBSERVABLE. See 7.1.
+
+STILL TRUE AND STILL UNCOMFORTABLE
+  No production write path has ever executed. The deployed app has run
+  SELECT 1, which is a READ. Issue 17.27, q49, and Ultra 24 section 7.3's
+  precondition chain all stand UNCHANGED. Nothing this session touched it. [I]
+
+THE STORE IS NOT THE QUEUE. journey-queue-store.ts is a tested SQLite
+repository with no callers. The live queue is still `let queue: TrackedFix[]`
+at module scope in journey-tracker.ts, still dies with the process, exactly as
+lines 29-30 say. Ultra 24 warned not to read "9c Phase B complete" as "offline
+buffering works." READ THIS ONE THE SAME WAY: a durable store exists; durable
+buffering does not.                                                        [M]
+
+
+================================================================================
+## 0. EXECUTIVE SUMMARY
+================================================================================
+
+[M] SEVEN COMMITS, ALL PUSHED:
+  501945d  Docs: install handovers Ultra 23 and Ultra 24
+           2 files, 1273 insertions
+  75b9fb4  Mobile: stand up Jest test harness (Ultra 24 section 7.2)
+           5 files, 6471 insertions, 2867 deletions
+  407b616  Docs: choose SQLite for the durable Journey queue
+           1 file, 22 insertions
+  bd7ff5c  Mobile: add SQLite for the durable Journey queue
+           2 files, 22 insertions
+  4ccba62  Docs: bound the durable Journey queue to mobile
+           1 file, 14 insertions
+  38000f6  Mobile: add durable Journey queue store
+           2 files, 710 insertions
+  ff2e556  Docs: define replay deletion mismatch handling
+           1 file, 19 insertions
+
+| Commit  | Purpose                                                        |
+|---------|----------------------------------------------------------------|
+| 501945d | Ultra 23 and 24 installed; 23 had NEVER been committed          |
+| 75b9fb4 | jest 29 + jest-expo 54 + babel.config.js + first mobile spec    |
+| 407b616 | ADR-014 s11 - SQLite selected over AsyncStorage                 |
+| bd7ff5c | expo-sqlite@16.0.10 pinned to SDK 54                            |
+| 4ccba62 | ADR-014 s11 - Android/iOS only, web fails closed                |
+| 38000f6 | JourneyQueueStore + 15 tests, tracker byte-unchanged            |
+| ff2e556 | ADR-014 s11 - replay deletion mismatch is an integrity fault    |
+
+[M] ULTRA 24 SECTION 7.2 IS CLOSED. apps/mobile-app had four scripts, all
+`expo start`, no jest, no test script, no testing devDependency. It now has a
+working harness and 21 passing tests across 2 suites. The 385 lines of
+journey-tracker.ts that Ultra 24 recorded as entirely untested are no longer
+entirely untested - though see section 7.1 for what is still unreachable.
+
+[M] ULTRA 23 WAS NEVER INSTALLED. Ultra 24 declares Ultra 23 authoritative for
+everything it does not supersede and cites it by path. That path did not
+exist. docs/handovers/ contained Ultra 22 and then nothing until this session.
+Ultra 23 was generated at bf51d2e; its own step 1 never ran, and no session
+noticed for a full cycle. See section 8.1.
+
+[D] FOUR DECISIONS WERE RECORDED BEFORE THE CODE THAT DEPENDS ON THEM. ADR-014
+section 11 now carries: the storage engine, the platform boundary, the
+fail-closed rule for unsupported platforms, and the replay integrity rule. In
+each case the document was committed before the implementation. This inverts
+Ultra 24 section 8.4's pattern deliberately and the ordering should be
+preserved for the remaining 9c work.
+
+[M] A THIRD PROPERTY OF THE IDEMPOTENCY KEY WAS FOUND BY READING flush().
+Ultra 24 section 6 records that the key embeds the session id and that
+captureSeq resets on restart. What it does not record is that flush() deletes
+by key - `queue.filter(f => sent[f.idempotencyKey] !== true)` - so key
+uniqueness is load-bearing for LOCAL DELETION, not only for server dedupe. A
+captureSeq collision therefore removes TWO in-memory fixes when ONE was sent.
+Silent local data loss, invisible to the server. See section 6.2.
+
+[M] THE DURABLE STORE CAN DETECT THAT LOSS AND THE IN-MEMORY QUEUE CANNOT.
+SQLiteRunResult carries `changes` from sqlite3_changes(). deleteAcknowledged
+returns it, so the replay layer can compare rows-removed against keys-sent.
+queue.filter has no equivalent. This is a capability the durable queue ADDS,
+not a port of existing behaviour, and ADR-014 section 11 now records what the
+client must do when the comparison fails.
+
+
+================================================================================
+## 1. STATE AT HANDOVER - ALL MEASURED
+================================================================================
+
+BRANCH main, HEAD ff2e556, porcelain=0, level with origin/main.           [M]
+
+| Gate                             | Result                                 |
+|----------------------------------|----------------------------------------|
+| npx tsc --noEmit (apps/api)      | exit 0, no output                      |
+| npx jest (apps/api)              | 24 suites / 264 tests, 0 failed        |
+| npm run test:int (apps/api)      | 6 suites / 32 tests, 0 failed          |
+| npx tsc --noEmit (apps/mobile)   | exit 0, no output          NEW GATE    |
+| npm test (apps/mobile-app)       | 2 suites / 21 tests, 0 failed  NEW     |
+
+[M] THE API BASELINE DID NOT MOVE. 264 unit and 32 int, identical to Ultra 24.
+Nothing this session touched apps/api. If a future session finds a different
+number without an apps/api commit between here and there, something moved that
+nobody moved.
+
+[M] THE MOBILE BASELINE IS NEW AND MOVED IN TWO STEPS:
+  0  -> 6    75b9fb4, sanitisers + two lifecycle guards
+  6  -> 21   38000f6, fifteen queue-store cases
+
+[M] INT SUITE ENVIRONMENT, unchanged: PostgreSQL 16.14, database opa_test at
+localhost:5432, 11 migrations applied, no pending migrations, partial index
+semantics verified at runtime by test/int/assert-schema.ts.
+
+[M] THE PRISMA UPGRADE BANNER DID NOT FIRE THIS SESSION. Ultra 24 section 1
+records it as firing on int runs (6.19.3 -> 7.9.1). It did not appear in this
+session's run. Recorded as a measured difference, not explained. ADR-009's
+warning about a future `migrate dev` silently dropping
+journey_session_one_active_per_user is UNCHANGED and assert-schema.ts still
+runs every int run.
+
+[M] LINE ENDINGS. All five files added to apps/mobile-app produced the CRLF/LF
+warning on `git add`. Same pre-existing class Ultra 24 section 1 documents on
+the journey source files. Not introduced, not a regression. Note that npm
+rewrote package.json and package-lock.json wholesale, which is why their diffs
+are enormous relative to the change.
+
+NOT measured this session: npm run lint (still - see 7.5), /health/ready,
+apps/website build.
+
+
+================================================================================
+## 2. WHAT SHIPPED - THE MOBILE TEST HARNESS
+================================================================================
+
+### 2.1 THE HARNESS ITSELF [M]
+
+75b9fb4. Five files: package.json, package-lock.json, babel.config.js,
+jest.config.cjs, and src/services/journey-tracker.spec.ts.
+
+INSTALLED: jest@29.7.0, jest-expo@54.0.17, @types/jest@29.5.14, and later
+babel-preset-expo@54.0.12.
+
+[D] JEST 29, NOT 30. jest-expo@54 depends on the jest 29 family throughout -
+babel-jest@^29, @jest/globals@^29, jest-environment-jsdom@^29 - but does NOT
+depend on jest itself. Supplying jest 30 alongside it would give two jest
+versions and a resolver conflict. Measured via `npm view`, not assumed.
+
+[M] jest-expo BELOW 54.0.14 PEERS ONLY ON expo AND react-native. From 54.0.14
+onward it adds a react-server-dom-webpack peer. The installed 54.0.17 marks
+that peer OPTIONAL via peerDependenciesMeta, so nothing is unmet. If a future
+install makes it non-optional, pin to 54.0.13.
+
+[R] jest-expo IS PINNED WITH A CARET (^54.0.17) AND THEREFORE FLOATS. Pinning
+exact would make the harness reproducible. Not done; not blocking.
+
+### 2.2 babel.config.js WAS THE MISSING PIECE, AND ITS ABSENCE IS NOT OBVIOUS [M]
+
+apps/mobile-app had NO babel.config.js. Metro supplies babel-preset-expo
+implicitly, so the app builds fine without one. babel-jest does NOT - it reads
+babel.config.js from disk. Its absence presents as a syntax error on `import`
+or JSX that points nowhere near the cause.
+
+[M] AND THEN babel-preset-expo ITSELF WAS NOT RESOLVABLE. It exists as a
+transitive dependency nested at node_modules/expo/node_modules/, which Metro
+resolves and Babel does not - Babel resolves from the config file's directory.
+The error message says exactly this and should be believed:
+  "Cannot find module 'babel-preset-expo' ... you can workaround this problem
+   by explicitly adding the missing package to your top-level package.json"
+
+### 2.3 THE FIRST SPEC [M]
+
+src/services/journey-tracker.spec.ts, 6 tests:
+  - cleanNonNegative accepts finite >= 0, rejects negative, NaN, Infinity,
+    null and undefined.
+  - cleanHeading accepts 0..360 INCLUSIVE at both ends, rejects -1, 361,
+    NaN, Infinity, null, undefined. Note cleanHeading is UNUSED by the app
+    and deliberately kept (line 96-100); a test is the only thing holding it.
+  - startTracking with permission denied: does not subscribe, does not post,
+    leaves running=false.
+  - stopTracking is idempotent when nothing is running.
+
+[M] THE PERMISSION TEST IS DEMONSTRATED, NOT ASSERTED. The run emits
+`[journey-tracker] foreground location not granted - not tracking` from
+line 128, which proves the assertion drove startTracking into that branch
+rather than passing vacuously. It also runs at ~50-105ms against ~2ms for the
+pure functions, which is the async path doing real work.
+
+[M] ONLY TWO MODULES NEED MOCKING: expo-location and ./api. ./api must be
+mocked rather than loaded - it pulls axios, expo-secure-store,
+../config/api-config, and dynamically imports ../store/authStore in its 401
+refresh path.
+
+[M] THE PRESET DID NOT MULTIPLY THE RUN. jest-expo's preset is multi-project
+(ios/android/web); overriding `preset` with top-level roots/testMatch
+collapsed it to a single run. 6 tests, not 18. If a future config change makes
+counts triple, this is why.
+
+
+================================================================================
+## 3. THE DEPENDENCY CONFLICT - MEASURED, NOT WORKED AROUND BLINDLY
+================================================================================
+
+[M] `npx expo install babel-preset-expo --dev` FAILED WITH ERESOLVE. The
+conflict was NOT about babel-preset-expo. expo install runs a full
+`npm install`, which re-resolves the whole tree and hit a latent conflict:
+
+  - the app pins react@19.1.0 (Expo SDK 54);
+  - react-dom@19.2.8 was being pulled in and peers on react@^19.2.8;
+  - react-dom is peerOPTIONAL from expo-router and @expo/metro-runtime;
+  - react-dom IS NOT IN package.json AND IS NOT INSTALLED.
+
+[M] MEASURED: `Test-Path node_modules\react-dom` = False. The resolver was
+rejecting the tree over a package that does not exist in it and that nothing
+in this React Native app imports.
+
+[D] RESOLVED WITH --legacy-peer-deps, NOT BY INSTALLING react-dom. Installing
+react-dom@19.1.0 to satisfy the check was considered and REJECTED: it would
+add a permanent runtime dependency to `dependencies` that no code imports,
+shipped to satisfy a test-harness install, and give every future SDK bump one
+more version to align. --legacy-peer-deps skips the peer check and changes
+nothing in `dependencies`.
+
+[M] VERIFIED AFTER: react@19.1.0 unchanged, react-dom absent, `dependencies`
+unchanged at 14 entries. expo-sqlite installed the same way, same result.
+
+[R] THIS WILL RECUR ON ANY FULL npm install IN apps/mobile-app. It is latent,
+not caused by anything this session did. Expect it; use --legacy-peer-deps;
+verify `dependencies` afterwards rather than trusting the flag.
+
+[M] apps/mobile-app IS NOT A ROOT WORKSPACE. The root package.json lists only
+apps/api. The mobile app has its own node_modules and lock file, and every
+install must run from inside apps/mobile-app.
+
+
+================================================================================
+## 4. ADR-014 SECTION 11 - FOUR DECISIONS, ALL RECORDED BEFORE THEIR CODE
+================================================================================
+
+Section 11 was created at 407b616 and amended at 4ccba62 and ff2e556. It sits
+at line ~593 in decision-log.md, inside ADR-014 (starts 218), before ADR-012
+(starts ~617). ADR-014 section 10 remains at 519.
+
+### 4.1 STORAGE ENGINE [D] - 407b616
+
+The mobile Journey queue uses expo-sqlite. Selected because the queue requires
+durable ordered rows, an explicit session identifier per fix, persisted
+capture sequence across process death, and atomic removal only after
+acknowledged delivery. AsyncStorage was rejected: enqueue and dequeue would
+require serialising, parsing and replacing the entire queue of up to 600 fixes
+on every operation. expo-secure-store remains reserved for small secrets.
+
+The ADR also records three implementation constraints: preserve oldest-first
+flushing, store the owning session with every fix, and persist the capture
+sequence so restart cannot reuse an idempotency key.
+
+[D] THE AGE-RETENTION CEILING IS EXPLICITLY NOT DECIDED BY THIS.
+MAX_QUEUED_FIXES = 600 remains the independent depth bound. The time-based
+limit remains an open PRODUCT decision, as Ultra 24 section 6 framed it.
+
+### 4.2 PLATFORM BOUNDARY [D] - 4ccba62
+
+The durable queue is supported on Android and iOS only. The Expo web target is
+not an emergency-tracking client and gets no alternate implementation.
+Initialization on web must FAIL CLOSED. The existing `web` script is a
+development convenience and is explicitly not evidence that emergency tracking
+must work in browsers.
+
+[M] WHAT THE RESTRICTION BUYS, and this is recorded in the ADR so nobody
+relaxes it casually: withExclusiveTransactionAsync is unavailable on web, and
+the non-exclusive withTransactionAsync "can be interrupted by other async
+queries" per expo's own docs. The queue's read-then-delete after acknowledged
+delivery requires the exclusive form. Supporting web would require a separate
+queue implementation with separately specified semantics.
+
+### 4.3 REPLAY INTEGRITY [D] - ff2e556
+
+After acknowledged delivery, the replay layer compares the number of
+acknowledged idempotency keys with SQLite's `changes` count from the atomic
+delete. A SHORTFALL IS AN INTEGRITY FAULT. The current replay cycle stops, all
+remaining rows stay durable, a high-severity error records expected and actual
+counts, and the client must not report complete success or continue flushing
+later rows in that cycle.
+
+[D] THE REASONING, WHICH MATTERS MORE THAN THE RULE: rows whose keys matched
+have ALREADY been deleted atomically because the server acknowledged them. The
+stop rule protects what remains rather than attempting an impossible rollback.
+A nonzero shortfall is diagnostic of local key-identity drift, INCLUDING an
+idempotency-key collision - other causes are possible, among them duplicated
+acknowledgement keys, concurrent deletion, and corrupted local state - and
+continuing past it compounds an unknown integrity failure. The remaining rows
+stay durable and remain eligible for retry on a later scheduled flush; the rule
+does not silently delete or skip them. Note that a PERSISTENT fault would stop
+each subsequent cycle too, which is intended: a queue that cannot be reconciled
+should surface repeatedly rather than drain quietly.
+
+[D] AN EARLIER DRAFT PROPOSED LOG-AND-CONTINUE and was rejected. The argument
+for continuing was that the fixes were already delivered so resending is
+wasteful and the server dedupes anyway. The argument that won: a durable
+emergency queue that silently continues past a DETECTED inconsistency is how a
+system comes to report success while losing data. Stopping costs one flush
+interval - 15 seconds. Recorded so the choice is visible rather than
+inherited.
+
+
+================================================================================
+## 5. THE DURABLE QUEUE STORE - 38000f6
+================================================================================
+
+### 5.1 WHAT EXISTS [M]
+
+apps/mobile-app/src/services/journey-queue-store.ts, plus a 15-test spec.
+Exports JourneyQueueStore (a class taking an SQLiteDatabase) and
+openJourneyQueueStore().
+
+SCHEMA:
+  journey_queue(
+    queue_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    source TEXT NOT NULL,
+    latitude REAL NOT NULL, longitude REAL NOT NULL,
+    accuracy REAL, speed REAL,
+    recorded_at TEXT NOT NULL)
+  journey_queue_fifo_idx ON journey_queue(queue_id ASC)
+  journey_queue_meta(key TEXT PRIMARY KEY, value INTEGER NOT NULL)
+
+[D] FIFO ORDER COMES FROM queue_id AUTOINCREMENT, NOT recordedAt. ADR-014
+section 6 makes oldest-first non-negotiable and recordedAt is CAPTURE time,
+which can tie. Insertion order is the only total order available.
+
+[D] captureSeq LIVES IN A SEPARATE META TABLE, not on the rows. It must
+survive an EMPTY queue - if it lived on rows it would vanish with the last
+successful flush, which is exactly when a restart would then reuse keys.
+
+[D] NO heading COLUMN. cleanHeading exists and is tested but journey-tracker
+line 71-72 records that heading is deliberately absent from TrackedFix and
+nothing has a product reason to send it. Do not add a column because a
+sanitiser exists.
+
+METHODS: initialize(), enqueue(), listOldest(limit), deleteAcknowledged(keys)
+-> number, count(), getCaptureSequence(). All async. All parameterised - note
+execAsync's own warning that "the queries are not escaped for you."
+
+### 5.2 THE SHAPE TRAP - ROW IS NOT PAYLOAD [M]
+
+journey-tracker.ts lines 66-73 state that TrackedFix is EXACTLY the fields
+JourneyFixDto accepts, that forbidNonWhitelisted is true, and that ONE
+unrecognised property 400s the whole batch.
+
+THE ROW HAS TWO FIELDS THE PAYLOAD MUST NOT: queue_id and session_id. The
+replay layer MUST PROJECT, not SELECT and post. The obvious implementation -
+read rows, send them - puts a 400 on the emergency path and would pass every
+local test that does not assert on the request body.
+
+[M] AND accuracy/speed MUST BE OMITTED, NOT NULLED. They are optional on
+TrackedFix and enqueue() only sets them when defined. mapRow() reproduces this:
+a NULL column produces an ABSENT key, not `accuracy: null`. "Column is NULL"
+and "key absent from JSON" are different things to a whitelisting validator.
+
+### 5.3 WHAT INTEGRATION MUST STILL RESOLVE [R]
+
+Three are decided in ADR-014 section 11; two are not decided anywhere.
+
+  DECIDED:
+  1. Persist captureSeq and read it back on start (meta table exists).
+  2. Store session per fix (column exists).
+  3. Compare deleteAcknowledged's return against keys sent; stop the cycle on
+     shortfall (rule recorded 4.3).
+
+  NOT DECIDED ANYWHERE:
+  4. WHAT HAPPENS TO ROWS OWNED BY AN ENDED SESSION. The key embeds the
+     session id, so a persisted fix carries a key scoped to a session that may
+     be ENDED by the time the app restarts. Re-tagging changes the key and
+     therefore the dedupe identity against @@unique([journeySessionId,
+     idempotencyKey]). THIS IS ADR-014 SECTION 4's REACQUIRE PROBLEM ARRIVING
+     THROUGH THE CLIENT. Ultra 24 section 7.1 records that section 4 is harder
+     than it looks and that an attempt to scope around it was abandoned.
+     9c is NOT blocked by section 4 (both deferred rows default to KEEP, and a
+     persisted keep is still a keep) - but the client must decide what to DO
+     with a row whose session ended, and that decision does not exist.
+  5. WHERE OVERFLOW EVICTION HAPPENS NOW. MAX_QUEUED_FIXES = 600 is enforced
+     in enqueue() by slicing the in-memory array from the front. The store has
+     no eviction. Ultra 24 section 6 warns the retention ceiling must not be
+     set implicitly by an eviction policy written later. Writing eviction into
+     the store WOULD BE setting it implicitly.
+
+[R] PHASE C IS STILL NOT NEXT AND THE ORDERING IS UNCHANGED. ADR-014 section 7
+forbids the server going first. Ultra 24 section 5.3's order stands, with the
+first item now done:
+  1. Mobile test harness.                                    DONE 75b9fb4
+  2. Mobile durable queue - the actual buffering.            STORE ONLY
+  3. Mobile replay/resubmit - partly blocked on ADR-014 s4.
+  4. Phase C, server and client together.
+  5. Item 10, airplane-mode end to end.
+
+### 5.4 ITEM 10 - NOT STARTED [I]
+
+2-3h estimate, unchanged. One new consideration, NOT MEASURED THIS SESSION:
+expo-sqlite is a native module. Device validation must confirm that the
+installed SDK 54 Expo Go runtime includes the required SQLite implementation.
+OPA already expects development builds for native production capabilities, but
+this handover does not establish that SQLite alone requires one. Verify before
+planning item 10's device work around either assumption.
+
+
+================================================================================
+## 6. WHAT READING THE CODE SETTLED
+================================================================================
+
+### 6.1 THE FULL QUEUE MECHANISM, MEASURED [M]
+
+Ultra 24 section 6 describes journey-tracker.ts's queue. This session read
+enqueue (164-221) and flush (222-268) in full for the first time. All three of
+Ultra 24's constraints are confirmed in code. Additional findings:
+
+[M] flush() SENDS queue.slice(0, MAX_BATCH) - oldest first, 200 max - guarded
+by a `flushing` boolean against re-entry. ADR-014 section 6's ordering
+invariant is structurally preserved by the current implementation.
+
+[M] THE PRE-START GUARD compares the fix timestamp against
+trackingStartedAtMs, which is set BEFORE subscribing precisely so the cached
+fix that watchPositionAsync replays on subscribe is measured against a start
+time that already exists (line 300-302). The activation fix already holds that
+position, so dropping it loses nothing.
+
+[M] OVERFLOW SLICES FROM THE FRONT and logs. The evicted fix's key is gone
+locally but the server may already hold it. Harmless today; relevant once
+persisted.
+
+[M] captureSeq DOES NOT RESET ON stopTracking. It is module-lifetime, not
+tracking-lifetime, so within one process keys stay unique across start/stop
+cycles. ONLY PROCESS DEATH RESETS IT.
+
+### 6.2 THE UNCOUNTED CONSEQUENCE - KEY UNIQUENESS IS LOAD-BEARING TWICE [M]
+
+flush() removes sent fixes with:
+  queue = queue.filter((f) => sent[f.idempotencyKey] !== true);
+
+DELETION IS BY KEY, NOT BY INDEX. That is what makes trap 74 safe under
+concurrent enqueue - a fix arriving mid-flight is not removed by position.
+
+BUT IT MEANS A KEY COLLISION DELETES BOTH FIXES WHEN ONE WAS SENT. captureSeq
+resets to 0 on restart; a restored fix and a new one in the same session and
+the same millisecond produce identical keys; the filter then drops both.
+
+[M] THIS IS SILENT AND LOCAL. The server never sees it. No exception is
+thrown. The only symptom is a fix that was captured and never delivered.
+Ultra 24 section 6 names the captureSeq reset as a constraint but does not
+name this consequence, and no document did until ff2e556.
+
+[R] THIS IS WHY deleteAcknowledged RETURNS A NUMBER. It is the only mechanism
+in the system that can notice.
+
+### 6.3 THE trackerDebugState SEAM IS NARROWER THAN ITS NAME [M]
+
+  export function trackerDebugState(): {
+    running: boolean; sessionId: string | null; queued: number;
+  }
+
+That is all. NOT captureSeq. NOT the queued keys. NOT generation.
+
+[M] GREPPED, NOT ASSUMED: one definition, three references, all in the spec
+written this session. Nothing in the app consumes it. The shape is free to
+change without a compatibility concern.
+
+[R] WIDEN IT BEFORE WRITING INTEGRATION CODE. The claim 9c exists to make is
+"the queue survives process death." captureSeq is now ADR-mandated to persist
+and is not observable through any exported surface. A test cannot assert what
+it cannot see. Note the two existing toEqual assertions in the spec pin the
+exact object shape and will need updating in the same change - that is the
+seam working, not a cost.
+
+[M] A UNIT TEST CANNOT KILL A PROCESS. "Restart" has to be simulated with
+jest.resetModules() and re-import, which does reset module scope and is a fair
+proxy. IT IS A PROXY. Name it that way in the test title so no future reader
+promotes "module state resets" into "survives process death."
+
+
+================================================================================
+## 7. OUTSTANDING GAPS
+================================================================================
+
+### 7.1 THE DEBUG SEAM - NEW, AND LIMITING DIRECT OBSERVABILITY [M]
+
+See 6.3. Widening the seam is the smallest way to make persisted sequence and
+durable queue state directly observable. Mock-based integration tests are
+possible without it, but they test collaboration rather than recovered state.
+Widening the return type is free - no app consumers - which is why it is worth
+doing first rather than working around.
+
+### 7.2 ADR-014 SECTION 4 IS STILL OPEN [I]
+
+Unchanged from Ultra 24 section 7.1 and now arriving through the client - see
+5.3 item 4. The abandoned scoping attempt is recorded in Ultra 24; do not
+attempt it again in the same form. START_GRACE_MS is still 5 minutes in code
+and still explicitly undecided in the ADR, against a queue holding ~100
+minutes of depth.
+
+### 7.3 THE PRODUCTION-WRITE CHAIN - UNTOUCHED [I]
+
+Ultra 24 section 7.3's chain stands in full:
+  suppression tests -> flag -> boot -> migrations -> first write
+ADR-012 section 4 makes test coverage a PRECONDITION, and that coverage does
+not exist. Suppression is six hand-written checks in a 148-line method and NO
+TEST PINS IT. This is the shortest true description of what stands between OPA
+and a working production deployment, and it is gated on tests, not
+infrastructure. Nothing this session moved it.
+
+Also unchanged: ADR-012 section 4's note that the orchestrator's tolerance of
+a fully-null enrichment return is asserted in ADR-015 section 4 but has never
+been measured. That is on the SOS path.
+
+### 7.4 TWO ADRs REMAIN UNINSTALLED [M]
+
+RE-MEASURED THIS SESSION, NOT INHERITED: `## ADR-013` and `## ADR-015` do not
+appear in decision-log.md. Only ADR-016 (line 9), ADR-014 (218), ADR-012 (617)
+and the rest of the installed set are present.
+
+ADR-013 section 7 is where the VIEWER, NEVER CONSOLE boundary lives - the
+constraint that caused the earlier proposed ADR-018 to be rejected. Sprint 11's
+Command Center runs directly into a decision recorded in a file that is not in
+the decision log. Install both before that work starts. THE NEXT FREE ADR
+NUMBER IS STILL 018.
+
+### 7.5 LINT [I]
+
+npm run lint has now not been run in FOUR sessions. Baseline presumed red.
+apps/mobile-app has no lint configuration at all. UNMEASURED.
+
+### 7.6 CARRIED FORWARD FROM ULTRA 24, UNCHANGED [I]
+
+  - PHASE 3, the ADR-016 D6 production-operations runbook. STILL DOES NOT
+    EXIST. Ultra 20 part 1 section 9 item 2 lists the four required contents.
+    Also fix TODO.md:362-363 and :366-368. Good filler between heavy items.
+  - PHASE 7, ADR-017 provider fault isolation.
+  - PHASE 8, 10C location intelligence. UNSCOPED.
+  - The 201-vs-200 decision on the end route, pinned by test.
+  - layout.tsx:32 global meta description. TIME-SENSITIVE.
+  - AUTOMATIC LOCATION RENEWER. Needs its own ADR.
+  - ADR-018 tracking continuity (Ultra 24 section 9.2). Note public tracking
+    still returns ONE FIX, so a segmented viewer is new capability, not
+    restoration.
+  - The twelve coordination instances; 21.1; 21.6; Swagger gating;
+    website Vercel -> Azure migration.
+
+
+================================================================================
+## 8. INVESTIGATION FINDINGS
+================================================================================
+
+### 8.1 THE HANDOVER CHAIN HAD A HOLE IN IT FOR A FULL SESSION [M]
+
+docs/handovers/ contained Ultra 13 through 22 and then nothing. Ultra 23 -
+generated at bf51d2e, declared authoritative by Ultra 24, cited by path in
+Ultra 24's header - was never committed. Ultra 24's own step 1 says "commit
+this file"; Ultra 23's said the same and did not run.
+
+[M] BOTH WERE SITTING IN Downloads. Ultra 24 was CRLF; Ultra 23 was LF-ONLY
+(crlf=0, lonelf=490) and had to be converted before install to match its 25
+neighbours.
+
+[M] ULTRA 23's SECTION ANCHORS WERE VERIFIED BEFORE COMMITTING, not assumed.
+Ultra 24 cites sections 3.1, 4, 5.1 and 7; all four resolve, and their titles
+match what Ultra 24 says they contain.
+
+[R] AUDIT THE HANDOVER SOURCE AT THE TOP OF EVERY SESSION. One command:
+  Get-ChildItem docs\handovers -Filter *.txt | Select-Object Name
+against the highest Ultra number known. A delta chain is only as good as its
+weakest link, and this one was invisible for a session because nothing checks
+that the document a handover DEFERS TO actually exists.
+
+[R] AND CHECK WHETHER ANYTHING ELSE FROM THAT SESSION WENT UNCOMMITTED. The
+code from Ultra 23's session did land (bf51d2e is in the log). Only the
+document was lost. But the question was not asked until now.
+
+### 8.2 TRAP #119 - PowerShell KILLS A PIPELINE ON GIT'S STDERR [M]
+
+  git push 2>&1 | ForEach-Object { "push|$_" }
+
+failed with a NativeCommandError on git's ordinary progress output ("To
+https://..."), which git writes to STDERR. PowerShell turned it into a
+terminating error record and ABORTED THE REST OF THE LINE, so the follow-up
+`$LASTEXITCODE` and status checks never printed. THE PUSH ITSELF SUCCEEDED.
+Reading the error as a failed push would have been wrong.
+
+[R] RUN git push AS A PLAIN STATEMENT, NOT PIPED. This works and prints
+everything:
+  git push origin main; "head=" + (git rev-parse --short HEAD)
+`2>$null` plus a separate state check also works. Never `2>&1 |`.
+The same applies to `npm ls`, which writes unmet-peer warnings to stderr.
+
+### 8.3 TRAP #120 - .NET PATH APIs IGNORE PowerShell's cd [M]
+
+  cd C:\Projects\OPA; [System.IO.File]::ReadAllText("docs\...\file.txt")
+
+throws "Could not find a part of the path 'C:\Windows\system32\docs\...'".
+PowerShell's `cd` does not move the .NET process working directory. Get-Item
+and Get-Content in the SAME LINE resolve correctly; only the .NET call is
+wrong, which makes it look like a missing file.
+
+[R] ALWAYS PASS ABSOLUTE PATHS TO [System.IO.*]. And note the failure told us
+NOTHING about whether the file existed.
+
+### 8.4 TRAP #121 - INVARIANT STRINGS THAT SPAN A LINE WRAP [M]
+
+A docs installer asserted the literal:
+  'Persisting `captureSequence` across process death'
+against markdown wrapped at ~80 columns, where the text reads:
+  ...deletion exact. Persisting
+  `captureSequence` across process death is part of...
+The newline sits inside the search string, so it never matched and the
+installer threw - CORRECTLY, and BEFORE writing anything.
+
+[R] CHOOSE INVARIANT ANCHORS THAT CANNOT SPAN A WRAP. And fix the ANCHOR, not
+the prose: reflowing documentation to satisfy a checker inverts the
+relationship between them.
+
+[M] A SECOND, WEAKER ANCHOR IN THE SAME LIST was `'the expected'` with a
+`-lt 1` comparison - a phrase that could match anywhere in an 82KB file, under
+a test that passes on any count. Changed to `'and actual counts'` with `-ne 1`.
+An invariant that cannot fail is not an invariant.
+
+### 8.5 THE INSTALLER PATTERN IS NOW THE STANDARD FOR DOC AND FILE EDITS [R]
+
+Proven repeatedly this session. The shape:
+
+  1. REFUSE TO RUN unless git status --porcelain is empty.
+  2. Read the file as BYTES; detect BOM; assert CRLF-only before editing.
+  3. Assert the anchor matches EXACTLY ONCE; refuse otherwise.
+  4. Assert the new content is NOT ALREADY PRESENT (idempotency guard).
+  5. Apply, then assert every content invariant with `-ne 1`.
+  6. Write bytes; READ BACK and compare; restore the original on mismatch.
+  7. Run git diff --check; restore the original if it fails.
+  8. For code installers, add a byte-equality check on files that MUST NOT
+     change - `tracker-byte-unchanged` proved journey-tracker.ts was untouched.
+
+Step 8 is what turns "I did not mean to touch that file" into an exit code.
+
+### 8.6 ISSUE 17.3 - ONE MORE DATA POINT, THRESHOLD HOLDS [M]
+
+  | Run duration | Warning |
+  |--------------|---------|
+  | 27.1s        | clean   |
+  | 29.4s        | clean   |
+  | 30.9s        | clean   |
+  | 31.0s        | clean   |
+  | 36.4s        | clean   |  (THIS SESSION)
+  | 45.9s        | clean   |
+  | 46.4s        | FIRED   |
+  | 56.0s        | FIRED   |
+  | 70.1s        | FIRED   |
+
+Nine points, still cleanly separable at roughly 46 seconds. This session's
+36.4s sits in the previously empty gap between 31.0 and 45.9 and is clean,
+which strengthens rather than complicates the reading. --forceExit REMAINS
+REJECTED. Still the best-characterised open issue in the repository and still
+worth one focused session with --detectOpenHandles.
+
+### 8.7 THE PATTERN, INVERTED ON PURPOSE [R]
+
+Ultra 23: read the schema before designing against it.
+Ultra 24: read the ADR before measuring the code.
+ULTRA 25: WRITE THE DECISION BEFORE THE CODE THAT DEPENDS ON IT.
+
+Four times this session an implementation was about to land before its
+rationale. Each time the ADR text went first, and in each case the writing
+changed the design - the web boundary produced the exclusive-transaction
+justification, and drafting the replay rule produced 6.2's discovery that key
+uniqueness is load-bearing twice.
+
+[R] THE COST IS ONE COMMIT. THE BENEFIT IS THAT A FUTURE READER FINDS A
+DECISION RATHER THAN AN ARTEFACT. A dependency in package.json with no
+recorded reason reads as a choice someone made with a command.
+
+
+================================================================================
+## 9. FIRST ACTIONS IN THE NEXT SESSION
+================================================================================
+
+1. Commit this file to docs/handovers/OPA-Handover-Ultra-25.txt (CRLF, to
+   match its neighbours). VERIFY Ultra 24 AND Ultra 23 ARE BOTH STILL THERE.
+
+2. Verify state:
+   $env:GIT_PAGER='cat'
+   cd C:\Projects\OPA; "probe=resume"; "current=" + (git branch --show-current); git log --oneline -5 | ForEach-Object { "log|$_" }; "porcelain=" + @(git status --porcelain).Count
+   EXPECT current=main, HEAD ff2e556 (or later), porcelain=0.
+   Any .cjs, .ps1 or .b64 untracked - DELETE IT (trap #64).
+
+3. Confirm all three suites:
+   cd C:\Projects\OPA\apps\api; "probe=green"; npx jest; "jest_exit=$LASTEXITCODE"
+   EXPECT 24 suites / 264 tests. UNPIPED (trap #66).
+   cd C:\Projects\OPA\apps\api; "probe=green-int"; npm run test:int; "int_exit=$LASTEXITCODE"
+   EXPECT 6 suites / 32 tests.
+   cd C:\Projects\OPA\apps\mobile-app; "probe=green-mobile"; npm test; "jest_exit=$LASTEXITCODE"
+   EXPECT 2 suites / 21 tests. NEW GATE - it did not exist before 75b9fb4.
+
+4. WIDEN trackerDebugState(). Section 6.3 and 7.1. Small, no app consumers,
+   makes everything after it testable.
+
+5. INTEGRATE THE STORE INTO journey-tracker.ts. Section 5.3 has the five
+   things it must resolve. Two of them are not decided anywhere - decide them
+   in ADR-014 BEFORE the code, per 8.7.
+
+6. DO NOT SHIP PHASE C BEFORE THE CLIENT CAN READ THE ENVELOPE. Unchanged.
+
+REMEMBER THE WORKING METHOD: one command per step, reviewed before it is run,
+run and verified before the next is written. Every command carries a probe=
+token. Never assume file state - measure it.
+
+[M] THE PROBE TOKEN EARNED ITS KEEP THIS SESSION. Three times a command was
+replayed from shell history instead of the one just written, and the mismatched
+probe= name caught it every time. Without the token the outputs would have
+looked plausible and been answering a different question.
+
+
+# END OF HANDOVER ULTRA 25
+# Delta to Ultra 24. Generated at ff2e556 on main, level with origin.

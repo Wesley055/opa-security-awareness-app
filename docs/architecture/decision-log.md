@@ -782,6 +782,126 @@ sequence is never decremented and never reused: reuse would mint a duplicate
 key, and section 11 already records that key identity is load-bearing for local
 deletion as well as server deduplication.
 
+#### HTTP 400 on replay - head-of-line policy
+
+**Context.** Replacing the in-memory Journey queue with durable SQLite
+buffering changed the replay failure model. `JourneyIngestionService.ingest()`
+rejects a whole fix batch on any bad item and writes no survivors, while the
+client correctly retains every row on any non-2xx. Together these behaviours
+mean one permanently rejected row blocks every row behind it for as long as
+the installation lives. Before durable buffering, process termination
+discarded the in-memory queue. With durable buffering, queue contents survive
+process termination until explicitly removed.
+
+**Measured: HTTP 400 covers two conditions with opposite lifetimes.**
+
+`classifyJourneyFixes()` in `journey-ingestion.service.ts` emits two rejection
+codes, both surfacing as HTTP 400:
+
+- `FIX_RECORDED_TOO_FAR_IN_FUTURE` rejects when
+  `timestampMs > nowMs + MAX_FUTURE_SKEW_MS`. The ceiling is anchored to the
+  server's current time and therefore **moves**. The row is unchanged while
+  the bound rises to meet it. This rejection is **self-healing in principle**.
+- `FIX_PRECEDES_SESSION` rejects when `timestampMs < floorMs`. The floor is
+  anchored to session start and **never moves**. This rejection is
+  **permanent for that session**.
+
+A single policy for HTTP 400 is therefore wrong in one direction whichever
+way it is set: evict, and rows that would have succeeded unaided are
+destroyed; hold silently, and rows that will never succeed are held forever
+without signal.
+
+**Measured: the self-healing delay is unbounded, and
+`MAX_FUTURE_SKEW_MS` does not bound it.**
+
+`MAX_FUTURE_SKEW_MS = 5 * 60 * 1000` is the server's *tolerance*, not a
+recovery interval. For a device clock running ahead by X,
+`recordedAt` is approximately `real_now + X`, and the row becomes eligible at
+`real_now + X - MAX_FUTURE_SKEW_MS`. Recovery time is governed by the device
+clock offset rather than by `MAX_FUTURE_SKEW_MS`, and the offset has no
+architectural upper bound. A device one hour fast stalls the queue for
+fifty-five minutes; a device with a corrupt real-time clock stalls it
+indefinitely.
+
+**No escalation timer may be derived from `MAX_FUTURE_SKEW_MS`.** Such a
+timer would classify ordinary self-healing rows as permanent faults, which is
+worse than no discrimination at all.
+
+**Measured: a skewed client cannot compute its own eligibility.**
+
+The eligibility condition
+`nowMs >= recordedAtMs - MAX_FUTURE_SKEW_MS` is a statement about the
+**server's** clock. The client holds only its own, and `recordedAt` was minted
+by that same clock. From inside the device, the condition therefore appears
+already satisfied regardless of the skew. Local eligibility computation is
+not available. Any future implementation requires an explicit server-clock
+reference and a held offset; that is new surface and is out of scope for this
+decision.
+
+**Decision - interim, while Phase B keeps the rejection envelope invisible.**
+
+On HTTP 400 during replay, the client shall:
+
+1. **Retain every row.** No eviction, retagging or reordering.
+2. **Halt the current replay cycle.**
+3. **Surface a persistent high-severity fault** distinct from the HTTP 409
+   and HTTP 404 outcomes.
+
+No timer is started. No client-side inference is made about which row is at
+fault. Under Phase B, the client receives a bare status code and cannot
+identify the rejected row. Eviction would delete captured emergency data on a
+guess, while the two HTTP 400 conditions cannot be distinguished through the
+current wire contract.
+
+**Message text SHALL NOT be parsed to classify replay outcomes. Only explicit
+protocol fields defined by the API contract may be used.**
+
+The consequence is accepted explicitly: **a future-skew rejection blocks the
+queue for an unbounded period, and the fault raised for it may resolve without
+operator action.** This is a known false-positive class, not a defect in the
+rule.
+
+**This ADR intentionally separates transport limitations from product
+policy.** The interim rule is constrained by the current replay protocol, not
+by the desired long-term behaviour. Phase C changes what information the
+client receives; it does not by itself authorise deletion or quarantine of
+captured evidence.
+
+**Decision - target, once Phase C exposes per-item results.**
+
+The `RejectedFix` type already carries `idempotencyKey` and `code`. When the
+client can read that envelope:
+
+- `FIX_RECORDED_TOO_FAR_IN_FUTURE` - retain the named row and retry after
+  eligibility, determined using an explicit server-clock reference rather
+  than the device clock.
+- `FIX_PRECEDES_SESSION` - the row is permanently invalid for that session.
+  Key-exact quarantine or removal is then *possible*, but is **not authorised
+  by this ADR**. Removing captured emergency evidence requires a separately
+  approved evidence-retention decision. Until that exists, the target
+  behaviour for this code remains retention plus fault, as in the interim
+  rule.
+
+Phase C must not ship server-first. ADR-014 section 7 remains authoritative.
+
+**Recorded inconsistency - `retryable: false` on future-skew.**
+
+`classifyJourneyFixes()` sets `retryable: false` on both rejection codes. For
+`FIX_RECORDED_TOO_FAR_IN_FUTURE`, this contradicts the moving boundary, which
+proves the row can become acceptable later. The adjacent implementation
+comment defers `retryable` and `retryAfter` to Phase C, so the field is
+provisional and **must not be treated as the client contract**. Correcting it
+is server-side work and is deliberately not scheduled here.
+
+**Recorded hazard - two unrelated five-minute tolerances.**
+
+`MAX_FUTURE_SKEW_MS` and `START_GRACE_MS` are both
+`5 * 60 * 1000` and both affect the HTTP 400 path. They are independent
+quantities that coincide in value: one bounds implausible device-clock lead,
+while the other tolerates a fix captured just before the session row was
+written. They must not be collapsed into a shared constant.
+`START_GRACE_MS` remains undecided in this ADR.
+
 ---
 
 ## ADR-012 - Mock emergency-intelligence providers may be registered in production when their outputs are provably suppressed, acknowledged by an explicitly named boot flag

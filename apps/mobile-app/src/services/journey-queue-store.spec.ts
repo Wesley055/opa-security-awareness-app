@@ -1,0 +1,432 @@
+import { Platform } from 'react-native';
+import {
+  openDatabaseAsync,
+  type SQLiteDatabase,
+  type SQLiteRunResult,
+} from 'expo-sqlite';
+import {
+  JourneyQueueStore,
+  openJourneyQueueStore,
+} from './journey-queue-store';
+import type { TrackedFix } from './journey-tracker';
+
+jest.mock('expo-sqlite', () => ({
+  openDatabaseAsync: jest.fn(),
+}));
+
+const mockedOpenDatabaseAsync =
+  openDatabaseAsync as jest.MockedFunction<typeof openDatabaseAsync>;
+
+function runResult(changes: number): SQLiteRunResult {
+  return {
+    lastInsertRowId: 0,
+    changes,
+  };
+}
+
+function fix(
+  idempotencyKey = 'session-1:1000:1',
+): TrackedFix {
+  return {
+    idempotencyKey,
+    source: 'foreground',
+    latitude: 6.5244,
+    longitude: 3.3792,
+    accuracy: 5,
+    speed: 1.5,
+    recordedAt: '2026-08-04T12:00:00.000Z',
+  };
+}
+
+function createDatabaseMock() {
+  const transaction = {
+    runAsync: jest.fn(),
+  };
+
+  const database = {
+    execAsync: jest.fn(),
+    runAsync: jest.fn(),
+    getAllAsync: jest.fn(),
+    getFirstAsync: jest.fn(),
+    withExclusiveTransactionAsync: jest.fn(
+      async (
+        task: (
+          transactionDatabase: typeof transaction,
+        ) => Promise<void>,
+      ) => {
+        await task(transaction);
+      },
+    ),
+  };
+
+  return {
+    database: database as unknown as SQLiteDatabase,
+    databaseMock: database,
+    transaction,
+  };
+}
+
+describe('JourneyQueueStore', () => {
+  beforeEach(() => {
+    mockedOpenDatabaseAsync.mockReset();
+  });
+
+  it('initializes the SQLite schema', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+    const store = new JourneyQueueStore(database);
+
+    await store.initialize();
+
+    expect(databaseMock.execAsync).toHaveBeenCalledTimes(1);
+
+    const sql = databaseMock.execAsync.mock.calls[0]?.[0] ?? '';
+
+    expect(sql).toContain(
+      'CREATE TABLE IF NOT EXISTS journey_queue',
+    );
+    expect(sql).toContain(
+      'CREATE TABLE IF NOT EXISTS journey_queue_meta',
+    );
+    expect(sql).toContain('PRAGMA journal_mode = WAL');
+    expect(sql).toContain(
+      'CREATE INDEX IF NOT EXISTS journey_queue_fifo_idx',
+    );
+  });
+
+  it('atomically inserts a fix and advances capture sequence', async () => {
+    const { database, databaseMock, transaction } = createDatabaseMock();
+
+    transaction.runAsync
+      .mockResolvedValueOnce(runResult(1))
+      .mockResolvedValueOnce(runResult(1));
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(
+      store.enqueue({
+        sessionId: 'session-1',
+        fix: fix(),
+        captureSequence: 7,
+      }),
+    ).resolves.toBe(true);
+
+    expect(
+      databaseMock.withExclusiveTransactionAsync,
+    ).toHaveBeenCalledTimes(1);
+
+    expect(transaction.runAsync).toHaveBeenCalledTimes(2);
+
+    expect(transaction.runAsync.mock.calls[0]?.[0]).toContain(
+      'INSERT OR IGNORE INTO journey_queue',
+    );
+
+    expect(transaction.runAsync.mock.calls[0]?.[1]).toEqual([
+      'session-1',
+      'session-1:1000:1',
+      'foreground',
+      6.5244,
+      3.3792,
+      5,
+      1.5,
+      '2026-08-04T12:00:00.000Z',
+    ]);
+
+    expect(transaction.runAsync.mock.calls[1]?.[0]).toContain(
+      'MAX(journey_queue_meta.value, excluded.value)',
+    );
+
+    expect(transaction.runAsync.mock.calls[1]?.[1]).toEqual([
+      'capture_sequence',
+      7,
+    ]);
+  });
+
+  it('reads insert changes before the metadata statement', async () => {
+    const { database, transaction } = createDatabaseMock();
+
+    transaction.runAsync
+      .mockResolvedValueOnce(runResult(1))
+      .mockResolvedValueOnce(runResult(0));
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(
+      store.enqueue({
+        sessionId: 'session-1',
+        fix: fix(),
+        captureSequence: 7,
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it('reports duplicate idempotency keys as not inserted', async () => {
+    const { database, transaction } = createDatabaseMock();
+
+    transaction.runAsync
+      .mockResolvedValueOnce(runResult(0))
+      .mockResolvedValueOnce(runResult(1));
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(
+      store.enqueue({
+        sessionId: 'session-1',
+        fix: fix(),
+        captureSequence: 7,
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it('rejects invalid capture sequence values', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+    const store = new JourneyQueueStore(database);
+
+    await expect(
+      store.enqueue({
+        sessionId: 'session-1',
+        fix: fix(),
+        captureSequence: -1,
+      }),
+    ).rejects.toThrow('captureSequence must be non-negative.');
+
+    await expect(
+      store.enqueue({
+        sessionId: 'session-1',
+        fix: fix(),
+        captureSequence: Number.NaN,
+      }),
+    ).rejects.toThrow('captureSequence must be a safe integer.');
+
+    expect(
+      databaseMock.withExclusiveTransactionAsync,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('lists rows in durable FIFO order and maps nullable telemetry', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+
+    databaseMock.getAllAsync.mockResolvedValue([
+      {
+        queue_id: 1,
+        session_id: 'session-1',
+        idempotency_key: 'key-1',
+        source: 'foreground',
+        latitude: 6.5,
+        longitude: 3.3,
+        accuracy: null,
+        speed: null,
+        recorded_at: '2026-08-04T12:00:00.000Z',
+      },
+      {
+        queue_id: 2,
+        session_id: 'session-1',
+        idempotency_key: 'key-2',
+        source: 'manual',
+        latitude: 6.6,
+        longitude: 3.4,
+        accuracy: 4,
+        speed: 2,
+        recorded_at: '2026-08-04T12:00:10.000Z',
+      },
+    ]);
+
+    const store = new JourneyQueueStore(database);
+    const rows = await store.listOldest(200);
+
+    expect(databaseMock.getAllAsync.mock.calls[0]?.[0]).toContain(
+      'ORDER BY queue_id ASC',
+    );
+
+    expect(databaseMock.getAllAsync.mock.calls[0]?.[1]).toEqual([
+      200,
+    ]);
+
+    expect(rows).toEqual([
+      {
+        queueId: 1,
+        sessionId: 'session-1',
+        idempotencyKey: 'key-1',
+        source: 'foreground',
+        latitude: 6.5,
+        longitude: 3.3,
+        recordedAt: '2026-08-04T12:00:00.000Z',
+      },
+      {
+        queueId: 2,
+        sessionId: 'session-1',
+        idempotencyKey: 'key-2',
+        source: 'manual',
+        latitude: 6.6,
+        longitude: 3.4,
+        accuracy: 4,
+        speed: 2,
+        recordedAt: '2026-08-04T12:00:10.000Z',
+      },
+    ]);
+  });
+
+  it('rejects a non-positive list limit', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+    const store = new JourneyQueueStore(database);
+
+    await expect(store.listOldest(0)).rejects.toThrow(
+      'limit must be a positive safe integer.',
+    );
+
+    expect(databaseMock.getAllAsync).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when a stored source is unsupported', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+
+    databaseMock.getAllAsync.mockResolvedValue([
+      {
+        queue_id: 1,
+        session_id: 'session-1',
+        idempotency_key: 'key-1',
+        source: 'corrupt',
+        latitude: 6.5,
+        longitude: 3.3,
+        accuracy: null,
+        speed: null,
+        recorded_at: '2026-08-04T12:00:00.000Z',
+      },
+    ]);
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(store.listOldest(1)).rejects.toThrow(
+      'Stored Journey fix has an unsupported source: corrupt',
+    );
+  });
+
+  it('returns sqlite changes when deleting acknowledged keys', async () => {
+    const { database, transaction } = createDatabaseMock();
+
+    transaction.runAsync.mockResolvedValue(runResult(2));
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(
+      store.deleteAcknowledged(['key-1', 'key-2']),
+    ).resolves.toBe(2);
+
+    expect(transaction.runAsync.mock.calls[0]?.[0]).toContain(
+      'DELETE FROM journey_queue',
+    );
+
+    expect(transaction.runAsync.mock.calls[0]?.[1]).toEqual([
+      'key-1',
+      'key-2',
+    ]);
+  });
+
+  it('does not open a transaction for an empty acknowledgement', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+    const store = new JourneyQueueStore(database);
+
+    await expect(store.deleteAcknowledged([])).resolves.toBe(0);
+
+    expect(
+      databaseMock.withExclusiveTransactionAsync,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('returns queue count and persisted capture sequence', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+
+    databaseMock.getFirstAsync
+      .mockResolvedValueOnce({ count: 12 })
+      .mockResolvedValueOnce({ value: 44 });
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(store.count()).resolves.toBe(12);
+    await expect(store.getCaptureSequence()).resolves.toBe(44);
+  });
+
+  it('returns zero for missing count and sequence rows', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+
+    databaseMock.getFirstAsync
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(store.count()).resolves.toBe(0);
+    await expect(store.getCaptureSequence()).resolves.toBe(0);
+  });
+
+  it('opens and initializes the store on iOS', async () => {
+    const originalOs = Platform.OS;
+
+    Object.defineProperty(Platform, 'OS', {
+      configurable: true,
+      value: 'ios',
+    });
+
+    const { database, databaseMock } = createDatabaseMock();
+
+    mockedOpenDatabaseAsync.mockResolvedValue(database);
+
+    try {
+      const store = await openJourneyQueueStore();
+
+      expect(store).toBeInstanceOf(JourneyQueueStore);
+      expect(mockedOpenDatabaseAsync).toHaveBeenCalledWith(
+        'opa-journey-queue.db',
+      );
+      expect(databaseMock.execAsync).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(Platform, 'OS', {
+        configurable: true,
+        value: originalOs,
+      });
+    }
+  });
+
+  it('fails closed on web without opening SQLite', async () => {
+    const originalOs = Platform.OS;
+
+    Object.defineProperty(Platform, 'OS', {
+      configurable: true,
+      value: 'web',
+    });
+
+    try {
+      await expect(openJourneyQueueStore()).rejects.toThrow(
+        'Durable Journey tracking is not supported on web.',
+      );
+
+      expect(mockedOpenDatabaseAsync).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(Platform, 'OS', {
+        configurable: true,
+        value: originalOs,
+      });
+    }
+  });
+
+  it('fails closed on other unsupported platforms', async () => {
+    const originalOs = Platform.OS;
+
+    Object.defineProperty(Platform, 'OS', {
+      configurable: true,
+      value: 'windows',
+    });
+
+    try {
+      await expect(openJourneyQueueStore()).rejects.toThrow(
+        'Durable Journey tracking requires Android or iOS.',
+      );
+
+      expect(mockedOpenDatabaseAsync).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(Platform, 'OS', {
+        configurable: true,
+        value: originalOs,
+      });
+    }
+  });
+});

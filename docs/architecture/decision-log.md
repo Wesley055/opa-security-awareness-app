@@ -590,6 +590,28 @@ After each mutation, the committed file was restored byte-for-byte. The
 integration baseline returned to 6 suites and 32 tests passing, and the
 repository returned to a clean (`porcelain=0`) state.
 
+### 11. Durable mobile queue storage
+
+**Decision:** the mobile Journey queue uses `expo-sqlite`.
+
+SQLite was selected because the queue requires durable ordered rows, an
+explicit journey-session identifier per fix, persisted capture sequence state
+across process death, and atomic removal only after acknowledged delivery.
+Those requirements map directly to row storage and transactions.
+
+`expo-secure-store` remains reserved for small secrets and authentication
+material. It is not a telemetry queue. AsyncStorage was rejected for this
+workload because enqueue and dequeue operations would require repeatedly
+serialising, parsing and replacing the entire queue of up to 600 fixes.
+
+The durable store must preserve the existing oldest-first flush invariant,
+store the owning session with every fix, and persist the capture sequence so
+process restart cannot reuse an idempotency key.
+
+This decision does **not** set an age-retention ceiling. The existing
+`MAX_QUEUED_FIXES = 600` remains the independent depth bound, while the
+time-based retention limit remains an explicit open product decision.
+
 ---
 
 ## ADR-012 - Mock emergency-intelligence providers may be registered in production when their outputs are provably suppressed, acknowledged by an explicitly named boot flag

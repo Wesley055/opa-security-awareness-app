@@ -469,4 +469,225 @@ describe('journey-tracker lifecycle', () => {
 
     stopTracking();
   });
+
+  it('a second flush exits while the first is still pending', async () => {
+    const store = replayingStore();
+
+    let releasePost: (() => void) | undefined;
+    mockedPost.mockImplementation((url: string) => {
+      if (url === '/journey/fixes') {
+        return new Promise((resolve) => {
+          releasePost = () => resolve({ data: {} });
+        });
+      }
+      return Promise.resolve({
+        data: { sessionId: 'session-1', reused: true, purpose: 'INCIDENT' },
+      });
+    });
+
+    mockedLocation.getForegroundPermissionsAsync.mockResolvedValue({
+      granted: true,
+    } as never);
+    mockedLocation.watchPositionAsync.mockResolvedValue({
+      remove: jest.fn(),
+    } as never);
+    mockedOpenStore.mockResolvedValue(store);
+
+    await startTracking();
+
+    const first = flushForTests();
+    await Promise.resolve();
+
+    // The re-entry guard makes this a no-op rather than a second batch.
+    await flushForTests();
+
+    expect(store.listOldest).toHaveBeenCalledTimes(1);
+
+    releasePost?.();
+    await first;
+
+    expect(store.listOldest).toHaveBeenCalledTimes(1);
+
+    stopTracking();
+  });
+
+  it('a capture during a HEALTHY flush defers eviction at the ordinary bound', async () => {
+    const store = replayingStore();
+
+    let releasePost: (() => void) | undefined;
+    mockedPost.mockImplementation((url: string) => {
+      if (url === '/journey/fixes') {
+        return new Promise((resolve) => {
+          releasePost = () => resolve({ data: {} });
+        });
+      }
+      return Promise.resolve({
+        data: { sessionId: 'session-1', reused: true, purpose: 'INCIDENT' },
+      });
+    });
+
+    mockedLocation.getForegroundPermissionsAsync.mockResolvedValue({
+      granted: true,
+    } as never);
+    mockedLocation.watchPositionAsync.mockResolvedValue({
+      remove: jest.fn(),
+    } as never);
+    mockedOpenStore.mockResolvedValue(store);
+
+    await startTracking();
+
+    const inFlight = flushForTests();
+    await Promise.resolve();
+
+    const capture = mockedLocation.watchPositionAsync.mock.calls[0]?.[1] as
+      | ((position: unknown) => void)
+      | undefined;
+
+    expect(capture).toBeDefined();
+    capture?.({ coords: { latitude: 1, longitude: 2 }, timestamp: Date.now() });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(store.enqueue).toHaveBeenCalledWith(
+      expect.anything(),
+      { maxQueuedFixes: 600, deferOverflowEviction: true },
+    );
+
+    releasePost?.();
+    await inFlight;
+
+    stopTracking();
+  });
+
+  it('a capture during a FAULTED flush enforces the ceiling and never defers', async () => {
+    // The strongest guard on ADR-014 section 11: this is the only assertion
+    // that distinguishes `flushing && !faulted` from a bare `flushing`.
+    const store = replayingStore();
+
+    mockedLocation.getForegroundPermissionsAsync.mockResolvedValue({
+      granted: true,
+    } as never);
+    mockedLocation.watchPositionAsync.mockResolvedValue({
+      remove: jest.fn(),
+    } as never);
+    mockedOpenStore.mockResolvedValue(store);
+
+    let releasePost: (() => void) | undefined;
+    mockedPost.mockImplementation((url: string) => {
+      if (url === '/journey/fixes') {
+        return Promise.reject(axiosRejection(409));
+      }
+      return Promise.resolve({
+        data: { sessionId: 'session-1', reused: true, purpose: 'INCIDENT' },
+      });
+    });
+
+    await startTracking();
+
+    // Cycle one raises the fault.
+    await flushForTests();
+    expect(trackerDebugState().replayFault).toMatchObject({ kind: 'HTTP_409' });
+
+    // Cycle two is held open so a capture lands while BOTH flags are set.
+    mockedPost.mockImplementation((url: string) => {
+      if (url === '/journey/fixes') {
+        return new Promise((_resolve, reject) => {
+          releasePost = () => reject(axiosRejection(409));
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    const inFlight = flushForTests();
+    await Promise.resolve();
+
+    const capture = mockedLocation.watchPositionAsync.mock.calls[0]?.[1] as
+      | ((position: unknown) => void)
+      | undefined;
+
+    capture?.({ coords: { latitude: 3, longitude: 4 }, timestamp: Date.now() });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(store.enqueue).toHaveBeenCalledWith(
+      expect.anything(),
+      { maxQueuedFixes: 1200, deferOverflowEviction: false },
+    );
+
+    releasePost?.();
+    await inFlight;
+
+    stopTracking();
+  });
+});
+
+describe('journey-tracker module reset', () => {
+  // resetModules is a PROXY for a fresh module instance. It does NOT kill a
+  // process and proves NOTHING about surviving process death - see ADR-014
+  // section 11 and the Ultra 26 note on this exact hazard. What it does
+  // prove: a freshly loaded tracker re-opens the durable store, restores the
+  // persisted capture sequence, and starts with both fault slots clear.
+  it('resetModules reopens the durable store and restores capture sequence', async () => {
+    jest.resetModules();
+
+    await jest.isolateModulesAsync(async () => {
+      // Handles must be fetched INSIDE the block. resetModules re-evaluates
+      // the jest.mock factories, so the outer mockedOpenStore and mockedPost
+      // are different function objects from the ones the fresh tracker sees.
+      const freshStoreModule = jest.requireMock(
+        './journey-queue-store',
+      ) as { openJourneyQueueStore: jest.Mock };
+      const freshApi = jest.requireMock('./api') as { api: { post: jest.Mock } };
+      const freshLocation = jest.requireMock(
+        'expo-location',
+      ) as {
+        getForegroundPermissionsAsync: jest.Mock;
+        watchPositionAsync: jest.Mock;
+      };
+
+      const store = {
+        initialize: jest.fn(),
+        enqueue: jest.fn().mockResolvedValue({
+          inserted: true,
+          dropped: 0,
+          durableDepth: 1,
+        }),
+        listOldest: jest.fn().mockResolvedValue([]),
+        deleteAcknowledged: jest.fn().mockResolvedValue(0),
+        trimToDepth: jest.fn().mockResolvedValue({ dropped: 0, durableDepth: 0 }),
+        count: jest.fn().mockResolvedValue(9),
+        getCaptureSequence: jest.fn().mockResolvedValue(31),
+      };
+
+      freshStoreModule.openJourneyQueueStore.mockResolvedValue(store);
+      freshLocation.getForegroundPermissionsAsync.mockResolvedValue({
+        granted: true,
+      });
+      freshLocation.watchPositionAsync.mockResolvedValue({ remove: jest.fn() });
+      freshApi.api.post.mockResolvedValue({
+        data: { sessionId: 'session-9', reused: false, purpose: 'INCIDENT' },
+      });
+
+      // NOT `await import()`. Babel leaves a dynamic import as a real
+      // dynamic import, which needs --experimental-vm-modules. require()
+      // goes through the module registry isolateModulesAsync just reset,
+      // which is what this test needs anyway. The `typeof import(...)` is
+      // a TYPE position and is erased at compile time.
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const fresh = require('./journey-tracker') as typeof import('./journey-tracker');
+
+      await fresh.startTracking();
+
+      expect(freshStoreModule.openJourneyQueueStore).toHaveBeenCalledTimes(1);
+      expect(store.getCaptureSequence).toHaveBeenCalledTimes(1);
+
+      const state = fresh.trackerDebugState();
+      expect(state.captureSequence).toBe(31);
+      expect(state.replayFault).toBeNull();
+      expect(state.evictionDiagnostic).toBeNull();
+
+      fresh.stopTracking();
+      fresh.resetTrackerStateForTests();
+    });
+  });
 });

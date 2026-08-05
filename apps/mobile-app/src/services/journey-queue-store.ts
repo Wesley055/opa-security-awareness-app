@@ -37,6 +37,24 @@ CREATE TABLE IF NOT EXISTS journey_queue_meta (
 
 const CAPTURE_SEQUENCE_KEY = 'capture_sequence';
 
+const COUNT_SQL = 'SELECT COUNT(*) AS count FROM journey_queue';
+
+const EVICT_OLDEST_SQL = `
+DELETE FROM journey_queue
+WHERE queue_id IN (
+  SELECT queue_id
+  FROM journey_queue
+  ORDER BY queue_id ASC
+  LIMIT ?
+)
+`;
+
+function assertPositiveSafeInteger(value: number, name: string): void {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(name + ' must be a positive safe integer.');
+  }
+}
+
 interface JourneyQueueRow {
   queue_id: number;
   session_id: string;
@@ -69,6 +87,33 @@ export interface EnqueueJourneyFixInput {
 }
 
 /**
+ * ADR-014 section 11: the bound and the deferral are SEPARATE fields. The
+ * bound remains defined while enforcement is deferred during replay.
+ */
+export interface EnqueueJourneyFixOptions {
+  /** Steady-state durable depth, owned and supplied by the tracker. */
+  maxQueuedFixes: number;
+  /** True while a replay batch is in flight and eviction must wait. */
+  deferOverflowEviction: boolean;
+}
+
+export interface JourneyQueueMutationResult {
+  /** True when this call inserted a new idempotency key. */
+  inserted: boolean;
+  /** Rows removed by depth-bound enforcement in this call. */
+  dropped: number;
+  /** Durable rows remaining when the transaction completed. */
+  durableDepth: number;
+}
+
+export interface JourneyQueueTrimResult {
+  /** Rows removed by this trim transaction. */
+  dropped: number;
+  /** Durable rows remaining when the transaction completed. */
+  durableDepth: number;
+}
+
+/**
  * SQLite-backed durable Journey queue.
  *
  * This class owns SQL operations only. Tracker integration, replay policy,
@@ -87,7 +132,10 @@ export class JourneyQueueStore {
    * INSERT OR IGNORE makes replaying an existing idempotency key harmless.
    * MAX prevents a stale caller from moving capture sequence backwards.
    */
-  async enqueue(input: EnqueueJourneyFixInput): Promise<boolean> {
+  async enqueue(
+    input: EnqueueJourneyFixInput,
+    options: EnqueueJourneyFixOptions,
+  ): Promise<JourneyQueueMutationResult> {
     if (!Number.isSafeInteger(input.captureSequence)) {
       throw new Error('captureSequence must be a safe integer.');
     }
@@ -96,10 +144,18 @@ export class JourneyQueueStore {
       throw new Error('captureSequence must be non-negative.');
     }
 
+    assertPositiveSafeInteger(options.maxQueuedFixes, 'maxQueuedFixes');
+
+    if (typeof options.deferOverflowEviction !== 'boolean') {
+      throw new Error('deferOverflowEviction must be a boolean.');
+    }
+
     let inserted = false;
+    let dropped = 0;
+    let durableDepth = 0;
 
     await this.database.withExclusiveTransactionAsync(async (transaction) => {
-      const result = await transaction.runAsync(
+      const insertResult = await transaction.runAsync(
         `
 INSERT OR IGNORE INTO journey_queue (
   session_id,
@@ -125,8 +181,8 @@ INSERT OR IGNORE INTO journey_queue (
       );
 
       // Read changes immediately from the INSERT result. Do not move this
-      // verdict below the metadata write: changes belongs to one statement.
-      inserted = result.changes === 1;
+      // verdict below another statement: changes belongs to one statement.
+      inserted = insertResult.changes === 1;
 
       await transaction.runAsync(
         `
@@ -137,9 +193,62 @@ ON CONFLICT(key) DO UPDATE SET
 `,
         [CAPTURE_SEQUENCE_KEY, input.captureSequence],
       );
+
+      // Every query inside the exclusive transaction must run on the txn
+      // object, which is a Transaction extending SQLiteDatabase. Reading
+      // through this.database here would leave the transaction.
+      const countRow = await transaction.getFirstAsync<CountRow>(COUNT_SQL, []);
+      durableDepth = countRow?.count ?? 0;
+
+      if (
+        !options.deferOverflowEviction &&
+        durableDepth > options.maxQueuedFixes
+      ) {
+        const excess = durableDepth - options.maxQueuedFixes;
+
+        const deleteResult = await transaction.runAsync(
+          EVICT_OLDEST_SQL,
+          [excess],
+        );
+
+        dropped = deleteResult.changes;
+        durableDepth -= dropped;
+      }
     });
 
-    return inserted;
+    return { inserted, dropped, durableDepth };
+  }
+
+  /**
+   * Applies the tracker-owned depth bound outside an enqueue, for the
+   * deferred case recorded in ADR-014 section 11.
+   */
+  async trimToDepth(maxQueuedFixes: number): Promise<JourneyQueueTrimResult> {
+    assertPositiveSafeInteger(maxQueuedFixes, 'maxQueuedFixes');
+
+    let dropped = 0;
+    let durableDepth = 0;
+
+    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+      const countRow = await transaction.getFirstAsync<CountRow>(COUNT_SQL, []);
+      durableDepth = countRow?.count ?? 0;
+
+      if (durableDepth <= maxQueuedFixes) {
+        return;
+      }
+
+      const excess = durableDepth - maxQueuedFixes;
+
+      const deleteResult = await transaction.runAsync(
+        EVICT_OLDEST_SQL,
+        [excess],
+      );
+
+      dropped = deleteResult.changes;
+      durableDepth -= dropped;
+    });
+
+    return { dropped, durableDepth };
   }
 
   /**

@@ -41,6 +41,7 @@ function fix(
 function createDatabaseMock() {
   const transaction = {
     runAsync: jest.fn(),
+    getFirstAsync: jest.fn().mockResolvedValue({ count: 1 }),
   };
 
   const database = {
@@ -107,8 +108,15 @@ describe('JourneyQueueStore', () => {
         sessionId: 'session-1',
         fix: fix(),
         captureSequence: 7,
+      }, {
+        maxQueuedFixes: 600,
+        deferOverflowEviction: false,
       }),
-    ).resolves.toBe(true);
+    ).resolves.toEqual({
+      inserted: true,
+      dropped: 0,
+      durableDepth: 1,
+    });
 
     expect(
       databaseMock.withExclusiveTransactionAsync,
@@ -155,8 +163,15 @@ describe('JourneyQueueStore', () => {
         sessionId: 'session-1',
         fix: fix(),
         captureSequence: 7,
+      }, {
+        maxQueuedFixes: 600,
+        deferOverflowEviction: false,
       }),
-    ).resolves.toBe(true);
+    ).resolves.toEqual({
+      inserted: true,
+      dropped: 0,
+      durableDepth: 1,
+    });
   });
 
   it('reports duplicate idempotency keys as not inserted', async () => {
@@ -173,8 +188,15 @@ describe('JourneyQueueStore', () => {
         sessionId: 'session-1',
         fix: fix(),
         captureSequence: 7,
+      }, {
+        maxQueuedFixes: 600,
+        deferOverflowEviction: false,
       }),
-    ).resolves.toBe(false);
+    ).resolves.toEqual({
+      inserted: false,
+      dropped: 0,
+      durableDepth: 1,
+    });
   });
 
   it('rejects invalid capture sequence values', async () => {
@@ -186,6 +208,9 @@ describe('JourneyQueueStore', () => {
         sessionId: 'session-1',
         fix: fix(),
         captureSequence: -1,
+      }, {
+        maxQueuedFixes: 600,
+        deferOverflowEviction: false,
       }),
     ).rejects.toThrow('captureSequence must be non-negative.');
 
@@ -194,12 +219,132 @@ describe('JourneyQueueStore', () => {
         sessionId: 'session-1',
         fix: fix(),
         captureSequence: Number.NaN,
+      }, {
+        maxQueuedFixes: 600,
+        deferOverflowEviction: false,
       }),
     ).rejects.toThrow('captureSequence must be a safe integer.');
 
     expect(
       databaseMock.withExclusiveTransactionAsync,
     ).not.toHaveBeenCalled();
+  });
+
+  it('evicts the oldest excess rows inside enqueue', async () => {
+    const { database, transaction } = createDatabaseMock();
+
+    transaction.runAsync
+      .mockResolvedValueOnce(runResult(1))
+      .mockResolvedValueOnce(runResult(1))
+      .mockResolvedValueOnce(runResult(1));
+
+    transaction.getFirstAsync.mockResolvedValue({ count: 601 });
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(
+      store.enqueue({
+        sessionId: 'session-1',
+        fix: fix(),
+        captureSequence: 7,
+      }, {
+        maxQueuedFixes: 600,
+        deferOverflowEviction: false,
+      }),
+    ).resolves.toEqual({
+      inserted: true,
+      dropped: 1,
+      durableDepth: 600,
+    });
+
+    expect(transaction.runAsync).toHaveBeenCalledTimes(3);
+    expect(transaction.runAsync.mock.calls[2]?.[0]).toContain(
+      'ORDER BY queue_id ASC',
+    );
+    expect(transaction.runAsync.mock.calls[2]?.[1]).toEqual([1]);
+  });
+
+  it('defers overflow eviction while replay is in flight', async () => {
+    const { database, transaction } = createDatabaseMock();
+
+    transaction.runAsync
+      .mockResolvedValueOnce(runResult(1))
+      .mockResolvedValueOnce(runResult(1));
+
+    transaction.getFirstAsync.mockResolvedValue({ count: 601 });
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(
+      store.enqueue({
+        sessionId: 'session-1',
+        fix: fix(),
+        captureSequence: 7,
+      }, {
+        maxQueuedFixes: 600,
+        deferOverflowEviction: true,
+      }),
+    ).resolves.toEqual({
+      inserted: true,
+      dropped: 0,
+      durableDepth: 601,
+    });
+
+    expect(transaction.runAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it('trims oldest excess rows after replay completes', async () => {
+    const { database, transaction } = createDatabaseMock();
+
+    transaction.getFirstAsync.mockResolvedValue({ count: 603 });
+    transaction.runAsync.mockResolvedValue(runResult(3));
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(store.trimToDepth(600)).resolves.toEqual({
+      dropped: 3,
+      durableDepth: 600,
+    });
+
+    expect(transaction.runAsync).toHaveBeenCalledTimes(1);
+    expect(transaction.runAsync.mock.calls[0]?.[1]).toEqual([3]);
+  });
+
+  it('does not write when trim is already within the depth bound', async () => {
+    const { database, transaction } = createDatabaseMock();
+
+    transaction.getFirstAsync.mockResolvedValue({ count: 600 });
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(store.trimToDepth(600)).resolves.toEqual({
+      dropped: 0,
+      durableDepth: 600,
+    });
+
+    expect(transaction.runAsync).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid depth bound before opening a transaction', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+    const store = new JourneyQueueStore(database);
+
+    await expect(
+      store.enqueue({
+        sessionId: 'session-1',
+        fix: fix(),
+        captureSequence: 7,
+      }, {
+        maxQueuedFixes: 0,
+        deferOverflowEviction: false,
+      }),
+    ).rejects.toThrow('maxQueuedFixes must be a positive safe integer.');
+
+    await expect(store.trimToDepth(0)).rejects.toThrow(
+      'maxQueuedFixes must be a positive safe integer.',
+    );
+
+    expect(databaseMock.withExclusiveTransactionAsync).not.toHaveBeenCalled();
   });
 
   it('lists rows in durable FIFO order and maps nullable telemetry', async () => {

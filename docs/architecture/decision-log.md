@@ -902,6 +902,136 @@ while the other tolerates a fix captured just before the session row was
 written. They must not be collapsed into a shared constant.
 `START_GRACE_MS` remains undecided in this ADR.
 
+#### Replay fault state is separate from durability fault state
+
+**Context.** The tracker holds one fault field, `durabilityFault`, exposed
+through `trackerDebugState()` and cleared only by
+`resetTrackerStateForTests()`. It carries both store failures and the replay
+delete shortfall. Replay outcome classification adds a persistent fault for
+HTTP 400, and the head-of-line policy requires that fault to be distinct from
+the HTTP 409 and HTTP 404 outcomes.
+
+**Decision. Two independent fault slots, not one.**
+
+`durabilityFault` retains store-side operation failures: open, enqueue, trim
+and count. A new `replayFault` carries server replay outcomes. Neither may
+overwrite the other, and `trackerDebugState()` exposes both.
+
+**Decision. `replayFault` is a discriminated union, not a string.**
+
+    type ReplayFault =
+      | { kind: 'HTTP_400'; status: 400; message: string }
+      | { kind: 'HTTP_404'; status: 404; message: string }
+      | { kind: 'HTTP_409'; status: 409; message: string }
+      | {
+          kind: 'DELETE_SHORTFALL';
+          expected: number;
+          actual: number;
+          message: string;
+        };
+
+The `kind` discriminant exists so that no consumer ever needs to inspect
+`message` to determine what happened. The head-of-line policy makes message
+parsing non-normative for wire classification; the same rule extends here to
+local fault state. The `message` member is for logs and diagnostics only.
+
+**Note. `DELETE_SHORTFALL` moves rather than being added.** It is set on
+`durabilityFault` today. Relocating it changes the shape returned by
+`trackerDebugState()` and the existing shortfall test. This is a deliberate
+reclassification: a shortfall is a disagreement discovered during replay, not
+a store operation failure.
+
+**Decision. Clearing rules.**
+
+- `durabilityFault` clears when the failed durability operation later
+  succeeds, or on explicit tracker reinitialization.
+- `replayFault` clears when a replay cycle receives a 2xx, or on explicit
+  administrative or test reset.
+- A new fault of the same category replaces the prior value with fresher
+  detail.
+- **One category never clears the other.** A successful replay does not clear
+  a store fault, and a successful store write does not clear a replay fault.
+
+**Rationale.** Store durability and server acceptance are independent failure
+domains with independent resolutions. Collapsing them into one slot means the
+more recent event erases evidence of the older one, and the two are not
+ordered with respect to each other. This is the same collapse hazard already
+recorded for the two five-minute tolerances: distinct quantities that happen
+to share a representation.
+
+#### Eviction is restricted while replay state is faulted
+
+**Context.** The replay cycle applies deferred eviction in its `finally`
+block, unconditionally, including on the path where a delete shortfall was
+just detected. At that moment the tracker and the store disagree about what is
+persisted, and the immediate next action removes the oldest rows. The depth
+bound is enforced in two places, not one: the post-replay trim, and eviction
+inside `enqueue` itself. Suppressing only the trim would leave enqueue
+removing the same rows.
+
+**Decision. Two bounds, serving different purposes.**
+
+    MAX_QUEUED_FIXES = 600
+    MAX_FAULTED_QUEUED_FIXES = 1200
+
+`MAX_QUEUED_FIXES` is the ordinary steady-state retention depth.
+`MAX_FAULTED_QUEUED_FIXES` is a storage-safety ceiling used only while replay
+is faulted. The emergency ceiling is six times `MAX_BATCH`, which keeps it
+aligned with replay batch sizing.
+
+Neither bound is stated as a duration. `TIME_INTERVAL_MS` is a minimum
+interval between location updates, not a fixed capture cadence, so a row
+count does not convert to a guaranteed time window.
+
+**Decision. Normal eviction is suppressed while `replayFault` is non-null.**
+
+`trimToDepth(MAX_QUEUED_FIXES)` does not run, and enqueue does not enforce the
+ordinary bound. This covers the shortfall case, where store integrity is in
+question, and the classified HTTP faults, where replay is halted and evicting
+would remove the oldest evidence at the moment it cannot be sent.
+
+A `durabilityFault` indicating a store-integrity disagreement suppresses trim
+on the same grounds.
+
+Network failures, timeouts and 5xx responses remain retryable and do not set
+`replayFault`, so an ordinary offline cycle still trims normally.
+
+**Decision. The emergency ceiling remains enforced, and is never deferred.**
+
+The emergency ceiling is not subject to replay deferral. Deferral protects
+rows that are currently in an ordinary replay batch from the steady-state
+trim. It must not disable the storage-safety ceiling.
+
+While replay is faulted, enqueue enforces `MAX_FAULTED_QUEUED_FIXES` directly
+inside its exclusive transaction, regardless of whether a flush is in flight.
+Once depth exceeds that ceiling, enqueue removes only the oldest excess rows
+needed to return to it, and emits a distinct high-severity diagnostic.
+
+**Decision. Emergency eviction is diagnosed separately and clears nothing.**
+
+    type QueueEvictionDiagnostic =
+      | {
+          kind: 'FAULTED_QUEUE_EMERGENCY_EVICTION';
+          dropped: number;
+          durableDepth: number;
+          ceiling: number;
+          message: string;
+        }
+      | null;
+
+Emergency eviction does not replace or clear `replayFault`, and does not write
+to `durabilityFault`. It is a policy event, not a store failure and not a
+replay outcome; routing it into either slot would erase the boundary drawn
+above.
+
+**Rationale.** Eviction removes the oldest rows, and the oldest rows are the
+ones a halted queue has been holding longest. Trimming during a fault destroys
+the evidence the fault exists to protect. The higher ceiling preserves roughly
+twice the ordinary retention depth while preventing an indefinitely faulted
+queue from growing until device storage is exhausted. This is deliberately
+conservative, and it stops short of pretending that evidence retention can be
+unlimited on a finite device.
+
 ---
 
 ## ADR-012 - Mock emergency-intelligence providers may be registered in production when their outputs are provably suppressed, acknowledged by an explicitly named boot flag

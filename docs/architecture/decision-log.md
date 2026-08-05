@@ -645,6 +645,68 @@ duplication and makes local acknowledged deletion exact. Persisting
 `captureSequence` across process death is part of that integrity guarantee, not
 merely a convenience for key formatting.
 
+#### Rows owned by an ended or missing session
+
+A persisted fix remains owned by the journey session stored with it. When
+replay has an explicit server classification that the owning session is ENDED
+or missing, the client keeps the row durable, stops the current replay cycle
+and does not retag, delete or silently skip it.
+
+Retagging would change the session-scoped idempotency key and therefore create
+a new deduplication identity. That is the reacquire problem still open in
+section 4 and must not be decided implicitly inside queue integration. Until
+section 4 is resolved, the safe default for these deferred classifications is
+KEEP.
+
+This rule defines client behaviour once the classification is available. The
+current server contract does not yet expose per-item ENDED or missing-session
+classifications. Integration must not infer them from an unmeasured status
+code or response body.
+
+#### Capture-sequence ownership
+
+The tracker allocates the next `captureSequence` and uses it when constructing
+the session-scoped idempotency key before calling the store. The store receives
+that caller-supplied value and persists the maximum sequence in the queue
+metadata table, within the same transaction as the insert.
+
+The sequence is held in metadata rather than on queued rows so that it survives
+an empty queue. A sequence stored on rows would vanish with the last successful
+flush, which is precisely when a restart would reuse a key.
+
+The store does not independently increment the sequence or mint the key.
+Tracker startup must read the persisted sequence before accepting a new
+location fix, so process restart cannot reuse a local deletion identity.
+
+#### Durable depth-bound enforcement
+
+The store owns durable overflow eviction. The tracker owns the depth bound
+itself and the replay-in-flight boundary that determines when eviction runs.
+`MAX_QUEUED_FIXES = 600` remains defined in the tracker and is supplied to the
+store; the store does not define the bound.
+
+Outside an active replay cycle, enqueue persists the new fix and supplied
+capture sequence, then removes only the oldest excess rows in the same
+exclusive transaction. Eviction follows the durable FIFO order, `queue_id ASC`.
+
+Both enqueue and the deferred trim report how many rows were dropped. Any
+nonzero overflow is a high-severity event that the tracker records with the
+dropped count and resulting durable depth.
+
+Rows listed for a replay cycle may be evicted while that cycle is in flight,
+which would make SQLite's `changes` count fall short of the acknowledged key
+count and raise a false integrity fault. Overflow eviction is therefore
+deferred while a replay cycle is in flight and applied when the cycle
+completes.
+
+The durable queue may exceed the depth bound for the duration of one replay
+cycle. The bound is a steady-state bound with a bounded transient; a queue
+observed above the bound mid-flush is expected, not a defect.
+
+This applies the existing depth bound and does not create an age-retention
+policy. The time-based retention ceiling remains an explicit open product
+decision.
+
 ---
 
 ## ADR-012 - Mock emergency-intelligence providers may be registered in production when their outputs are provably suppressed, acknowledged by an explicitly named boot flag

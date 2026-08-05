@@ -4,6 +4,7 @@ import { openJourneyQueueStore } from './journey-queue-store';
 import {
   cleanHeading,
   cleanNonNegative,
+  flushForTests,
   resetTrackerStateForTests,
   startTracking,
   stopTracking,
@@ -41,11 +42,34 @@ const IDLE_STATE = {
 function storeMock(captureSequence = 0, queued = 0) {
   return {
     initialize: jest.fn(),
-    enqueue: jest.fn(),
-    listOldest: jest.fn(),
-    deleteAcknowledged: jest.fn(),
+    enqueue: jest.fn().mockResolvedValue({
+      inserted: true,
+      dropped: 0,
+      durableDepth: 1,
+    }),
+    listOldest: jest.fn().mockResolvedValue([]),
+    deleteAcknowledged: jest.fn().mockResolvedValue(0),
+    trimToDepth: jest.fn().mockResolvedValue({
+      dropped: 0,
+      durableDepth: 0,
+    }),
     count: jest.fn().mockResolvedValue(queued),
     getCaptureSequence: jest.fn().mockResolvedValue(captureSequence),
+  };
+}
+
+function storedRow(overrides: Record<string, unknown> = {}) {
+  return {
+    queueId: 1,
+    sessionId: 'session-1',
+    idempotencyKey: 'session-1:1000:1',
+    source: 'foreground',
+    latitude: 6.5244,
+    longitude: 3.3792,
+    accuracy: 5,
+    speed: 1.5,
+    recordedAt: '2026-08-04T12:00:00.000Z',
+    ...overrides,
   };
 }
 
@@ -150,7 +174,7 @@ describe('journey-tracker lifecycle', () => {
     expect(trackerDebugState()).toEqual({
       running: true,
       sessionId: 'session-1',
-      queued: 0,
+      queued: 12,
       captureSequence: 44,
       durableQueued: 12,
       durabilityAvailable: true,
@@ -169,6 +193,84 @@ describe('journey-tracker lifecycle', () => {
     await startTracking();
 
     expect(trackerDebugState().captureSequence).toBe(7);
+
+    stopTracking();
+  });
+
+  it('posts ONLY TrackedFix keys - queueId and sessionId never reach the wire', async () => {
+    const store = storeMock(0, 1);
+    store.listOldest.mockResolvedValue([storedRow()]);
+    store.deleteAcknowledged.mockResolvedValue(1);
+    store.count.mockResolvedValue(0);
+
+    grantAndAcquire();
+    mockedOpenStore.mockResolvedValue(store);
+    mockedPost.mockResolvedValue({ data: {} });
+
+    await startTracking();
+    await flushForTests();
+
+    const fixCall = mockedPost.mock.calls.find(
+      (call) => call[0] === '/journey/fixes',
+    );
+
+    expect(fixCall).toBeDefined();
+
+    const sent = (fixCall?.[1] as { fixes: Record<string, unknown>[] }).fixes;
+
+    expect(sent).toHaveLength(1);
+    expect(Object.keys(sent[0] ?? {}).sort()).toEqual([
+      'accuracy',
+      'idempotencyKey',
+      'latitude',
+      'longitude',
+      'recordedAt',
+      'source',
+      'speed',
+    ]);
+
+    stopTracking();
+  });
+
+  it('stops the cycle and records a fault on a delete shortfall', async () => {
+    const store = storeMock(0, 2);
+    store.listOldest.mockResolvedValue([
+      storedRow(),
+      storedRow({ queueId: 2, idempotencyKey: 'session-1:1000:2' }),
+    ]);
+    store.deleteAcknowledged.mockResolvedValue(1);
+    store.count.mockResolvedValue(1);
+
+    grantAndAcquire();
+    mockedOpenStore.mockResolvedValue(store);
+    mockedPost.mockResolvedValue({ data: {} });
+
+    await startTracking();
+    await flushForTests();
+
+    expect(trackerDebugState().durabilityFault).toContain(
+      'expected 2 and actual 1',
+    );
+
+    stopTracking();
+  });
+
+  it('applies deferred eviction after the replay cycle', async () => {
+    const store = storeMock(0, 1);
+    store.listOldest.mockResolvedValue([storedRow()]);
+    store.deleteAcknowledged.mockResolvedValue(1);
+    store.count.mockResolvedValue(0);
+    store.trimToDepth.mockResolvedValue({ dropped: 4, durableDepth: 600 });
+
+    grantAndAcquire();
+    mockedOpenStore.mockResolvedValue(store);
+    mockedPost.mockResolvedValue({ data: {} });
+
+    await startTracking();
+    await flushForTests();
+
+    expect(store.trimToDepth).toHaveBeenCalledWith(600);
+    expect(trackerDebugState().durableQueued).toBe(600);
 
     stopTracking();
   });

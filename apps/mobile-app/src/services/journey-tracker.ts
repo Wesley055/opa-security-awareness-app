@@ -26,13 +26,19 @@
  * the first concurrent caller in the app. A fix is therefore NEVER removed
  * from the queue until a 2xx has actually returned.
  *
- * OUT OF SCOPE, deliberately: persistence. The queue is in memory and dies
- * with the process. That is item 9c, which needs a new dependency.
+ * PERSISTENCE (item 9c). The queue is a SQLite table owned by
+ * journey-queue-store.ts. Fixes survive process death. There is NO
+ * in-memory queue: ADR-014 section 11 forbids a staging array, because a
+ * second buffer would die with the process and reintroduce the loss this
+ * replaces. Write serialization comes from the exclusive transaction.
  */
 import * as Location from 'expo-location';
 import { api } from './api';
 import { openJourneyQueueStore } from './journey-queue-store';
-import type { JourneyQueueStore } from './journey-queue-store';
+import type {
+  JourneyQueueStore,
+  StoredJourneyFix,
+} from './journey-queue-store';
 
 /** How often a flush is attempted. */
 const FLUSH_INTERVAL_MS = 15000;
@@ -116,7 +122,6 @@ let sessionId: string | null = null;
 let subscription: Location.LocationSubscription | null = null;
 let flushTimer: ReturnType<typeof setInterval> | null = null;
 let flushing = false;
-let queue: TrackedFix[] = [];
 let captureSeq = 0;
 
 let queueStore: JourneyQueueStore | null = null;
@@ -219,7 +224,24 @@ async function acquireSession(): Promise<string | null> {
   }
 }
 
-function enqueue(position: Location.LocationObject, forSession: string): void {
+/**
+ * Builds the fix and writes it durably.
+ *
+ * captureSeq increments synchronously, BEFORE the async write, so the
+ * idempotency key is minted first and stays stable across retries. A failed
+ * write therefore burns a sequence number. ADR-014 section 11: gaps are
+ * correct. The requirement is monotonic uniqueness, not contiguity. Never
+ * decrement or reuse a burned sequence.
+ */
+async function enqueueDurable(
+  position: Location.LocationObject,
+  forSession: string,
+): Promise<void> {
+  const store = queueStore;
+  if (store === null) {
+    throw new Error('durable queue is not open');
+  }
+
   const coords = position.coords;
 
   const ms =
@@ -261,59 +283,139 @@ function enqueue(position: Location.LocationObject, forSession: string): void {
     fix.speed = speed;
   }
 
-  queue.push(fix);
+  // deferOverflowEviction tracks the in-flight replay cycle. Evicting rows a
+  // flush is holding would make the delete count fall short of the keys sent
+  // and raise a false integrity fault.
+  const result = await store.enqueue(
+    { sessionId: forSession, fix, captureSequence: captureSeq },
+    {
+      maxQueuedFixes: MAX_QUEUED_FIXES,
+      deferOverflowEviction: flushing,
+    },
+  );
 
-  if (queue.length > MAX_QUEUED_FIXES) {
-    const dropped = queue.length - MAX_QUEUED_FIXES;
-    queue = queue.slice(dropped);
+  durableQueued = result.durableDepth;
+
+  if (result.dropped > 0) {
     log(
-      'QUEUE OVERFLOW - dropped ' + String(dropped) +
-        ' oldest fixes. 9c replaces this with persistence.',
+      'QUEUE OVERFLOW - dropped ' + String(result.dropped) +
+        ' oldest fixes, durable depth ' + String(result.durableDepth),
     );
+  }
+
+  if (!result.inserted) {
+    log('duplicate idempotency key not inserted: ' + fix.idempotencyKey);
   }
 }
 
 /**
- * Never removes a fix until a 2xx returns (trap 74). Takes the session
+ * Capture entry point. watchPositionAsync does not await the promise a
+ * callback returns, so the write cannot be awaited here. ADR-014 section 11
+ * requires an EXPLICIT rejection handler rather than a floating promise: a
+ * lost fix with no local signal is indistinguishable from one never captured.
+ */
+function enqueue(position: Location.LocationObject, forSession: string): void {
+  void enqueueDurable(position, forSession).catch((error: unknown) => {
+    durabilityFault = errorMessage(error);
+    log('DURABLE WRITE FAILED - fix not persisted', error);
+  });
+}
+
+/**
+ * PROJECTION IS MANDATORY. listOldest returns StoredJourneyFix, which EXTENDS
+ * TrackedFix with queueId and sessionId. TypeScript will not stop those
+ * reaching the wire - excess property checks only fire on object literals -
+ * and forbidNonWhitelisted is true, so one extra key 400s the whole batch.
+ */
+function toPayload(row: StoredJourneyFix): TrackedFix {
+  const fix: TrackedFix = {
+    idempotencyKey: row.idempotencyKey,
+    source: row.source,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    recordedAt: row.recordedAt,
+  };
+
+  // Absent, not null. "Column is NULL" and "key absent" differ to a
+  // whitelisting validator.
+  if (row.accuracy !== undefined) {
+    fix.accuracy = row.accuracy;
+  }
+
+  if (row.speed !== undefined) {
+    fix.speed = row.speed;
+  }
+
+  return fix;
+}
+
+/**
+ * Never removes a row until a 2xx returns (trap 74). Takes the session
  * explicitly so a final flush during teardown still has one.
  */
 async function flush(forSession: string): Promise<void> {
-  if (flushing || queue.length === 0) {
+  const store = queueStore;
+  if (flushing || store === null) {
     return;
   }
   flushing = true;
 
   try {
-    const chunk = queue.slice(0, MAX_BATCH);
+    const rows = await store.listOldest(MAX_BATCH);
+    if (rows.length === 0) {
+      return;
+    }
 
     await api.post(
       '/journey/fixes',
-      { sessionId: forSession, fixes: chunk },
+      { sessionId: forSession, fixes: rows.map(toPayload) },
       { timeout: FLUSH_TIMEOUT_MS },
     );
 
-    const sent: Record<string, true> = {};
-    for (let i = 0; i < chunk.length; i += 1) {
-      const entry = chunk[i];
-      if (entry) {
-        sent[entry.idempotencyKey] = true;
-      }
-    }
-    queue = queue.filter((f) => sent[f.idempotencyKey] !== true);
+    const keys = rows.map((row) => row.idempotencyKey);
+    const removed = await store.deleteAcknowledged(keys);
 
+    if (removed !== keys.length) {
+      // ADR-014 section 11 integrity fault. Rows whose keys matched are
+      // already deleted; the remainder stay durable. Stop the cycle rather
+      // than continue past a detected inconsistency.
+      durabilityFault =
+        'replay delete shortfall: expected ' + String(keys.length) +
+        ' and actual ' + String(removed);
+      log('INTEGRITY FAULT - ' + durabilityFault);
+      durableQueued = await store.count();
+      return;
+    }
+
+    durableQueued = await store.count();
     log(
-      'flushed ' + String(chunk.length) + ' fixes, ' +
-        String(queue.length) + ' still queued',
+      'flushed ' + String(keys.length) + ' fixes, ' +
+        String(durableQueued) + ' still durable',
     );
-  } catch (err: unknown) {
+  } catch (error: unknown) {
     // EVERY rejection is retryable, including ones that look like auth
     // failures - see trap 74. Nothing is discarded here.
     log(
-      'flush failed - KEEPING ' + String(queue.length) + ' queued fixes',
-      err,
+      'flush failed - KEEPING ' + String(durableQueued) + ' durable rows',
+      error,
     );
   } finally {
     flushing = false;
+
+    // Eviction deferred during the cycle is applied now. ADR-014 section 11.
+    try {
+      const trimmed = await store.trimToDepth(MAX_QUEUED_FIXES);
+      durableQueued = trimmed.durableDepth;
+
+      if (trimmed.dropped > 0) {
+        log(
+          'DEFERRED OVERFLOW - dropped ' + String(trimmed.dropped) +
+            ' oldest fixes after replay',
+        );
+      }
+    } catch (error: unknown) {
+      log('deferred trim failed', error);
+    }
   }
 }
 
@@ -410,8 +512,8 @@ export async function startTracking(): Promise<void> {
  * Idempotent, and safe to call when nothing is running - _layout.tsx fires it
  * on cold start while isAuthenticated is still false.
  *
- * Attempts one final best-effort flush. The queue is NOT cleared: fixes that
- * never got a 2xx stay put, and 9c will persist them.
+ * Attempts one final best-effort flush. Rows that never got a 2xx stay in
+ * SQLite and are replayed after the next start.
  */
 export function stopTracking(): void {
   if (!running && !subscription && !flushTimer) {
@@ -439,17 +541,17 @@ export function stopTracking(): void {
   }
 
   log(
-    'stopped - ' + String(queue.length) +
-      ' fixes queued in memory only (9c adds persistence)',
+    'stopped - ' + String(durableQueued) + ' fixes durable in SQLite',
   );
 }
 
 /**
  * Test and diagnostic hook. Not used by the app.
  *
- * `queued` is the live IN-MEMORY depth. `durableQueued` is the row count
- * read at initialization. They are different numbers until the durable
- * enqueue package lands.
+ * There is no in-memory queue. `queued` and `durableQueued` are both the
+ * durable row count, kept equal so existing assertions stay meaningful.
+ * durableDepth from a mutation is authoritative; count() is the
+ * initialization read only.
  */
 export function trackerDebugState(): {
   running: boolean;
@@ -463,12 +565,19 @@ export function trackerDebugState(): {
   return {
     running: running,
     sessionId: sessionId,
-    queued: queue.length,
+    queued: durableQueued,
     captureSequence: captureSeq,
     durableQueued: durableQueued,
     durabilityAvailable: durabilityAvailable,
     durabilityFault: durabilityFault,
   };
+}
+
+/** Test-only flush trigger. Nothing in the app imports this. */
+export async function flushForTests(): Promise<void> {
+  if (sessionId !== null) {
+    await flush(sessionId);
+  }
 }
 
 /**
@@ -482,7 +591,6 @@ export function resetTrackerStateForTests(): void {
 
   generation = 0;
   flushing = false;
-  queue = [];
   captureSeq = 0;
   trackingStartedAtMs = 0;
 

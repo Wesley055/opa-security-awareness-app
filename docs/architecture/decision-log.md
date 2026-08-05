@@ -747,6 +747,41 @@ coverage anywhere in the repository. The queue-store spec does not reference
 the bound, eviction or overflow, and the tracker's in-memory slice is equally
 unpinned. This is recorded so the rule is not mistaken for tested behaviour.
 
+#### Capture-path durable writes
+
+The location callback writes to the durable queue directly. There is no staging
+array and no in-memory queue behind it. Write serialization is provided by
+SQLite's exclusive transaction, which already orders concurrent enqueues; a
+staging array would add a second buffer that dies with the process, which is
+the failure the durable queue exists to remove.
+
+`watchPositionAsync` does not await the promise a callback returns, so the
+durable write cannot be awaited by the caller. The callback therefore invokes
+the write and attaches an explicit rejection handler rather than leaving the
+promise floating. The handler records a high-severity durability fault,
+preserves tracking rather than stopping it, and exposes the failure through
+`trackerDebugState()`. A failed durable write is never silently swallowed: an
+unobservable lost fix on an emergency capture path is the outcome this rule
+exists to prevent.
+
+An unhandled rejection would be the alternative, and it is rejected. The fix
+would be lost with no local signal, which is indistinguishable from a fix that
+was never captured.
+
+#### Capture sequence gaps are expected
+
+`captureSeq` increments synchronously before the asynchronous store write, so
+the idempotency key is minted before the row exists. This ordering is required:
+the key must be stable across retries, and a key derived after a successful
+write could not be reconstructed for a retry of a failed one.
+
+A failed write therefore burns a sequence number that never reaches a row, and
+the persisted sequence may contain gaps. GAPS ARE CORRECT, NOT A DEFECT. The
+requirement is monotonic uniqueness, not contiguous numbering. A burned
+sequence is never decremented and never reused: reuse would mint a duplicate
+key, and section 11 already records that key identity is load-bearing for local
+deletion as well as server deduplication.
+
 ---
 
 ## ADR-012 - Mock emergency-intelligence providers may be registered in production when their outputs are provably suppressed, acknowledged by an explicitly named boot flag

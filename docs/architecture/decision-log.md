@@ -707,6 +707,46 @@ This applies the existing depth bound and does not create an age-retention
 policy. The time-based retention ceiling remains an explicit open product
 decision.
 
+#### Queue store mutation contract
+
+`enqueue` returns a mutation result rather than a bare boolean. The result
+carries three facts the previous signature could not express together: whether
+the row was inserted, how many rows eviction removed, and the durable depth
+after the write.
+
+`inserted` keeps its existing meaning. It is the changes count of the
+`INSERT OR IGNORE` statement, read from that statement's own result before any
+later statement runs, so a duplicate idempotency key reports false rather than
+throwing. `dropped` is read from the eviction delete's own result. Each verdict
+belongs to one statement and is read from that statement.
+
+THE BOUND AND THE DEFERRAL ARE SEPARATE FIELDS. enqueue receives the
+tracker-owned maxQueuedFixes value and a separate deferOverflowEviction flag.
+The depth bound remains defined even while enforcement is temporarily deferred
+during an active replay cycle. Collapsing the two into a nullable bound was
+considered and rejected: a null would have to mean both "no bound exists" and
+"the bound exists but is not enforced right now", and only the second is ever
+true. The tracker owns both values; the store applies what it is given and
+decides neither.
+
+`trimToDepth(maxQueuedFixes)` applies the bound outside an enqueue. Deferred
+eviction has to be applied when the replay cycle completes. Capture may
+continue concurrently, while the exclusive SQLite transaction serializes the
+trim against enqueue operations; without a standalone trim the excess would
+persist until the next fix, which on a stationary device is unbounded. It
+returns the dropped count and the resulting durable depth.
+
+Insert, metadata write and eviction remain in one exclusive transaction.
+
+`durableDepth` from a mutation is authoritative for tracker state. `count()`
+is the initialization read only. Calling `count()` after each write would
+restore the round trip these results exist to remove.
+
+NOT COVERED BY ANY TEST AT THE TIME OF THIS DECISION: the depth bound has no
+coverage anywhere in the repository. The queue-store spec does not reference
+the bound, eviction or overflow, and the tracker's in-memory slice is equally
+unpinned. This is recorded so the rule is not mistaken for tested behaviour.
+
 ---
 
 ## ADR-012 - Mock emergency-intelligence providers may be registered in production when their outputs are provably suppressed, acknowledged by an explicitly named boot flag

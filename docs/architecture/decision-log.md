@@ -215,6 +215,493 @@ section 1.
 
 ---
 
+## ADR-015 - OPA as a hardware and telemetry event middleware, with the mobile application as a first-class client
+
+**Status: Accepted in principle; implementation blocked until Sprint 10B closes
+and the freeze condition in section 7 is met.**
+
+*"Proposed" would mean the direction itself is undecided. It is not. What is
+gated is implementation.*
+
+### 1. Context
+
+OPA was built phone-first. The mobile app has been the primary and effectively
+exclusive incident-triggering client - not a source of truth, since the backend
+incident record is authoritative. The mobile app is currently the only way to raise an
+incident: `sos.tsx` holds the only location capture, and every ingestion endpoint
+authenticates a `User` with a JWT. Milestone 9c - a durable offline queue on the
+device, estimated 4-6 hours - was scoped as Tier 1 on that assumption.
+
+That assumption was already recorded as wrong. `TODO.md:1322-1333` states:
+
+> **PRINCIPLE: OPA is an emergency EVENT platform, not a mobile app.** OPA's
+> value begins AFTER the trigger. The orchestrator should not care whether an
+> event came from an Android phone, an iPhone, a smartwatch, a BLE keyfob, a
+> vehicle sensor, an estate panel or a hospital duress button.
+>
+> `Sensor event -> Incident -> Orchestrator -> Notifications / Tracking / Evidence`
+
+`PARTNER_INTEGRATION_AND_DIFFERENTIATION.md` reaches the same conclusion from the
+market side: the realistic first integrators are **things that have a trigger but
+no backend** - panic buttons, estate panels, wearables, fleet telematics. Such a
+manufacturer has a device and a distribution channel and no appetite for building
+incident management, contact escalation, DND-capable SMS or a tracking page.
+
+This ADR promotes that principle from vision to directive, and records what it
+costs.
+
+### 2. Decision
+
+**OPA is a multi-entry incident platform. The mobile application is a first-class
+client alongside hardware, partner systems, and future integration channels.**
+
+1. **Device ingestion.** A dedicated ingestion controller accepting validated
+   payloads from third-party hardware. **No `/api/v1` prefix** - `main.ts` sets
+   no `setGlobalPrefix` and live URLs are unprefixed (`/public/tracking/<token>`);
+   `redactSensitivePath` depends on that shape (trap #53). Path to be decided at
+   implementation, consistent with existing routes.
+
+2. **Device authentication, enum changes and routing are specified in items 8,
+   9 and 10 below.**
+
+3. *(merged into item 9)*
+
+4. **Fixed devices carry an install-time location.** `Incident.latitude` and
+   `longitude` are required with no default. A wall button or estate panel has a
+   known position set at registration. **This sidesteps indoor positioning
+   entirely rather than solving it** - see q32, which remains blocked for the
+   phone case.
+
+5. **The Command Centre becomes required rather than optional.** A partner's
+   clients need somewhere to see incidents. **The ADR-013 boundary still governs:
+   VIEWER, NEVER CONSOLE.** Incident list, live position, report retrieval and
+   acknowledgement display are in scope. Responder assignment, status tracking
+   and escalation management are not. **A partner asking for dispatch is the
+   pressure ADR-013 anticipated; it does not by itself reverse that decision.**
+
+6. **Milestone 9c REMAINS A TIER-1 DEPENDENCY and is NOT downgraded.** Hardware
+   ingestion is the next sequential milestone AFTER Sprint 10B closes, not a
+   replacement for finishing it. **Item 10's airplane-mode assertion remains
+   active.** Section 5 records why.
+
+   **What 9c actually contributes to hardware, stated narrowly:** the
+   idempotency, ordering, delayed-arrival, and permanent-versus-transient
+   rejection semantics proven by 9c and ADR-014 provide reusable **server-side**
+   requirements. **Hardware firmware is not assumed to reuse the mobile queue
+   implementation** - a third-party device will retry however its vendor built
+   it.
+
+7. **THE HARDWARE OWNERSHIP MODEL IS DEFERRED, NOT DECIDED HERE.**
+
+   `Incident.userId` is required with `onDelete: Restrict`, and both the
+   orchestrator's advisory lock and the one-active-session partial index are
+   keyed on `userId`. A wall panel has no human principal. **This is the single
+   schema question everything else in this ADR depends on, and it must not be
+   answered by whichever option avoids touching the engine.**
+
+   **A "virtual system user" - a shadow `User` row per device - was proposed and
+   is REJECTED as the committed model.** It preserves foreign keys by conflating
+   a human principal with a machine principal, and that contaminates user counts,
+   contact relationships, consent and privacy logic, authentication assumptions,
+   reporting, active-session rules and incident ownership. **"Without rewriting
+   the core engine" would be driving the data model instead of the domain.**
+
+   **Preferred direction, to be confirmed by measurement before implementation:**
+   an explicit non-human principal - `IntegrationPrincipal` or `DevicePrincipal` -
+   associated with a `Facility`. A shape worth evaluating:
+   ```
+   Incident
+     initiatedByUserId       nullable
+     initiatedByPrincipalId  nullable
+     facilityId
+     trigger
+   ```
+   with a constraint ensuring exactly one valid initiator.
+
+   **A transitional system-user adapter is permitted ONLY IF** documented as
+   transitional, flagged at the row level, and **prevented from entering
+   human-facing workflows.** Two specific hazards if that route is taken:
+   `User` requires unique `email` and `phoneNumber` plus a `passwordHash`, so
+   **a shadow user is a login surface** and must be made non-authenticable in the
+   auth service rather than by convention; and **notification recipients resolve
+   through a user's emergency contacts, which a shadow user has none of** -
+   facility-scoped recipients are required regardless of which model wins.
+
+   **Prerequisite: measure every schema and orchestrator dependency on
+   `Incident.userId` before choosing.**
+
+8. **Routing: flat, unprefixed, matching the existing convention.**
+   `main.ts` sets no `setGlobalPrefix`, and `redactSensitivePath` depends on that
+   shape (trap #53). **Proposed route: `/integrations/device-events`.** The
+   binding requirement is the no-global-prefix convention; the exact path is not
+   frozen by this ADR.
+
+9. **Enum changes are additive and preserve every production value.**
+   `SOS_BUTTON`, `VOICE_HELP_HELP`, `TRUSTED_CONTACT` and `SYSTEM_TEST` are
+   untouched - production data depends on them. PostgreSQL enum modification is
+   not an "array extension"; the migration adds values and removes none.
+
+   **Start SMALL, before any partner payload is known:** `HARDWARE_PANIC`,
+   `VEHICLE_TELEMATICS`, `PARTNER_SYSTEM`. **Device type and event subtype
+   belong in separate fields**, not in the trigger enum. Over-specific values
+   like `TELEMATICS_CRASH` can be added once a real payload justifies them.
+
+10. **Authentication: a SECOND strategy alongside JWT, never a removal.**
+    Inbound device requests sign their payloads with a pre-shared key. The
+    controller verifies signatures locally, enforces a bounded timestamp drift
+    window, and stores nonces to prevent replay. **No externally observable
+    latency guarantee is established by this ADR** - signature verification is
+    fast, but a Redis round trip and application load are not, and no
+    sub-millisecond claim is achievable.
+
+    **Replay protection needs a DURABLE identity, not only a cache.** Redis is a
+    fast preliminary check; **PostgreSQL provides the authoritative guarantee.**
+    This is the same pattern already used for evidence
+    (`@@unique([incidentId, sha256])`) and journey fixes (idempotency keys).
+
+    **Every integration event MUST carry:**
+    ```
+    integrationPrincipalId
+    externalEventId
+    occurredAt
+    receivedAt
+    payloadVersion
+    ```
+    **with `UNIQUE(integrationPrincipalId, externalEventId)` enforced in the
+    database.** `occurredAt` and `receivedAt` are separate for the same reason
+    the journey chain separates them - the device clock and the server clock are
+    two clocks, and only one is trustworthy. **`payloadVersion` is required from
+    the first event**, because q32 shows what a closed payload shape costs when a
+    field has to be added later.
+
+    **Tenant scoping is a hard requirement:** a compromised key for Facility A
+    must not reach any data scope in Facility B. **A credential shipped inside
+    hardware is extractable** - scope every device to one facility, support
+    revocation, and never let a device credential reach anything beyond incident
+    creation.
+
+11. **The ADR-013 boundary holds, and the acknowledgement action is named
+    accurately.**
+
+    **Public tracking remains read-only except for ONE narrowly scoped
+    acknowledgement action authorised by the incident-access token.**
+    Acknowledgement records receipt or page interaction only; **it does not
+    change incident status, escalation policy, assignment, or responder
+    authority.** All state modification stays behind the authenticated Command
+    Centre.
+
+    **This is a state-changing command, so do not call the surface "passive".**
+    And the viewer is not "unauthenticated" - it is a **token-authorised public
+    viewer**, capability-authorised rather than account-authenticated.
+
+    **Requirements:** idempotent acknowledgement, token expiry and revocation,
+    rate limiting, no sensitive data in the payload, and an explicit
+    `PUBLIC_LINK_ACKNOWLEDGED` timeline event.
+
+    **NOTE: this extends ADR-008.** `FAMILY_BEARER` is currently a READ tier.
+    Granting write capability to a bearer token means anyone holding a forwarded
+    SMS can acknowledge. **That is defensible and valuable - it proves response
+    time without OPA participating in the response - but it is a new decision and
+    should be recorded as an amendment to ADR-008, not inherited silently.**
+
+### 3. Entry points are parallel, not sequential
+
+**A customer may start with the mobile app, hardware ingestion, a partner system,
+or any combination. All converge on the same incident lifecycle.** This ADR is
+not "mobile now, hardware later" - it is one engine with several optional
+intakes, and which intake a customer uses is a commercial question rather than a
+roadmap phase.
+
+**This is why the freeze condition is channel-independent.** Every channel
+depends on the same engine booting, the same schema being current, the same
+notification path working, and the same 10B loop being proven. Nothing in the
+freeze is specific to the phone.
+
+**The segmentation that follows from this**, recorded because it answers the
+staff-versus-clients question left open in the handover:
+
+| Segment | Why | Primary intake |
+|---|---|---|
+| Fleets, hospitals, industrial | Buyer owns or manages the devices and can deploy under a safety program | Mobile app - and 9c's offline buffer is the selling point, since drivers cross network blind spots |
+| Residential estates | Buyer cannot compel 5,000 independent residents to install anything | Hardware: wall panels, intercoms, keyfobs |
+
+**Three participation levels for estates, rather than an all-or-nothing app
+decision:** no app (physical trigger only); lightweight enrolment (phone number,
+unit, emergency contacts, no install); full app (SOS, live GPS, voice, evidence,
+offline buffer).
+
+**Language to use, and it is honest as written:** *OPA does not require every
+resident to install an application. Registered panic buttons, intercoms, keyfobs
+and partner security systems can create incidents through OPA's device-ingestion
+API. Estate security personnel receive incidents through the Command Centre and
+secure browser links. Residents may optionally use the OPA mobile app for live
+GPS, voice activation, evidence capture and offline synchronisation.*
+
+**Do NOT promise live tracking from a fixed device.** A wall button reports one
+known location and never moves. A live trail requires the mobile app, a
+GPS-enabled keyfob, or vehicle telematics.
+
+**Positioning language for each segment, written to be true today:**
+
+> For logistics fleets and medical infrastructure, OPA provides a mobile
+> application with an offline transaction buffer intended to hold a lifeline
+> through remote network blind spots. **(Note: 9c is not yet built - this is
+> accurate only once Sprint 10B closes.)**
+
+> For residential estates and smart communities, OPA can reduce resident
+> app-download requirements by accepting authenticated hardware events and
+> presenting the registered trigger location through secure browser incident
+> views. **Live movement tracking is available only when the source supplies
+> continuing location updates** - the mobile application, vehicle telematics, or
+> GPS-enabled hardware.
+
+**Two words to avoid.** "Immutable" - the chains are **tamper-evident**, not
+immutable; say *tamper-evident incident timelines and auditable operational
+records*. And **on-device Picovoice processing is NOT an existing asset** -
+write *potential on-device voice-activation processors such as Picovoice
+Porcupine*, since Expo Go cannot run Porcupine, no `eas.json` exists, and the
+performance targets are unverified estimates.
+
+**DESIGN PRINCIPLE - static devices must not use movement-based freshness
+semantics.** The tracking page derives a SILENT state from the age of the most
+recent location fix. A fixed device reports one registered location and never
+moves, so under that model it would be presented as having lost signal shortly
+after any alert - which a guard would read as a failure when nothing is wrong.
+**The presentation model must distinguish a registered fixed location from a
+moving tracker**, and freshness semantics apply only to the latter.
+
+### 4. What this does NOT change
+
+- **The orchestrator needs no rewrite.** It takes coordinates and a trigger type.
+  Dedupe by advisory lock, four-channel notification fan-out, token minting,
+  timeline recording and journey linkage are all already source-agnostic.
+- **`Facility` and its access guards are real and tested.** The multi-tenant
+  scoping this model needs already exists.
+- **The verifiable record is the product either way.** Chained location fixes,
+  a chained incident timeline with `verifyChain`, sha256-before-upload evidence,
+  5-minute SAS URLs. This is what a partner cannot easily build.
+- **ADR-013 stands.** OPA records; it does not coordinate. A hardware partnership
+  is compatible with that - it adds trigger sources, not response authority.
+- **The canonical payload constraints stand.** q32 governs any new field in the
+  fix payload or the timeline hash, in all three cases.
+
+### 5. Why 9c is RETAINED rather than downgraded
+
+An earlier draft downgraded 9c on the reasoning that a hardware device has its
+own connectivity story and does not need OPA's mobile queue. **That reasoning is
+sound and the conclusion was still wrong**, because 9c carries four things that
+have nothing to do with which client triggered the incident:
+
+1. **The airplane-mode recovery story.** A phone in airplane mode still produces
+   GNSS fixes; with a durable queue they flush on reconnect - *"here is where the
+   phone travelled during the two hours it appeared dark."* Handover 9b.7 calls
+   this the strongest honest answer to the kidnapper objection. **Without 9c the
+   trail simply ends.**
+2. **Durability of the mobile record.** The queue is in memory and dies with the
+   process. **The "live" claim stays foreground-only and non-durable
+   permanently.** Any white paper must say so.
+3. **Item 10.** Its defining assertion is airplane mode then reconnect then
+   buffered flush. **It cannot be written without 9c**, so downgrading 9c would
+   silently prevent Sprint 10B from ever reaching completion.
+4. **ADR-014's queue rule loses its consumer.** The ENDED-session contract was
+   designed for a durable client buffer. **ADR-014 remains correct and should
+   still be installed** - it fixes a real whole-batch rejection defect on the
+   server - but its client half has no implementation until 9c exists.
+
+**Conclusion: 9c stays Tier-1. Hardware ingestion follows it.**
+
+### 6. Consequences
+
+**In favour:**
+- Removes weeks of client-side state and race-condition work from the critical
+  path.
+- Shifts distribution to partners who already have it, bypassing consumer
+  acquisition entirely.
+- **B2B revenue models scale to cleanly absorb and offset the fixed Azure
+  infrastructure floor**, and are better matched to the differentiator:
+  **institutions purchase operational visibility, accountability, and verifiable
+  incident records.**
+- The engine is reusable across markets without architectural change.
+
+**Against, and honestly:**
+- **Hosting cost is a fixed floor that does not scale down.** App Service,
+  PostgreSQL Flexible Server and Redis bill continuously whether or not an
+  incident occurs. **Revenue absorbs that floor; it does not remove it.**
+  **We are staying on Azure App Service code-deploys with a stateful
+  environment.** There is no Dockerfile and no serverless deployment, so any
+  claim about near-zero idle cost or container replication is false for this
+  stack.
+- **Partner APIs before product-market fit contradicts a recorded principle.**
+  `TODO.md:1335-1339`: *pilot -> users -> reliability -> partners ask -> API.*
+  **This ADR knowingly inverts that sequence.** Mitigation: build for ONE named
+  partner as a design partnership, not a public SDK or documented API. **If a
+  second partner needs a different shape, stop and generalise deliberately.**
+- **Dependency on third-party device reliability.** OPA becomes accountable for
+  an outcome it does not control end to end. Payloads must stay small enough to
+  survive unstable carrier networks.
+- **Latency.** The objective is **minimising localised compute overhead**, not a
+  response-time guarantee - physical network propagation sets the floor and no
+  sub-millisecond claim is achievable. **The real and addressable risk is App
+  Service idle spin-up**, which can run to tens of seconds on a cold request.
+  **An always-on setting or a health-check ping is required before any partner
+  traffic**, and that is a configuration item, not a rewrite. Current timings
+  belong in the handover, not here.
+- **US latency is UNADDRESSED and has no cheap fix.** The deployment is a single
+  App Service in South Africa North. **App Service has no read replicas** - that
+  is a database feature - and a Postgres read replica would not help regardless,
+  because incidents are WRITES and would still cross regions. **Serving a live
+  tracking page from a replica would introduce replication lag, showing a stale
+  position as current - the exact defect `893d65a` exists to prevent.** A real US
+  presence means a second deployment with its own database and a decision about
+  data residency. **Out of scope here; do not claim it is solved.**
+- **Database connection density, as an evidence-based gate rather than a
+  mandate.** Horizontally scaling ingestion workers could approach PostgreSQL
+  connection limits, but that depends on request volume, ORM pool
+  configuration, App Service instance count, worker concurrency, the server's
+  connection limit and transaction duration - **none of which is known, and one
+  instance runs today.** **Measure connection capacity before scaling
+  ingestion.** If projected or observed concurrency approaches the limit,
+  introduce supported pooling - Azure Postgres Flexible Server has built-in
+  pooling, and PgBouncer is an option - and constrain application pool sizes.
+  **Do not treat a pooler as mandatory on architectural direction alone.**
+- **A device is a new attack surface.** A credential embedded in shipped hardware
+  is extractable. Scope every device to one facility, support revocation, and
+  never let a device credential reach anything beyond incident creation.
+
+### 6b. PRINCIPLE - a notification provider must never report a delivery it did not attempt
+
+**A provider that cannot deliver MUST return failure.** A stub, an unimplemented
+channel, or a provider missing its credentials must report `success: false` with
+a distinguishable reason. It must never return success with a synthesised
+message id.
+
+**Why this is architectural rather than a bug report:** the dispatch worker
+records the provider's answer, and the incident timeline chains that record. **A
+provider that reports success it did not achieve causes the hash chain to
+faithfully preserve a false statement.** For a platform whose differentiator is a
+verifiable record, a false delivery entry is worse than an absent one - chaining
+a claim does not make it true.
+
+**Corollaries:**
+- **An unimplemented channel is a terminal failure, not a retryable one.** The
+  dispatch worker must not retry a channel that cannot succeed.
+- **Configuration absence must be distinguishable from delivery failure**, so an
+  operator can tell "not set up" from "the carrier rejected it".
+- **Provider self-reported success is weak evidence of delivery.** A recipient
+  opening a tokenized tracking link is stronger, which is why
+  `NotificationStatus.ACKNOWLEDGED` matters more under this ADR than before.
+
+**Adding a real channel is procurement, not code.** WhatsApp Business requires
+business verification and pre-approved templates before a business-initiated
+message can be sent, so free-text delivery to a contact who has never messaged
+you is not possible. **The provider interface would also need extending** -
+`NotificationRequest` is `{ recipient, subject?, message }` and cannot express a
+template name with ordered parameters.
+
+**Current provider state is a deployment fact, not an architectural one.** It is
+recorded in the handover addendum, section A2 and following, and must be verified
+against the code rather than read from this ADR.
+
+### 7. Entry criteria - implementation begins only when these are met
+
+**These are principles. The current measured state of each is a deployment fact
+and lives in the handover addendum, not here** - an ADR outlives any particular
+deployment, and embedding today's readings would make this record stale within
+weeks.
+
+1. **The production API boots and serves requests.** This requires ADR-012 to be
+   decided, since the provider-confidence validator's throw is a deliberate gate
+   rather than a defect.
+2. **The production database schema is fully migrated** and matches the
+   migrations on disk. **The deployment pipeline must apply migrations**; a
+   pipeline that builds and publishes without migrating will drift silently, and
+   has.
+3. **All credentials required by application code are present in the deployment
+   environment, and are production credentials rather than sandbox ones.**
+   Variables read through bare `process.env` are the ones most likely to be
+   missed, because they bypass whatever configuration surface was used to set up
+   the environment.
+4. **Any exposed credential has been rotated.**
+5. **Notification providers comply with section 6b** - no channel reports a
+   delivery it did not attempt.
+6. **Sprint 10B is closed at 100%, including 9c and the airplane-mode
+   verification loop.** Settled, not an open choice. Section 5 records why.
+
+**Why 10B is finished in full rather than cut short:** the work is
+channel-agnostic - a hardware partner benefits from the same engine - and the
+airplane-mode demonstration is one of the few capabilities in the product that a
+competitor cannot easily show. Cutting it saves roughly a day and forfeits a
+differentiator permanently, since nobody returns to a milestone marked complete.
+
+**Nothing in this ADR is urgent. Everything in the entry criteria is.**
+
+### 8. Notes on this draft
+
+Six corrections were applied to the draft this ADR was written from, recorded so
+they are not reintroduced:
+
+1. "Sub-millisecond readiness" is not achievable by any networked system. The
+   real and addressable figure is App Service cold start, measured in tens of
+   seconds.
+2. The cold-start risk was attributed to a serverless transition. There is no
+   serverless deployment and no Dockerfile; the app runs on App Service via
+   `node dist/main.js`.
+3. "Insulates the business from fixed Azure hosting fees" - revenue pays a fixed
+   floor, it does not remove it.
+4. "Regional cloud container replication" - there are no containers, and market
+   expansion raises legal questions (US state consent law for audio, HIPAA
+   adjacency) that are not deployment concerns.
+5. `/api/v1/ingest` contradicts `main.ts`, which sets no global prefix.
+6. `WAKE_WORD_DURESS` duplicates the existing `IncidentTrigger.VOICE_HELP_HELP`
+   and `EmergencyTriggerType.VOICE`. Voice integration maps to the existing enum.
+   **On-device edge processing for wake words is retained from the draft and is
+   correct** - keyword spotting stays on the device, no cloud audio, and the
+   backend ingests only a validated lightweight trigger. This also keeps the
+   NDPA audio question away from the ingestion path entirely.
+
+A seventh correction was applied in a later pass: **the draft downgraded 9c, and
+that was reversed.** Item 10 cannot exist without it, so downgrading 9c would
+have prevented Sprint 10B from ever closing. See sections 2.6 and 5.
+
+An eighth: **"regional App Service read-replicas" is not a real mechanism.**
+App Service has no read replicas, and a Postgres read replica would not solve
+cross-region write latency for incidents. See section 6.
+
+Additionally, "dropping standard individual user JWT enforcement for hardware
+routes" was rewritten as adding a second strategy. **In a permanent record, loose
+phrasing about removing authentication is the kind of thing that later
+authorises something nobody intended.**
+
+### 9. Roadmap delta - applies only after the freeze lifts
+
+```
+Complete the freeze condition
+  ADR-012 decided -> migrations 6/11 to 11/11 -> password rotated
+  -> Sprint 10B closed at 100% INCLUDING 9c and item 10
+        |
+        v
+Freeze lifts. ADR-015 status moves from FROZEN to Active.
+        |
+        v
+Sprint 11.5  Device model, device auth, ingestion endpoint, trigger enum values
+        |
+        v
+Sprint 12    Repurposed from user profile to device and event logging.
+             Medical fields deprioritised - institutions buy proof, not records.
+        |
+        v
+Sprint 13    Command Centre, VIEWER SCOPE ONLY per ADR-013
+```
+
+**One question must be answered before Sprint 12 is designed: is the institution
+buying for its STAFF or for its CLIENTS?** Staff enrolment can be mandatory and
+bulk-loaded with a known headcount. Client enrolment must be voluntary and
+consent-based - a different data model and a different NDPA position. **Under
+this ADR the answer shifts toward neither: the partner's DEVICES are enrolled,
+not people.** That is simpler and should be confirmed rather than assumed.
+
+---
+
 ## ADR-014 - Session-state and temporal fix failures are classified per item and returned in the success envelope; request-level validation stays request-level
 
 **Status: Accepted for the response envelope, the scope boundary and the

@@ -141,6 +141,82 @@ one.
       observed fact per ADR-013 section 6.2 - that an acknowledgement occurred,
       by whom, when - not as a workflow state machine.
 
+## NDPC filing - reconcile with the product before commercial deployment
+
+Submitted 7 August 2026, payment made, awaiting NDPC review. OPA Technologies
+Limited, RC 9697630, registered as **Data Processor AND Controller**,
+**Extra High Level** processing category, **5,000+ data subjects declared**.
+DPO designated: Oluwaseun Odubore.
+
+**The filing describes a slightly larger compliance posture and a slightly
+smaller product than reality.** Neither gap is a problem today - nothing is
+commercially deployed and the application is under review - but both must be
+reconciled with the DPO before a paying customer is onboarded.
+
+- [ ] **DPO / LEGAL REVIEW before commercial deployment.** Reconcile the
+      registered processing purpose with: Journey/SafeWalk monitoring,
+      partner and hardware-triggered event ingestion, Command Center
+      institutional access, evidence capture, retention, cross-border
+      processing and transfers, and the Operations Platform.
+
+- [ ] **THE PURPOSE STATEMENT IS ALREADY NARROWER THAN THE CODE.** The filing
+      says location is captured "only while an emergency alert is active and
+      is initiated by the user". **Journey sessions capture location during a
+      journey - no emergency, no alert.** That primitive shipped in Sprint 10B
+      and ran on a device on 6 August. Nothing is deployed commercially, so
+      nothing is wrong today, but this is a present discrepancy rather than a
+      future risk. It must be amended before SafeWalk is sold.
+
+- [ ] **SOME DECLARED TECHNICAL MEASURES ARE NOT IN PLACE.** Declared:
+      Data Loss Prevention Solutions and Data Recovery Systems. **No DLP
+      tooling exists in the codebase, and Postgres backup configuration has
+      never been verified.** Ask the DPO whether Azure platform-level
+      capabilities satisfy these, or whether they should be corrected on
+      review. Declaring a control that cannot be evidenced is the exposure.
+
+- [ ] **SOME DECLARED ORGANISATIONAL MEASURES HAVE NO ARTEFACT.** Declared:
+      Data Retention Policies, Data Protection Policies, Regular Security
+      Audits. **No written retention policy exists. No DPIA exists.** Both are
+      recorded as missing in Ultra 28 section 5. At Extra High Level a DPIA is
+      near-certain to be expected rather than merely advisable.
+
+- [ ] **CHECK WHAT EXTRA HIGH LEVEL COMMITS OPA TO ANNUALLY**, and diarise it.
+      The tier is driven partly by the 5,000+ data-subject declaration, which
+      is forward-looking - the current user base is near zero. Ask the DPO
+      whether the category is correct for present volume and what the annual
+      audit filing deadline is. The portal's own late-penalty waiver notice
+      exists because that deadline catches people.
+
+- [ ] **APPLY FOR THE LATE-PENALTY WAIVER.** The NDPC portal offers one for
+      companies incorporated within six months of applying. OPA qualifies.
+      Send a letter requesting it with the Certificate of Incorporation to
+      technicalsupport@ndpc.gov.ng.
+
+- [ ] **DO NOT SAY "NDPC CERTIFIED" OR "NDPC APPROVED".** The portal says
+      SUBMITTED. Until it moves to Completed and issues a certificate, the
+      only accurate phrasing is that registration has been submitted. Applies
+      to the website, proposals and any Command Center sales material.
+
+### What the filing makes a LAUNCH requirement, not an enhancement
+
+The declared measures set a compliance baseline the Command Center must meet on
+day one rather than later:
+
+- Organisation and facility scoping - **already built**
+- Least-privilege role-based access - **guards built**, operator roles unbuilt
+- **Audit trail for VIEWING sensitive incident data** - not built. Declaring
+  "Audit Trail and Logging" while an operator can read a person's precise
+  location without a record of having done so is the weakest point.
+- Strong authentication - JWT built; session policy for shared operator
+  machines undecided
+- Retention and deletion controls - **not built**
+- Separation of the neutral Incident Core from operational workflow data -
+  **decided in ADR-013 section 6**, unbuilt
+
+This aligns with ADR-013 and its section 6 amendment rather than conflicting
+with it, which is the useful part: the compliance baseline and the architecture
+point the same way.
+
 ## Command Center - MEASURED SCOPE, 6 August 2026
 
 Measured against real files, not estimated from the roadmap. Two documents say

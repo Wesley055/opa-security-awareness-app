@@ -131,12 +131,61 @@ export class IncidentTimelineService {
     return { valid: true };
   }
 
+  /**
+   * Key-order-independent form of a JSON value.
+   *
+   * WHY THIS EXISTS. The payload column is Prisma `Json`, which is
+   * PostgreSQL `jsonb`. jsonb DOES NOT PRESERVE KEY ORDER - it stores keys
+   * sorted by length and then bytewise. Measured on this database:
+   *
+   *   written  {"previousStatus":"OPEN","newStatus":"RESOLVED",
+   *             "reason":"X","revokedTokens":2}
+   *   read     {"reason":"X","newStatus":"RESOLVED",
+   *             "revokedTokens":2,"previousStatus":"OPEN"}
+   *
+   * JSON.stringify follows insertion order, so hashing the payload object
+   * directly produced one string at write time and a DIFFERENT one at
+   * verify time. verifyChain then reported a valid chain as broken.
+   *
+   * The flaw was latent: every caller before the incident lifecycle passed
+   * NO payload, so `{}` was hashed on both sides and key order never
+   * mattered. The first caller with a real payload exposed it.
+   *
+   * ARRAYS KEEP THEIR ORDER. Element order in an array is data, not
+   * representation, and jsonb preserves it. Only OBJECT keys are sorted.
+   */
+  private canonicalise(value: unknown): unknown {
+    if (Array.isArray(value)) {
+      return value.map((item) => this.canonicalise(item));
+    }
+
+    // typeof null === 'object', and Object.keys(null) throws.
+    if (value === null || typeof value !== 'object') {
+      return value;
+    }
+
+    const source = value as Record<string, unknown>;
+    const sorted: Record<string, unknown> = {};
+
+    // Sorted at EVERY depth, including objects nested inside arrays. A
+    // shallow sort passes a flat test and fails on real payloads.
+    for (const key of Object.keys(source).sort()) {
+      sorted[key] = this.canonicalise(source[key]);
+    }
+
+    return sorted;
+  }
+
+  /**
+   * Both recordEvent and verifyChain hash through here, so write-time and
+   * verify-time canonicalisation cannot drift apart.
+   */
   private computeHash(input: HashInput): string {
     const canonical = JSON.stringify({
       incidentId: input.incidentId,
       sequence: input.sequence,
       type: input.type,
-      payload: input.payload,
+      payload: this.canonicalise(input.payload),
       occurredAt: input.occurredAt.toISOString(),
       previousHash: input.previousHash,
     });

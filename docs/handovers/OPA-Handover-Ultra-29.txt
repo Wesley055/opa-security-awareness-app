@@ -1,0 +1,343 @@
+# OPA - Handover Ultra 29 - DELTA
+# GENERATED: 2026-08-06, at commit 2f26617 on main. PUSHED.
+#
+# THIS IS A DELTA. It supersedes Ultra 28 ONLY where stated.
+# Ultra 28 remains AUTHORITATIVE for everything not listed here:
+#   docs/handovers/OPA-Handover-Ultra-28.txt
+# Ultra 27 and earlier remain authoritative where not superseded.
+#
+# SHORT ON PURPOSE. Three ADR-and-docs commits, one correction to Ultra 28,
+# and the on-device defects. No source code changed.
+#
+# LABELS: [M] MEASURED  [D] DECISION  [R] RECOMMENDATION  [I] INHERITED
+
+
+================================================================================
+## RESUME HERE - READ THIS FIRST
+================================================================================
+
+HEAD                main @ 2f26617, porcelain=0, level with origin/main      [M]
+DECISION LOG        16 ADRs. 001-016 COMPLETE, NONE MISSING, for the first
+                    time in the project's history.                          [M]
+GATES               Not re-run this session. Green at a75369a; nothing since
+                    has touched source. Ultra 28 section 11 has the commands.
+
+THREE COMMITS
+  8ccbeb4  Docs: install ADR-015 - OPA as hardware and telemetry event
+           middleware
+  a21f587  Docs: install ADR-013 - evidence architecture and the coordination
+           boundary
+  2f26617  Docs: record the on-device defects found during production SMS
+           verification
+
+CORRECTION TO ULTRA 28 - IT IS COMMITTED AND NOW CARRIES A FALSE STATEMENT
+Ultra 28's header reads "NO COMMITS THIS SESSION" and its section 0 says "No
+source code was written and no commits were made." Both were true when it was
+installed at ac5df59. THE THREE COMMITS ABOVE LANDED AFTERWARDS. Everything
+else in Ultra 28 stands.                                                    [M]
+
+THE HEADLINE
+BOTH UNINSTALLED ADRs ARE NOW IN THE DECISION LOG. ADR-015 had been drafted
+and uninstalled since 31 July; ADR-013 had been carried as "content decided,
+install owed, ~0.5h" through FOURTEEN handovers. The Command Centre work can
+now start with its boundary written down rather than quoted second-hand.  [M]
+
+THE HEADLINE, RESTATED HONESTLY
+A SERIOUS DEFECT WAS FOUND ON A DEVICE AND ITS CAUSE IS NOT YET KNOWN. Alerts
+go to the wrong emergency contacts: a non-primary contact received every alert,
+the primary received none, and a number not in the contact list at all appeared
+in dispatch logs. Two candidate mechanisms, one query to distinguish them.
+Section 3.                                                                  [M]
+
+NEXT ACTIONS - IN ORDER
+  1. Commit this file to docs/handovers/OPA-Handover-Ultra-29.txt (CRLF).
+  2. RUN THE ONE QUERY IN SECTION 3.3. It decides whether the contact defect
+     is a data bug or a design decision, and everything else follows.
+  3. Ultra 28's list stands: remove REDIS_URL, fix the three stub providers,
+     then document corrections, then Command Center.
+
+
+================================================================================
+## 1. THE TWO ADRs
+================================================================================
+
+### 1.1 ADR-015 - 8ccbeb4 [M]
+
+"OPA as a hardware and telemetry event middleware, with the mobile application
+as a first-class client." 487 insertions, installed VERBATIM from the draft at
+docs/handovers/ADR-015-content.txt. Nothing was reworded.
+
+[M] Lines 1-9 of that draft were installer scaffolding and were STRIPPED. The
+stripping was done by locating the ADR heading, not by slicing at a hard-coded
+line number, and every removed line was asserted to be a comment.
+
+[D] THE STATUS LINE WAS INSTALLED UNCHANGED, DELIBERATELY. It still reads
+"blocked until Sprint 10B closes and the freeze condition in section 7 is met",
+even though 10B has closed and five of six criteria are met. Section 7 of the
+ADR says why: "These are principles. The current measured state of each is a
+deployment fact and lives in the handover addendum, not here - an ADR outlives
+any particular deployment, and embedding today's readings would make this
+record stale within weeks." Ultra 28 section 1 carries the measured table. That
+separation is the ADR's own instruction and it was honoured.
+
+[M] The draft's placement instruction - "goes ABOVE ADR-011 at line 9" - was
+STALE. Three ADR sections had been added since 31 July and ADR-011 had moved to
+line 1218. Installed between ADR-016 and ADR-014 instead, which is both numeric
+order and the log's newest-first convention.
+
+### 1.2 ADR-013 - a21f587 [M]
+
+"Evidence architecture and the coordination boundary." 163 insertions.
+
+[M] THIS ONE WAS WRITTEN, NOT INSTALLED. Unlike ADR-015 there was no drafted
+document. Its content lived as handover prose - eight numbered decisions with
+their reasoning, in OPA-Handover-Ultra-19-part2.txt section 9b.10 - with no
+heading, no status, no context and no consequences.
+
+[R] WHY IT TOOK FOURTEEN HANDOVERS. Ultra 15 estimated "0.5h to install" and
+Ultra 16, 17, 18, 19 and 20 all repeated the figure. The likely mechanism: each
+session read "content decided", discovered it was not in installable form, and
+deferred. THE ESTIMATE WAS FOR THE WRONG JOB. When a task is carried unchanged
+across many handovers, suspect the estimate describes a different task from the
+one actually required.
+
+[D] SOURCE DISCIPLINE. Section 9b.10 was the sole substantive source. All eight
+decisions come from it with their reasoning and NO NEW DECISIONS WERE INVENTED.
+The Context, Consequences, Rejected alternatives and Implementation
+implications sections are editorial shaping - they name what the eight
+decisions imply. That prose is NEW and has been reviewed only by its author and
+the operator.
+
+[M] Two sentences preserved VERBATIM because they are quoted elsewhere and are
+the ones that will be argued with:
+    VIEWER, NEVER CONSOLE
+    a viewer drifts into a console one reasonable request at a time
+Both were reflowed onto single lines so a future grep finds them whole.
+
+[R] THE CLAUSE MOST LIKELY TO BE TESTED FIRST is in Implementation
+implications: "Material that implies OPA directs a response contradicts this
+ADR regardless of what the software does." That binds sales and marketing, not
+just engineering - and the website already says "Command Center".
+
+### 1.3 AN INSTALLER LESSON WORTH KEEPING [R]
+
+The ADR-013 installer would have ABORTED on its first design. It asserted every
+invariant phrase was ABSENT from the log before the edit - and "VIEWER, NEVER
+CONSOLE" was already there, quoted verbatim by ADR-015 item 5, installed an
+hour earlier.
+
+The guard would have refused the install because the architecture was
+CONSISTENT. That is exactly backwards.
+
+[R] THE FIX, AND IT GENERALISES: an invariant that is deliberately quoted
+elsewhere is EXEMPT from the absence check and asserts instead that its count
+rises by exactly one, from whatever it started at. A later ADR quoting the same
+boundary still installs cleanly.
+
+
+================================================================================
+## 2. THE DECISION LOG IS COMPLETE
+================================================================================
+
+[M] 16 ADRs, numbered 001 through 016, none missing. Measured after a21f587.
+
+Ultra 25 section 7.4 recorded two uninstalled ADRs and was carried verbatim
+through Ultra 26, 27 and 28. THAT ITEM IS CLOSED.
+
+[M] THE NEXT FREE ADR NUMBER IS 018. ADR-017 (provider fault isolation) is
+still owed and still unwritten - Ultra 27 section 7.6 lists it under Phase 7.
+
+[R] ADR-014 SECTION 11'S STRUCTURAL ASYMMETRY IS STILL NOT FIXED. Four unheaded
+prose decisions above twelve `####` subsections. Flagged in Ultra 26 section
+7.4, carried through 27 and 28, and NOT addressed in this session despite the
+installer being open twice. Count the subsections before editing - the number
+has grown three times.
+
+
+================================================================================
+## 3. ON-DEVICE DEFECTS - 2f26617
+================================================================================
+
+Five items added to the TOP of docs/TODO.md, above the existing Immediate
+section, so they are read rather than buried under 1,599 lines.
+
+### 3.1 THE SERIOUS ONE - ALERTS GO TO THE WRONG CONTACTS [M]
+
+MEASURED, not reported:
+  +2349066538149  Blessing Love, NOT primary   received EVERY alert
+  +2347037119196  Osa Osahun, PRIMARY          received NONE
+  +14694791451    not in the contact list      appeared in dispatch logs
+
+Setting Osa as primary did not change the outcome.
+
+[M] **A user can update their emergency contacts and alerts still go to the
+wrong people, silently, while the app displays the correct list.** In a safety
+product that is the most serious defect found across the last two sessions.
+
+### 3.2 WHAT IS NOT WRONG - RECORDED SO NOBODY RE-DIAGNOSES IT [M]
+
+`incident-orchestrator.service.ts:103` calls
+`emergencyContactsService.listForUser(userId)` and reads contacts FRESH from
+the database at incident creation. `listForUser` returns ALL contacts ordered
+`isPrimary: 'desc'`, not just the primary. Lines 118-145 then build one SMS,
+one WhatsApp and one email row PER CONTACT.
+
+The fan-out is correct. The read is fresh. Do not start there.
+
+### 3.3 TWO CANDIDATE MECHANISMS, AND THE ONE QUERY THAT DECIDES [R]
+
+1. **`isActive` FILTERING.** `incident-orchestrator.service.ts:104-106` does
+   `contacts.filter((contact) => contact.isActive)` BEFORE building any
+   notification row. A contact whose `isActive` is false - or was never set
+   true on create - is excluded silently while still appearing in the app.
+
+2. **A FROZEN OUTBOX PAYLOAD ON A REUSED INCIDENT.** Dispatch Phase 2c-1 stores
+   a durable JSON payload at INCIDENT-CREATION time. Throughout testing the app
+   repeatedly reported "existing emergency alert remains active" and REUSED the
+   session. A payload written when the original incident was created would
+   replay its original recipients forever.
+
+**THE TEST: query `isActive` on Osa Osahun's row.**
+  FALSE -> mechanism 1 is the whole story. A data or default-value bug.
+  TRUE  -> the reuse path is the cause, and the fix is a DESIGN DECISION about
+           whether a contact change should invalidate pending payloads. That is
+           ADR-shaped work, not a bug fix. See Ultra 28 section 3.5.
+
+[R] DO NOT FIX FROM THE SYMPTOM. The two mechanisms need different fixes and
+one of them is not a fix at all.
+
+[M] `+14694791451` appearing in dispatch logs while absent from the contact
+list is the single strongest piece of evidence, and it points at mechanism 2 -
+a contact that existed when the incident was created and has since been
+removed. It is not conclusive.
+
+### 3.4 THE OTHER FOUR [M]
+
+**No password reset exists.** The sign-in screen offers Email, Password, Sign
+In and "Create one". There is no "Forgot password?" path anywhere. Any user who
+forgets is locked out permanently. This blocks a real pilot.
+
+**Labels are TRUNCATED on the Emergency Contacts screen - ONE layout bug, not
+three typos.** "Bac" (Back), "Remov" (Remove), "Set" (probably "Set primary"),
+all clipped on the same view. Three clipped labels on one screen means
+containers too narrow or a line clamp without ellipsis. The strings are
+probably already correct. Fix the layout.
+
+[R] THIS WAS NEARLY MISRECORDED AS A SPELLING MISTAKE. It was reported as
+"back is spelt bac". Seeing the screen showed two more clipped labels beside
+it, which changed the diagnosis from three string edits to one layout fix.
+
+**FEATURE GAP, not a defect: the user cannot choose WHICH contacts are
+alerted.** The orchestrator already fans out to every active contact, so the
+capability exists at the API. What is missing is a selection surface.
+[R] DESIGN THIS ALONGSIDE THE `isActive` QUESTION IN 3.3 - they are the same
+field seen from two ends, and deciding them separately would produce two
+incompatible answers.
+
+**The website needs a visual and content pass**, carrying Ultra 28 section 9's
+three claims. One has changed since: "SMS live" is NOW TRUE as of 6 August.
+"Push live" remains FALSE - push.provider.ts is a stub. The hash-chain claim
+remains UNVERIFIED.
+
+
+================================================================================
+## 4. CARRIED FORWARD FROM ULTRA 28, UNCHANGED
+================================================================================
+
+[I] Everything in Ultra 28 stands except its no-commits header. In particular:
+
+  - THREE STUB PROVIDERS still report deliveries they never attempted.
+    WhatsApp, Push and Voice return success:true from console.log. The
+    production database contains records of successful deliveries that did not
+    happen. Ultra 28 section 3. ONE HOUR OF WORK, and it is the last
+    outstanding ADR-015 freeze criterion.
+  - REDIS_URL is the literal string 'placeholder'. An error every five seconds
+    burying every other log line. Remove the setting; do not provision.
+    Ultra 28 section 4.1b.
+  - THE PIPELINE DOES NOT APPLY MIGRATIONS. Production is at 11/11 by hand.
+    Ultra 28 section 4.2.
+  - EMAIL IS UNCONFIGURED in production. RESEND_* absent from App Service.
+  - APPLE DEVELOPER (org) is the last registration not started, and the
+    slowest clock.
+  - A DPIA AND A RETENTION POLICY DO NOT EXIST and will be asked for.
+  - The document drift catalogued in Ultra 28 section 7 is UNCORRECTED.
+
+
+================================================================================
+## 5. FIRST ACTIONS IN THE NEXT SESSION
+================================================================================
+
+1. Commit this file to docs/handovers/OPA-Handover-Ultra-29.txt (CRLF).
+   Handovers are stored LF in git and checked out CRLF - trap #131. The blob
+   is smaller than the working file by exactly the line count.
+
+2. Verify state:
+   $env:GIT_PAGER='cat'
+   cd C:\Projects\OPA; "probe=resume"; "current=" + (git branch --show-current); git log --oneline -5 | ForEach-Object { "log|$_" }; "porcelain=" + @(git status --porcelain).Count
+   EXPECT current=main, HEAD 2f26617 (or later), porcelain=0.
+
+3. Run all five gates. Ultra 27 section 8 has the commands. They have not been
+   run since a75369a, and while nothing since has touched source, that is an
+   inference rather than a measurement.
+
+4. THE isActive QUERY. Section 3.3. One query, and it decides the shape of the
+   most serious open defect.
+
+5. Then Ultra 28's list: remove REDIS_URL, fix the three stub providers,
+   document corrections, Command Center.
+
+
+================================================================================
+## 6. TRAPS ADDED THIS SESSION
+================================================================================
+
+### TRAP #140 - AN INVARIANT THAT ABORTS ON ARCHITECTURAL CONSISTENCY [M]
+
+The ADR-013 installer asserted every load-bearing phrase was ABSENT from the
+decision log before the edit. "VIEWER, NEVER CONSOLE" was already present -
+quoted verbatim by ADR-015 item 5, installed an hour earlier. The guard would
+have refused the install BECAUSE the two ADRs agreed.
+
+  [R] A PHRASE DELIBERATELY QUOTED ACROSS DOCUMENTS CANNOT BE ASSERTED ABSENT.
+      Exempt it and assert instead that its count rises by exactly one, from
+      whatever it started at. Same family as #128 - a guard measuring the wrong
+      property - but the failure here would have been a REFUSAL rather than a
+      silent pass, and the refusal would have looked correct.
+
+### TRAP #141 - AN ESTIMATE THAT DESCRIBES A DIFFERENT TASK [M]
+
+ADR-013 was carried as "content decided, ~0.5h to install" through fourteen
+handovers. The content existed, but as handover prose with no heading, status,
+context or consequences. It needed WRITING, not installing. Every session that
+read the estimate, opened the source, and found it unusable, deferred - and
+recorded the same estimate again.
+
+  [R] WHEN A TASK IS CARRIED UNCHANGED ACROSS MANY HANDOVERS, SUSPECT THE
+      ESTIMATE, NOT THE PRIORITISATION. An item repeatedly deferred by
+      different sessions is usually mis-scoped rather than unimportant.
+
+### TRAP #142 - A DEFECT REPORT THAT NAMES THE WRONG DEFECT [M]
+
+Reported as "back is spelt bac". The screenshot showed "Bac", "Remov" and "Set"
+all clipped on the same screen - a layout bug, not three spelling mistakes.
+Fixing the strings would have changed nothing.
+
+  [R] LOOK AT THE SCREEN, NOT THE REPORT. A user reports the symptom they can
+      name; two more instances of the same symptom, side by side, are what
+      identify the cause.
+
+### TRAP #143 - ASSERTING A COUNT INSTEAD OF MEASURING IT, AGAIN [M]
+
+The TODO installer's header claimed docs/TODO.md contained 387 non-ASCII
+characters. The installer measured 145. The number in the prose was arithmetic
+done from memory; the number in the guard was measured at runtime and was
+correct.
+
+  [R] The guard was right and the prose was wrong, which is the correct
+      failure direction - but the prose is what a reader trusts. Do not state
+      a count in commentary that the code measures.
+
+
+# END OF HANDOVER ULTRA 29
+# Delta to Ultra 28. Generated at 2f26617 on main, level with origin.
+# Three commits: 8ccbeb4, a21f587, 2f26617. No source code changed.

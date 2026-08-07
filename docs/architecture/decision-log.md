@@ -1728,6 +1728,196 @@ regardless of what the software does.
 substantially built. Decisions 1 and 2 constrain the client work when it
 begins; decision 3 constrains when it may ship.
 
+
+### 6. Evolution - operational workflow as a separate platform
+
+**Amended 6 August 2026. The original decision above is NOT reversed. Its
+reasoning about independence stands unchanged and is the reason this amendment
+takes the shape it does.**
+
+**This amendment PRECEDES customer validation.** No institutional customer has
+requested assignment, escalation or responder tracking. What exists is market
+research, competitive analysis and founder judgement about where institutional
+demand is going. Those are legitimate grounds to evolve an architecture and
+they are not the same as evidence. Recorded plainly so that a later reader -
+including the author - can tell which it was. **The decision is intentionally
+reversible should evidence point elsewhere.**
+
+**What changed.** Sections 2 and 3 constrain the Command Centre to VIEWER,
+NEVER CONSOLE, and treat responder assignment, status tracking and escalation
+management as out of scope. Product strategy now anticipates that institutional
+customers will want those capabilities, and that OPA should be able to sell
+them as an optional module rather than decline them.
+
+**What did not change.** OPA's canonical account of an emergency remains
+independent of anyone's account of their own response. Section 2 decision 7's
+argument holds: a responder cannot produce neutral evidence about their own
+response, and tamper-evidence is not independence.
+
+#### 6.1 Two domains, and the dependency direction is the rule
+
+**INCIDENT CORE** holds what objectively happened: SOS activation, voice
+trigger, GPS fixes, journey start and end, evidence uploads and their hashes,
+notification queued and delivered, audit events, hash chains. Everything here
+is derivable from telemetry or from system events. No operator opinions, no
+dispatch decisions, no responder-authored facts.
+
+**OPERATIONS PLATFORM** holds what an organisation did: assignment, escalation, shift
+change, team accepted, responder en route, response closed, SLA state. These
+are business operations, not evidence. Separate tables, separate APIs, separate
+permissions, separate audit stream, and separate retention rules where they
+differ.
+
+**THE RULE, AND IT IS THE WHOLE AMENDMENT:**
+
+    Operations may reference an Incident.
+    Incident Core never depends on operational state.
+
+**Incident Core SHALL NOT import, query, or derive canonical incident facts
+from Operations.** Stated separately from the sentence above because the two
+are not the same: "does not depend on" can be argued around by someone joining
+an operational table into a reconstruction and calling the result independent.
+It is not.
+
+**Operational state may enrich the user experience but shall never redefine,
+reinterpret, or overwrite the canonical incident record.**
+
+The two domains communicate EXCLUSIVELY THROUGH PUBLISHED DOMAIN EVENTS, not
+by writing into each other's tables. Incident Core publishes facts; Operations
+subscribes and creates its own case. Operations may cite an Incident id;
+nothing in Incident Core reads an Operations row to decide what it says.
+
+**The transport is deliberately unspecified.** Redis Streams, RabbitMQ, Kafka,
+Azure Service Bus, a Postgres outbox - the rule is the direction and the
+exclusivity, not the technology, and this ADR should outlive every one of
+those choices.
+
+**What this buys, and it is the point.** OPA can always answer two independent
+questions - what objectively happened, and what the organisation did about it -
+from two records that were not written by the same party. Years later the
+emergency can be reconstructed entirely from the Incident Core even if every
+operational record has been deleted. Courts, auditors, insurers and hospital
+risk committees care about that distinction, and no competitor gets it by
+spending more.
+
+#### 6.2 The acknowledgement rule - the seam most likely to be violated
+
+Acknowledgement sits exactly on the boundary, and section 2 decision 7 already
+permits "acknowledgement display" for a viewer. Stated as a rule so the first
+implementer does not have to infer it:
+
+**Operational acknowledgement is AUTHORED within the Operations domain.**
+
+**The Incident Record may record ONLY the observable fact that an
+acknowledgement occurred**, together with its timestamp and a reference to the
+Operations event.
+
+Responder identity, assignment, workflow state, comments, escalation status,
+ownership and similar operational detail remain EXCLUSIVELY within Operations.
+
+Concretely: the Incident timeline may say *an acknowledgement was observed at
+14:21:18, Operations event 93bf...*. It may NOT say *Officer John assigned
+himself*. The first is a fact about the world; the second is a claim by a party
+about their own conduct, and admitting it into the canonical record is exactly
+what this ADR exists to prevent.
+
+#### 6.3 Event contracts and versioning
+
+Published Incident events are VERSIONED CONTRACTS. Operations may subscribe to
+them; it may NOT require a breaking change to Incident Core in order to keep
+working. Evolution happens by ADDITIVE VERSION - `IncidentCreated` v1 continues
+to be published, or continues to be satisfiable, when v4 exists.
+
+This matters most when it is least visible: once a hardware partner or a
+third-party Operations implementation subscribes, a breaking contract change
+becomes their outage rather than an internal refactor.
+
+#### 6.4 Incident Core remains independently deployable
+
+**Operations Platform failure, upgrade, maintenance or outage SHALL NOT prevent
+Incident Core from receiving SOS activations, storing telemetry, preserving
+evidence, or delivering emergency notifications.**
+
+This is the dependency rule expressed as a RUNTIME property rather than a
+design one, and it is the form that can be TESTED: stop the Operations
+Platform, raise an SOS, and confirm the alert is captured, stored and
+delivered. If it is not, the dependency direction has been violated somewhere
+regardless of what the code appears to say.
+
+For a safety product this is the assertion that matters most. Everything else
+in this section protects the integrity of the record; this protects the
+capability that record is about.
+
+#### 6.5 The database boundary
+
+**Target state: Operations holds no UPDATE or DELETE permission on Incident
+Core tables**, enforced by separate database roles rather than by convention.
+A permission grant is auditable; a code review is not.
+
+**Current state, recorded rather than implied: this is NOT yet in place.** The
+API uses a single Postgres connection and a single Prisma client, so there is
+today no role separation to enforce. That is a gap this ADR RECORDS, not a rule
+it pretends to enforce. Writing it as a MUST while a single role is in use
+would make the ADR false on the day it was installed, and teach a reader that
+its rules are aspirational.
+
+**The dependency direction is enforceable NOW, in code and review, and is not
+waiting on the permission model.**
+
+#### 6.6 The layering
+
+                        PRESENTATION
+
+          Mobile App    Family Portal    Command Centre
+                             |
+                             v
+                   READ MODELS / APIs
+                             |
+            +----------------+----------------+
+            v                                 v
+
+      INCIDENT CORE                  OPERATIONS PLATFORM
+
+    Telemetry                       Assignments
+    Journey                         Escalations
+    Evidence                        Workflow
+    Audit                           Dispatch
+    Hash chains                     SLA tracking
+
+            Incident events -------->
+
+    Operations may reference Incident ids.
+    Incident Core never depends on operational state.
+
+#### 6.7 Delivery consequences
+
+**Operations is a MODULE, not the core.** The platform ships without it and
+remains complete: alerts, live location, incident visibility, evidence, audit
+and reporting serve every customer segment. Only some segments want dispatch.
+Making dispatch the core would price the architecture around one buyer.
+
+**The sequence, and each stage is INDEPENDENTLY DEPLOYABLE:**
+
+    OPA Core  ->  Command Centre  ->  Operations Suite  ->  Partner Integrations
+
+OPA Core serves all customers. The Command Centre serves organisations. The
+Operations Suite is the optional module this amendment makes possible. Each
+stage is sellable without the next, and coupling them in code would forfeit
+that - which is a commercial cost, not only an architectural one.
+
+**Terminology.** The Incident Record is TAMPER-EVIDENT, APPEND-ONLY and
+CRYPTOGRAPHICALLY VERIFIABLE. It is not "immutable" - ADR-015 records why that
+word is avoided, and a database is not literally immutable.
+
+**Section 5's language constraint still binds.** Material describing OPA may
+now describe operational capability where the Operations module exists, but
+must not imply that the Incident Record reflects OPA directing a response. The
+neutrality claim is scoped to what OPA captures, never to what an organisation
+chose to do.
+
+**A violation of the dependency direction is an architectural defect, not a
+design preference.** Any change that lets operational state alter, annotate or
+condition the Incident Record requires a new ADR, not a code review.
 ---
 
 ## ADR-012 - Mock emergency-intelligence providers may be registered in production when their outputs are provably suppressed, acknowledged by an explicitly named boot flag

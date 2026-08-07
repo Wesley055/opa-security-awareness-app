@@ -5,6 +5,76 @@ done - verify against real files/tests, same as everything else in
 this project. **See docs/SPRINT_ROADMAP.md for the authoritative
 sprint-by-sprint status - this file is for granular, individual items.**
 
+## Immediate - defects found on-device 6 August 2026
+
+Found while testing the production SMS path end to end. Recorded with their
+MEASURED evidence and, where the cause is not certain, with the test that
+would settle it. Do not fix from the symptom alone.
+
+- [ ] **ALERTS GO TO THE WRONG EMERGENCY CONTACTS. Most serious item here.**
+      Measured: `+2349066538149` (Blessing Love, NOT primary) received every
+      alert. `+2347037119196` (Osa Osahun, PRIMARY) received none, including
+      after being set primary. A third number, `+14694791451`, appeared in
+      dispatch logs and is NOT in the contact list at all.
+      **A user can update their emergency contacts and alerts still go to the
+      wrong people, silently, while the app displays the correct list.**
+
+      TWO CANDIDATE MECHANISMS. They need different fixes, so measure before
+      choosing:
+
+      1. **`isActive` filtering.** `incident-orchestrator.service.ts:104-106`
+         does `contacts.filter((contact) => contact.isActive)` before building
+         any notification row. A contact whose `isActive` is false - or was
+         never set true on create - is excluded silently while still showing
+         in the app.
+      2. **A frozen outbox payload on a reused incident.** Dispatch Phase 2c-1
+         stores a durable JSON payload at INCIDENT-CREATION time. During
+         testing the app repeatedly reported "existing emergency alert remains
+         active" and REUSED the session. A payload written when the original
+         incident was created would replay its original recipients forever.
+
+      **THE TEST THAT DISTINGUISHES THEM:** query `isActive` on Osa Osahun's
+      row. If false, mechanism 1 is the whole story and mechanism 2 is a red
+      herring. If true, the reuse path is the cause and the fix is a design
+      decision, not a bug fix - see ADR-014 section 11 and Ultra 28 section 3.5.
+
+      NOTE what is NOT wrong: `incident-orchestrator.service.ts:103` calls
+      `emergencyContactsService.listForUser(userId)` and reads contacts FRESH
+      from the database at incident creation. `listForUser` returns ALL
+      contacts ordered `isPrimary: 'desc'`, not just the primary. The
+      orchestrator then builds one SMS, one WhatsApp and one email row per
+      contact. The fan-out is correct.
+
+- [ ] **No password reset exists.** The sign-in screen offers Email, Password,
+      Sign In and "Create one" - there is no "Forgot password?" path anywhere.
+      Any user who forgets their password is locked out permanently. Blocks
+      any real pilot.
+
+- [ ] **Labels are TRUNCATED on the Emergency Contacts screen - one layout
+      bug, not three typos.** "Bac" (Back), "Remov" (Remove), "Set" (probably
+      "Set primary"). Three clipped labels on the same view means containers
+      too narrow or a line clamp without ellipsis, not three spelling
+      mistakes. Fix the layout; the strings are probably already correct.
+
+- [ ] **FEATURE GAP, not a defect: the user cannot choose WHICH contacts are
+      alerted.** The orchestrator already fans out to every active contact, so
+      the capability exists at the API. What is missing is a selection surface
+      in the app - a user should be able to pick more than one recipient
+      deliberately rather than have it implied by `isActive`.
+      **Design this alongside the `isActive` question above** - they are the
+      same field seen from two ends.
+
+- [ ] **Website needs a visual and content pass.** Also carries the three
+      unverified claims recorded in Ultra 28 section 9:
+      "SMS live" - NOW TRUE as of 6 August, delivery confirmed to a handset.
+      "Push live" - FALSE. push.provider.ts is a stub that logs to console and
+      returns success without sending.
+      "hash-chained incident timeline", "tamper-evident by design" - UNVERIFIED.
+      SPRINT_ROADMAP.md:247-251 says the IncidentTimelineEvent chain does not
+      exist. Measure before editing either the site or that claim.
+      "Encrypted evidence, hash-verified" - hashing is not encryption, and the
+      encryption decision is still open.
+
 ## Immediate - unblocks remaining verification
 
 - [ ] Verify Push and Email notification delivery individually - both

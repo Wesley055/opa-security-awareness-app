@@ -75,6 +75,72 @@ would settle it. Do not fix from the symptom alone.
       "Encrypted evidence, hash-verified" - hashing is not encryption, and the
       encryption decision is still open.
 
+## An incident opens and NEVER closes - found 6 August 2026
+
+Found while diagnosing why the SOS screen still read "your existing emergency
+alert remains active" hours after the emergency. It was not the dedupe window.
+The incident genuinely was still open, because nothing in the system can close
+one.
+
+- [ ] **NOTHING WRITES ANY TERMINAL INCIDENT STATUS.** `IncidentStatus` has
+      four values - OPEN, ACKNOWLEDGED, RESOLVED, CANCELLED. Measured across
+      apps/api/src: `incident-orchestrator.service.ts:196` sets
+      `IncidentStatus.OPEN` at creation, and **every other reference in the
+      tree READS status. There is no endpoint, service method or transition
+      that writes ACKNOWLEDGED, RESOLVED or CANCELLED.**
+
+      **A user cannot signal that they are safe.** In a safety product that is
+      arguably the second most important action after raising the alert.
+
+      CONSEQUENCES, all of them live today:
+      - The app shows "emergency activated" indefinitely. Observed for hours.
+      - Tracking links stay live until their absolute lifetime expires rather
+        than closing when the emergency ends.
+      - **A Command Center incident list would fill with permanently open
+        incidents** and an operator would have no way to tell a live emergency
+        from one that ended last week.
+      - Any pilot would accumulate open incidents from the first day.
+
+      **THE READ SIDE IS ALREADY BUILT BUT IS UNREACHABLE FROM THE CURRENT
+      APPLICATION LIFECYCLE.**
+      `public-tracking.service.ts:114-124` handles a closed incident, and its
+      comment reasons carefully that closed is checked BEFORE expiry because
+      "someone opening an old link benefits far more from learning the
+      emergency ended than from being told the link expired".
+      `public-incident-snapshot.dto.ts:76-77` insists EXPIRED and
+      INCIDENT_CLOSED must never be collapsed. `incident-access-token
+      .service.ts:191` refuses to extend a token for a non-OPEN incident.
+      **None of that closed-incident behavior is reachable through the current
+      production write path.** The consumers exist and are tested; what is
+      missing is the writer.
+
+      NOTE: `cancellationReceived` in the detection path is a TRIGGER-TIME
+      signal - "this activation was cancelled" - not a way to close an
+      incident afterwards. Do not mistake one for the other.
+
+- [ ] **DESIGN QUESTION, decide before building: who may close an incident,
+      and what does each status mean?** This is ADR-shaped, not a bug fix.
+      - RESOLVED vs CANCELLED - is CANCELLED "this was a false alarm" and
+        RESOLVED "the emergency is over"? They will be read differently by an
+        insurer.
+      - Can the USER close their own incident? Almost certainly yes, and it is
+        the most important case.
+      - Can an OPERATOR close one? **Careful: ADR-013 and its section 6
+        amendment permit ACKNOWLEDGED as an observed fact, but an operator
+        RESOLVING an incident on the subject's behalf is a claim about the
+        world made by a party with an interest in it.** That is exactly the
+        seam the amendment identifies.
+      - Should an incident auto-close after some period? A journey session has
+        `TIMED_OUT`; an incident has no equivalent.
+      - Does closing an incident revoke its tracking tokens, or let them expire
+        naturally? `incident-access-token.service.ts` already revokes on some
+        paths - check before deciding.
+
+- [ ] **ACKNOWLEDGED is already an enum value waiting for the Command Center.**
+      When acknowledgement is built, it writes this status. Build it as an
+      observed fact per ADR-013 section 6.2 - that an acknowledgement occurred,
+      by whom, when - not as a workflow state machine.
+
 ## Command Center - MEASURED SCOPE, 6 August 2026
 
 Measured against real files, not estimated from the roadmap. Two documents say

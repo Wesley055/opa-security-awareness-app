@@ -75,6 +75,92 @@ would settle it. Do not fix from the symptom alone.
       "Encrypted evidence, hash-verified" - hashing is not encryption, and the
       encryption decision is still open.
 
+## Command Center - MEASURED SCOPE, 6 August 2026
+
+Measured against real files, not estimated from the roadmap. Two documents say
+the Command Center "extends Sprint 10A" and both are wrong about what that
+means in practice.
+
+### What already exists - do not rebuild it
+
+- **Auth, roles and tenant scoping are BUILT.** `UserRole` enum, `User.role`
+  carried in the JWT, `User.facilityId` with a `FacilityStaff` relation and an
+  index, `Facility` model, `Incident.facilityId` indexed with status.
+- **`FacilityStaffGuard` is BUILT** and re-reads role and facilityId from the
+  database rather than trusting the token - so a user promoted after their
+  token was issued is handled correctly.
+- **`IncidentAccessGuard` is BUILT** - per-incident authorisation for the
+  incident owner, facility staff assigned to that facility, or ADMIN.
+- **`GET /facilities/:facilityId/incidents` is BUILT** and already scoped.
+- **The public tokenized tracking page is BUILT** -
+  `apps/website/src/app/i/[token]/live-tracking.tsx`, ~12KB, proving the map
+  and live-position patterns work against the API.
+
+### What does NOT exist
+
+- [ ] **THERE IS NO OPERATOR UI AT ALL.** `apps/website` is marketing pages -
+      about, careers, contact, hospitals, privacy, terms, home - plus the one
+      public tracking page above. No login, no incident list, no dashboard.
+      **SPRINT_ROADMAP.md:141 says Sprint 10A is "SUBSTANTIALLY BUILT". That
+      is true of the API and the public tracking page. It is NOT an operator
+      portal, and COMMERCIAL_ROADMAP.md's "Command Center IS the institutional
+      version of Sprint 10A" implies a front end that has never existed.**
+      The Command Center front end is FROM ZERO.
+
+- [ ] **Facility and staff PROVISIONING does not exist.** The schema supports
+      it; nothing writes it. There is no endpoint to create a facility, assign
+      a user to one, or promote a user to HOSPITAL_STAFF. Every hit for those
+      fields is a GUARD READING them. **Onboarding a hospital today means
+      hand-editing the production database**, which is the first thing that
+      would be needed the moment a customer says yes.
+      DECIDE: an admin API, or a seeded script for the first pilot.
+
+- [ ] **ACKNOWLEDGEMENT does not exist.** No endpoint, no status, no field.
+      Every match for "acknowledg" in the API is either boot-flag prose or a
+      DTO comment noting that responder acknowledgement is OMITTED.
+      **It is in the Command Center MVP scope and ADR-013 permits it** -
+      "acknowledgement display" is explicitly in scope for a viewer.
+      **BUILD IT AS AN OBSERVED FACT, NOT A WORKFLOW.** ADR-013 section 5:
+      audit events record that an acknowledgement occurred, by whom, when -
+      they do not model a workflow. Section 6.2 now states the rule in full.
+      A status field with transitions would cross the boundary.
+
+- [ ] **The incident list endpoint OVER-FETCHES and has no pagination.**
+      `facilities.service.ts:8-25` returns every incident for a facility with
+      the full user, ALL notifications, ALL evidence and ALL timeline events,
+      unbounded. Fine for a demo with five incidents; unusable at a hundred.
+      Needs pagination and a lighter list projection, with detail fetched
+      separately.
+
+### The estimate, and what it does and does not cover
+
+**TEN TO FOURTEEN DAYS for Phase 1**, focused work: the front end from zero
+plus the three backend pieces above. The uncertainty sits in the UI, because
+nothing comparable exists in the repo to pace against - `live-tracking.tsx` is
+the only functional screen and it is a single public page.
+
+**PHASE 1 IS:** org login, live incident list, incident map, incident detail,
+evidence viewer, timeline, acknowledgement, search and filter, basic
+reporting, organisation management.
+
+**PHASE 1 IS NOT:** assignment, escalation, responder status, shift
+management, SLA timers, dispatch. Those are the OPERATIONS PLATFORM, which
+ADR-013 section 6 makes possible as a SEPARATE, INDEPENDENTLY DEPLOYABLE
+product. **IT IS NOT INCLUDED IN THE TEN-TO-FOURTEEN DAY FIGURE** and is a
+comparable body of work again - workflow state, transition rules, concurrency
+between operators, its own audit stream and its own UI.
+
+**Do not let a single number cover both.** The whole point of ADR-013 section
+6 is that they are separable; an estimate that merges them would undo that
+before any code is written.
+
+### Before starting
+
+- [ ] Decide provisioning: admin API or seeded script for the first pilot.
+- [ ] Write the acknowledgement design note. Small, but it is the seam ADR-013
+      section 6.2 identifies as most likely to be violated, and getting it
+      wrong turns a viewer into a console by accident.
+
 ## Immediate - unblocks remaining verification
 
 - [ ] Verify Push and Email notification delivery individually - both

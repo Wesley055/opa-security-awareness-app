@@ -157,8 +157,15 @@ export class IncidentAccessTokenService {
    * Revoke every live token for an incident. Called when an incident closes:
    * live tracking must stop the moment the emergency is over.
    */
-  async revokeAllForIncident(incidentId: string): Promise<number> {
-    const result = await this.prisma.incidentAccessToken.updateMany({
+  async revokeAllForIncident(
+    incidentId: string,
+    tx?: Prisma.TransactionClient,
+  ): Promise<number> {
+    // Optional tx so an incident close can revoke tokens ATOMICALLY with the
+    // status change. "Live tracking stops when the emergency is over" is a
+    // safety claim; it must not be best-effort across two transactions.
+    const db = tx ?? this.prisma;
+    const result = await db.incidentAccessToken.updateMany({
       where: { incidentId, revokedAt: null },
       data: { revokedAt: new Date() },
     });

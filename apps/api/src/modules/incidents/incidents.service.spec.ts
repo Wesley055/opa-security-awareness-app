@@ -10,13 +10,27 @@ describe('IncidentsService', () => {
     },
   };
 
+  // IncidentsService gained two dependencies when resolve/cancel were added.
+  // Neither test here reaches them - both only call create - so bare doubles
+  // are enough. Lifecycle behaviour is covered by incidents.lifecycle.spec.ts
+  // and by test/int/incident-lifecycle-concurrency.int-spec.ts.
+  const accessTokens = { revokeAllForIncident: jest.fn() };
+  const timeline = { recordEvent: jest.fn() };
+
+  const makeService = () =>
+    new IncidentsService(
+      prisma as never,
+      accessTokens as never,
+      timeline as never,
+    );
+
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
   it('creates SOS incidents with redis dispatch metadata prepared', async () => {
     prisma.incident.create.mockResolvedValue({ id: 'incident-id' });
-    const service = new IncidentsService(prisma as never);
+    const service = makeService();
 
     await service.create('user-id', {
       trigger: IncidentTrigger.SOS_BUTTON,
@@ -35,7 +49,7 @@ describe('IncidentsService', () => {
   });
 
   it('requires exact HELP HELP phrase for voice incidents', async () => {
-    const service = new IncidentsService(prisma as never);
+    const service = makeService();
 
     await expect(
       service.create('user-id', {

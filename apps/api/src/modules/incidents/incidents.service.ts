@@ -1,11 +1,41 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
-import { IncidentTrigger, type Prisma } from '@prisma/client';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { IncidentStatus, IncidentTrigger, type Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { IncidentAccessTokenService } from '../incident-access/incident-access-token.service';
+import { IncidentTimelineService } from '../incident-timeline/incident-timeline.service';
+import type { CloseIncidentDto } from './dto/close-incident.dto';
 import type { CreateIncidentDto } from './dto/create-incident.dto';
+
+/**
+ * A lifecycle transition takes CLASSID 3 - the SAME per-incident key the
+ * timeline already uses - rather than a new namespace.
+ *
+ * The namespace elsewhere: 1-arg = per-user lifecycle, 2 = journey fix
+ * ingestion, 3 = incident timeline append.
+ *
+ * A new classid 4 was considered and rejected. Lifecycle and timeline
+ * serialise on the SAME resource - one incident - so a second namespace
+ * would buy nothing and would create a 4-then-3 ordering that all future
+ * code would have to honour. pg_advisory_xact_lock is transaction-scoped
+ * and reentrant, so recordEvent taking 3 again inside this transaction is a
+ * no-op.
+ *
+ * test/int/incident-timeline-concurrency.int-spec.ts already pins this key
+ * with a literal LOCK_SQL. Sharing it means one constant describes both.
+ */
 
 @Injectable()
 export class IncidentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly accessTokens: IncidentAccessTokenService,
+    private readonly timeline: IncidentTimelineService,
+  ) {}
 
   async create(userId: string, dto: CreateIncidentDto, tx?: Prisma.TransactionClient) {
     if (
@@ -41,6 +71,119 @@ export class IncidentsService {
       where: { userId },
       orderBy: { createdAt: 'desc' },
       take: 50,
+    });
+  }
+
+  /**
+   * The subject says the emergency is over and they are safe. Terminal.
+   */
+  resolve(incidentId: string, userId: string, dto?: CloseIncidentDto) {
+    return this.close(incidentId, userId, IncidentStatus.RESOLVED, dto?.reason);
+  }
+
+  /**
+   * The subject says the activation was accidental or false. Terminal.
+   *
+   * Deliberately distinct from RESOLVED: an insurer, an auditor and a
+   * hospital risk committee will read "this did not happen" and "this
+   * happened and is over" very differently.
+   */
+  cancel(incidentId: string, userId: string, dto?: CloseIncidentDto) {
+    return this.close(incidentId, userId, IncidentStatus.CANCELLED, dto?.reason);
+  }
+
+  /**
+   * ONLY THE INCIDENT OWNER MAY CLOSE AN INCIDENT.
+   *
+   * A Command Centre operator resolving somebody else's emergency is a claim
+   * about the world made by a party with an interest in it - the seam
+   * ADR-013 section 6.2 identifies. Acknowledgement is an observed fact and
+   * is recorded as a timeline event; closing is not, and is not exposed to
+   * operators by this method.
+   *
+   * Status change, token revocation and the timeline event share ONE
+   * transaction and ONE timestamp, so the transition is atomic and
+   * temporally coherent.
+   */
+  private async close(
+    incidentId: string,
+    userId: string,
+    target: typeof IncidentStatus.RESOLVED | typeof IncidentStatus.CANCELLED,
+    reason?: string,
+  ) {
+    const occurredAt = new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      // Serialises two concurrent close requests for the SAME incident.
+      // Without it both could read OPEN and both could write a terminal
+      // status, producing two timeline events for one transition - or
+      // colliding on @@unique([incidentId, sequence]).
+      //
+      // Held for the whole transaction, so recordEvent's own classid 3 below
+      // is reentrant and free.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(3, hashtext(${incidentId}))`;
+
+      const incident = await tx.incident.findUnique({
+        where: { id: incidentId },
+        select: { id: true, userId: true, status: true },
+      });
+
+      // Missing and not-yours produce the SAME 404, deliberately. Confirming
+      // that an incident exists to somebody who does not own it discloses
+      // that a particular person raised an emergency.
+      if (!incident || incident.userId !== userId) {
+        throw new NotFoundException('Incident not found.');
+      }
+
+      if (incident.status !== IncidentStatus.OPEN) {
+        throw new ConflictException(
+          `Incident is already ${incident.status} and cannot be closed again.`,
+        );
+      }
+
+      const updated = await tx.incident.update({
+        where: { id: incidentId },
+        data: {
+          status: target,
+          // resolvedAt means RESOLVED and nothing else. A cancelled incident
+          // is not resolved, and overloading one column with two meanings
+          // would be read wrongly later. The timeline event carries the
+          // cancellation timestamp.
+          resolvedAt: target === IncidentStatus.RESOLVED ? occurredAt : null,
+        },
+      });
+
+      const revokedTokens = await this.accessTokens.revokeAllForIncident(
+        incidentId,
+        tx,
+      );
+
+      await this.timeline.recordEvent(
+        {
+          incidentId,
+          type:
+            target === IncidentStatus.RESOLVED
+              ? 'INCIDENT_RESOLVED'
+              : 'INCIDENT_CANCELLED',
+          payload: {
+            previousStatus: IncidentStatus.OPEN,
+            newStatus: target,
+            ...(reason === undefined ? {} : { reason }),
+            revokedTokens,
+          },
+          source: 'MOBILE',
+          actorUserId: userId,
+          occurredAt,
+        },
+        tx,
+      );
+
+      return {
+        id: updated.id,
+        status: updated.status,
+        resolvedAt: updated.resolvedAt,
+        revokedTokens,
+      };
     });
   }
 }

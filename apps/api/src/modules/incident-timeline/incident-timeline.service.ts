@@ -39,11 +39,19 @@ export class IncidentTimelineService {
    * unnecessary serialisation, but it cannot corrupt sequence or hash-chain
    * correctness.
    */
-  async recordEvent(params: RecordTimelineEventParams) {
+  async recordEvent(
+    params: RecordTimelineEventParams,
+    outerTx?: Prisma.TransactionClient,
+  ) {
     const occurredAt = params.occurredAt ?? new Date();
     const payload = params.payload ?? {};
 
-    return this.prisma.$transaction(async (tx) => {
+    // When a caller supplies its own transaction the event MUST be written
+    // inside it, or a status change and its timeline record could commit
+    // independently. Opening a nested $transaction here would do exactly
+    // that. classid 3 is still taken on the caller's transaction, so
+    // per-incident serialisation is unchanged.
+    const append = async (tx: Prisma.TransactionClient) => {
       // Serialises concurrent writers for the same incident before the prior
       // event is read. classid 3 is the timeline namespace: the 1-arg form is
       // the per-user lifecycle lock and classid 2 is journey fix ingestion, so
@@ -84,7 +92,9 @@ export class IncidentTimelineService {
           hash,
         },
       });
-    });
+    };
+
+    return outerTx ? append(outerTx) : this.prisma.$transaction(append);
   }
 
   getTimeline(incidentId: string) {

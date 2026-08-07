@@ -1567,6 +1567,169 @@ later reader who finds two exported functions the application never calls.
 
 ---
 
+## ADR-013 - Evidence architecture and the coordination boundary
+
+**Status: Accepted. Capture is unbuilt on the client; the boundary applies now.**
+
+*Recorded late. The content was decided across several sessions and carried as
+"owed" through fourteen handovers without being installed. That delay is itself
+the argument for writing it down: a boundary that lives only in handover prose
+is not available to the person who needs it, at the moment a customer asks for
+the thing it forbids.*
+
+### 1. Context
+
+Four concerns were becoming conflated: what OPA captures as evidence, how that
+evidence is proved intact, what an institutional viewer may see, and who
+coordinates a response.
+
+They are separable and were being treated as one. Evidence capture invites a
+"show it to the operator" surface; an operator surface invites "let the
+operator act"; acting is coordination. Each step is individually reasonable and
+the sequence ends somewhere this ADR declines to go.
+
+The immediate pressure is commercial and operational. Hospitals, security firms
+and estates buy a screen - and they will also ask for more than a screen
+because it is genuinely useful to them, not merely because they are paying. A
+screen that shows incidents is a viewer. A screen that shows incidents and has
+one button is the beginning of a console.
+
+### 2. Decision
+
+**1. Priority ordering, and evidence must never delay location.**
+
+    location -> SOS/status messages -> telemetry -> audio -> photos -> video
+
+A 200-fix batch is a few KB; thirty seconds of video is several MB. On a weak
+connection during an emergency, video would starve location updates - degrading
+a proven capability to add an unproven one. They use different endpoints, so
+the priority queue is client-side scheduling across two transports.
+
+**2. Audio ranks above photos.** A phone in a purse produces twenty unusable
+photos; a microphone in the same purse still captures speech.
+
+**3. The binding constraint on audio is BYSTANDER consent, not user consent.**
+The user cannot consent on behalf of the shopkeeper or passer-by whose voice
+ends up in the file. This is a question for counsel about a specific
+jurisdiction, not a design toggle - and it is the one item that genuinely
+blocks on data-protection law. An audio recording is only evidence if it is
+admissible.
+
+**4. Three integrity mechanisms, one timeline.** Location fixes have a HASH
+CHAIN, which proves nothing was REMOVED. Evidence objects have PER-OBJECT
+SHA-256, which proves a file was not ALTERED. The timeline is chained too.
+
+A chain is strictly stronger than per-object hashing, because it also detects
+deletion. **Folding location into per-object evidence would WEAKEN it.** The
+three mechanisms are not redundancy to be simplified away.
+
+**5. AI summaries are not evidence objects.** The first competent challenge
+attacks the summary and discredits everything adjacent to it. Derived material
+belongs in a separate, clearly-labelled layer that REFERENCES evidence and is
+never mistaken for it.
+
+**6. Development and deployment are separable.** The evidence pipeline can be
+built while capture release waits on regulatory work, and most of the pipeline
+already exists. Building it is not the same as shipping it.
+
+**7. Response coordination is DEFERRED, not rejected - and the boundary while
+deferred is VIEWER, NEVER CONSOLE.**
+
+Independence is the only structurally uncopyable advantage OPA has:
+**a responder cannot produce neutral evidence about their own response.** A
+security firm's own system recording that the security firm responded promptly
+is not evidence of the same kind. The moment OPA coordinates a response, it
+stops being able to record that response neutrally.
+
+**The hash chain does NOT rescue this.** Tamper-evidence is not independence. A
+chained record of a claim proves the claim was not altered afterwards; it
+proves nothing about whether the claim was true when made.
+
+IN SCOPE for a viewer: incident list, live position, report retrieval,
+acknowledgement display.
+
+NOT IN SCOPE: responder assignment, status tracking, escalation management.
+
+This is stated explicitly because
+**a viewer drifts into a console one reasonable request at a time.**
+
+**8. Partner APIs come after product-market fit**, not before:
+*pilot -> users -> reliability -> partners ask -> API.* The first realistic
+integrators are things that HAVE A TRIGGER BUT NO BACKEND.
+
+### 3. Consequences
+
+**What OPA builds.** The evidence pipeline - capture scheduling, integrity,
+storage, retrieval - and the viewer surface that displays incidents and their
+evidence. The three integrity mechanisms stay distinct.
+
+**What partners own.** Response. Dispatch. Who goes where, in what order, and
+what happens when they arrive. A partner's control room remains their control
+room; OPA supplies the record it works from.
+
+**What a Command Centre may show.** Incidents, live position, retrieved
+reports, and the fact that an acknowledgement occurred. Enough for an operator
+to know what is happening and that someone has taken it up.
+
+**What it must not become.** A dispatch console. Not by redesign, and not by
+accumulation of individually reasonable features.
+
+**The cost, stated plainly.** Customers will ask for assignment and status
+tracking, and some will consider the product incomplete without them. That is
+the price of independence, and it is accepted deliberately rather than
+discovered later.
+
+**Audio release is gated on a legal answer, not an engineering one.** No amount
+of implementation quality resolves decision 3.
+
+### 4. Rejected alternatives
+
+**A dispatch or CAD-style console.** Rejected because it forfeits independence,
+which is the one advantage a well-funded competitor cannot copy by spending
+more.
+
+**Assignment workflows presented as a convenience.** "Just let the operator
+mark who is going" is assignment. Rejected under decision 7.
+
+**Responder coordination concealed inside status features.** A status field
+that records who is handling an incident, and is written by the handler, is
+coordination wearing a reporting label. Rejected on substance rather than
+naming.
+
+**Folding location fixes into per-object evidence hashing**, to have one
+integrity mechanism instead of three. Rejected under decision 4: it would trade
+deletion-detection for uniformity.
+
+**Treating AI summaries as first-class evidence.** Rejected under decision 5.
+
+**Shipping partner APIs early to attract integrators.** Rejected under decision
+8; the sequence runs the other way.
+
+### 5. Implementation implications
+
+**Command Centre permissions** are read-oriented. There is no assignment role,
+because there is no assignment.
+
+**The API surface** exposes incident retrieval, live position, evidence
+retrieval and acknowledgement display. It does not expose responder state
+transitions. An endpoint that would let a caller record who is responding is
+outside this ADR and requires a new one.
+
+**Audit events** record acknowledgement as an observed fact - that an
+acknowledgement occurred, by whom, when. They do not model a workflow.
+
+**Language constraints, and they are load-bearing.** Product, sales and
+marketing material describes OPA as recording and displaying, not as
+coordinating or dispatching. "Command Centre" is a name, not a promise of
+command. Material that implies OPA directs a response contradicts this ADR
+regardless of what the software does.
+
+**Evidence capture on the client is unbuilt.** The server side is
+substantially built. Decisions 1 and 2 constrain the client work when it
+begins; decision 3 constrains when it may ship.
+
+---
+
 ## ADR-012 - Mock emergency-intelligence providers may be registered in production when their outputs are provably suppressed, acknowledged by an explicitly named boot flag
 
 **Status: Accepted. Implemented.**

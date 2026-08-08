@@ -10,6 +10,19 @@ docs/TODO.md for granular open items.
 > including entry criteria, exit criteria, launch gates, and
 > execution order. Use it as the authoritative guide for daily work.
 
+> **EXECUTION-ORDER NOTICE - 8 AUGUST 2026.** This roadmap remains the
+> historical sprint and capability record, and its per-sprint status is still
+> maintained. It NO LONGER governs sequencing.
+>
+> Current release sequencing, beta scope, Command Center scope,
+> SafeWalk/Journey Intelligence direction and the immediate work order are
+> governed by `docs/OPA-Execution-Plan.md`.
+>
+> **Where sequencing conflicts, the execution plan controls.** In particular
+> the Phase A-K MASTER EXECUTION ROADMAP below, the critical path, Sprint
+> 13/14 and Phase H are SUPERSEDED as an ordering, though their content
+> remains useful as a description of the work itself.
+
 Status key: DONE = Complete and verified - PARTIAL = Partial -
 PLANNED = Planned, not started - NOT STARTED - VERIFY = Needs re-verification
 
@@ -163,7 +176,16 @@ estimated address, no fake movement. Reliability requirement:
 critical incident information must be server-rendered, not dependent
 on client-side JavaScript loading successfully.
 
-### Sprint 10B - Live Tracking - IN PROGRESS, ~87% (29 July 2026)
+### Sprint 10B - Live Tracking - DONE (closed at a75369a, 6 August 2026)
+
+CLOSED. Items 5, 6, 7, 8a, 9 and 10 all complete. Five gates green at
+a75369a: API 24 suites/264, integration 6 suites/32, API tsc 0, mobile 2
+suites/44, mobile tsc 0. Item 9c - the durable offline queue - was device
+verified: 26 fixes accumulated across six failed cycles and replayed on
+reconnect with nothing lost. Item 8a's dev-build dependency turned out not to
+exist; SQLite works under Expo Go SDK 54.
+
+The original scoping text is kept below for the record.
 
 IN SCOPE: continuous GPS updates, last known location, automatic
 refresh on the tracking page, offline buffering and synchronisation,
@@ -244,11 +266,23 @@ REMAINING, and it is much less than "not started" implied:
     10 .ts/.tsx files under apps/mobile-app/{src,app} found ZERO hits for
     TaskManager, startLocationUpdatesAsync, defineTask or the string
     background. There is no camera or microphone code either.
-  - The IncidentTimelineEvent hash chain and its sequence race. An
-    evidence reference IS a timeline event, and evidence.service.ts:95
-    already writes one - into a timeline with no chain and an unguarded
-    race. So the code that needs the chain is ALREADY WRITTEN. Fix the
-    chain before client capture, or evidence lands unverifiable.
+  - ~~The IncidentTimelineEvent hash chain and its sequence race.~~
+    **CORRECTED 8 AUGUST 2026: THE CHAIN EXISTS AND IS CORRECT.** This entry
+    was wrong. `incident-timeline.service.ts` `recordEvent()` takes a
+    per-incident classid-3 advisory lock, allocates the sequence, links
+    `previousHash`, computes SHA-256 over a canonical envelope and inserts -
+    all in one transaction. There is no unguarded race. `verifyChain()` walks
+    the chain and recomputes every hash, exposed at
+    `GET /incidents/:id/timeline/verify`.
+
+    ONE REAL DEFECT WAS FOUND AND FIXED AT 6723318: the payload column is
+    jsonb, which does not preserve key order, so hashing the payload object
+    produced a different string at verify time than at write time. It was
+    latent because every caller before the incident lifecycle passed NO
+    payload. Canonicalisation - recursive key sorting, array order preserved -
+    fixed it.
+
+    Say TAMPER-EVIDENT. Never say immutable; ADR-015 records why.
   - Offline evidence queueing, which Sprint 10B item 9c generalises.
   - The encryption decision - see the correction in TODO.md.
 
@@ -391,8 +425,8 @@ Enterprise fleet monitoring (concept only).
 | Voice delivery | PLANNED - blocked on a public webhook |
 | Diaspora SMS (non-Nigerian numbers) | NOT STARTED - Africa's Talking Sandbox confirmed rejecting a US number; Twilio identified as the real fix, see Phase 4 |
 | Incident portal | BUILT, locally verified - Sprint 10A. Auth model is ADR-008 capability tokens at /i/<token>; the /incidents/<uuid> route referenced in older notes was never built. |
-| Live tracking | IN PROGRESS ~87% - Sprint 10B. Server, ingestion endpoint, public envelope, website page and mobile sender all built; sender device-verified 29 July 2026 (50 fixes, 10s cadence, stationary phone, hash chain intact, d5aca8b). Offline buffer (9c) and end-to-end test (10) outstanding. Deliberately NOT marked DONE: the tracking page has never been rendered, and there is no persistence across process death until 9c. |
-| Command Center | NOT STARTED - Sprint 13/14 |
+| Live tracking | DONE - Sprint 10B closed at a75369a, 6 August 2026. Server, ingestion endpoint, public envelope, website page and mobile sender all built. Offline buffer (9c) is device-verified: 26 fixes accumulated across six failed cycles and replayed on reconnect, and the queue survives process death. The tracking page has been rendered and used. |
+| Command Center | NOT STARTED. Sprint 13/14 numbering SUPERSEDED - scope, customer and sequencing are now governed by docs/OPA-Execution-Plan.md. Measured 7 August: no operator UI exists at all; auth, roles, tenant guards and schema ARE built; provisioning, acknowledgement, facility routing and pagination are not. |
 | Production backend (Azure) | INFRASTRUCTURE DONE, SERVICE DOES NOT BOOT - deployed, migrated, DB-connected. ProviderConfidenceValidator refuses to start while six providers return mock data, and OPA_ALLOW_MOCK_PROVIDERS is not set in Azure. Observed live in Log Stream, twice. See the deployment consequence note in TODO.md. |
 
 ---

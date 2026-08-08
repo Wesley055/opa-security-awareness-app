@@ -5,6 +5,138 @@ done - verify against real files/tests, same as everything else in
 this project. **See docs/SPRINT_ROADMAP.md for the authoritative
 sprint-by-sprint status - this file is for granular, individual items.**
 
+## CORRECTION - contact routing is NOT a defect. Measured 8 August 2026.
+
+**The PRE-BETA P0 list below names contact routing as item 1 and "the next
+action of the next session". THAT IS WRONG.** It was diagnosed twice, and
+both diagnoses turned out to be the environment rather than the code. The item
+is struck through in place rather than deleted, because the way it was
+misdiagnosed is more useful than the conclusion.
+
+### Diagnosis 1 - two accounts were confused
+
+The contacts screen was being read for one login while the dispatch logs came
+from another. The local database holds SEVEN test accounts with overlapping
+names:
+
+    wesley_ibhade@yahoo.com  (Charles Haynes)  Charlie   +14694791451
+                                               Blessing  +2349066538149
+    info@opasafety.com       (Charles Hope)    Blessing  +2349066538149
+                                               Osa       +2347037119196
+
+Osa Osahun was never a contact of the account that produced most of the
+alerts. He could not have received them.
+
+### Diagnosis 2 - the local API was sending to the SANDBOX
+
+After adding Osa correctly and re-testing, SMS still reached nobody. Measured:
+
+    apps/api/.env  ->  AFRICASTALKING_USERNAME=sandbox
+
+**Every SMS from the local API since 6 August went to Africa's Talking'
+SIMULATOR.** Accepted, never sent to a carrier, never charged, and never
+appearing in the production sending log - which is exactly why that log stops
+on 6 August, the day the phone was pointed at the PRODUCTION API on Azure.
+
+### What is actually correct
+
+The fan-out. Measured on incident `e9751554-4383-45b9-99b7-d22d1f4019b8`,
+created 09:25:29Z after Osa was added at 09:24:51Z:
+
+    SMS       +2347037119196  SENT     contact=edc526ac...
+    WHATSAPP  +2347037119196  SENT     contact=edc526ac...
+    SMS       +2349066538149  SENDING  contact=a4079a8d...
+    WHATSAPP  +2349066538149  SENT     contact=a4079a8d...
+
+**Four rows. Both contacts. Both channels.** The orchestrator reads contacts
+fresh at incident creation, both were `isActive: true`, and both got rows.
+Recipient selection has nothing wrong with it.
+
+### What IS a defect, and it becomes item 1
+
+- [ ] **`sms.provider.ts` REPORTS SUCCESS WITHOUT READING THE PER-RECIPIENT
+      STATUS.** Lines 38-42 return `success: true` whenever `sms.send()` does
+      not THROW. Africa's Talking returns per-recipient outcomes INSIDE a
+      successful HTTP response at `SMSMessageData.Recipients[0].status`. That
+      field is read only for `messageId`; the status itself is ignored.
+
+      **This was never exposed locally because the sandbox returns success for
+      everything.** Against production it matters - the 6 August sending log,
+      the only real traffic so far, shows:
+
+          OPAALERT  +2349066538149  NGN 5.4000  Success
+          OPAALERT  +2347037119196  NGN 5.4000  Sent
+          OPAALERT  +2347037119196  NGN 5.4000  Failed
+
+      OPA recorded SENT for all of them. **Same class as the three stubs, in
+      the fourth provider - and worse, because a false record is worse than a
+      missing one.** ADR-015 section 6b.
+
+      **PART OF THIS CANNOT BE FIXED IN THE PROVIDER ALONE.** `Sent` means
+      Africa's Talking accepted the message and the carrier has not yet
+      confirmed; the FINAL status arrives later through a delivery-report
+      callback, and OPA has no endpoint to receive one.
+
+        - Reading `Recipients[0].status` at send time fixes the `Failed` case.
+          Hours, not days.
+        - The `Sent` case needs DELIVERY REPORT CALLBACKS - a new endpoint and
+          a new notification state. Africa's Talking offers this under
+          SMS -> SMS Callback URLs.
+
+      Decide whether the beta needs both or only the first.
+
+- [ ] **ONE NIGERIAN NUMBER SUCCEEDS AND ANOTHER FAILS - ASK PELUMI.** Both
+      Nigerian, both charged NGN 5.40, one delivers and one does not. This is
+      REAL and predates the sandbox confusion - it is from the 6 August
+      production traffic. Likely **DND blocking**, which is common in Nigeria
+      and is NOT automatically bypassed by a registered sender ID; otherwise a
+      carrier route difference or an inactive number.
+
+      A provider question, not a code question. Same thread as the
+      international-delivery email already sent about US and UK destinations.
+
+- [ ] **PUT THE PRODUCTION AFRICA'S TALKING CREDENTIALS IN THE LOCAL `.env`,
+      OR DECIDE DELIBERATELY NOT TO.** Right now local development cannot
+      send a real SMS, and that is arguably CORRECT - it stops development
+      traffic burning credit and reaching real handsets. But it must be a
+      KNOWN choice, not a surprise. Whichever is chosen, any SMS verification
+      must be run against the PRODUCTION API, and the switch script for
+      `app.json` exists for exactly that.
+
+### THE ENVIRONMENT TRAP - now a documented testing rule
+
+**THREE TIMES THE ENVIRONMENT HAS BEEN THE ANSWER**, each costing an hour or
+more:
+
+    local vs production API        the phone was hitting localhost while
+                                   Azure settings were being configured
+    local vs production database   a query answered confidently about the
+                                   wrong dataset
+    sandbox vs production SMS      every send since 6 August went to a
+                                   simulator
+
+Each time the code was correct and the environment was not, and each time the
+first hypothesis blamed the code.
+
+**LOCAL SMS TESTS SINCE 6 AUGUST WERE NOT CARRIER TESTS.** They exercised the
+sandbox simulator. They cannot be used as evidence of real delivery or of
+carrier behaviour, and any conclusion drawn from them about DND, routing or
+contact selection is void.
+
+- [ ] **BETA RULE, AND IT APPLIES TO EVERY DELIVERY ACCEPTANCE TEST FROM NOW
+      ON: PRINT THE ENVIRONMENT BEFORE TRUSTING THE RESULT.** Before any test
+      whose outcome depends on a real message arriving, record - in the test
+      output, not from memory:
+
+          which API the device is pointed at    (api-config.ts resolution)
+          which database that API is using      (host from DATABASE_URL)
+          which SMS mode is active              (sandbox or production
+                                                 username)
+
+      A green result without those three recorded is not evidence. This is
+      cheap to implement - a startup log line naming the provider mode would
+      have made all three of the failures above visible in seconds.
+
 ## PRE-BETA P0 - the gate to a controlled external beta
 
 Frozen 8 August 2026. See `docs/OPA-Execution-Plan.md` for the full plan and
@@ -14,10 +146,14 @@ the reasoning behind the reordering.
 PARALLEL once the beta is running - it is not a prerequisite for it, and the
 beta is not a prerequisite for it either.
 
-- [ ] **1. CONTACT ROUTING.** Alerts reach the wrong people. The entry below
-      has the measured evidence, both candidate mechanisms and the single
-      query that distinguishes them. **THIS IS THE NEXT ACTION OF THE NEXT
-      SESSION** - it decides whether the fix is an hour or a design decision.
+- [x] ~~**1. CONTACT ROUTING.**~~ **NOT A DEFECT. Resolved 8 August.**
+      Diagnosed twice, and both diagnoses were the ENVIRONMENT rather than the
+      code: two accounts confused, then a local `.env` pointing at the
+      Africa's Talking SANDBOX. The fan-out is correct - four notification
+      rows, both contacts, both channels, measured. See the CORRECTION
+      section above.
+
+      **ITEM 1 IS NOW SMS DELIVERY TRUTHFULNESS.**
 
 - [ ] **2. INTERNATIONAL PHONE SUPPORT - E.164.** Registration appears to
       accept Nigerian numbers only, so a diaspora user cannot register - and
@@ -38,9 +174,15 @@ beta is not a prerequisite for it either.
       **NIGERIA-FIRST, NOT NIGERIA-ONLY.** Nigeria stays the UI default;
       `+234` must not be the only permitted country code.
 
-- [ ] **3. NOTIFICATION TRUTHFULNESS.** WhatsApp, Push and Voice return
-      `success: true` without sending. The database records deliveries that
-      never happened. ~1 hour. Two reasons it is P0 rather than tidy-up: it
+- [ ] **3. NOTIFICATION TRUTHFULNESS - FOUR PROVIDERS, NOT THREE, AND THIS
+      IS ITEM 1 IN PRACTICE.** WhatsApp, Push and Voice return
+      `success: true` without sending. **AND SO DOES SMS**, which returns
+      success whenever the call does not throw, without reading
+      `SMSMessageData.Recipients[0].status` - so a provider-side rejection is
+      recorded as a delivery. Measured against the 6 August production
+      sending log; see the CORRECTION section above. The database records
+      deliveries that never happened. The three stubs are ~1 hour; SMS is a
+      little more, and full correctness needs delivery-report callbacks. Two reasons it is P0 rather than tidy-up: it
       would corrupt the beta's own data, and it is a PREREQUISITE for
       trustworthy post-incident reporting later. Last outstanding ADR-015
       freeze criterion.

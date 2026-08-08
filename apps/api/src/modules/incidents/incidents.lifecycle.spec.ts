@@ -396,4 +396,3 @@ describe('IncidentsService lifecycle - journey session', () => {
     expect(secondSql).toContain('pg_advisory_xact_lock(3');
   });
 });
-

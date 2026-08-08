@@ -1,0 +1,522 @@
+# OPA - Handover Ultra 31 - DELTA
+# GENERATED: 2026-08-08, at commit 2b59db3 on main. PUSHED. porcelain=0.
+#
+# THIS IS A DELTA. It supersedes Ultra 30 ONLY where stated.
+# Ultra 30 remains AUTHORITATIVE for everything technical:
+#   docs/handovers/OPA-Handover-Ultra-30.txt
+#
+# ULTRA 30 SECTION 8 IS SUPERSEDED. It says the next session opens on the two
+# Command Center decisions. IT DOES NOT. A strategy session after Ultra 30 was
+# written changed the release order. THIS FILE EXISTS BECAUSE A HANDOVER THAT
+# MISDIRECTS IS WORSE THAN NO HANDOVER.
+#
+# LABELS - used strictly, because loose labelling is HOW THE ROADMAP DRIFTED.
+# Architectural intention started reading like implemented capability.
+#
+#   [BUILT]      code exists and its tests pass
+#   [VERIFIED]   observed working ON A REAL DEVICE, not merely tested
+#   [DECIDED]    settled, written down, NO CODE YET
+#   [DEFERRED]   deliberately not now, with a named condition for revisiting
+#   [NOT BUILT]  does not exist
+#   [M] measured  [R] recommendation
+
+
+================================================================================
+## 0. RESUME HERE
+================================================================================
+
+HEAD                main @ 2b59db3, porcelain=0, level with origin        [M]
+API UNIT            26 suites / 284 tests, green                          [M]
+API INTEGRATION     7 suites / 35 tests, green                            [M]
+API tsc             0                                                     [M]
+MOBILE              2 suites / 44 tests, green. tsc 0                     [M]
+
+### THE NEXT ACTION, AND IT IS ONE COMMAND
+
+RUN THE CONTACT-ROUTING DIAGNOSTIC QUERY. Section 3.1.
+
+Do not start Command Center. Do not start SafeWalk. Do not open another
+planning document. That query decides whether the most serious open defect is
+an hour of work or a design decision, and everything downstream of it waits on
+the answer.
+
+### COMMITS SINCE ULTRA 30
+
+  d78161d  Docs: freeze the execution plan - beta first, CC in parallel
+  780b7fb  Docs: promote contact routing to P0 and add the pre-beta gate
+  2b59db3  Docs: correct SPRINT_ROADMAP factual claims + supersession notice
+
+No code changed. Ultra 30's five code commits stand.
+
+
+================================================================================
+## 1. WHAT CHANGED, AND WHY
+================================================================================
+
+[M] Market feedback indicated a Command Center sold to HOSPITALS would not
+sell in Nigeria. The reasoning holds independently of the market: a hospital
+is not staffed to watch a screen for incoming alerts - a triage nurse is
+triaging. A DASHBOARD NOBODY WATCHES IS WORSE THAN AN SMS, because at least an
+SMS interrupts.
+
+[DECIDED] THE CUSTOMER WAS NARROWED, NOT THE FEATURE SET.
+
+  PRIMARY    private security companies - staffed control rooms, multiple
+             clients, already watching for incidents
+  PRIMARY    gated estates - the gatehouse has someone at a desk
+  EXTENSIBLE universities, corporate SOC, from the same model
+  LATER      ambulance and response companies, when incidents escalate to them
+  NOT A      hospitals. They are DESTINATIONS, reached by message, not
+  DASHBOARD  dashboard users with accounts
+  ALREADY    families - served by SMS and the tracking link
+  SERVED
+
+[DECIDED] SECOND AND LARGER CHANGE: THE CONSUMER APP DOES NOT WAIT FOR ANY OF
+THIS. A controlled beta of 10-20 KNOWN users starts as soon as contact routing
+is trustworthy. Command Center is built IN PARALLEL.
+
+[R] The commercial reason is stronger than the speed one. Approaching an
+estate with "your residents already use OPA to alert their families - connect
+your gatehouse and those same emergencies appear at your security desk" is a
+far easier conversation than selling an empty dashboard with fabricated
+incidents. Consumer adoption becomes the B2B demonstration.
+
+[R] THE RISK THIS AVOIDS. Ultra 30 planned ten to fourteen days of Command
+Center UI built entirely on an untested market assumption. Two internal
+documents already described a system that did not exist; building on an
+untested assumption is the same error at a larger scale.
+
+
+================================================================================
+## 2. THE PRODUCT PRINCIPLE - FROZEN
+================================================================================
+
+[DECIDED]
+
+  OPA does not monetise by withholding the minimum emergency capability
+  needed to keep a person safe. OPA monetises additional protection,
+  organisational response, intelligence, accountability and scale.
+
+Binding consequences:
+
+- The SOS button, location capture, contact alerting and the tracking link are
+  FREE and MUST ACTUALLY WORK. A deliberately weakened free tier would make
+  market validation meaningless and is indefensible in a safety product.
+- What is sold is the ORGANISATIONAL layer: facility routing, centralised
+  incidents, operator acknowledgement, simultaneous incidents, response
+  accountability, history, reports, SafeWalk policies, escalation rules,
+  operator roles.
+- An individual cannot reproduce that by having a free app that sends an SOS.
+
+
+================================================================================
+## 3. THE PRE-BETA GATE - ALL P0, RECORDED AT 780b7fb
+================================================================================
+
+Nothing else ships until these are done. Full detail at the top of
+docs/TODO.md; the plan and its reasoning are in docs/OPA-Execution-Plan.md.
+
+### 3.1 CONTACT ROUTING - THE NEXT ACTION [NOT FIXED]
+
+[M] MEASURED, not reported:
+  +2349066538149  Blessing Love, NOT primary   received EVERY alert
+  +2347037119196  Osa Osahun, PRIMARY          received NONE
+  +14694791451    not in the contact list      appeared in dispatch logs
+
+Setting Osa primary did not change the outcome.
+
+[M] STILL LIVE. The 7 August device logs from the incident-lifecycle work show
++2349066538149 as the only recipient, unchanged. The defect survived a full
+day of adjacent work rather than being incidentally fixed.
+
+[M] WHAT IS NOT WRONG, recorded so nobody re-diagnoses working code:
+incident-orchestrator.service.ts:103 calls listForUser and reads contacts
+FRESH from the database at incident creation. listForUser returns ALL
+contacts ordered isPrimary desc, not just the primary. Lines 118-145 build one
+SMS, one WhatsApp and one email row PER CONTACT. The fan-out is correct.
+
+[R] THREE POSSIBLE SHAPES, and they need different fixes:
+  isActive FALSE on the primary   -> a data or default-value bug. Small.
+                                     incident-orchestrator.service.ts:104-106
+                                     filters on isActive before building any
+                                     notification row.
+  isActive TRUE, stale recipients -> the outbox payload is frozen at incident
+                                     creation. A DESIGN DECISION, not a bug.
+  fresh rows, still undelivered   -> delivery-side. Africa's Talking.
+
+[R] It was briefly marked DEFERRED at 674b227, correctly reasoning that it
+does not block the OPERATOR workflow. That was right about Command Center and
+wrong about the release order, which changed hours later. PROMOTED BACK TO P0
+at 780b7fb.
+
+### 3.2 INTERNATIONAL PHONE SUPPORT - E.164 [NOT BUILT]
+
+[M] Registration appears to accept Nigerian numbers only. A diaspora user -
+someone in the US paying for a parent's safety in Lagos - cannot register.
+DIASPORA PARTICIPANTS ARE WANTED IN THE BETA COHORT, which is why this moved
+AHEAD of the beta rather than after it.
+
+[R] MEASURE THE STORAGE FORMAT BEFORE WRITING ANY VALIDATION. This is probably
+not one decorator. It potentially touches registration, login identity,
+contact entry, normalisation on storage, and normalizePhone in
+sms.provider.ts. If numbers are ALREADY stored inconsistently - some +234...,
+some 0803... - then delivery, uniqueness and matching all inherit that, and
+fixing the entry point alone leaves the data mixed.
+
+[M] Contacts already accept international numbers (+14694791451 appears in
+dispatch logs), so the restriction is narrower than it looks.
+
+[DECIDED] NIGERIA-FIRST, NOT NIGERIA-ONLY. Nigeria stays the UI default; +234
+must not be the only permitted country code.
+
+### 3.3 NOTIFICATION TRUTHFULNESS [NOT FIXED]
+
+[M] WhatsApp, Push and Voice return success:true without sending. The database
+records deliveries that never happened. About an hour of work.
+
+[R] TWO REASONS IT IS P0 RATHER THAN TIDY-UP: it would corrupt the beta's own
+data, and it is a PREREQUISITE for trustworthy post-incident reporting. A
+report that says "4 notifications delivered" when three never left the process
+is a false record in a document written to prove what happened.
+
+Last outstanding ADR-015 freeze criterion.
+
+### 3.4 REAL-DEVICE ACCEPTANCE TEST, RUN TWICE [NOT DONE]
+
+Once with a Nigerian number, once with an international one - otherwise the
+path that was changed is the one left unverified.
+
+    register -> add intended contact -> SOS
+      -> the INTENDED contact actually receives the alert
+      -> open the secure tracking link
+      -> observe live movement
+      -> I'm Safe
+      -> journey stops
+      -> link reports the incident closed
+
+### 3.5 DELIBERATELY NOT BLOCKING THE BETA
+
+[DEFERRED] PASSWORD RESET. Required before broad or public launch. Not a
+blocker for 10-20 KNOWN participants, because recovery can be handled
+manually. A deliberate deferral with a NAMED EXPIRY, not an oversight.
+
+[DEFERRED] The tracker final-flush 409 (Ultra 30, recorded at 674b227). No
+data is lost.
+
+[DEFERRED] Home screen refresh, active-incident state, truncated labels on
+three screens. Cosmetic or inconvenient; none unsafe.
+
+
+================================================================================
+## 4. DISTRIBUTION
+================================================================================
+
+[BUILT] The Google Play organization account is complete - ID
+5791499687166482521, developer name "OPA Safety". Internal testing supports
+UP TO 100 TESTERS WITH NO FULL STORE REVIEW.
+
+[NOT BUILT] What internal testing still needs, and this is the honest cost:
+  - A SIGNED AAB FROM AN EAS BUILD. The app has only ever run in Expo Go.
+  - `scheme` set in app.json. Metro warns on every launch.
+  - App created in Play Console, name, descriptions, icon, screenshots.
+  - Content rating questionnaire.
+  - DATA SAFETY DECLARATION, which MUST agree with the NDPC filing: precise
+    location as sensitive, account data as non-sensitive, NO MEDICAL DATA.
+    Answering the two inconsistently is the kind of thing that surfaces badly
+    later.
+
+[R] EXPO GO FIRST if it gets testers moving sooner; move onto a real build
+once it is validated. The reason is not convenience - A PRODUCTION BUILD TESTS
+WHAT EXPO GO CANNOT: signing, background behaviour, notification permissions,
+and how the app behaves with no Metro server. For a safety app those
+differences matter. DO NOT CONCLUDE FROM AN EXPO GO BETA THAT A PRODUCTION
+BUILD BEHAVES THE SAME.
+
+
+================================================================================
+## 5. COMMAND CENTER - SCOPE FROZEN, NO CODE
+================================================================================
+
+[DECIDED] Built IN PARALLEL once the beta is running. Not before, not as a
+prerequisite for it.
+
+### 5.1 The loop, and nothing else
+
+    SOS -> facility security desk receives it -> operator ACKNOWLEDGES
+        -> watches live location and timeline
+        -> coordinates through their OWN radios and procedures
+        -> the USER closes with I'm Safe / False Alarm
+
+[DECIDED] ROLES:
+  - The USER owns the emergency outcome. Resolve and cancel stay OWNER-ONLY.
+  - The OPERATOR owns acknowledgement and response coordination.
+  - OPA owns telemetry, audit, delivery, identity and software.
+
+[R] DO NOT GIVE THE OPERATOR A RESOLVE BUTTON because they happen to be
+sitting at the screen. ADR-013 section 6.2.
+
+[DECIDED] Physical dispatch stays OUTSIDE the MVP. Security companies keep
+using their radios, phones and procedures. No dispatch engine, no hospital
+workflow, no speculative AI.
+
+### 5.2 Membership and routing - all DECIDED, none BUILT
+
+  Membership          resident joins a facility with an estate-issued
+                      INVITE CODE
+  Cardinality         User.facilityId is 0 or 1 facility. DELIBERATE MVP LIMIT
+  Incident ownership  SNAPSHOT User.facilityId -> Incident.facilityId at
+                      creation. Never derive historical access from current
+                      membership
+  Routing             facility security AND nominated contacts. The facility
+                      does NOT replace family
+  Authorization       operators see only incidents whose Incident.facilityId
+                      matches theirs
+  Revocation          revoking a code stops new enrolment; existing residents
+                      stay
+  Leaving             a separate operation. Affects future incidents, not
+                      historical ones
+  Codes               random, revocable, optionally expiring. NOT PINNOCK2026
+
+[R] WRITE THE FUTURE MIGRATION DOWN BEFORE DESIGNING ANY API:
+      MVP    User.facilityId
+      Later  UserFacilityMembership(userId, facilityId, role, status, ...)
+    Otherwise endpoints will assume one facility is a permanent business rule.
+
+[DECIDED] OPERATOR ALERTING: SHORT POLLING every 3-5 seconds for the pilot,
+with a local visual and audio alarm on a new OPEN incident. Not SSE, not
+WebSocket - polling is simple, observable, easy to debug, and can be replaced
+later without touching the incident model.
+
+[DECIDED] UNATTENDED SCREEN: a FACILITY BACKUP ALERT to a designated security
+phone number by SMS. A gatehouse at 3am may have nobody at the desk, and the
+answer must not be "nothing happens".
+
+[R] Facility.phoneNumber EXISTS in the schema, but the orchestrator fans out
+only to EmergencyContact rows belonging to a USER. A facility recipient is a
+NEW RECIPIENT TYPE - small, but not free.
+
+That keeps the sales language honest: Command Center open means a
+near-real-time alarm and live view; Command Center closed means the facility
+security phone still receives the alert; nominated contacts are alerted
+independently either way.
+
+### 5.3 What exists, measured 7 August
+
+[BUILT] UserRole, User.facilityId, Facility, Incident.facilityId,
+FacilityStaffGuard (re-reads role and facilityId from the DATABASE rather than
+trusting the token), IncidentAccessGuard,
+GET /facilities/:facilityId/incidents, and the public tracking page proving
+the map and live-position patterns.
+
+[NOT BUILT] The entire operator UI. Facility and staff PROVISIONING -
+onboarding today means HAND-EDITING THE DATABASE. Acknowledgement. Pagination
+- facilities.service.ts:8-25 returns every incident with all notifications,
+evidence and timeline events, unbounded.
+
+[NOT BUILT] FACILITY ROUTING ITSELF. Incident.facilityId exists and NOTHING
+SETS IT. "Resident triggers SOS -> security desk receives it" has no mechanism
+today. This is the P0 that was missing from every earlier list, and it is
+larger than acknowledgement.
+
+[R] TENANT ISOLATION IS NOT NEGOTIABLE. Estate A must never see Estate B's
+residents or incidents. The guards exist; provisioning does not. Retrofitting
+tenancy after customers hold real incident data is dangerous. VERIFY ISOLATION
+FOR EVERY CUSTOMER ONBOARDED - log in as A, confirm B is invisible. It is the
+easiest check to assume and the worst to get wrong.
+
+
+================================================================================
+## 6. THE PLATFORM MODEL - DIRECTION, MOSTLY NOT BUILT
+================================================================================
+
+Protect -> Detect -> Alert -> Acknowledge -> Track -> Coordinate -> Close ->
+Report -> Audit
+
+  Protect       SafeWalk. Journey sessions and tracking [BUILT].
+                Check-ins [NOT BUILT]
+  Detect        SOS [BUILT]. Voice [NOT BUILT]. Journey Intelligence
+                [NOT BUILT]
+  Alert         orchestrator [BUILT]. SMS live. WhatsApp/Push/Voice are stubs
+  Acknowledge   Command Center [NOT BUILT]
+  Track         journey + tracking link [BUILT]
+  Coordinate    the customer's own radios and procedures - DELIBERATELY NOT
+                OPA'S
+  Close         user, owner-only [BUILT and VERIFIED 7 August]
+  Report        [NOT BUILT]. Mostly a projection over data that already exists
+  Audit         timeline hash chain [BUILT and VERIFIED]
+
+[DECIDED] THREE DETECTION CHANNELS CONVERGE ON ONE INCIDENT PIPELINE - manual
+(SOS), voice (on-device keyword), behavioural (Journey Intelligence). This is
+the strongest architectural idea from the strategy session and belongs in the
+white paper as OPA MULTI-MODAL EMERGENCY DETECTION.
+
+[R] STATE IT PRECISELY. ONLY SOS EXISTS. The other two are roadmap.
+
+### 6.1 Report vs Audit
+
+[DECIDED]
+  AUDIT  = tamper-evident evidence of what OPA OBSERVED
+  REPORT = a human-readable operational account GENERATED FROM that evidence
+
+Operators may add notes. OPERATOR ASSERTIONS MUST NEVER BECOME OBSERVED SYSTEM
+FACTS. "Guard Bravo dispatched at 22:17" is an operator claim; the chain must
+not absorb it. Same boundary as ADR-013 section 6.2, applied to a new surface.
+
+[R] The report is closer than it looks - most fields already exist on the
+incident, the journey chain, the notification rows and the timeline.
+Acknowledgement time is the one that does not, and it is already P0 for
+Command Center.
+
+### 6.2 SafeWalk check-ins
+
+[DECIDED] SAFEWALK SCHEDULES. JOURNEY INTELLIGENCE INTERPRETS.
+
+    SafeWalk started
+      -> 30 min -> "Are you safe?"
+           -> YES -> continue
+           -> no response -> grace period -> prompt again
+                -> still nothing -> JOURNEY INTELLIGENCE
+                     -> escalation policy -> contacts and/or incident
+
+[DECIDED] A MISSED CHECK-IN IS NOT AN SOS. People drive, sleep, lose signal,
+miss notifications. OPA MUST NOT MANUFACTURE EMERGENCIES FROM ORDINARY
+BEHAVIOUR - that is a design constraint, not a caveat.
+
+The defensible customer claim: "During an active lone-worker SafeWalk, OPA
+requests a safety confirmation every 30 minutes. Missed confirmations follow
+the organisation's configured escalation procedure." NOT "OPA knows when
+someone is in danger."
+
+[DECIDED] JOURNEY INTELLIGENCE SIGNAL #1 IS PROLONGED SILENCE. Not route
+deviation - that needs an expected-route model that does not exist. Silence
+builds directly on existing journey infrastructure.
+
+[R] DEPENDENCY NOBODY HAD NAMED: CHECK-INS NEED PUSH, AND PUSH IS A STUB.
+"Are you safe?" has to reach the phone. That puts the push provider on the
+SafeWalk critical path, not just the honesty list.
+
+### 6.3 Voice / Picovoice
+
+[DECIDED] Belongs to Detect. Does not block the beta or the Command Center
+MVP.
+
+[R] ITS HONEST SCOPE IS NARROW: on-device recognition of an explicit
+configured distress keyword. It is NOT scream detection, emotion detection,
+tone analysis, or general interpretation of conversation. "Voice detection"
+invites the larger reading and a security director will ask.
+
+[R] DO NOT BUY THE PICOVOICE TRIAL until integration is about to start. A
+trial clock that expires unused is money gone, and nothing in the beta or the
+Command Center loop needs it.
+
+
+================================================================================
+## 7. SALES LANGUAGE - CORRECTIONS ALREADY NEEDED
+================================================================================
+
+[R] Draft pitches produced during the strategy session contained claims OPA
+cannot make. Recorded here because they will otherwise be pasted into a real
+conversation.
+
+NEVER SAY:
+  - "guarantees zero skipped alerts"  software cannot guarantee a human
+                                      response
+  - "forces guards to acknowledge"    it RECORDS whether they did
+  - "tracks their response time"      an Operations Platform concept
+  - "vitals"                          no medical data exists anywhere
+  - "ETA 7 mins"                      no routing provider is live
+  - "immutable"                       TAMPER-EVIDENT
+
+THE DEFENSIBLE VERSION, and it is stronger in the room:
+
+  "OPA gives your security team a live emergency desk. When a resident
+  triggers an SOS, your control room receives the incident, can acknowledge
+  it, follow the resident's live location, and maintain a timestamped record
+  of what happened - while your team continues using its existing radios and
+  response procedures."
+
+Accountability through THE RECORD, not through claimed metrics. That is the
+thing a better-funded competitor cannot copy.
+
+
+================================================================================
+## 8. DOCUMENT STATE
+================================================================================
+
+[M] docs/OPA-Execution-Plan.md - NEW at d78161d. Governs sequencing, release
+phases, scope and the immediate work order.
+
+[M] docs/TODO.md - PRE-BETA P0 section added at the top at 780b7fb. Contact
+routing promoted back to P0.
+
+[M] docs/SPRINT_ROADMAP.md - corrected at 2b59db3. It now carries an
+EXECUTION-ORDER NOTICE: it remains the historical sprint record, but
+sequencing is governed by the execution plan, and WHERE THEY CONFLICT THE
+EXECUTION PLAN CONTROLS. Sprint 10B marked DONE. The false claim that the
+timeline has "no chain and an unguarded race" is CORRECTED - the chain exists,
+is guarded by a per-incident classid-3 advisory lock, and its one real defect
+was fixed at 6723318.
+
+[R] Sprint 13/14, Phase H, Phase A-K and the critical path were DELIBERATELY
+NOT rewritten. Their content still describes the work usefully; only their
+ordering is superseded, and the notice says so. Rewriting 623 lines would have
+been a third planning document in one evening.
+
+
+================================================================================
+## 9. FIRST ACTIONS IN THE NEXT SESSION
+================================================================================
+
+1. Commit this file to docs/handovers/OPA-Handover-Ultra-31.txt (CRLF).
+
+2. Verify state:
+   $env:GIT_PAGER='cat'
+   cd C:\Projects\OPA; "probe=resume"; "current=" + (git branch --show-current); git log --oneline -5 | ForEach-Object { "log|$_" }; "porcelain=" + @(git status --porcelain).Count
+   EXPECT current=main, HEAD 2b59db3 (or later), porcelain=0.
+
+3. Run all five gates. EXPECT API 26/284, int 7/35, tsc 0, mobile 2/44,
+   mobile tsc 0.
+
+4. RUN THE CONTACT-ROUTING DIAGNOSTIC QUERY. Section 3.1. Then fix it.
+
+5. Then 3.2, 3.3, 3.4 in order. Then the beta. Then Command Center in
+   parallel.
+
+[R] The temptation will be to start Command Center because its scope is now
+crisply defined and the defect work is not. Resist it. The scope being clear
+is exactly why it can wait.
+
+
+================================================================================
+## 10. TRAPS
+================================================================================
+
+### TRAP #149 - A ROADMAP THAT OUTLIVED ITS OWN ACCURACY [M]
+
+SPRINT_ROADMAP.md described Sprint 10B as "IN PROGRESS ~87%" nine commits
+after it closed, and stated that the timeline hash chain did not exist while
+the chain was built, guarded and exposed at a verify endpoint. Its own header
+claims every status "was checked against real code, a real test run, or a real
+live confirmation - not assumed."
+
+  [R] A DOCUMENT THAT ASSERTS ITS OWN RIGOUR IS NOT THEREBY RIGOROUS. The
+      claim was true when written. Nothing re-checked it. When a status file
+      and the code disagree, the code is the fact - and the file needs a date
+      on every claim, not a blanket assurance at the top.
+
+### TRAP #150 - MISTAKING SCOPE CLARITY FOR PRIORITY [M]
+
+After the strategy session the Command Center scope was crisply defined -
+frozen loop, decided membership model, chosen alerting mechanism - while the
+contact-routing defect remained a three-way uncertainty. The well-specified
+work is more attractive to start.
+
+  [R] CLARITY OF SCOPE IS NOT EVIDENCE OF PRIORITY. The Command Center is
+      clear because it was just designed; the defect is unclear because
+      nobody has run the query yet. Run the query.
+
+
+# END OF HANDOVER ULTRA 31
+# Delta to Ultra 30. Generated at 2b59db3 on main, level with origin.
+# Three commits, all documentation. Ultra 30's five code commits stand.
+# NEXT ACTION: the contact-routing diagnostic query, section 3.1.

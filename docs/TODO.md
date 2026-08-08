@@ -5,6 +5,79 @@ done - verify against real files/tests, same as everything else in
 this project. **See docs/SPRINT_ROADMAP.md for the authoritative
 sprint-by-sprint status - this file is for granular, individual items.**
 
+## PRE-BETA P0 - the gate to a controlled external beta
+
+Frozen 8 August 2026. See `docs/OPA-Execution-Plan.md` for the full plan and
+the reasoning behind the reordering.
+
+**Nothing else ships until these are done.** Command Center is built in
+PARALLEL once the beta is running - it is not a prerequisite for it, and the
+beta is not a prerequisite for it either.
+
+- [ ] **1. CONTACT ROUTING.** Alerts reach the wrong people. The entry below
+      has the measured evidence, both candidate mechanisms and the single
+      query that distinguishes them. **THIS IS THE NEXT ACTION OF THE NEXT
+      SESSION** - it decides whether the fix is an hour or a design decision.
+
+- [ ] **2. INTERNATIONAL PHONE SUPPORT - E.164.** Registration appears to
+      accept Nigerian numbers only, so a diaspora user cannot register - and
+      diaspora participants are wanted IN the beta cohort, which is why this
+      moved ahead of it rather than after.
+
+      **MEASURE THE STORAGE FORMAT BEFORE WRITING ANY VALIDATION.** This is
+      probably not one decorator. It potentially touches registration, login
+      identity, contact entry, normalisation on storage, and `normalizePhone`
+      in `sms.provider.ts`. If numbers are ALREADY stored inconsistently -
+      some `+234...`, some `0803...` - then delivery, uniqueness and matching
+      all inherit that, and fixing the entry point alone leaves the data
+      mixed.
+
+      Contacts already accept international numbers (`+14694791451` appears in
+      dispatch logs), so the restriction is narrower than it looks.
+
+      **NIGERIA-FIRST, NOT NIGERIA-ONLY.** Nigeria stays the UI default;
+      `+234` must not be the only permitted country code.
+
+- [ ] **3. NOTIFICATION TRUTHFULNESS.** WhatsApp, Push and Voice return
+      `success: true` without sending. The database records deliveries that
+      never happened. ~1 hour. Two reasons it is P0 rather than tidy-up: it
+      would corrupt the beta's own data, and it is a PREREQUISITE for
+      trustworthy post-incident reporting later. Last outstanding ADR-015
+      freeze criterion.
+
+- [ ] **4. REAL-DEVICE ACCEPTANCE TEST, RUN TWICE** - once with a Nigerian
+      number, once with an international one. Otherwise the path that was
+      changed is the one left unverified.
+
+          register -> add intended contact -> SOS
+            -> the INTENDED contact actually receives the alert
+            -> open the secure tracking link
+            -> observe live movement
+            -> I'm Safe
+            -> journey stops
+            -> link reports the incident closed
+
+### Deliberately NOT blocking the controlled beta
+
+**PASSWORD RESET.** Required before broad or public launch. Not a blocker for
+10-20 KNOWN participants, because recovery can be handled manually. This is a
+deliberate deferral with a named expiry, not an oversight.
+
+**The tracker final-flush 409**, recorded below. No data is lost.
+
+**Home screen refresh, active-incident state, truncated labels.** Cosmetic or
+inconvenient, none unsafe.
+
+### Distribution
+
+Google Play internal testing supports up to 100 testers with no full review,
+and the Play organization account is complete. But it still needs a signed AAB
+from an EAS build, `scheme` set, content rating, and a data-safety declaration
+that MUST agree with the NDPC filing. Expo Go first if it gets testers moving
+sooner; move onto a real build once it is validated - a production build tests
+signing, background behaviour and notification permissions that Expo Go
+cannot.
+
 ## Immediate - defects found on-device 6 August 2026
 
 Found while testing the production SMS path end to end. Recorded with their
@@ -19,9 +92,11 @@ would settle it. Do not fix from the symptom alone.
       **A user can update their emergency contacts and alerts still go to the
       wrong people, silently, while the app displays the correct list.**
 
-      **DEFERRED deliberately while Command Center work proceeds.** It does
-      not block the operator workflow, but notification routing cannot be
-      called production-ready until it is resolved.
+      **PROMOTED TO P0 ON 8 AUGUST. THIS IS THE NEXT ACTION.** It was briefly
+      marked deferred on the reasoning that it does not block the operator
+      workflow. That reasoning was correct about Command Center and wrong
+      about the release order: the controlled beta now comes FIRST, and a
+      safety product that alerts the wrong person invalidates the beta itself.
 
       STILL LIVE as of 7 August: the device logs from the incident-lifecycle
       work show `+2349066538149` as the only recipient, unchanged. The defect

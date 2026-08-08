@@ -19,6 +19,15 @@ would settle it. Do not fix from the symptom alone.
       **A user can update their emergency contacts and alerts still go to the
       wrong people, silently, while the app displays the correct list.**
 
+      **DEFERRED deliberately while Command Center work proceeds.** It does
+      not block the operator workflow, but notification routing cannot be
+      called production-ready until it is resolved.
+
+      STILL LIVE as of 7 August: the device logs from the incident-lifecycle
+      work show `+2349066538149` as the only recipient, unchanged. The defect
+      survived a full day of adjacent work rather than being incidentally
+      fixed, which is worth knowing before assuming anything about it.
+
       TWO CANDIDATE MECHANISMS. They need different fixes, so measure before
       choosing:
 
@@ -74,6 +83,59 @@ would settle it. Do not fix from the symptom alone.
       exist. Measure before editing either the site or that claim.
       "Encrypted evidence, hash-verified" - hashing is not encryption, and the
       encryption decision is still open.
+
+## Found while building the incident lifecycle - 7 August 2026
+
+Two findings from the lifecycle work. Neither blocks anything; both would be
+expensive to rediscover.
+
+- [ ] **THE TRACKER CAN BE LEFT FAULTED BY A CLEAN RESOLVE.** Measured on a
+      device at 02:26:48 UTC: `PATCH /incidents/.../resolve` returned 200, and
+      200ms later `POST /journey/fixes` was rejected with
+      `409 ConflictException: Journey session has ended.`
+
+      The cause is a benign race, not a bug in either side. `stopTracking()`
+      performs a final best-effort flush; the resolve had just ended the
+      journey session in the same second. The tracker classifies 409 as
+      `REPLAY REJECTED 409 - session ENDED, KEEPING all durable rows` and sets
+      a PERSISTENT replay fault - correct for a session that ended
+      unexpectedly, wrong here, because the session ended precisely BECAUSE
+      the user said they were safe.
+
+      CONSEQUENCE: no data is lost, but the tracker is left looking unhealthy
+      after an intentional, successful close, and the fault surfaces on the
+      next session start.
+
+      **FIX SHAPE, not yet decided:** a 409 during the SHUTDOWN flush should be
+      an expected terminal condition rather than a replay fault. It must still
+      NOT blindly delete unacknowledged rows - those are the emergency's tail
+      and the reason the durable queue exists. The alternative ordering -
+      flush before the resolve rather than after - is also possible and has
+      its own failure mode: a slow flush would delay the close the user just
+      asked for.
+      Do not fix this by widening the generic 409 handling. The distinction is
+      SHUTDOWN vs steady-state replay, and only the shutdown path knows which
+      it is.
+
+- [ ] **CORRECT SPRINT_ROADMAP.md:247-251 - THE HASH CHAIN EXISTS.** The
+      roadmap says the IncidentTimelineEvent chain does not exist. It does,
+      and it is correct. `incident-timeline.service.ts` `recordEvent()` takes
+      a classid-3 advisory lock, allocates the sequence, links `previousHash`,
+      computes SHA-256 over a canonical envelope, and inserts - all in one
+      transaction. `verifyChain()` walks the chain and recomputes every hash,
+      exposed at `GET /incidents/:id/timeline/verify`.
+
+      Ultra 28 section 9 listed the website's tamper-evident claim as the
+      highest-exposure unverified claim. IT IS VERIFIED, with one correction
+      applied at 6723318: the payload is jsonb, which does not preserve key
+      order, so hashing the payload object directly produced a different
+      string at verify time than at write time. Canonicalisation - recursive
+      key sorting, array order preserved - fixed it. The flaw was latent
+      because every caller before the incident lifecycle passed NO payload.
+
+      **SAY TAMPER-EVIDENT. NEVER SAY IMMUTABLE.** ADR-015 records why; a
+      database is not literally immutable and the word invites a challenge
+      that the actual property does not need.
 
 ## An incident opens and NEVER closes - found 6 August 2026
 

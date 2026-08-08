@@ -147,6 +147,14 @@ export class JourneySessionService {
     tx: Prisma.TransactionClient,
     userId: string,
     sessionId: string,
+    // Defaulted so every existing caller is unchanged. The incident
+    // lifecycle passes INCIDENT_RESOLVED when a resolved incident's last
+    // open session is being closed; a cancelled incident keeps USER_ENDED,
+    // because the user did end it and the authoritative "false alarm"
+    // outcome lives on the incident row and its INCIDENT_CANCELLED timeline
+    // event. A distinct INCIDENT_CANCELLED end reason would need an enum
+    // migration, and the pipeline does not yet run migrate deploy.
+    reason: JourneySessionEndReason = JourneySessionEndReason.USER_ENDED,
   ): Promise<EndSessionResult | null> {
     // $executeRaw, not $queryRaw: pg_advisory_xact_lock returns void and
     // there is no Prisma type to deserialize a void column into.
@@ -188,7 +196,7 @@ export class JourneySessionService {
       data: {
         status: JourneySessionStatus.ENDED,
         endedAt: clockRow.ended_at,
-        endedReason: JourneySessionEndReason.USER_ENDED,
+        endedReason: reason,
       },
     });
 

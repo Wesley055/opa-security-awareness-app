@@ -1,5 +1,5 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
-import { IncidentStatus } from '@prisma/client';
+import { IncidentStatus, JourneySessionEndReason } from '@prisma/client';
 import { IncidentsService } from './incidents.service';
 
 /**
@@ -11,13 +11,14 @@ import { IncidentsService } from './incidents.service';
 describe('IncidentsService lifecycle', () => {
   type TxMock = {
     $executeRaw: jest.Mock;
-    incident: { findUnique: jest.Mock; update: jest.Mock };
+    incident: { findUnique: jest.Mock; update: jest.Mock; findFirst: jest.Mock };
   };
 
   let tx: TxMock;
   let prisma: { $transaction: jest.Mock };
   let accessTokens: { revokeAllForIncident: jest.Mock };
   let timeline: { recordEvent: jest.Mock };
+  let journeySessions: { endSession: jest.Mock };
   let service: IncidentsService;
 
   const INCIDENT_ID = 'incident-1';
@@ -29,6 +30,7 @@ describe('IncidentsService lifecycle', () => {
       incident: {
         findUnique: jest.fn(),
         update: jest.fn(),
+        findFirst: jest.fn().mockResolvedValue(null),
       },
     };
 
@@ -41,11 +43,13 @@ describe('IncidentsService lifecycle', () => {
 
     accessTokens = { revokeAllForIncident: jest.fn().mockResolvedValue(2) };
     timeline = { recordEvent: jest.fn().mockResolvedValue(undefined) };
+    journeySessions = { endSession: jest.fn().mockResolvedValue(null) };
 
     service = new IncidentsService(
       prisma as never,
       accessTokens as never,
       timeline as never,
+      journeySessions as never,
     );
   });
 
@@ -54,6 +58,9 @@ describe('IncidentsService lifecycle', () => {
       id: INCIDENT_ID,
       userId: OWNER_ID,
       status: IncidentStatus.OPEN,
+      // Explicitly null, not omitted. close() branches on this, and an
+      // undefined from a mock would take a path a real Prisma row never can.
+      journeySessionId: null,
     });
   }
 
@@ -180,6 +187,8 @@ describe('IncidentsService lifecycle', () => {
     // `!` - a missing entry means the call never happened, which IS the
     // failure this test exists to catch, and it should say so rather than
     // produce an `undefined < 1` comparison.
+    // Index 0 is now the USER lock and index 1 the incident lock; both
+    // precede the read, so the first is still the right one to compare.
     const lockOrder = tx.$executeRaw.mock.invocationCallOrder[0];
     const readOrder = tx.incident.findUnique.mock.invocationCallOrder[0];
 
@@ -222,6 +231,7 @@ describe('IncidentsService lifecycle', () => {
       id: INCIDENT_ID,
       userId: OWNER_ID,
       status: IncidentStatus.RESOLVED,
+      journeySessionId: null,
     });
 
     await expect(service.cancel(INCIDENT_ID, OWNER_ID)).rejects.toThrow(
@@ -231,5 +241,159 @@ describe('IncidentsService lifecycle', () => {
     expect(tx.incident.update).not.toHaveBeenCalled();
     expect(accessTokens.revokeAllForIncident).not.toHaveBeenCalled();
     expect(timeline.recordEvent).not.toHaveBeenCalled();
+    expect(journeySessions.endSession).not.toHaveBeenCalled();
   });
 });
+describe('IncidentsService lifecycle - journey session', () => {
+  type TxMock = {
+    $executeRaw: jest.Mock;
+    incident: { findUnique: jest.Mock; update: jest.Mock; findFirst: jest.Mock };
+  };
+
+  let tx: TxMock;
+  let prisma: { $transaction: jest.Mock };
+  let accessTokens: { revokeAllForIncident: jest.Mock };
+  let timeline: { recordEvent: jest.Mock };
+  let journeySessions: { endSession: jest.Mock };
+  let service: IncidentsService;
+
+  const INCIDENT_ID = 'incident-1';
+  const OWNER_ID = 'user-1';
+  const SESSION_ID = 'session-1';
+
+  beforeEach(() => {
+    tx = {
+      $executeRaw: jest.fn().mockResolvedValue(undefined),
+      incident: {
+        findUnique: jest.fn(),
+        update: jest.fn().mockResolvedValue({
+          id: INCIDENT_ID,
+          status: IncidentStatus.RESOLVED,
+          resolvedAt: new Date(),
+        }),
+        findFirst: jest.fn().mockResolvedValue(null),
+      },
+    };
+    prisma = {
+      $transaction: jest.fn(async (fn: (t: TxMock) => unknown) => fn(tx)),
+    };
+    accessTokens = { revokeAllForIncident: jest.fn().mockResolvedValue(0) };
+    timeline = { recordEvent: jest.fn().mockResolvedValue(undefined) };
+    journeySessions = {
+      endSession: jest
+        .fn()
+        .mockResolvedValue({ session: {}, alreadyEnded: false }),
+    };
+
+    service = new IncidentsService(
+      prisma as never,
+      accessTokens as never,
+      timeline as never,
+      journeySessions as never,
+    );
+  });
+
+  const openIncident = (journeySessionId: string | null) =>
+    tx.incident.findUnique.mockResolvedValue({
+      id: INCIDENT_ID,
+      userId: OWNER_ID,
+      status: IncidentStatus.OPEN,
+      journeySessionId,
+    });
+
+  it('ends the linked session when no other OPEN incident uses it', async () => {
+    openIncident(SESSION_ID);
+
+    const result = await service.resolve(INCIDENT_ID, OWNER_ID);
+
+    expect(journeySessions.endSession).toHaveBeenCalledWith(
+      tx,
+      OWNER_ID,
+      SESSION_ID,
+      JourneySessionEndReason.INCIDENT_RESOLVED,
+    );
+    expect(result.endedJourneySessionId).toBe(SESSION_ID);
+  });
+
+  it('DOES NOT end a session another OPEN incident is still using', async () => {
+    // The case that matters most. resolveForActivation returns any active
+    // session for the user, so one session can serve several incidents.
+    // Ending it here would stop telemetry for an emergency still in progress.
+    openIncident(SESSION_ID);
+    tx.incident.findFirst.mockResolvedValue({ id: 'incident-2' });
+
+    const result = await service.resolve(INCIDENT_ID, OWNER_ID);
+
+    expect(journeySessions.endSession).not.toHaveBeenCalled();
+    expect(result.endedJourneySessionId).toBeNull();
+
+    // The query must EXCLUDE the incident being closed, or it would always
+    // find itself and never end anything.
+    const where = tx.incident.findFirst.mock.calls[0][0].where;
+    expect(where.id).toEqual({ not: INCIDENT_ID });
+    expect(where.status).toBe(IncidentStatus.OPEN);
+    expect(where.journeySessionId).toBe(SESSION_ID);
+  });
+
+  it('uses USER_ENDED, not INCIDENT_RESOLVED, when the incident is cancelled', async () => {
+    openIncident(SESSION_ID);
+    tx.incident.update.mockResolvedValue({
+      id: INCIDENT_ID,
+      status: IncidentStatus.CANCELLED,
+      resolvedAt: null,
+    });
+
+    await service.cancel(INCIDENT_ID, OWNER_ID);
+
+    expect(journeySessions.endSession).toHaveBeenCalledWith(
+      tx,
+      OWNER_ID,
+      SESSION_ID,
+      JourneySessionEndReason.USER_ENDED,
+    );
+  });
+
+  it('does nothing about sessions when the incident has none', async () => {
+    openIncident(null);
+
+    const result = await service.resolve(INCIDENT_ID, OWNER_ID);
+
+    expect(tx.incident.findFirst).not.toHaveBeenCalled();
+    expect(journeySessions.endSession).not.toHaveBeenCalled();
+    expect(result.endedJourneySessionId).toBeNull();
+  });
+
+  it('does not report an already-ENDED session as newly ended', async () => {
+    openIncident(SESSION_ID);
+    journeySessions.endSession.mockResolvedValue({
+      session: {},
+      alreadyEnded: true,
+    });
+
+    const result = await service.resolve(INCIDENT_ID, OWNER_ID);
+
+    expect(result.endedJourneySessionId).toBeNull();
+  });
+
+  it('takes the USER lock before the incident lock', async () => {
+    // endSession takes user -> classid 2, the orchestrator takes user ->
+    // classid 3. Taking 3 first here would invert that order against both.
+    openIncident(SESSION_ID);
+
+    await service.resolve(INCIDENT_ID, OWNER_ID);
+
+    const first = tx.$executeRaw.mock.calls[0];
+    const second = tx.$executeRaw.mock.calls[1];
+    if (first === undefined || second === undefined) {
+      throw new Error('Expected two advisory locks to be taken.');
+    }
+
+    // Tagged-template call: the raw strings array is the first argument.
+    const firstSql = String(first[0]);
+    const secondSql = String(second[0]);
+
+    expect(firstSql).not.toContain('pg_advisory_xact_lock(3');
+    expect(secondSql).toContain('pg_advisory_xact_lock(3');
+  });
+});
+

@@ -4,10 +4,16 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { IncidentStatus, IncidentTrigger, type Prisma } from '@prisma/client';
+import {
+  IncidentStatus,
+  IncidentTrigger,
+  JourneySessionEndReason,
+  type Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { IncidentAccessTokenService } from '../incident-access/incident-access-token.service';
 import { IncidentTimelineService } from '../incident-timeline/incident-timeline.service';
+import { JourneySessionService } from '../journey/journey-session.service';
 import type { CloseIncidentDto } from './dto/close-incident.dto';
 import type { CreateIncidentDto } from './dto/create-incident.dto';
 
@@ -27,6 +33,14 @@ import type { CreateIncidentDto } from './dto/create-incident.dto';
  *
  * test/int/incident-timeline-concurrency.int-spec.ts already pins this key
  * with a literal LOCK_SQL. Sharing it means one constant describes both.
+ *
+ * THE 1-ARG USER LOCK IS TAKEN FIRST, before classid 3. endSession takes
+ * the user lock and then classid 2, so a close that ends a journey session
+ * acquires user -> 3 -> 2. The orchestrator already acquires user -> 3.
+ * Taking 3 first here would have produced 3 -> user -> 2 against the
+ * orchestrator's user -> 3, which is a lock-order inversion and the
+ * textbook shape of a deadlock. All locks are reentrant within a
+ * transaction, so re-taking the user lock inside endSession is free (D6).
  */
 
 @Injectable()
@@ -35,6 +49,7 @@ export class IncidentsService {
     private readonly prisma: PrismaService,
     private readonly accessTokens: IncidentAccessTokenService,
     private readonly timeline: IncidentTimelineService,
+    private readonly journeySessions: JourneySessionService,
   ) {}
 
   async create(userId: string, dto: CreateIncidentDto, tx?: Prisma.TransactionClient) {
@@ -114,6 +129,11 @@ export class IncidentsService {
     const occurredAt = new Date();
 
     return this.prisma.$transaction(async (tx) => {
+      // FIRST, and the order matters - see the class doc above. endSession
+      // takes this lock then classid 2, and the orchestrator takes this lock
+      // then classid 3. Taking 3 before this one would invert that.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+
       // Serialises two concurrent close requests for the SAME incident.
       // Without it both could read OPEN and both could write a terminal
       // status, producing two timeline events for one transition - or
@@ -125,7 +145,12 @@ export class IncidentsService {
 
       const incident = await tx.incident.findUnique({
         where: { id: incidentId },
-        select: { id: true, userId: true, status: true },
+        select: {
+          id: true,
+          userId: true,
+          status: true,
+          journeySessionId: true,
+        },
       });
 
       // Missing and not-yours produce the SAME 404, deliberately. Confirming
@@ -153,6 +178,53 @@ export class IncidentsService {
         },
       });
 
+      // END THE LINKED JOURNEY SESSION - BUT ONLY IF NO OTHER OPEN INCIDENT
+      // IS STILL USING IT.
+      //
+      // resolveForActivation returns ANY started or active session for the
+      // user, so one session can legitimately serve several incidents: open
+      // incident A, wait past the 60-second dedupe window, raise a genuinely
+      // new incident B, and B reuses A's session. Ending it on A's close
+      // would stop telemetry for B, which is still open.
+      //
+      // Without this, a resolved incident's session stays ACTIVE and the
+      // tracker RESUMES CAPTURE ON THE NEXT APP START - measured on a device
+      // as "session ... reused=true purpose=INCIDENT" after a resolve.
+      //
+      // ADR-008 governs the direction: "on incident closure, live access
+      // revoked immediately". Incident closure ending its telemetry is the
+      // permitted direction. The reverse - a journey ending an incident - is
+      // what endSession's own comment forbids.
+      let endedSessionId: string | null = null;
+
+      if (incident.journeySessionId !== null) {
+        const otherOpenIncident = await tx.incident.findFirst({
+          where: {
+            journeySessionId: incident.journeySessionId,
+            status: IncidentStatus.OPEN,
+            id: { not: incident.id },
+          },
+          select: { id: true },
+        });
+
+        if (otherOpenIncident === null) {
+          const result = await this.journeySessions.endSession(
+            tx,
+            userId,
+            incident.journeySessionId,
+            target === IncidentStatus.RESOLVED
+              ? JourneySessionEndReason.INCIDENT_RESOLVED
+              : JourneySessionEndReason.USER_ENDED,
+          );
+
+          // null means the session vanished or belongs to somebody else.
+          // Neither should block a close the owner is entitled to make.
+          if (result !== null && !result.alreadyEnded) {
+            endedSessionId = incident.journeySessionId;
+          }
+        }
+      }
+
       const revokedTokens = await this.accessTokens.revokeAllForIncident(
         incidentId,
         tx,
@@ -170,6 +242,7 @@ export class IncidentsService {
             newStatus: target,
             ...(reason === undefined ? {} : { reason }),
             revokedTokens,
+            endedJourneySessionId: endedSessionId,
           },
           source: 'MOBILE',
           actorUserId: userId,
@@ -183,6 +256,7 @@ export class IncidentsService {
         status: updated.status,
         resolvedAt: updated.resolvedAt,
         revokedTokens,
+        endedJourneySessionId: endedSessionId,
       };
     });
   }

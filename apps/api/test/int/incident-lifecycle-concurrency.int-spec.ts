@@ -5,6 +5,7 @@ import { createIncident, createUser, sleep, waitFor } from './fixtures';
 import { IncidentsService } from '../../src/modules/incidents/incidents.service';
 import { IncidentAccessTokenService } from '../../src/modules/incident-access/incident-access-token.service';
 import { IncidentTimelineService } from '../../src/modules/incident-timeline/incident-timeline.service';
+import { JourneySessionService } from '../../src/modules/journey/journey-session.service';
 import type { PrismaService } from '../../src/prisma/prisma.service';
 
 /**
@@ -54,6 +55,12 @@ describe('IncidentsService lifecycle contention', () => {
       client as unknown as PrismaService,
       new IncidentAccessTokenService(client as unknown as PrismaService),
       new IncidentTimelineService(client as unknown as PrismaService),
+      // A REAL JourneySessionService, not a double. It injects nothing and
+      // every method takes an explicit transaction client, so it composes
+      // straight into close()'s transaction - and that means this suite
+      // exercises the actual session-ending path against Postgres, including
+      // its own advisory locks, rather than a mock's say-so.
+      new JourneySessionService(),
     );
 
   it('blocks a concurrent resolve for the same incident', async () => {

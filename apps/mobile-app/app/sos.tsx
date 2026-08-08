@@ -7,11 +7,16 @@ import {
   ActivityIndicator,
   BackHandler,
   Linking,
+  Alert,
 } from 'react-native';
 import { router } from 'expo-router';
 import * as Location from 'expo-location';
 import { api } from '../src/services/api';
-import { startTracking, cleanNonNegative } from '../src/services/journey-tracker';
+import {
+  startTracking,
+  stopTracking,
+  cleanNonNegative,
+} from '../src/services/journey-tracker';
 
 const COUNTDOWN_SECONDS = 5;
 const LOCATION_TIMEOUT_MS = 15000;
@@ -41,6 +46,10 @@ export default function SosScreen() {
   // "don't ask again" after repeated denials). In this state "Try Again"
   // cannot recover - the user must enable location in Settings.
   const [permissionBlocked, setPermissionBlocked] = useState(false);
+  // Set while a close request is in flight, so a second tap cannot fire a
+  // duplicate PATCH. Also drives the button labels.
+  const [closing, setClosing] = useState(false);
+  const [closeError, setCloseError] = useState<string | null>(null);
   const locationRef = useRef<FixedLocation | null>(null);
   const cancelledRef = useRef(false);
   const activatingRef = useRef(false);
@@ -213,6 +222,81 @@ export default function SosScreen() {
     return () => clearTimeout(timer);
   }, [screenState, secondsLeft, activate]);
 
+  /**
+   * Ends the emergency. RESOLVED means the subject is safe; CANCELLED means
+   * the activation was accidental.
+   *
+   * THE ORDER MATTERS. stopTracking() runs only AFTER the server has
+   * accepted the close. If the request fails the tracker keeps running,
+   * because the emergency is still open and the app must not stop sharing
+   * location on the strength of a request that did not land.
+   *
+   * stopTracking() is idempotent and attempts a final best-effort flush;
+   * fixes that never got a 2xx stay in SQLite and replay on the next start.
+   * So no part of the record is lost by stopping here.
+   */
+  const closeIncident = useCallback(
+    async (action: 'resolve' | 'cancel') => {
+      const incidentId = result?.incident?.id;
+      if (!incidentId || closing) return;
+
+      setClosing(true);
+      setCloseError(null);
+
+      try {
+        await api.patch(`/incidents/${incidentId}/${action}`, {
+          reason: action === 'resolve' ? 'USER_SAFE' : 'FALSE_ALARM',
+        });
+        stopTracking();
+        if (!mountedRef.current) return;
+        router.replace('/');
+      } catch (err: unknown) {
+        const status =
+          typeof err === 'object' && err !== null && 'response' in err
+            ? (err as { response?: { status?: number } }).response?.status
+            : undefined;
+
+        // 409 is CONVERGENCE, not failure: the server is telling us the
+        // incident is already terminal. The state the user wanted is the
+        // state that exists, so stop tracking and leave as normal.
+        if (status === 409) {
+          stopTracking();
+          if (!mountedRef.current) return;
+          Alert.alert('Already ended', 'This emergency has already ended.', [
+            { text: 'OK', onPress: () => router.replace('/') },
+          ]);
+          return;
+        }
+
+        if (!mountedRef.current) return;
+        setCloseError(
+          'Could not end the emergency. Your location is still being shared. Please try again.',
+        );
+      } finally {
+        if (mountedRef.current) {
+          setClosing(false);
+        }
+      }
+    },
+    [result, closing],
+  );
+
+  const confirmClose = (action: 'resolve' | 'cancel') => {
+    const message =
+      action === 'resolve'
+        ? "Tell OPA you're safe? This ends the emergency and stops sharing your location."
+        : 'Mark this as a false alarm? This ends the emergency and stops sharing your location.';
+
+    Alert.alert(action === 'resolve' ? "I'm safe" : 'False alarm', message, [
+      { text: 'Not yet', style: 'cancel' },
+      {
+        text: action === 'resolve' ? "I'm safe" : 'False alarm',
+        style: 'destructive',
+        onPress: () => void closeIncident(action),
+      },
+    ]);
+  };
+
   const handleCancel = () => {
     // Cancelling during the countdown never calls the API - the
     // backend's own design treats a rejected/cancelled trigger as
@@ -304,8 +388,47 @@ export default function SosScreen() {
       {result?.incident?.id ? (
         <Text style={styles.incidentId}>Incident ID: {result.incident.id}</Text>
       ) : null}
-      <TouchableOpacity style={styles.doneButton} onPress={() => router.replace('/')}>
-        <Text style={styles.doneButtonText}>Done</Text>
+
+      {closeError ? <Text style={styles.closeError}>{closeError}</Text> : null}
+
+      {/*
+        Only rendered when there is an incident to close. A deduplicated
+        re-trigger DOES return the incident, so these appear there too -
+        which is the case that matters most, since that screen reads
+        "your existing emergency alert remains active".
+      */}
+      {result?.incident?.id ? (
+        <>
+          <TouchableOpacity
+            style={[styles.safeButton, closing && styles.buttonDisabled]}
+            disabled={closing}
+            onPress={() => confirmClose('resolve')}
+          >
+            <Text style={styles.safeButtonText}>
+              {closing ? 'Ending...' : "I'm safe"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.falseAlarmButton, closing && styles.buttonDisabled]}
+            disabled={closing}
+            onPress={() => confirmClose('cancel')}
+          >
+            <Text style={styles.falseAlarmButtonText}>False alarm</Text>
+          </TouchableOpacity>
+        </>
+      ) : null}
+
+      {/*
+        Done LEAVES THE EMERGENCY OPEN. It is not a way to end one - the two
+        buttons above are. It was the green primary before this screen had
+        any way to close an incident; it is now a text link, because the
+        action that matters is "I'm safe" and three filled buttons would
+        bury it. Kept because a user may want to put the phone down while
+        the emergency continues.
+      */}
+      <TouchableOpacity onPress={() => router.replace('/')}>
+        <Text style={styles.backLink}>Done - keep the emergency active</Text>
       </TouchableOpacity>
     </View>
   );
@@ -417,5 +540,46 @@ const styles = StyleSheet.create({
     color: '#08111A',
     fontWeight: '700',
     fontSize: 16,
+  },
+  // "I'm safe" is the primary action on this screen. It takes the green the
+  // Done button used to carry.
+  safeButton: {
+    backgroundColor: '#17C964',
+    borderRadius: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 48,
+    marginTop: 8,
+    minWidth: 220,
+    alignItems: 'center',
+  },
+  safeButtonText: {
+    color: '#08111A',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  falseAlarmButton: {
+    backgroundColor: '#232E36',
+    borderRadius: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 48,
+    marginTop: 12,
+    minWidth: 220,
+    alignItems: 'center',
+  },
+  falseAlarmButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+  // Uses the alert colour, not the muted one: this text says location is
+  // STILL being shared, which the user needs to notice.
+  closeError: {
+    color: '#FF5A36',
+    fontSize: 14,
+    textAlign: 'center',
+    marginBottom: 16,
   },
 });

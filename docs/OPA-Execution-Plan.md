@@ -350,14 +350,54 @@ the thing a better-funded competitor cannot copy.
 
 ## 6. NEXT ACTIONS — IN ORDER
 
-1. **Run the contact-routing query.** One query, three possible shapes (§5.1).
-   It decides whether this is an hour or a design session.
+**REORDERED 8 AUGUST.** The original list opened with "run the contact-routing
+query". THAT DEFECT DOES NOT EXIST — it was diagnosed twice and both diagnoses
+were the environment rather than the code: two accounts confused, then a local
+`.env` pointing at the Africa's Talking SANDBOX. Full record at the top of
+`docs/TODO.md`.
 
-2. **Fix contact routing.**
+1. **FIX SMS PROVIDER TRUTHFULNESS.** `sms.provider.ts` returns
+   `success: true` whenever `sms.send()` does not THROW, without reading
+   `SMSMessageData.Recipients[0].status`. A provider-side rejection is
+   recorded as a delivery.
 
-3. **INTERNATIONAL PHONE SUPPORT.** Moved ahead of the beta, deliberately: if
+   It **must not convert provider acceptance into SENT** when the recipient
+   status is `Failed`.
+
+   **DO NOT FIX THE THREE STUBS IN THE SAME PASS.** They are the same class
+   of defect, and combining four providers into one change immediately before
+   a beta is unnecessary blast radius. SMS is a MEASURED defect affecting the
+   beta's own data; the stubs are provider integrity work with no beta
+   consequence. The stubs move to the PARALLEL track below.
+
+   Note the limit: `Sent` means Africa's Talking accepted the message and the
+   carrier has not confirmed. That final status arrives through a
+   delivery-report callback OPA has no endpoint for. Reading the status at
+   send time fixes `Failed`; `Sent` needs callbacks. Decide whether the beta
+   needs both.
+
+2. **VERIFY AGAINST PRODUCTION — AND THIS IS FIVE STEPS, NOT ONE.** The fix
+   has to reach Azure before it can be verified, or you would be testing the
+   old behaviour and concluding the fix failed. That would be the FOURTH
+   environment mismatch.
+
+       a. fix locally, all five gates green
+       b. commit and push — Actions deploys on push to main
+       c. CONFIRM AZURE PICKED IT UP before testing anything
+       d. switch app.json to production with the switch script
+       e. verify, then SWITCH BACK
+
+   No migration is involved, so the pipeline's missing `prisma migrate
+   deploy` does not matter here.
+
+   **Record the environment in the test output before trusting any result** —
+   which API, which database, which SMS mode. See the beta rule in
+   `docs/TODO.md`.
+
+3. **INTERNATIONAL PHONE SUPPORT.** Ahead of the beta, deliberately: if
    diaspora users are in the cohort, they cannot be blocked at registration by
-   the very thing the beta exists to test.
+   the very thing the beta exists to test. Five of the ten recruited
+   participants are international — three US, two UK.
 
    **MEASURE THE STORAGE FORMAT BEFORE WRITING ANY VALIDATION.** This is
    probably not one decorator. It potentially touches registration, login
@@ -369,10 +409,11 @@ the thing a better-funded competitor cannot copy.
    Support **E.164** throughout. Nigeria stays the UI default; `+234` must not
    be the only acceptable country code.
 
-4. **Fix the three stub providers.** ~1 hour. Both a beta-data problem and a
-   prerequisite for trustworthy reporting later.
+   **Africa's Talking may not deliver to +1 and +44 at all.** An email to
+   Pelumi is outstanding. If they do not, a second provider is an
+   architecture decision, not a config change.
 
-5. **Real-device acceptance test, run TWICE** — once with a Nigerian number,
+4. **Real-device acceptance test, run TWICE** — once with a Nigerian number,
    once with an international one:
 
        register -> add intended contact -> SOS
@@ -383,20 +424,26 @@ the thing a better-funded competitor cannot copy.
          -> journey stops
          -> link reports the incident closed
 
-6. **Start the closed beta.** 10–20 people, including diaspora participants if
-   practical — that tests international numbers and cross-country contact
-   relationships in one go. Tell them plainly it is a beta, that it
-   supplements rather than replaces calling for help, and give them a direct
-   line.
+5. **Start the closed beta.** 10 people recruited, five of them international.
+   Tell them plainly it is a beta, that it supplements rather than replaces
+   calling for help, and give them a direct line.
 
-7. **Prepare Google Play internal testing in parallel** (§4). Expo Go first if
-   it gets testers moving sooner; move them onto a real build once it is
-   validated.
+### In parallel — not on the critical path to the beta
 
-8. **In parallel: Command Center.** Facility provisioning and routing first —
-   they are backend, and the UI has nothing to show without them.
+6. **Replace the three stub providers.** WhatsApp, Push and Voice. Same class
+   as item 1 and deliberately SEPARATED from it: one change per provider
+   family keeps the pre-beta diff small. About an hour.
 
-9. **Correct `SPRINT_ROADMAP.md:247-251`** — the hash chain exists.
+7. **Google Play internal testing** (§4). Expo Go first if it gets testers
+   moving sooner; move them onto a real build once it is validated.
+
+8. **Command Center.** Facility provisioning and routing first — they are
+   backend, and the UI has nothing to show without them.
+
+9. **ASK PELUMI why one Nigerian number succeeds and another fails.** From
+   the 6 August production traffic, so it is real and predates the sandbox
+   confusion. DND is the likely cause. Same thread as the international
+   question already sent.
 
 **Not now:** SafeWalk check-ins, Journey Intelligence, Picovoice, post-incident
 reporting, dispatch, hospital dashboard.

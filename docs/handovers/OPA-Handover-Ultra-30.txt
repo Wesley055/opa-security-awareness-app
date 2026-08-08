@@ -1,0 +1,547 @@
+# OPA - Handover Ultra 30 - DELTA
+# GENERATED: 2026-08-07, at commit 674b227 on main. PUSHED. porcelain=0.
+#
+# THIS IS A DELTA. It supersedes Ultra 29 ONLY where stated.
+# Ultra 29 remains AUTHORITATIVE for everything not listed here:
+#   docs/handovers/OPA-Handover-Ultra-29.txt
+# Ultra 28 and earlier remain authoritative where not superseded.
+#
+# TEN COMMITS. FIVE OF THEM CODE - the first implementation work since
+# f116812 closed Sprint 10B.
+#
+# LABELS: [M] MEASURED  [D] DECISION  [R] RECOMMENDATION  [I] INHERITED
+
+
+================================================================================
+## RESUME HERE - READ THIS FIRST
+================================================================================
+
+HEAD                main @ 674b227, porcelain=0, level with origin/main    [M]
+API UNIT            26 suites / 284 tests, green                           [M]
+API INTEGRATION     7 suites / 35 tests, green                             [M]
+API tsc             0                                                      [M]
+MOBILE              2 suites / 44 tests, green. tsc 0                      [M]
+DECISION LOG        16 ADRs, 001-016, none missing. ADR-013 has a section 6
+
+TEN COMMITS THIS SESSION
+  5e9638b  Docs: amend ADR-013 - operational workflow as a separate platform
+  875d67a  Docs: record the measured Command Center scope and what it excludes
+  fef2a0f  Docs: record that an incident opens and never closes
+  bf8ae7a  Docs: record the NDPC filing and what must be reconciled
+  6723318  API: canonicalise timeline payload before hashing
+  f3530e5  API: incident resolve and cancel, atomic with revocation + timeline
+  21e30e0  Mobile: let a user resolve or cancel their own emergency
+  97ef472  API: end the journey session when its last open incident closes
+  c536499  Chore: remove trailing blank line from lifecycle spec
+  674b227  Docs: record the tracker 409 race, hash-chain correction, defer
+
+THE HEADLINE
+AN INCIDENT CAN NOW BE CLOSED. Before this session nothing in the system
+ever wrote a terminal IncidentStatus: a user could not signal they were
+safe, the app read "Emergency Activated" indefinitely, tracking links
+stayed live until absolute expiry, and every SOS accumulated as a
+permanently open incident. Fixed end to end and VERIFIED ON A DEVICE.  [M]
+
+THE SECOND HEADLINE, AND NOBODY WAS LOOKING FOR IT
+THE TIMELINE HASH CHAIN WAS BROKEN FOR ANY EVENT WITH A PAYLOAD. It was
+latent because every caller before the incident lifecycle passed NO
+payload. The lifecycle was the first to send a real one, and verifyChain
+immediately reported a valid chain as broken. Section 2.              [M]
+
+NEXT ACTIONS - IN ORDER
+  1. Commit this file to docs/handovers/OPA-Handover-Ultra-30.txt (CRLF).
+  2. TWO DECISIONS before any Command Center code. Section 6.
+  3. Then Command Center Phase 1.
+  Everything else is recorded in docs/TODO.md and deliberately deferred.
+
+
+================================================================================
+## 1. THE INCIDENT LIFECYCLE - f3530e5, 21e30e0, 97ef472
+================================================================================
+
+### 1.1 What was wrong [M]
+
+`IncidentStatus` has four values - OPEN, ACKNOWLEDGED, RESOLVED, CANCELLED -
+and only OPEN was ever written. Measured across apps/api/src: the
+orchestrator set OPEN at creation and EVERY other reference READ status.
+
+The READ side was fully built and had never been reachable.
+`public-tracking.service.ts:114-124` handled a closed incident, reasoning
+carefully that closed is checked BEFORE expiry because "someone opening an
+old link benefits far more from learning the emergency ended than from being
+told the link expired". `incident-access-token.service.ts:157-168` had
+`revokeAllForIncident` with the comment "Called when an incident closes".
+None of it had run.
+
+### 1.2 What was built [M]
+
+    PATCH /incidents/:incidentId/resolve   subject is safe. Terminal.
+    PATCH /incidents/:incidentId/cancel    accidental activation. Terminal.
+
+[D] OWNER-ONLY. A Command Centre operator resolving somebody else's
+emergency is a claim about the world made by a party with an interest in it
+- the ADR-013 section 6.2 seam - and is deliberately not exposed.
+
+[D] ONE TRANSACTION, ONE TIMESTAMP covers the advisory locks, the status
+change, token revocation, the journey session end, and the timeline event.
+"Live tracking stops when the emergency is over" is a SAFETY claim; as
+separate transactions it would be best-effort.
+
+Two existing methods gained an optional `Prisma.TransactionClient`, matching
+the pattern `IncidentAccessTokenService.issue` already used:
+  revokeAllForIncident(incidentId, tx?)
+  recordEvent(params, outerTx?)
+`recordEvent` previously opened its OWN `$transaction` unconditionally,
+which would have committed the timeline event independently of the status
+change.
+
+[D] `resolvedAt` MEANS RESOLVED AND NOTHING ELSE. RESOLVED sets it,
+CANCELLED leaves it NULL. The cancellation timestamp lives on the timeline
+event. Overloading one column with two meanings would be read wrongly by
+anything filtering on it.
+
+[D] ACKNOWLEDGED IS NOT WRITTEN. Acknowledgement will be a chained timeline
+event, not a status mutation - ADR-013 section 6.2 says the Incident Record
+may record only THAT an acknowledgement occurred. The enum value stays
+unused. Untidy, honest, removable when the Operations Platform exists.
+
+### 1.3 The advisory-lock decision, and the one that was rejected [D]
+
+The namespace: 1-arg = per-user lifecycle, classid 2 = journey ingestion,
+classid 3 = incident timeline.
+
+A NEW CLASSID 4 WAS PROPOSED AND REJECTED. Lifecycle and timeline serialise
+on the SAME resource - one incident - so a second namespace bought nothing
+and would have created a 4-then-3 ordering all future code must honour.
+`pg_advisory_xact_lock` is transaction-scoped and reentrant, so `recordEvent`
+re-taking 3 inside the transaction is free.
+
+[M] THEN THE SESSION WORK FORCED A SECOND ORDERING DECISION.
+`endSession` takes the 1-arg USER lock, then classid 2. The orchestrator
+takes the USER lock, then classid 3. `close()` originally took 3 FIRST, so
+calling endSession from it would have produced 3 -> user -> 2 against the
+orchestrator's user -> 3. TWO PATHS TAKING THE SAME LOCKS IN OPPOSITE ORDERS
+IS THE TEXTBOOK DEADLOCK SHAPE.
+
+`close()` now takes the USER lock first: user -> 3 -> 2, of which the
+orchestrator's user -> 3 is a prefix.
+
+[R] THE INSTALLER ASSERTED THIS ON THE PRODUCED TEXT - it located `close()`
+and failed if the user lock did not precede classid 3. A future edit that
+reorders them cannot install. Worth repeating for any change that composes
+two lock-taking services.
+
+### 1.4 The journey session - 97ef472 [M]
+
+MEASURED ON A DEVICE after resolving an incident and reloading the app:
+
+    [journey-tracker] session 9ed5db73-... reused=true purpose=INCIDENT
+    [journey-tracker] started for session 9ed5db73-...
+
+The incident was RESOLVED; the session was still ACTIVE, so the tracker
+found it and RESUMED CAPTURING LOCATION. Every app start would do it again.
+`JourneySessionEndReason.INCIDENT_RESOLVED` already existed in the enum and
+had never been written - the same shape as `IncidentStatus.RESOLVED`.
+
+[M] THE HAZARD THAT SHAPED THE FIX. `resolveForActivation`
+(journey-session.service.ts:105-117) returns ANY STARTED or ACTIVE session
+for the user, without filtering by incident. So:
+
+    incident A opens, session S created
+    > 60s passes, the dedupe window has closed
+    new SOS -> incident B created -> REUSES session S
+    A and B are both OPEN and both point at S
+
+Ending S when A closes would STOP TELEMETRY FOR B, an emergency still in
+progress. Unlikely, catastrophic - the profile that deserves a guard.
+
+[D] The session is ended ONLY when no OTHER OPEN incident references it, and
+the query EXCLUDES the incident being closed - without that exclusion it
+would always find itself and never end anything.
+
+[D] END REASON MAPPING, and no new enum value:
+    RESOLVED  -> INCIDENT_RESOLVED
+    CANCELLED -> USER_ENDED
+A distinct INCIDENT_CANCELLED would need a Prisma enum migration, and the
+pipeline still does not run `prisma migrate deploy` (Ultra 28 section 4.2),
+so it would be applied to production BY HAND. The authoritative outcome is
+not lost: the incident row says CANCELLED and the timeline event says
+INCIDENT_CANCELLED. USER_ENDED is also simply true.
+[R] Add the value when a migration is being deployed for another reason.
+
+### 1.5 The mobile side - 21e30e0 [M]
+
+Two buttons in the activated state, with confirmations that name the
+CONSEQUENCE rather than asking a bare yes/no:
+
+  I'm safe     "Tell OPA you're safe? This ends the emergency and stops
+                sharing your location."
+  False alarm  "Mark this as a false alarm? This ends the emergency and
+                stops sharing your location."
+
+[D] THE CONTRACT, and the ordering is the whole point:
+    2xx          -> stopTracking() -> home
+    409          -> stopTracking() -> "already ended" -> home
+    network/5xx  -> KEEP TRACKING  -> show error -> re-enable buttons
+
+`stopTracking()` runs ONLY AFTER the server accepts the close. If the request
+fails the tracker keeps running, because the emergency is still open. The
+error text says so: "Your location is still being shared."
+409 is CONVERGENCE, not failure - the state the user wanted is the state that
+exists.
+
+[M] VERIFIED ON A DEVICE. Airplane mode produced the error with the tracker
+still running; reconnecting and confirming produced
+`PATCH .../resolve statusCode:200` and
+`Revoked 1 tracking token(s) for incident 844f7ded-...`.
+
+[D] "Done" was demoted from the green primary to a text link reading
+"Done - keep the emergency active". It does NOT close anything, and with two
+closing buttons beside it that distinction needed saying.
+
+[R] TWO GAPS, both recorded, neither fixed:
+  - The buttons exist ONLY on the SOS screen. A user who closes the app
+    mid-emergency has no way back to it. The home screen showing an active
+    incident is the next piece.
+  - RESOLVING NOTIFIES NOBODY. Contacts who received an SOS are never told
+    it ended, unless they reopen the tracking link (which now reports
+    INCIDENT_CLOSED). That needs an orchestrator change, a notification type
+    and message wording, and it costs SMS credit per contact per resolve.
+
+
+================================================================================
+## 2. THE HASH CHAIN WAS BROKEN - 6723318
+================================================================================
+
+[M] `IncidentTimelineEvent.payload` is Prisma `Json`, which is PostgreSQL
+`jsonb`. JSONB DOES NOT PRESERVE KEY ORDER - it stores keys sorted by length,
+then bytewise. Measured on this database:
+
+  before={"previousStatus":"OPEN","newStatus":"RESOLVED","reason":"X","revokedTokens":2}
+  after ={"reason":"X","newStatus":"RESOLVED","revokedTokens":2,"previousStatus":"OPEN"}
+
+`computeHash` ran `JSON.stringify` over the payload OBJECT, and
+`JSON.stringify` follows insertion order. So the string hashed at WRITE time
+differed from the string hashed at VERIFY time, and `verifyChain` reported a
+valid chain as BROKEN.
+
+[M] WHY IT WAS NEVER DETECTED. Every caller before the incident lifecycle
+passed NO payload. With `payload = {}` both sides hash the same empty object
+and key order never matters.
+`test/int/incident-timeline-concurrency.int-spec.ts` passed then and passes
+now. The lifecycle was the FIRST caller to send a real payload.
+
+[D] THE FIX: a private recursive `canonicalise()` that sorts OBJECT keys at
+every depth, including objects nested inside arrays. ARRAY ORDER IS
+PRESERVED - element order is data, jsonb keeps it, and sorting it would make
+two genuinely different payloads collide. Both `recordEvent` and
+`verifyChain` hash through `computeHash`, so write-time and verify-time
+canonicalisation cannot drift apart.
+
+[M] COMPATIBILITY ASSERTED, NOT ARGUED. Canonicalising `{}` yields `{}`, so
+every existing event hashes exactly as before. The spec proves this against
+an INDEPENDENTLY computed digest rather than trusting the reasoning.
+
+### 2.1 What this means for the public claim [R]
+
+Ultra 28 section 9 listed the website's "hash-chained incident timeline" and
+"tamper-evident by design" as the highest-exposure UNVERIFIED claims, and
+SPRINT_ROADMAP.md:247-251 says the chain does not exist.
+
+THE ROADMAP IS WRONG AND THE CLAIM IS NOW DEFENSIBLE. `recordEvent` takes a
+classid-3 advisory lock, allocates the sequence, links `previousHash`,
+computes SHA-256 over a canonical envelope, and inserts - all in one
+transaction. `verifyChain` walks the chain and recomputes every hash, exposed
+at `GET /incidents/:id/timeline/verify`.
+
+The comment in the service says it best: "This is the actual mechanism behind
+tamper-evident - not the field's existence, but this function catching a
+mismatch."
+
+[R] SAY TAMPER-EVIDENT. NEVER SAY IMMUTABLE. ADR-015 records why.
+[R] SPRINT_ROADMAP.md:247-251 IS STILL UNCORRECTED. Recorded in TODO.md.
+
+
+================================================================================
+## 3. ADR-013 SECTION 6 - THE OPERATIONS PLATFORM - 5e9638b
+================================================================================
+
+[D] ADR-013 was AMENDED, not superseded, ninety minutes after being
+installed. Its reasoning about independence stands and is the reason the
+amendment takes the shape it does.
+
+THE QUESTION THAT PROMPTED IT: should the Command Centre ship with
+assignment, escalation and responder tracking on day one? Options were a
+viewer-only MVP (A) or a full dispatch console (B). The answer landed on
+NEITHER.
+
+[D] TWO DOMAINS, AND THE DEPENDENCY DIRECTION IS THE RULE:
+
+    Operations may reference an Incident.
+    Incident Core never depends on operational state.
+
+    Incident Core SHALL NOT import, query, or derive canonical incident
+    facts from Operations.
+
+The second sentence is stated separately because "does not depend on" can be
+argued around by joining an operational table into a reconstruction and
+calling the result independent.
+
+[D] Communication EXCLUSIVELY through published domain events. The transport
+is deliberately unspecified - Redis Streams, RabbitMQ, Kafka, a Postgres
+outbox. The rule is the direction and the exclusivity, not the technology.
+
+[D] THE ACKNOWLEDGEMENT SEAM, given its own subsection because it is where an
+implementer will first get this wrong: the acknowledgement is AUTHORED in
+Operations; the Incident Record may record ONLY that one occurred, with a
+timestamp and a reference. "An acknowledgement was observed at 14:21:18" is a
+fact about the world. "Officer John assigned himself" is a claim by a party
+about their own conduct.
+
+[D] INCIDENT CORE REMAINS INDEPENDENTLY DEPLOYABLE. Operations Platform
+failure, upgrade or outage SHALL NOT prevent SOS capture, telemetry storage,
+evidence preservation or notification delivery. This is the dependency rule
+as a RUNTIME property, and in that form it can be TESTED: stop the Operations
+Platform, raise an SOS, confirm the alert is captured and delivered.
+
+[M] THE AMENDMENT RECORDS THAT IT PRECEDES CUSTOMER VALIDATION. No
+institutional customer has requested assignment or escalation. What exists is
+market research, competitive analysis and founder judgement. An earlier draft
+said "subsequent commercial validation demonstrated..." - that would have
+been false, and a later reader would have believed evidence existed that does
+not. The decision is recorded as intentionally reversible.
+
+[M] THE DATABASE BOUNDARY IS RECORDED AS A GAP, NOT A RULE. Target state is
+separate roles with no Operations write permission on Incident Core tables.
+Current state is a single Postgres connection and a single Prisma client, so
+there is no role separation to enforce. Written as a MUST it would have been
+false on the day it installed.
+
+[D] THE SEQUENCE, each stage INDEPENDENTLY DEPLOYABLE:
+    OPA Core -> Command Centre -> Operations Suite -> Partner Integrations
+
+
+================================================================================
+## 4. REGISTRATIONS - NDPC AND GOOGLE PLAY
+================================================================================
+
+[M] GOOGLE PLAY ORGANIZATION ACCOUNT IS COMPLETE. Account ID
+5791499687166482521, developer name "OPA Safety". Identity cleared using a US
+identity document against a Nigerian company - the jurisdiction mismatch did
+not cause a problem. Both the contact and developer phone numbers required
+separate verification.
+
+[M] WEBSITE VERIFICATION IS A REQUEST-AND-APPROVE HANDSHAKE, which is what
+made it look stuck: verifying in Search Console is only the PREREQUISITE.
+Play sends a request that the Search Console owner must then approve.
+
+[R] DO NOT CREATE THE PLAY STORE LISTING YET. It asks for a data-safety
+declaration that must match what was told to NDPC, no production build
+exists, `scheme` is unset in app.json, and three notification providers still
+report deliveries they never attempted.
+
+[M] NDPC IS SUBMITTED AND PAID. Data Processor AND Controller, EXTRA HIGH
+LEVEL, 5,000+ data subjects declared, DPO Oluwaseun Odubore.
+
+[M] THE FILING DESCRIBES A SLIGHTLY LARGER COMPLIANCE POSTURE AND A SLIGHTLY
+SMALLER PRODUCT THAN REALITY. Recorded in TODO.md at bf8ae7a:
+  - Data Loss Prevention Solutions and Data Recovery Systems are DECLARED and
+    neither exists. Data Retention Policies and Regular Security Audits are
+    declared and no written policy or DPIA exists.
+  - The purpose statement says location is captured "only while an emergency
+    alert is active and is initiated by the user". JOURNEY SESSIONS CAPTURE
+    LOCATION DURING A JOURNEY - no emergency, no alert. That primitive
+    shipped in Sprint 10B. A PRESENT discrepancy, not a future risk.
+
+[R] The weakest point against "Audit Trail and Logging" is that an operator
+will be able to read a person's precise location with no record of having
+done so. That makes a view-audit trail a Command Centre LAUNCH requirement,
+not an enhancement.
+
+[R] DO NOT SAY "NDPC CERTIFIED" OR "NDPC APPROVED". The portal says
+SUBMITTED.
+[R] APPLY FOR THE LATE-PENALTY WAIVER - the portal offers one for companies
+incorporated within six months. The only item here with a clock on it.
+
+[M] APPLE DEVELOPER (org) IS STILL NOT STARTED. The last registration, and
+the slowest.
+
+
+================================================================================
+## 5. COMMAND CENTER - MEASURED, NOT ESTIMATED - 875d67a
+================================================================================
+
+[M] THERE IS NO OPERATOR UI AT ALL. `apps/website` is marketing pages - about,
+careers, contact, hospitals, privacy, terms, home - plus ONE functional
+surface: `src/app/i/[token]/live-tracking.tsx`, the public tokenized tracking
+page. No login, no incident list, no dashboard.
+
+[M] SPRINT_ROADMAP.md:141 calls Sprint 10A "SUBSTANTIALLY BUILT". True of the
+API and the public tracking page. NOT an operator portal.
+COMMERCIAL_ROADMAP.md's "Command Center IS the institutional version of
+Sprint 10A" implies a front end that has never existed.
+
+BUILT, DO NOT REBUILD:
+  - `UserRole` enum, `User.role` in the JWT, `User.facilityId` with a
+    FacilityStaff relation and index, `Facility`, `Incident.facilityId`
+  - `FacilityStaffGuard`, which re-reads role and facilityId from the
+    database rather than trusting the token
+  - `IncidentAccessGuard`
+  - `GET /facilities/:facilityId/incidents`, already scoped
+  - the public tracking page, proving the map and live-position patterns
+
+MISSING:
+  - the entire operator UI - FROM ZERO
+  - FACILITY AND STAFF PROVISIONING. The schema supports it; nothing writes
+    it. Onboarding a hospital today means HAND-EDITING THE DATABASE.
+  - ACKNOWLEDGEMENT
+  - PAGINATION. `facilities.service.ts:8-25` returns every incident for a
+    facility with the full user, ALL notifications, ALL evidence and ALL
+    timeline events, unbounded.
+
+[M] TEN TO FOURTEEN DAYS for Phase 1. The uncertainty is in the UI, because
+nothing comparable exists in the repo to pace against.
+
+[D] THE OPERATIONS PLATFORM IS NOT IN THAT FIGURE and is a comparable body of
+work again. ADR-013 section 6 exists so the two are separable; a single
+estimate covering both would undo that before any code is written.
+
+
+================================================================================
+## 6. THE TWO DECISIONS BEFORE ANY COMMAND CENTER CODE
+================================================================================
+
+[R] Both are half an hour of thinking that prevent a day of rework.
+
+### 6.1 Provisioning: admin API, or seeded script?
+
+A script is acceptable for ONE pilot and not for two. An admin API is the
+real answer and costs more now. Whichever is chosen, the tenant-isolation
+check must be run for EVERY customer onboarded: log in as facility A, confirm
+facility B's incidents are not visible. It is the check that matters most and
+the easiest to assume.
+
+### 6.2 The acknowledgement design note
+
+[D] ALREADY DECIDED, and this note is about implementation rather than
+principle. Operator acknowledgement is a SEPARATE AUDITED ACTION. Resolve and
+cancel stay OWNER-ONLY. ADR-013 section 6.2 rules that the acknowledgement is
+authored in Operations while the Incident Record carries only that one
+occurred.
+
+[R] The trap: building it as a status field with transitions. That crosses
+the boundary. It is an observed fact with an actor and a timestamp, recorded
+on the chained timeline - which is BETTER evidence than a mutable column,
+because it is ordered and verifiable.
+
+
+================================================================================
+## 7. CARRIED FORWARD, UNCHANGED
+================================================================================
+
+[I] Everything in Ultra 29 stands except where superseded above. Still open:
+
+  - THE CONTACT-ROUTING DEFECT. Alerts go to the wrong contacts. Marked
+    DEFERRED in TODO.md at 674b227, with its measured evidence, both
+    candidate mechanisms and the query that distinguishes them. STILL LIVE:
+    the 7 August device logs show +2349066538149 as the only recipient,
+    unchanged after a full day of adjacent work.
+  - THREE STUB PROVIDERS still report deliveries they never attempted.
+    WhatsApp, Push and Voice. The last outstanding ADR-015 freeze criterion,
+    and about an hour of work.
+  - REDIS_URL is the literal string 'placeholder' in App Service. An error
+    every five seconds. Remove the setting; do not provision.
+  - THE PIPELINE DOES NOT APPLY MIGRATIONS. Production is 11/11 by hand.
+  - NO PASSWORD RESET anywhere.
+  - TRUNCATED LABELS - and it is wider than TODO.md records. "Bac", "Remov",
+    "Set" on Emergency Contacts, and ALSO "Welcome," with no name and "Tap to
+    activate an" cut off on the home screen. One layout problem, three
+    screens.
+  - THE HOME SCREEN DOES NOT REFRESH and knows nothing about an active
+    incident.
+  - A DPIA AND A RETENTION POLICY DO NOT EXIST.
+  - APPLE DEVELOPER (org) not started.
+
+
+================================================================================
+## 8. FIRST ACTIONS IN THE NEXT SESSION
+================================================================================
+
+1. Commit this file to docs/handovers/OPA-Handover-Ultra-30.txt (CRLF).
+   Handovers are stored LF in git and checked out CRLF - trap #131.
+
+2. Verify state:
+   $env:GIT_PAGER='cat'
+   cd C:\Projects\OPA; "probe=resume"; "current=" + (git branch --show-current); git log --oneline -5 | ForEach-Object { "log|$_" }; "porcelain=" + @(git status --porcelain).Count
+   EXPECT current=main, HEAD 674b227 (or later), porcelain=0.
+
+3. Run all five gates. EXPECT API 26/284, int 7/35, tsc 0, mobile 2/44,
+   mobile tsc 0.
+
+4. THE TWO DECISIONS IN SECTION 6. Then Command Center Phase 1.
+
+
+================================================================================
+## 9. TRAPS ADDED THIS SESSION
+================================================================================
+
+### TRAP #144 - A LATENT DEFECT IN A VERIFICATION PRIMITIVE [M]
+
+The timeline hash chain was broken for any event with a non-empty payload,
+and had been since it was written. Nothing detected it because no caller ever
+sent a payload. The first feature to send one exposed it immediately.
+
+  [R] A PRIMITIVE THAT IS ONLY EXERCISED IN ITS TRIVIAL CASE IS NOT VERIFIED.
+      `{}` hashed identically on both sides whatever the implementation did.
+      When a mechanism has a degenerate input, assume the tests are pinning
+      the degenerate case until something proves otherwise.
+
+### TRAP #145 - TWO SERVICES, TWO LOCK ORDERS [M]
+
+`close()` took classid 3 first. `endSession` takes the user lock then
+classid 2. Composing them would have produced 3 -> user -> 2 against the
+orchestrator's user -> 3 - a lock-order inversion, discovered by reading
+endSession's first two lines before writing the call rather than by a
+deadlock in production.
+
+  [R] BEFORE COMPOSING TWO LOCK-TAKING SERVICES, READ BOTH LOCK SEQUENCES.
+      And assert the resulting order in the installer, on the produced text,
+      so a later edit cannot silently invert it.
+
+### TRAP #146 - A NEEDLE VERIFIED AGAINST THE WRONG THING [M]
+
+An installer asserted each new string appeared exactly once, and failed
+closed on correct output. The audit behind it had compared needles against
+the REPLACEMENT text, where the string appeared once - not against the
+RESULT, where the replacement also matched surrounding original code.
+
+  [R] VERIFY INVARIANTS AGAINST A SIMULATION OF THE RESULT, not against the
+      text being inserted. Same family as #127 and #139: the guard measured
+      something adjacent to the property it was defending.
+
+### TRAP #147 - A CONSTRUCTOR ARGUMENT BREAKS EVERY CONSTRUCTION [M]
+
+Twice in one session, adding a dependency to IncidentsService broke existing
+`new IncidentsService(...)` call sites, and both times the fallout was
+discovered by tsc rather than anticipated.
+
+  [R] WHEN A SERVICE GAINS A DEPENDENCY, GREP FOR `new <Service>(` WHILE
+      BUILDING THE INSTALLER. It is one command and it turns two failed runs
+      into none.
+
+### TRAP #148 - A GUARD THAT ONLY LOOKS LIKE A CHECK [M]
+
+A script printed `whitespace_only_diff_empty=$($LASTEXITCODE -eq 0)` after
+`git diff -w --numstat`. That command exits 0 whether or not it prints
+anything, so the line was always True. It resembled a verification and
+verified nothing.
+
+  [R] A CHECK THAT CANNOT FAIL IS WORSE THAN NO CHECK, because it is trusted.
+      Capture the output and assert on its emptiness, and THROW rather than
+      printing a cheerful boolean.
+
+
+# END OF HANDOVER ULTRA 30
+# Delta to Ultra 29. Generated at 674b227 on main, level with origin.
+# Ten commits, five of them code. Sprint 10B remains closed; this session
+# was defect work and the first Command Center groundwork.

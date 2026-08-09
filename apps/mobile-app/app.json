@@ -19,7 +19,11 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.opasafety.app"
+      "package": "com.opasafety.app",
+      "permissions": [
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -38,7 +42,12 @@
     ],
     "extra": {
       "apiBaseUrl": null,
-      "apiPort": 3000
-    }
+      "apiPort": 3000,
+      "router": {},
+      "eas": {
+        "projectId": "51a845d4-1e71-4e55-baa7-8c696faf7023"
+      }
+    },
+    "owner": "opa-technologies"
   }
 }

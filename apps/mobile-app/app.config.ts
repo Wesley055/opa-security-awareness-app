@@ -15,6 +15,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
 
   return {
     ...config,
+    name: config.name ?? 'OPA',
+    slug: config.slug ?? 'opa',
     extra,
   };
 };

@@ -1,0 +1,448 @@
+# OPA - Handover Ultra 32 - DELTA
+# GENERATED: 2026-08-08, at commit 4c664db on main. PUSHED.
+#
+# THIS IS A DELTA. It supersedes Ultra 31 ONLY where stated.
+# Ultra 31 remains AUTHORITATIVE for strategy, Command Center scope, the
+# platform model and the sales-language constraints:
+#   docs/handovers/OPA-Handover-Ultra-31.txt
+# Ultra 30 remains authoritative for the incident lifecycle work.
+#
+# ULTRA 31 SECTION 0 AND 3.1 ARE SUPERSEDED. Both say the next action is the
+# contact-routing diagnostic query. THAT DEFECT DOES NOT EXIST.
+#
+# LABELS, used strictly:
+#   [BUILT]      code exists and its tests pass
+#   [VERIFIED]   observed working on a real device or against production
+#   [DECIDED]    settled and written down, NO CODE YET
+#   [DEFERRED]   deliberately not now, with a named condition
+#   [NOT BUILT]  does not exist
+#   [M] measured  [R] recommendation
+
+
+================================================================================
+## 0. RESUME HERE
+================================================================================
+
+HEAD                main @ 4c664db, pushed                                [M]
+API UNIT            27 suites / 296 tests, green                          [M]
+API INTEGRATION     7 suites / 35 tests, green                            [M]
+API tsc             0                                                     [M]
+
+### THE NEXT ACTION
+
+CONFIRM AZURE IS RUNNING THE 4c664db BUILD, then verify SMS against
+production. Section 4. Do not point any build at production before that
+confirmation - it would be the fourth environment mismatch in three days.
+
+### COMMITS SINCE ULTRA 31
+
+  0116bfc  Docs: contact routing is not a defect - it was the sandbox
+  f805f64  Docs: reorder the execution plan - SMS truthfulness is action 1
+  4c664db  API: SMS provider fails closed on a non-Success recipient status
+
+
+================================================================================
+## 1. CONTACT ROUTING IS NOT A DEFECT - CLOSED
+================================================================================
+
+[M] It was diagnosed TWICE. Both diagnoses were the ENVIRONMENT, not the code.
+
+### 1.1 First diagnosis - two accounts confused
+
+The contacts screen was being read for one login while the dispatch logs came
+from another. The local database holds SEVEN test accounts with overlapping
+names:
+
+    wesley_ibhade@yahoo.com  (Charles Haynes)  Charlie   +14694791451
+                                               Blessing  +2349066538149
+    info@opasafety.com       (Charles Hope)    Blessing  +2349066538149
+                                               Osa       +2347037119196
+
+Osa Osahun was never a contact of the account that produced most of the
+alerts. He could not have received them.
+
+### 1.2 Second diagnosis - the local API was sending to the SANDBOX
+
+After adding Osa correctly and re-testing, SMS still reached nobody. Measured:
+
+    apps/api/.env  ->  AFRICASTALKING_USERNAME=sandbox
+
+[M] EVERY SMS FROM THE LOCAL API SINCE 6 AUGUST WENT TO A SIMULATOR.
+Accepted, never carried, never charged, and absent from the production sending
+log - which is exactly why that log stops on 6 August, the day the phone was
+pointed at the PRODUCTION API on Azure.
+
+[R] THIS IS WHY THE 6 AUGUST LOG LOOKED LIKE AN ANSWER AND WAS NOT. A
+correction was drafted around it late at night and had to be reverted the next
+morning: every entry in that log was from the 6th, so it could not explain
+failures observed on the 8th. The reverted draft is not in git.
+
+### 1.3 What is actually correct
+
+[M] The fan-out. Measured on incident
+`e9751554-4383-45b9-99b7-d22d1f4019b8`, created 09:25:29Z after Osa was added
+at 09:24:51Z:
+
+    SMS       +2347037119196  SENT     contact=edc526ac...
+    WHATSAPP  +2347037119196  SENT     contact=edc526ac...
+    SMS       +2349066538149  SENDING  contact=a4079a8d...
+    WHATSAPP  +2349066538149  SENT     contact=a4079a8d...
+
+Four rows, both contacts, both channels. The orchestrator reads contacts fresh
+at incident creation, both were `isActive: true`, and both got rows. Recipient
+selection has nothing wrong with it.
+
+
+================================================================================
+## 2. THE SMS TRUTHFULNESS FIX - 4c664db [BUILT]
+================================================================================
+
+### 2.1 The defect
+
+[M] Africa's Talking reports per-recipient failure INSIDE a successful HTTP
+response. `sms.send()` does NOT throw when a message is rejected - the outcome
+sits in `SMSMessageData.Recipients[n].status` as a string.
+
+The provider returned `success: true` whenever the call did not throw, reading
+`Recipients[0]` only for its `messageId`. The 6 August production sending log
+shows the consequence:
+
+    OPAALERT  +2349066538149  NGN 5.4000  Success
+    OPAALERT  +2347037119196  NGN 5.4000  Sent
+    OPAALERT  +2347037119196  NGN 5.4000  Failed
+
+OPA recorded ALL of them as SENT.
+
+[D] Same class as the three stubs, in the fourth provider - and worse, because
+a FALSE record is worse than a missing one. ADR-015 section 6b.
+
+### 2.2 The rule
+
+[D] **"Success" IS THE ONLY ACCEPTED SEND-TIME STATUS.**
+
+Failed, InsufficientBalance, UserInBlacklist, an unrecognised string, a
+missing status field, an empty Recipients array, a malformed response - ALL
+return `success: false`, with the provider's own status preserved in `error`.
+
+**AN UNKNOWN PROVIDER STATE MUST NEVER BECOME A SUCCESSFUL DELIVERY RECORD.**
+Failing closed is the only safe default for a safety product.
+
+[M] Nothing changed outside the provider. `notification.service.ts:151-163`
+already routes `success: false` to `status: FAILED` with `lastError` set from
+the response, so the reason lands in the database per notification rather than
+only in a log line.
+
+### 2.3 The semantics, named in the code
+
+[D] **send-time provider success != final delivery confirmation**
+
+"Success" means Africa's Talking ACCEPTED the message. The carrier has
+confirmed nothing; that arrives later through a delivery-report callback OPA
+has no endpoint for.
+
+[R] The comment exists because in six months somebody will read a SENT row as
+proof a handset received the message, and from there it reaches a report and
+then a customer.
+
+### 2.4 A one-time mode log
+
+[BUILT] On the first send of each process:
+
+    [SmsProvider] mode=SANDBOX (simulator - NOTHING IS DELIVERED) username=sandbox
+    [SmsProvider] mode=PRODUCTION username=OPASafety
+
+[R] Ten lines that would have saved hours. Two separate defects were diagnosed
+before anyone checked the username.
+
+[R] IT DOUBLES AS A DEPLOYMENT MARKER. Once Azure restarts on this build, the
+first SMS attempt prints that line. If it is absent, Azure is still running
+the OLD build - a better signal than `/health`, which returns 200 either way.
+
+### 2.5 Scope was enforced, not promised
+
+[D] The three stubs are DELIBERATELY NOT in this commit. Same class of defect,
+but combining four providers into one change immediately before a beta is
+unnecessary blast radius. The installer read whatsapp/push/voice/email
+.provider.ts and notification.service.ts before editing and asserted them
+BYTE-IDENTICAL afterwards.
+
+### 2.6 Tests
+
+[M] Twelve, in a new `sms.provider.spec.ts`. Success accepted with its
+messageId. Failed rejected - the exact case from production. Five other
+statuses including an invented one. Missing status. Empty Recipients.
+Malformed response. A thrown error. Absent credentials with no send attempted.
+
+[R] The provider is loaded DYNAMICALLY inside `beforeEach`, after the mock
+exists. A static import would bind the class BEFORE the mock is installed, and
+`jest.resetModules()` does not rebind an already-imported reference - so the
+lazy `require('africastalking')` inside `send()` would resolve against
+whatever was in the registry when the class first loaded. The tests would then
+pass or fail depending on module-cache state, which is worse than failing
+outright.
+
+
+================================================================================
+## 3. THE ENVIRONMENT TRAP - NOW A TESTING RULE
+================================================================================
+
+[M] THREE TIMES THE ENVIRONMENT HAS BEEN THE ANSWER, each costing an hour or
+more:
+
+    local vs production API        the phone was hitting localhost while
+                                   Azure settings were being configured
+    local vs production database   a query answered confidently about the
+                                   wrong dataset
+    sandbox vs production SMS      every send since 6 August went to a
+                                   simulator
+
+Each time the code was correct and the environment was not, and each time the
+first hypothesis blamed the code.
+
+[D] **BETA RULE, APPLYING TO EVERY DELIVERY ACCEPTANCE TEST FROM NOW ON.**
+Before any test whose outcome depends on a real message arriving, record - in
+the test output, not from memory:
+
+    APP BUILD:
+    API:          which API the device is pointed at
+    DATABASE:     which database that API is using
+    SMS MODE:     sandbox or production username
+    VERSION:
+
+**A green result without those recorded is not evidence.**
+
+[R] LOCAL SMS TESTS BETWEEN 6 AND 8 AUGUST WERE NOT CARRIER TESTS. They
+exercised the simulator and cannot be used as evidence of real delivery or
+carrier behaviour. Any conclusion drawn from them about DND, routing or
+contact selection is void.
+
+
+================================================================================
+## 4. THE PRODUCTION VERIFICATION - FIVE STEPS, NOT ONE
+================================================================================
+
+[R] The fix must reach Azure before it can be verified, or you would be
+testing the OLD behaviour and concluding the fix failed.
+
+    a. fix locally, all gates green            DONE at 4c664db
+    b. commit and push                         DONE - Actions deploys on push
+    c. CONFIRM AZURE PICKED IT UP              <- NEXT ACTION
+    d. point a build at production
+    e. verify, then revert the pointer
+
+[M] No migration is involved, so the pipeline's missing `prisma migrate
+deploy` does not matter for this change.
+
+[R] For step (c), the mode log in section 2.4 is the marker. `/health`
+returning 200 proves the old build is alive just as well as the new one.
+
+
+================================================================================
+## 5. DISTRIBUTION - PLAY INTERNAL TESTING, DECIDED
+================================================================================
+
+[D] THE BETA MOVES TO GOOGLE PLAY INTERNAL TESTING rather than Expo Go.
+
+[R] Expo Go hides exactly the class of issue that now matters: release
+signing, background behaviour, notification permissions, linking and scheme
+behaviour, production API configuration, and anything that differs without
+Metro. Internal testing supports up to 100 testers with no full store review.
+
+[M] Play internal testing is NOT a public launch. It is a controlled beta
+through a production-style distribution channel.
+
+### 5.1 What it needs
+
+[BUILT] The Google Play organization account - ID 5791499687166482521,
+developer name "OPA Safety".
+
+[NOT BUILT]
+  - A SIGNED AAB FROM AN EAS BUILD. The app has only ever run in Expo Go.
+  - `scheme` set in app.json. Metro warns on every launch.
+  - App created in Play Console, name, descriptions, icon, screenshots.
+  - Content rating questionnaire.
+  - DATA SAFETY DECLARATION, which MUST agree with the NDPC filing: precise
+    location as sensitive, account data as non-sensitive, NO MEDICAL DATA.
+
+### 5.2 A consequence nobody had flagged
+
+[R] A Play build HAS NO METRO HOST, so `api-config.ts` cannot fall back to it
+and will THROW at startup unless `expo.extra.apiBaseUrl` is set. The switch
+script's `production` mode stops being a temporary test state and becomes the
+BUILD CONFIGURATION.
+
+[R] Decide how that is managed: a permanent value in app.json, or an EAS build
+profile that sets it. The second is cleaner and is new configuration.
+
+[R] And it makes section 4 ordering non-negotiable. The build points at Azure,
+so Azure must have the truthfulness fix BEFORE any tester triggers an SOS -
+otherwise the first real beta data is recorded with the defect in it.
+
+
+================================================================================
+## 6. THE EXECUTION ORDER - REORDERED AT f805f64
+================================================================================
+
+CRITICAL PATH TO THE BETA
+
+  1. Fix sms.provider.ts truthfulness              DONE at 4c664db
+  2. Verify against production - five steps        NEXT
+  3. International phone support (E.164)
+  4. Real-device acceptance test, twice
+  5. Start the closed beta
+
+IN PARALLEL, off the critical path
+
+  6. Replace the three stub providers
+  7. Google Play internal testing preparation
+  8. Command Center
+  9. Ask Pelumi why one Nigerian number succeeds and another fails
+
+### 6.1 International phone support - the detail
+
+[M] TEN TESTERS RECRUITED, FIVE OF THEM INTERNATIONAL - three US, two UK. So
+E.164 is not future internationalisation; half the cohort cannot register
+without it.
+
+[M] `sms.provider.ts:53-59` `normalizePhone` is where it lives:
+
+    if (digits.startsWith('+')) return digits;
+    if (digits.startsWith('0')) return '+234' + digits.slice(1);
+    if (digits.startsWith('234')) return '+' + digits;
+    return '+234' + digits;          <- the problem
+
+A US number entered as `4694791451` becomes `+2344694791451`.
+
+[R] MEASURE THE STORAGE FORMAT BEFORE WRITING ANY VALIDATION. This is probably
+not one decorator - it potentially touches registration, login identity,
+contact entry, normalisation on storage, and this function. If numbers are
+already stored inconsistently, delivery, uniqueness and matching all inherit
+that, and fixing the entry point alone leaves the data mixed.
+
+[D] NIGERIA-FIRST, NOT NIGERIA-ONLY. Nigeria stays the UI default; `+234` must
+not be the only permitted country code.
+
+[R] AFRICA'S TALKING MAY NOT DELIVER TO +1 AND +44 AT ALL. An email to Pelumi
+is outstanding, asking about US and UK routes, cost, whether the OPAALERT
+sender ID survives on those routes, and delivery restrictions. If they do not
+deliver internationally, a second provider is an ARCHITECTURE decision, not a
+config change.
+
+### 6.2 The one still-real delivery question
+
+[M] On 6 August, against production, `+2349066538149` returned Success every
+time and `+2347037119196` returned Sent then Failed. Both Nigerian, both
+charged NGN 5.40.
+
+[R] This is REAL and predates the sandbox confusion. Likely DND blocking,
+which is common in Nigeria and is NOT automatically bypassed by a registered
+sender ID. A provider question for Pelumi, same thread as the international
+one.
+
+
+================================================================================
+## 7. COMMERCIAL - PRICING DECIDED
+================================================================================
+
+[D] THE FROZEN PRINCIPLE STANDS:
+
+  OPA does not monetise by withholding the minimum emergency capability
+  needed to keep a person safe. OPA monetises additional protection,
+  organisational response, intelligence, accountability and scale.
+
+[D] THE CLOSED BETA IS FREE. It is a test that the SOS loop works with real
+people on real phones, not a market-entry offer. Charging for unfinished
+software with a known truthfulness defect would be indefensible.
+
+[D] ESTATES AND SECURITY FIRMS ARE PAID FROM DAY ONE, via a paid onboarding
+pilot rather than a free trial. A board that pays assigns someone to make it
+work; a free pilot dies of zero engagement. And an invoice is the only real
+validation.
+
+[R] TWO CLAIMS THAT CANNOT BE MADE, and both appeared in draft pitch material:
+  - "cut emergency communication delay to under 5 seconds" - there is no
+    acknowledgement timestamp, no Command Center, and SMS delivery is not yet
+    reliably confirmed. It is a pilot exit criterion you would fail.
+  - "waiving our multi-million Naira annual licensing fee" - no price has ever
+    been charged. Waiving a fee you have never charged is theatre a board will
+    see through.
+
+[R] SELL THE MEASUREMENT, NOT THE RESULT: "OPA will measure alert generation,
+notification processing, operator acknowledgement, incident tracking and
+closure so your organisation can see its actual emergency-response
+performance." A guard's response time is not OPA's to promise. This also
+converts naturally into the post-incident report, which IS sellable.
+
+
+================================================================================
+## 8. FIRST ACTIONS IN THE NEXT SESSION
+================================================================================
+
+1. Commit this file to docs/handovers/OPA-Handover-Ultra-32.txt (CRLF).
+
+2. Verify state:
+   $env:GIT_PAGER='cat'
+   cd C:\Projects\OPA; "probe=resume"; "current=" + (git branch --show-current); git log --oneline -5 | ForEach-Object { "log|$_" }; "porcelain=" + @(git status --porcelain).Count
+   EXPECT current=main, HEAD 4c664db (or later), porcelain=0.
+
+3. Run all five gates. EXPECT API 27/296, int 7/35, tsc 0, mobile 2/44,
+   mobile tsc 0.
+
+4. CONFIRM AZURE IS RUNNING 4c664db. Section 4 step (c). The mode log is the
+   marker.
+
+5. Then production SMS verification, then E.164, then the acceptance test,
+   then the beta.
+
+
+================================================================================
+## 9. TRAPS
+================================================================================
+
+### TRAP #151 - THE ENVIRONMENT IS THE FIRST HYPOTHESIS, NOT THE LAST [M]
+
+Three times in three days a defect was diagnosed in the code when the answer
+was which API, which database, or which provider mode was in use. Each cost an
+hour or more, and in one case a whole correction document was written and had
+to be reverted.
+
+  [R] WHEN AN OBSERVED BEHAVIOUR CONTRADICTS THE CODE, CHECK THE ENVIRONMENT
+      BEFORE RE-READING THE CODE. And instrument it: one log line naming the
+      provider mode would have made all three visible in seconds.
+
+### TRAP #152 - A LOG THAT ANSWERS THE WRONG DAY [M]
+
+The Africa's Talking sending log showed one number failing and another
+succeeding, which looked like a complete explanation. EVERY ENTRY WAS FROM
+6 AUGUST. It could not explain failures observed on the 8th. A correction was
+drafted around it at 4am and reverted the next morning.
+
+  [R] CHECK THE DATE RANGE OF ANY EXTERNAL LOG BEFORE REASONING FROM IT. An
+      empty result for the period you care about looks identical to a
+      populated one when you do not filter.
+
+### TRAP #153 - A GUARD THAT COMPARES THE WRONG UNITS [M]
+
+An installer nearly shipped asserting that a file's byte growth equalled its
+character delta. The file is written as CRLF while the delta counts
+LF-normalised characters, so byte growth exceeds it by the number of newlines
+added. The assertion would have failed on CORRECT output.
+
+  [R] Same family as #146. A guard is only as good as the property it
+      measures, and "bytes" and "characters" are not the same property.
+      Verify a new guard against a synthetic case before trusting it.
+
+### TRAP #154 - A REPORTED GATE THAT IS NOT AN ENFORCED GATE [M]
+
+An installer ran four gates, printed all four results, and checked three in
+its GREEN condition. The targeted test could have failed while the script
+declared success.
+
+  [R] Same shape as #148. If you declare N gates, enforce N gates. A result
+      that is printed and not checked is decoration.
+
+
+# END OF HANDOVER ULTRA 32
+# Delta to Ultra 31. Generated at 4c664db on main.
+# Three commits: 0116bfc, f805f64, 4c664db. One of them code.
+# NEXT ACTION: confirm Azure is running 4c664db, then verify SMS.

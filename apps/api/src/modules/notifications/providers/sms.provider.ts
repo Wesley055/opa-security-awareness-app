@@ -47,7 +47,7 @@ export class SmsProvider implements NotificationProvider {
       const sms = AfricasTalking({ apiKey, username }).SMS;
 
       const result = await sms.send({
-        to: [this.normalizePhone(request.recipient)],
+        to: [request.recipient],
         message: request.message,
         from: process.env.AFRICASTALKING_SENDER_ID || undefined,
       });
@@ -106,13 +106,5 @@ export class SmsProvider implements NotificationProvider {
         error: error instanceof Error ? error.message : 'Unknown SMS error',
       };
     }
-  }
-
-  private normalizePhone(phone: string): string {
-    const digits = phone.replace(/[^\d+]/g, '');
-    if (digits.startsWith('+')) return digits;
-    if (digits.startsWith('0')) return '+234' + digits.slice(1);
-    if (digits.startsWith('234')) return '+' + digits;
-    return '+234' + digits;
   }
 }

@@ -1,8 +1,8 @@
 import {
   IsBoolean,
   IsEmail,
+  IsNotEmpty,
   IsOptional,
-  IsPhoneNumber,
   IsString,
   MaxLength,
   MinLength,
@@ -24,7 +24,12 @@ export class CreateEmergencyContactDto {
   @MaxLength(50)
   relationship: string;
 
-  @IsPhoneNumber()
+  // See register.dto.ts: toE164 is the single validation authority. The
+  // bare class-validator phone decorator that was here demanded
+  // international format, so a Nigerian user could not enter
+  // 08024662124 for their own mother.
+  @IsString()
+  @IsNotEmpty()
   phoneNumber: string;
 
   @IsOptional()

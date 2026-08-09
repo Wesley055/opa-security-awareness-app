@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { toE164 } from '../../shared/phone/normalize-phone-number';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { CreateEmergencyContactDto } from './dto/create-emergency-contact.dto';
 import type { UpdateEmergencyContactDto } from './dto/update-emergency-contact.dto';
@@ -30,7 +31,11 @@ export class EmergencyContactsService {
           firstName: dto.firstName,
           lastName: dto.lastName,
           relationship: dto.relationship,
-          phoneNumber: dto.phoneNumber,
+          // Canonical on write. The orchestrator copies this straight onto
+          // the notification row as the recipient, and the provider now
+          // sends it unchanged, so this is the last point at which the
+          // number can be made correct.
+          phoneNumber: toE164(dto.phoneNumber),
           email: dto.email,
           isPrimary: dto.isPrimary ?? false,
           isActive: dto.isActive ?? true,
@@ -101,7 +106,14 @@ export class EmergencyContactsService {
           firstName: dto.firstName,
           lastName: dto.lastName,
           relationship: dto.relationship,
-          phoneNumber: dto.phoneNumber,
+          // undefined MUST stay undefined - Prisma reads it as 'leave this
+          // column alone'. An update that only flips isPrimary must not
+          // push the phone number through the normaliser, and must not
+          // write null.
+          phoneNumber:
+            dto.phoneNumber === undefined
+              ? undefined
+              : toE164(dto.phoneNumber),
           email: dto.email,
           isPrimary: dto.isPrimary,
           isActive: dto.isActive,

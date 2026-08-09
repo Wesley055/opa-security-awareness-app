@@ -6,6 +6,7 @@
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { toE164 } from '../../shared/phone/normalize-phone-number';
 import { UsersService } from '../users/users.service';
 import type { LoginDto } from './dto/login.dto';
 import type { RegisterDto } from './dto/register.dto';
@@ -36,7 +37,14 @@ export class AuthService {
       );
     }
 
-    const existingPhone = await this.usersService.findByPhone(dto.phoneNumber);
+    // Canonical BEFORE the uniqueness check, and the same value is stored
+    // below. Mirrors the email treatment three lines up: normalise once,
+    // compare and persist the normalised form. Without this the same
+    // person registers twice as 08024662124 and +2348024662124, because
+    // User.phoneNumber is @unique on the exact string.
+    const phoneNumber = toE164(dto.phoneNumber);
+
+    const existingPhone = await this.usersService.findByPhone(phoneNumber);
     if (existingPhone) {
       throw new ConflictException(
         'An account already exists for this phone number.',
@@ -49,7 +57,7 @@ export class AuthService {
     );
     const user = await this.usersService.create({
       email: normalizedEmail,
-      phoneNumber: dto.phoneNumber,
+      phoneNumber,
       passwordHash,
       firstName: dto.firstName.trim(),
       lastName: dto.lastName.trim(),

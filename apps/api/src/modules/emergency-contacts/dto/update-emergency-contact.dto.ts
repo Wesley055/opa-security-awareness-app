@@ -1,8 +1,8 @@
 import {
   IsBoolean,
   IsEmail,
+  IsNotEmpty,
   IsOptional,
-  IsPhoneNumber,
   IsString,
   MaxLength,
   MinLength,
@@ -27,8 +27,10 @@ export class UpdateEmergencyContactDto {
   @MaxLength(50)
   relationship?: string;
 
+  // See register.dto.ts: toE164 is the single validation authority.
   @IsOptional()
-  @IsPhoneNumber()
+  @IsString()
+  @IsNotEmpty()
   phoneNumber?: string;
 
   @IsOptional()

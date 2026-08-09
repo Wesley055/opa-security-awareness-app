@@ -14,8 +14,18 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit(): Promise<void> {
     const url = process.env.REDIS_URL;
     if (!url) {
-      // Env validation (Zod) should catch this, but fail loudly if it slips through.
-      throw new Error('REDIS_URL is not set');
+      // Running without Redis is a SUPPORTED configuration, not an
+      // error. No client is created, isHealthy() reports false, and
+      // readiness reports 'optional-down' while the overall verdict
+      // stays 'ok' because only 'database' is required (ADR-016 D5).
+      //
+      // This line doubles as the DEPLOYMENT MARKER for the change
+      // that made Redis optional: /health returns 200 on the old
+      // build just as well as the new one, so it is not a signal.
+      this.logger.log(
+        'Redis not configured; running without optional Redis',
+      );
+      return;
     }
 
     this.client = new Redis(url, {
@@ -72,10 +82,15 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   // Expose the client for future use (dispatch/outbox pass).
-  // Guarded so accidental access before init throws a clear error.
+  // Guarded so accidental access throws a clear error. Since Redis
+  // became optional there are TWO causes for a null client - not
+  // configured, or init has not run - and a future caller needs to
+  // recognise the first as a deployment state rather than a bug.
   getClient(): Redis {
     if (!this.client) {
-      throw new Error('Redis client has not been initialized.');
+      throw new Error(
+        'Redis client is unavailable because Redis is not configured or has not been initialized.',
+      );
     }
     return this.client;
   }

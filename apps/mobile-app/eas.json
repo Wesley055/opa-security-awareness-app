@@ -1,0 +1,25 @@
+{
+  "cli": {
+    "version": ">= 21.7.0"
+  },
+  "build": {
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "OPA_API_BASE_URL": "https://opa-api-production-g4f6cxdyanfbaub0.southafricanorth-01.azurewebsites.net"
+      }
+    },
+    "production": {
+      "distribution": "store",
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "env": {
+        "OPA_API_BASE_URL": "https://opa-api-production-g4f6cxdyanfbaub0.southafricanorth-01.azurewebsites.net"
+      }
+    }
+  }
+}

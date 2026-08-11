@@ -8,7 +8,7 @@ import {
   JourneyQueueStore,
   openJourneyQueueStore,
 } from './journey-queue-store';
-import type { TrackedFix } from './journey-tracker';
+import type { TrackedFix } from './journey-fix-contract';
 
 jest.mock('expo-sqlite', () => ({
   openDatabaseAsync: jest.fn(),

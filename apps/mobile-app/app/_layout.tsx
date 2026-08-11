@@ -30,7 +30,7 @@ export default function RootLayout() {
   // idempotent, so the false-on-cold-start pass is harmless.
   useEffect(() => {
     if (!isAuthenticated) {
-      stopTracking();
+      void stopTracking();
     }
   }, [isAuthenticated]);
 

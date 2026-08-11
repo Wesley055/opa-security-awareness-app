@@ -34,7 +34,19 @@
  */
 import { isAxiosError } from 'axios';
 import * as Location from 'expo-location';
+import * as SecureStore from 'expo-secure-store';
+import * as TaskManager from 'expo-task-manager';
 import { api } from './api';
+import {
+  BACKGROUND_LOCATION_TASK,
+  BACKGROUND_SESSION_KEY,
+} from './journey-background-task';
+import {
+  ACTIVE_INCIDENT_QUEUE_DEPTH,
+  cleanNonNegative,
+  type TrackedFix,
+  type TrackedFixSource,
+} from './journey-fix-contract';
 import { openJourneyQueueStore } from './journey-queue-store';
 import type {
   JourneyQueueStore,
@@ -69,50 +81,14 @@ const DISTANCE_INTERVAL_M = 0;
 const MAX_BATCH = 200;
 
 /**
- * Storage-safety ceiling used ONLY while replayFault is non-null. ADR-014
- * section 11. Expressed as a multiple of MAX_BATCH so the relationship
- * cannot drift, and deliberately NOT stated as a duration: TIME_INTERVAL_MS
- * is a minimum interval, not a fixed capture cadence.
+ * Storage-safety ceiling used ONLY while replayFault is non-null.
  */
-const MAX_FAULTED_QUEUED_FIXES = 6 * MAX_BATCH;
+const MAX_FAULTED_QUEUED_FIXES = ACTIVE_INCIDENT_QUEUE_DEPTH;
 
 /**
- * Ordinary steady-state durable retention depth. 9c made the queue durable,
- * so this is no longer a memory guard: it is the depth the queue is trimmed
- * back to when replay is healthy. ADR-014 section 11.
+ * Ordinary steady-state durable retention depth.
  */
-const MAX_QUEUED_FIXES = 600;
-
-export type TrackedFixSource = 'foreground' | 'manual';
-
-/**
- * Exactly the fields JourneyFixDto accepts. forbidNonWhitelisted is true, so
- * one unrecognised property 400s the whole batch. Do not add a field here
- * without adding it to the DTO first.
- *
- * heading is deliberately absent. It appears zero times in this app and
- * nothing has a product reason to send it.
- */
-export interface TrackedFix {
-  idempotencyKey: string;
-  source: TrackedFixSource;
-  latitude: number;
-  longitude: number;
-  accuracy?: number;
-  speed?: number;
-  recordedAt: string;
-}
-
-/**
- * ADR-010: speed and horizontalAccuracy are documented by SIGN, not by a
- * single sentinel, so ANY negative is discarded.
- */
-export const cleanNonNegative = (
-  value: number | null | undefined,
-): number | undefined =>
-  typeof value === 'number' && Number.isFinite(value) && value >= 0
-    ? value
-    : undefined;
+const MAX_QUEUED_FIXES = ACTIVE_INCIDENT_QUEUE_DEPTH;
 
 /**
  * ADR-010: course uses exactly -1, but the client range-checks rather than
@@ -601,29 +577,40 @@ export async function startTracking(): Promise<void> {
   // afterwards is measured against a start time that already exists.
   trackingStartedAtMs = Date.now();
 
-  try {
-    subscription = await Location.watchPositionAsync(
-      {
-        accuracy: Location.Accuracy.High,
-        timeInterval: TIME_INTERVAL_MS,
-        distanceInterval: DISTANCE_INTERVAL_M,
-      },
-      (position) => {
-        if (!running || gen !== generation) {
-          return;
-        }
-        enqueue(position, id);
-      },
-    );
-  } catch (err: unknown) {
-    log('watchPositionAsync failed', err);
-    running = false;
-    sessionId = null;
-    return;
+  // EXACTLY ONE CAPTURE PATH RUNS. Background when permitted, the
+  // foreground watcher otherwise - never both. Two OS subscriptions
+  // writing to one queue would DOUBLE every fix: the idempotency key
+  // carries a platform timestamp and an independently drawn sequence,
+  // so two readings of the same position produce two DIFFERENT keys and
+  // INSERT OR IGNORE cannot collapse them. Duplicate history in an
+  // emergency record is worse than a slightly slower cadence.
+  const backgroundStarted = await startBackgroundCapture(id);
+
+  if (!backgroundStarted) {
+    try {
+      subscription = await Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.High,
+          timeInterval: TIME_INTERVAL_MS,
+          distanceInterval: DISTANCE_INTERVAL_M,
+        },
+        (position) => {
+          if (!running || gen !== generation) {
+            return;
+          }
+          enqueue(position, id);
+        },
+      );
+    } catch (err: unknown) {
+      log('watchPositionAsync failed', err);
+      running = false;
+      sessionId = null;
+      return;
+    }
   }
 
   if (!running || gen !== generation) {
-    subscription.remove();
+    subscription?.remove();
     subscription = null;
     return;
   }
@@ -638,13 +625,99 @@ export async function startTracking(): Promise<void> {
 }
 
 /**
+ * Starts OS-level background capture. Returns true when it OWNS capture.
+ *
+ * A false return is not a failure state - it means the caller must start
+ * the foreground watcher instead. Background permission is requested only
+ * AFTER foreground is granted, which is the order Android requires, and a
+ * refusal degrades to foreground-only rather than blocking the SOS.
+ *
+ * The session id goes to SecureStore because the task runs in a separate JS
+ * context that cannot see this module's variables.
+ */
+async function startBackgroundCapture(forSession: string): Promise<boolean> {
+  try {
+    const background = await Location.requestBackgroundPermissionsAsync();
+
+    if (!background.granted) {
+      log('background location DENIED - foreground capture only');
+      return false;
+    }
+
+    await SecureStore.setItemAsync(BACKGROUND_SESSION_KEY, forSession);
+
+    const already = await TaskManager.isTaskRegisteredAsync(
+      BACKGROUND_LOCATION_TASK,
+    );
+
+    if (!already) {
+      await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
+        accuracy: Location.Accuracy.High,
+        timeInterval: TIME_INTERVAL_MS,
+        distanceInterval: DISTANCE_INTERVAL_M,
+        // WITHOUT THIS, ANDROID 10+ THROTTLES BACKGROUND LOCATION to a few
+        // updates per hour - which is what the measured 3617-second gap
+        // looks like. The persistent notification is the price of not
+        // being throttled, and a person being tracked during an emergency
+        // has a right to see that it is happening.
+        foregroundService: {
+          notificationTitle: 'OPA emergency alert active',
+          notificationBody:
+            'Your location is being shared with your emergency contacts.',
+          notificationColor: '#D92D20',
+        },
+        pausesUpdatesAutomatically: false,
+        showsBackgroundLocationIndicator: true,
+      });
+    }
+
+    log('background capture OWNS this session: ' + forSession);
+    return true;
+  } catch (err: unknown) {
+    // Anything unexpected falls back rather than leaving the user untracked.
+    // The key is cleared so a half-registered task cannot write fixes the
+    // foreground watcher is also capturing.
+    log('background capture unavailable - foreground only', err);
+    void SecureStore.deleteItemAsync(BACKGROUND_SESSION_KEY);
+    return false;
+  }
+}
+
+/**
+ * Stops OS-level capture and clears the shared session id.
+ *
+ * Both steps are attempted independently: leaving a stale session key would
+ * let a late OS delivery attach to a closed incident, and leaving the task
+ * registered would keep the notification on screen after the emergency ends.
+ */
+async function stopBackgroundCapture(): Promise<void> {
+  try {
+    await SecureStore.deleteItemAsync(BACKGROUND_SESSION_KEY);
+  } catch (err: unknown) {
+    log('failed to clear the background session key', err);
+  }
+
+  try {
+    const registered = await TaskManager.isTaskRegisteredAsync(
+      BACKGROUND_LOCATION_TASK,
+    );
+    if (registered) {
+      await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+      log('background capture stopped');
+    }
+  } catch (err: unknown) {
+    log('failed to stop background capture', err);
+  }
+}
+
+/**
  * Idempotent, and safe to call when nothing is running - _layout.tsx fires it
  * on cold start while isAuthenticated is still false.
  *
  * Attempts one final best-effort flush. Rows that never got a 2xx stay in
  * SQLite and are replayed after the next start.
  */
-export function stopTracking(): void {
+export async function stopTracking(): Promise<void> {
   if (!running && !subscription && !flushTimer) {
     return;
   }
@@ -665,8 +738,14 @@ export function stopTracking(): void {
 
   sessionId = null;
 
+  // Ordered deliberately: clear the cross-context session identity and
+  // stop OS background delivery BEFORE the final flush. A late TaskManager
+  // delivery can therefore never attach movement to an incident that has
+  // already been closed by the server.
+  await stopBackgroundCapture();
+
   if (finalSession) {
-    void flush(finalSession);
+    await flush(finalSession);
   }
 
   log(
@@ -720,7 +799,7 @@ export async function flushForTests(): Promise<void> {
  * clears what it does not.
  */
 export function resetTrackerStateForTests(): void {
-  stopTracking();
+  void stopTracking();
 
   generation = 0;
   flushing = false;

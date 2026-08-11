@@ -1,4 +1,9 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { cleanNonNegative } from '../src/services/journey-fix-contract';
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,14 +13,13 @@ import {
   BackHandler,
   Linking,
   Alert,
-} from 'react-native';
+  } from 'react-native';
 import { router } from 'expo-router';
 import * as Location from 'expo-location';
 import { api } from '../src/services/api';
 import {
   startTracking,
   stopTracking,
-  cleanNonNegative,
 } from '../src/services/journey-tracker';
 
 const COUNTDOWN_SECONDS = 5;
@@ -247,7 +251,7 @@ export default function SosScreen() {
         await api.patch(`/incidents/${incidentId}/${action}`, {
           reason: action === 'resolve' ? 'USER_SAFE' : 'FALSE_ALARM',
         });
-        stopTracking();
+        await stopTracking();
         if (!mountedRef.current) return;
         router.replace('/');
       } catch (err: unknown) {
@@ -260,7 +264,7 @@ export default function SosScreen() {
         // incident is already terminal. The state the user wanted is the
         // state that exists, so stop tracking and leave as normal.
         if (status === 409) {
-          stopTracking();
+          await stopTracking();
           if (!mountedRef.current) return;
           Alert.alert('Already ended', 'This emergency has already ended.', [
             { text: 'OK', onPress: () => router.replace('/') },

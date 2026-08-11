@@ -6,7 +6,7 @@ import {
 import type {
   TrackedFix,
   TrackedFixSource,
-} from './journey-tracker';
+} from './journey-fix-contract';
 
 const DATABASE_NAME = 'opa-journey-queue.db';
 
@@ -329,7 +329,14 @@ WHERE idempotency_key IN (${placeholders})`,
   }
 
   private mapRow(row: JourneyQueueRow): StoredJourneyFix {
-    if (row.source !== 'foreground' && row.source !== 'manual') {
+    // 'background' is written by journey-background-task.ts. Without it
+    // here the queue would ACCEPT a background fix and then refuse to
+    // hydrate its own row on replay.
+    if (
+      row.source !== 'foreground' &&
+      row.source !== 'background' &&
+      row.source !== 'manual'
+    ) {
       // Fail closed. Silently skipping a corrupt emergency fix would conceal
       // data loss. A quarantine policy requires a separate decision.
       throw new Error(

@@ -1,9 +1,10 @@
 import * as Location from 'expo-location';
-import { api } from './api';
+import { cleanNonNegative } from './journey-fix-contract';
+import {
+  api } from './api';
 import { openJourneyQueueStore } from './journey-queue-store';
 import {
   cleanHeading,
-  cleanNonNegative,
   flushForTests,
   resetTrackerStateForTests,
   startTracking,
@@ -11,9 +12,23 @@ import {
   trackerDebugState,
 } from './journey-tracker';
 
+jest.mock('expo-task-manager', () => ({
+  defineTask: jest.fn(),
+  isTaskRegisteredAsync: jest.fn().mockResolvedValue(false),
+  unregisterTaskAsync: jest.fn(),
+}));
+
 jest.mock('expo-location', () => ({
   Accuracy: { High: 6 },
   getForegroundPermissionsAsync: jest.fn(),
+  requestBackgroundPermissionsAsync: jest.fn().mockResolvedValue({
+    granted: false,
+    status: 'denied',
+    canAskAgain: true,
+    expires: 'never',
+  }),
+  startLocationUpdatesAsync: jest.fn(),
+  stopLocationUpdatesAsync: jest.fn(),
   watchPositionAsync: jest.fn(),
 }));
 
@@ -298,7 +313,7 @@ describe('journey-tracker lifecycle', () => {
     await startTracking();
     await flushForTests();
 
-    expect(store.trimToDepth).toHaveBeenCalledWith(600);
+    expect(store.trimToDepth).toHaveBeenCalledWith(7200);
     expect(trackerDebugState().durableQueued).toBe(600);
 
     stopTracking();
@@ -402,7 +417,7 @@ describe('journey-tracker lifecycle', () => {
     await flushForTests();
 
     expect(trackerDebugState().replayFault).toBeNull();
-    expect(store.trimToDepth).toHaveBeenCalledWith(600);
+    expect(store.trimToDepth).toHaveBeenCalledWith(7200);
 
     stopTracking();
   });
@@ -428,7 +443,7 @@ describe('journey-tracker lifecycle', () => {
     expect(store.enqueue).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({
-        maxQueuedFixes: 1200,
+        maxQueuedFixes: 7200,
         deferOverflowEviction: false,
       }),
     );
@@ -462,7 +477,7 @@ describe('journey-tracker lifecycle', () => {
     expect(trackerDebugState().evictionDiagnostic).toMatchObject({
       kind: 'FAULTED_QUEUE_EMERGENCY_EVICTION',
       dropped: 3,
-      ceiling: 1200,
+      ceiling: 7200,
     });
     expect(trackerDebugState().replayFault).toMatchObject({ kind: 'HTTP_409' });
     expect(trackerDebugState().durabilityFault).toBeNull();
@@ -550,7 +565,7 @@ describe('journey-tracker lifecycle', () => {
 
     expect(store.enqueue).toHaveBeenCalledWith(
       expect.anything(),
-      { maxQueuedFixes: 600, deferOverflowEviction: true },
+      { maxQueuedFixes: 7200, deferOverflowEviction: true },
     );
 
     releasePost?.();
@@ -611,7 +626,7 @@ describe('journey-tracker lifecycle', () => {
 
     expect(store.enqueue).toHaveBeenCalledWith(
       expect.anything(),
-      { maxQueuedFixes: 1200, deferOverflowEviction: false },
+      { maxQueuedFixes: 7200, deferOverflowEviction: false },
     );
 
     releasePost?.();

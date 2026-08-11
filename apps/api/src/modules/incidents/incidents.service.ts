@@ -62,23 +62,47 @@ export class IncidentsService {
       );
     }
 
-    const db = tx ?? this.prisma;
-    return db.incident.create({
-      data: {
-        userId,
-        trigger: dto.trigger,
-        latitude: dto.latitude,
-        longitude: dto.longitude,
-        address: dto.address,
-        voicePhrase: dto.voicePhrase,
-        // Initialised so the SOS dedupe window can find this incident.
-        lastTriggeredAt: new Date(),
-        metadata: {
-          redisDispatchPrepared: true,
-          notificationFanoutPrepared: true,
+    const createInside = async (db: Prisma.TransactionClient) => {
+      // Command Center routing is a SERVER-AUTHORITATIVE SNAPSHOT.
+      // The client never supplies facilityId. Membership is read here and
+      // frozen onto the incident, in the SAME transaction as the insert, so
+      // the read and the write cannot be torn apart.
+      //
+      // NO ADVISORY LOCK IS TAKEN, DELIBERATELY. Nothing in the codebase
+      // writes User.facilityId today, so a lock here would serialise against
+      // no counterparty while costing a round trip on the SOS path. When
+      // invite-code membership is built, the serialisation requirement
+      // belongs in THAT code, enforced by a test that fails without it -
+      // not in a comment here asserting a contract nothing keeps.
+      const membership = await db.user.findUnique({
+        where: { id: userId },
+        select: { facilityId: true },
+      });
+
+      return db.incident.create({
+        data: {
+          userId,
+          facilityId: membership?.facilityId ?? null,
+          trigger: dto.trigger,
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+          address: dto.address,
+          voicePhrase: dto.voicePhrase,
+          // Initialised so the SOS dedupe window can find this incident.
+          lastTriggeredAt: new Date(),
+          metadata: {
+            redisDispatchPrepared: true,
+            notificationFanoutPrepared: true,
+          },
         },
-      },
-    });
+      });
+    };
+
+    if (tx) {
+      return createInside(tx);
+    }
+
+    return this.prisma.$transaction(async (innerTx) => createInside(innerTx));
   }
 
   listForUser(userId: string) {

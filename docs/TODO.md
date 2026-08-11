@@ -1,3 +1,117 @@
+## Sprint 11A background location - IMPLEMENTED, FAILING ON DEVICE, 11 August 2026
+
+Background capture was implemented, committed at 83ffcfa, built, installed on
+a real phone and driven with the screen locked. IT PRODUCED NOTHING, and it
+is a REGRESSION on the build before it.
+
+MEASURED IN PRODUCTION, not inferred:
+
+  incident 354e3125-f3d5-4605-9688-eb5df2d361a4
+  created  2026-08-11T06:21:29.567Z   resolved 06:30:40.905Z
+  session  a55de600-3f67-4837-8ca2-d341b10f1723
+
+  fix_count=1
+  seq 164 | 06:21:29.560Z | source=activation
+  total_distance_m=0
+
+  ZERO /journey/fixes requests across TWO activations, 06:21:29 and 07:16:32.
+
+- [ ] **THIS IS WORSE THAN THE BUILD IT REPLACED.** The 10 August build
+      captured every 10-15 seconds while foregrounded and went silent only
+      when backgrounded - a 26 km drive recorded as two points. This build
+      captures NOTHING, foreground or background.
+
+      The exclusive-or design is why. Background granted -> the task owns
+      capture and the foreground watcher never starts. When the background
+      path fails silently there is NO FALLBACK.
+
+      **RECONSIDER EXCLUSIVE-OR ONCE THE CAUSE IS KNOWN.** It was chosen to
+      avoid duplicate rows, because the idempotency key carries a timestamp
+      and an independently drawn sequence so INSERT OR IGNORE cannot collapse
+      two subscriptions' readings. That reasoning is correct. But a safety
+      product probably prefers some duplicate history to none at all, and
+      the review did not weigh degradation against duplication.
+
+- [ ] **ALREADY RULED OUT - do not re-check these.**
+      - Permission. Verified on device: "Allowed all the time". Android's own
+        record shows OPA accessed location at 06:54 UTC, after the incident.
+      - The durable queue. Nothing reached it to buffer.
+      - Message/API contract. journey-fix-contract.ts pins the DTO shape and
+        'background' is already in TRACKED_SOURCES on the API.
+
+- [ ] **PRIME SUSPECT: _layout.tsx tears down background capture on every
+      cold start.** MEASURED IN THE TREE at 83ffcfa - the guard discussed
+      during implementation was NEVER COMMITTED:
+
+        useEffect(() => {
+          if (!isAuthenticated) {
+            void stopTracking();
+          }
+        }, [isAuthenticated]);
+
+      The comment above it still says "stopTracking is idempotent, so the
+      false-on-cold-start pass is harmless". THAT WAS TRUE AND IS NOT NOW.
+      stopTracking() calls stopBackgroundCapture(), which DELETES the
+      SecureStore session key and UNREGISTERS the OS task.
+
+      So on every cold start, before auth resolves, background capture is
+      destroyed. Every later fix would log "no active session - discarding
+      background fix".
+
+      Note sos.tsx's `void stopTracking()` change DID land in the same
+      commit. Part of that work is in and part is not, which is exactly how
+      this kind of gap survives review.
+
+      FIX, once diagnosed: guard on !isLoading and add isLoading to the
+      dependency array so the effect still fires on a genuine logout.
+
+- [ ] **MORNING PROTOCOL - USB cable required, which is the only reason this
+      is not already answered.**
+
+      1. RECORD THE INSTALLED BUILD ID AND ITS SOURCE COMMIT from the Expo
+         dashboard build list, NOT from memory. Two builds were made on
+         10-11 August. Everything below depends on knowing which is on the
+         phone.
+      2. adb logcat -s ReactNativeJS:* filtered on journey-background and
+         journey-tracker, with an SOS active and the screen locked for
+         several minutes.
+      3. The log distinguishes three causes:
+         a) NO [journey-background] lines at all -> startLocationUpdatesAsync
+            succeeded but the OS never delivers to the task
+         b) "no active session - discarding background fix" -> SecureStore
+            returns null in the headless context. Consistent with the cold-
+            start teardown above.
+         c) "failed to store a background fix" -> openJourneyQueueStore()
+            throws in the headless context and the catch swallows it
+      4. Confirm whether the notification "OPA emergency alert active"
+         appears AT ALL. It was never observed. No notification means no
+         foreground service, which means Android throttling regardless of
+         permission.
+
+- [ ] **DO NOT MARK DONE** until the production database shows rows with
+      source='background' recorded while the screen was locked. Green gates
+      prove nothing here: Expo Go could not show the defect and cannot show
+      the fix.
+
+- [ ] **CONSIDER REVERTING 83ffcfa ON MAIN** until diagnosed. Main carries a
+      capability regression on the one thing docs/OPA-Execution-Plan.md
+      section 1 names as having to actually work: "The SOS button, LOCATION
+      CAPTURE, contact alerting and the tracking link are free, forever, and
+      must actually work." No tester has this build, so the risk today is
+      nil - but this is the kind of thing that gets forgotten and ships.
+
+- [ ] **TWO SMALLER FINDINGS from the same session.**
+      - 'activation' is a FOURTH source value, written at incident creation
+        rather than by the tracker. Nobody had mentioned it. Know it before
+        reading by_source output.
+      - "Remove permissions if app is unused" is ON by default on Android.
+        For a safety app a tester may not open for weeks, that silently
+        strips location permission. Tell testers to turn it off.
+      - Samsung/Xiaomi/Oppo battery optimisation kills foreground services
+        regardless of permissions. Set OPA to Unrestricted before testing,
+        and know it as a platform limitation before promising an estate
+        continuous tracking.
+
 ﻿# OPA - Working To-Do List
 
 **Last updated:** this session. Read this before assuming anything is

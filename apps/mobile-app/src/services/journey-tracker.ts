@@ -718,10 +718,7 @@ async function stopBackgroundCapture(): Promise<void> {
  * SQLite and are replayed after the next start.
  */
 export async function stopTracking(): Promise<void> {
-  if (!running && !subscription && !flushTimer) {
-    return;
-  }
-
+  const hadLocalTracking = running || subscription !== null || flushTimer !== null;
   const finalSession = sessionId;
 
   generation += 1;
@@ -742,7 +739,14 @@ export async function stopTracking(): Promise<void> {
   // stop OS background delivery BEFORE the final flush. A late TaskManager
   // delivery can therefore never attach movement to an incident that has
   // already been closed by the server.
+  // This MUST run even when local module state is idle. TaskManager and
+  // SecureStore survive JS-context restarts, so a cold-start logout can have
+  // no local subscription while a stale background task still exists.
   await stopBackgroundCapture();
+
+  if (!hadLocalTracking && finalSession === null) {
+    return;
+  }
 
   if (finalSession) {
     await flush(finalSession);

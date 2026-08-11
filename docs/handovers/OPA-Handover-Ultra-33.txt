@@ -1,0 +1,840 @@
+OPA HANDOVER - ULTRA 33
+Written 11 August 2026 at commit 83ffcfa.
+
+Supersedes Ultra 32 for everything below. Ultra 32 remains authoritative for
+anything this document does not touch. The frozen product principle in
+docs/OPA-Execution-Plan.md section 1 is UNCHANGED and was re-confirmed this
+session - see section 7.
+
+
+================================================================================
+0. THE NEXT ACTION - SPRINT 11A IS IMPLEMENTED AND FAILING ON DEVICE
+================================================================================
+
+Background location was implemented, committed at 83ffcfa, built, installed
+and DRIVEN. IT DID NOT WORK, and it is worse than the build before it.
+
+THE MEASUREMENT, production JourneyLocationFix, 11 August:
+
+  incident 354e3125-f3d5-4605-9688-eb5df2d361a4
+  created  06:21:29.567Z   resolved 06:30:40.905Z
+  session  a55de600-3f67-4837-8ca2-d341b10f1723
+
+  fix_count=1
+  seq 164 | 06:21:29.560Z | source=activation
+  total_distance_m=0
+
+ONE FIX IN A NINE-MINUTE DRIVE, and it is the SOS activation point itself.
+Zero /journey/fixes requests across TWO activations - 06:21:29 and 07:16:32.
+
+THIS IS A REGRESSION. The previous build captured every 10-15 seconds while
+the app was foregrounded and only went silent when backgrounded. This build
+captures NOTHING, foreground or background. The exclusive-or change removed
+the fallback, so a silent failure in the background path now yields no
+tracking at all.
+
+WHAT IS ALREADY RULED OUT:
+  - Permission. Verified on device: "Allowed all the time". Android's own
+    record shows OPA accessed location at 06:54 UTC, after the incident.
+  - The durable queue. Nothing reached it to buffer.
+
+PRIME SUSPECT, and it is cheap to check: _layout.tsx fires stopTracking()
+whenever isAuthenticated is false, with NO isLoading guard:
+
+    useEffect(() => {
+      if (!isAuthenticated) {
+        void stopTracking();
+      }
+    }, [isAuthenticated]);
+
+Its comment still says "stopTracking is idempotent, so the false-on-cold-
+start pass is harmless". THAT WAS TRUE AND IS NOT ANY MORE. stopTracking()
+now calls stopBackgroundCapture(), which DELETES the SecureStore session key
+and UNREGISTERS the OS task. Every cold start therefore tears down background
+capture before auth resolves.
+
+Fix is two lines - guard on !isLoading, add isLoading to the dependency
+array - but DIAGNOSE FIRST. Do not stack another speculative change on top.
+
+MORNING ACTION, in order:
+
+  1. Connect the Android device by USB. There was no cable last night; that
+     is the only reason this is not already answered.
+  2. RECORD THE EXACT INSTALLED BUILD ID AND ITS SOURCE COMMIT from the Expo
+     dashboard build list, not from memory. TWO builds were made on 10-11
+     August and they differ. Everything below depends on knowing which one
+     is on the phone.
+  3. Trigger an SOS and capture:
+       adb logcat -s ReactNativeJS:* | findstr "journey-background journey-tracker"
+     Lock the screen for several minutes with the log running.
+  4. Three candidate causes, and the log names which:
+       a) startLocationUpdatesAsync succeeded but the OS never delivers to
+          the task -> no [journey-background] lines at all
+       b) the task fires but SecureStore returns null in that context ->
+          "no active session - discarding background fix"
+       c) openJourneyQueueStore() throws in the headless context and the
+          catch swallows it -> "failed to store a background fix"
+  5. Also confirm whether the persistent notification "OPA emergency alert
+     active" appears at all. It was never observed. No notification means no
+     foreground service, which means Android throttling regardless of
+     permission.
+
+DO NOT MARK SPRINT 11A DONE until the production database shows
+source='background' rows recorded while the screen was locked.
+
+CONSIDER REVERTING 83ffcfa ON MAIN until this is diagnosed. Main currently
+carries a capability regression on the one thing the frozen product principle
+names as having to actually work. No tester has this build, so the practical
+risk tonight is nil - but it is the kind of thing that gets forgotten and
+then ships.
+
+================================================================================
+1. STATE
+================================================================================
+
+  HEAD       83ffcfa   main, pushed, porcelain 0
+  API        deployed and healthy on Azure
+  Gates      api 33 suites / 331 tests, int 7 / 35, api tsc 0,
+             mobile 3 suites / 53 tests, mobile tsc 0
+
+COMMITS THIS SESSION, oldest first:
+
+  33fa174  API: make Redis optional until a production capability requires it
+  ecfd439  API: WhatsApp, Push and Voice report failure instead of
+           fabricating delivery
+  8a1c342  API: canonical E.164 phone numbers, any country may register
+  37346f0  Mobile: set expo scheme, required for production builds
+  ab70ecc  Mobile: link OPA app to EAS project
+  68eac2a  Mobile: add EAS preview and production build profiles
+  8d1d97a  Mobile: align Expo build dependencies and production config
+  83ffcfa  Mobile: add active-incident background location tracking
+
+VERIFIED FROM git log, NOT FROM MEMORY. Sprint 11A landed as ONE commit.
+Earlier drafts of this document named commits 1e1eb4a and d75ea72; NEITHER
+EXISTS. If you see them referenced anywhere, that reference is wrong.
+
+Mobile suite grew 2 suites / 44 tests -> 3 / 53. API 27 / 296 -> 33 / 331.
+
+83ffcfa also added src/services/journey-fix-contract.ts - a dependency-light
+module holding TrackedFix, TrackedFixSource, cleanNonNegative and
+ACTIVE_INCIDENT_QUEUE_DEPTH, so the headless capture context shares the fix
+shape WITHOUT importing the API/network stack. That separation is better than
+having the task import journey-tracker.ts, which would drag axios into a
+headless context.
+
+TWO TODO SECTIONS ARE WRITTEN AND NOT YET INSTALLED. Both are verified .txt
+files in Downloads, neither is in the repo:
+
+  redis-todo-section.txt          5151 bytes, CRLF, ASCII
+  background-location-todo.txt    6521 bytes, CRLF, ASCII
+
+They need guarded installers and their own commits. The background-location
+one now needs amending - it predates the fix and reads as an open defect.
+
+
+================================================================================
+2. WHAT SHIPPED, AND WHY EACH ONE MATTERED
+================================================================================
+
+2.1 REDIS WAS A HARD BOOT REQUIREMENT (33fa174)
+
+Removing REDIS_URL from App Service - on the STANDING ADVICE of Ultra 28
+section 4.1b - TOOK PRODUCTION DOWN. The new container failed Zod config
+validation and never started; the old container kept serving until it was
+torn down, so the outage began several minutes after the change and looked
+unrelated to it.
+
+THREE FILES SAID REDIS WAS OPTIONAL. ONE FILE MADE IT MANDATORY.
+  readiness-policy.ts:21  "nothing in the application depends on it"
+  redis.service.ts:39     "Log but don't crash"
+  redis.service.ts:54-56  "Startup should not hard-fail"
+  env.validation.ts:7     z.string().url()   <- and it RUNS FIRST
+
+Measured: getClient() had ZERO call sites outside its own file. The only
+consumer of RedisService anywhere was health.service.ts calling isHealthy().
+Redis existed solely to report on its own availability.
+
+Fixed by .optional() plus an early return, and by env.validation.spec.ts -
+the coverage gap that let it through. validateEnv runs first on every boot
+and NOTHING TESTED IT. Five sessions of green gates walked past it.
+
+THE ENGINEERING LESSON: configuration validation is part of the production
+boot path and needs direct test coverage. Unit tests over downstream services
+all assume a validated environment and therefore cannot see a defect in the
+validator.
+
+DEPLOY ORDER, learned the hard way and now a rule:
+  code fix -> gates -> deploy -> CONFIRM THE MARKER LOG -> change config ->
+  restart -> verify.
+The reverse took production down at 01:09 on 9 August.
+
+2.2 THREE PROVIDERS FABRICATED DELIVERY (ecfd439)
+
+WhatsApp, Push and Voice returned success:true with an invented messageId
+without sending anything. The dispatch worker records outcome from that
+value, so PRODUCTION HELD RECORDS OF DELIVERIES THAT NEVER HAPPENED, and the
+hash chain preserved them faithfully. The integrity machinery worked
+perfectly on data that was not true.
+
+This was the last outstanding ADR-015 freeze criterion. All six are now met.
+
+STILL TRUE AND WORTH SAYING PLAINLY: those three channels deliver NOTHING.
+The RECORD is honest now; the CHANNEL is not functional. Correct any beta or
+pilot material that claims them.
+
+2.3 REGISTRATION WAS NIGERIA-ONLY (8a1c342)
+
+register.dto.ts carried the class-validator phone decorator locked to 'NG'.
+Five of ten recruited testers are international - HALF THE COHORT COULD NOT
+SIGN UP.
+
+Worse, nothing normalised. Registration validated Nigeria-only, contacts
+validated internationally, both services wrote the RAW submitted string,
+User.phoneNumber is @unique on that exact string, and SmsProvider guessed at
+DELIVERY time that anything without a country code was Nigerian - so a US
+number entered as 4694791451 left for the carrier as +2344694791451.
+
+Now one rule, in one place: toE164(input, defaultRegion = 'NG'). Any country
+by its own country code; Nigeria is the default DIALING CONTEXT for input
+with no country code, not an allowed-country list.
+
+TWO DESIGN POINTS WORTH KEEPING:
+  - The decorator was REMOVED, not swapped. Its region form restricts to one
+    country; its bare form demands international format and would reject
+    08024662124. Neither matches the rule.
+  - findByPhone does NOT normalise its own argument. By analogy with
+    findByEmail lowercasing internally that looked right, but lowercasing is
+    region-free and idempotent while normalising depends on a region the
+    lookup cannot know. It would always assume Nigeria, so the moment a
+    country picker sends region=US with a bare 4694791451, the write path and
+    the lookup would disagree and a duplicate would slip through @unique.
+    CALLERS NORMALISE AT THE BOUNDARY.
+
+No schema migration. Both columns were already String.
+
+2.4 THE FIRST STANDALONE BUILD EVER (37346f0 through 8d1d97a)
+
+The app had only ever run in Expo Go. Now: EAS project under the
+opa-technologies organisation, keystore generated and held server-side,
+preview profile building an APK, production profile building an AAB.
+
+Three things this cost, all worth recording:
+  - eas init REWRITES null as {} in app.json's extra block. Expo's serialiser
+    represents null that way generally, so "apiBaseUrl": null is {} at
+    runtime ALWAYS. api-config.ts:57 checks typeof === 'string' so it falls
+    through correctly, but NULL IS NOT A RELIABLE UNSET SIGNAL in Expo extra.
+    Check the type, never the truthiness.
+  - npm ci failed in the cloud on a peer conflict: react pinned at 19.1.0,
+    expo-router pulling react-dom 19.2.8 which wants react ^19.2.8. Fixed
+    with npx expo install react-dom, which picks the SDK-matched version.
+    npm install had been silently overriding the peer; npm ci is stricter.
+  - app.config.ts is not type-checked by any gate until it exists. It shipped
+    with a TS error for an hour because tsc last ran before the file did.
+
+2.5 SPRINT 11A - BACKGROUND CAPTURE (83ffcfa)
+
+See section 3. This is the session's substance.
+
+
+================================================================================
+3. THE 26 KM DRIVE - THE MEASUREMENT THAT DROVE EVERYTHING
+================================================================================
+
+3.1 WHAT WAS OBSERVED
+
+Drove with an SOS active on the first standalone APK. Production
+JourneyLocationFix, session a55de600-3f67-4837-8ca2-d341b10f1723, window
+00:40-03:20 UTC on 10 August:
+
+  seq 156  02:08:23.605Z   33.148249,-96.810392
+  seq 157  03:08:40.176Z   32.961498,-96.639705   3617s later, 26159m away
+
+  fix_count=30 over 2h40m    median_gap_s=11    max_gap_s=3617
+  total_distance_m=26234     gaps_over_120s=7
+
+A 26 KM DRIVE RECORDED AS TWO POINTS: where the phone was when the screen
+went off, and where it was when the screen came back on. 26159 of the 26234
+metres are that single jump. Everything else is sub-30m jitter around a
+stationary phone.
+
+3.2 THE DURABLE QUEUE WAS INNOCENT
+
+  max_upload_lag_s=3680
+  seq 153  recorded 01:18:17  received 02:08:15  (2997s in SQLite)
+  seq 154  recorded 02:07:26  received 03:08:38  (3680s in SQLite)
+
+Fixes survived an hour in the queue and drained correctly on reconnect.
+Sprint 10B did its job. THE QUEUE HAD NOTHING TO BUFFER, because capture had
+stopped. Do not look for the fault there.
+
+The cause was configuration, which is why it survived: watchPositionAsync is
+a FOREGROUND-ONLY API, and app.json set isIosBackgroundLocationEnabled and
+isAndroidBackgroundLocationEnabled to false with only a when-in-use
+permission string. Nothing was broken by the standalone build; the build
+removed Expo Go's foreground-app assumption and revealed what was configured.
+
+Sprint 11's remaining list had already MEASURED this on 29 July - "a sweep
+found ZERO hits for TaskManager, startLocationUpdatesAsync, defineTask or
+the string background". It was filed as an evidence-capture gap. Nobody
+connected it to the location promise until a car moved 26 km.
+
+3.3 THE QUERY THAT SETTLES THE FIX
+
+Azure Portal -> opa-api-production -> Development Tools -> SSH. Read-only.
+Substitute the session id and window from the new drive.
+
+  cd /home/site/wwwroot
+  node -e '
+  const { PrismaClient } = require("@prisma/client");
+  const prisma = new PrismaClient();
+  const iso = (d) => (d ? new Date(d).toISOString() : "null");
+  (async () => {
+    const sid = "PUT-THE-SESSION-ID-HERE";
+    const from = new Date("2026-08-11T00:00:00.000Z");
+    const to   = new Date("2026-08-11T06:00:00.000Z");
+    const fixes = await prisma.journeyLocationFix.findMany({
+      where: { journeySessionId: sid, recordedAt: { gte: from, lte: to } },
+      orderBy: { recordedAt: "asc" },
+      select: { sequence: true, recordedAt: true, receivedAt: true,
+                latitude: true, longitude: true, source: true },
+    });
+    console.log("fix_count=" + fixes.length);
+    if (!fixes.length) { console.log("NONE IN WINDOW"); return; }
+    const N = (v) => (v === null ? null : Number(v));
+    const met = (a,b) => { const R=6371000,r=Math.PI/180;
+      const dLa=(N(b.latitude)-N(a.latitude))*r, dLo=(N(b.longitude)-N(a.longitude))*r;
+      const s=Math.sin(dLa/2)**2+Math.cos(N(a.latitude)*r)*Math.cos(N(b.latitude)*r)*Math.sin(dLo/2)**2;
+      return Math.round(R*2*Math.atan2(Math.sqrt(s),Math.sqrt(1-s))); };
+    console.log("seq|recordedAt|gap_s|moved_m|source");
+    let moved=0; const gaps=[]; const bySource={};
+    fixes.forEach((f,i)=>{ const p=i?fixes[i-1]:null;
+      const g=p?Math.round((new Date(f.recordedAt)-new Date(p.recordedAt))/1000):0;
+      const m=p?met(p,f):0; if(p){gaps.push(g); moved+=m;}
+      bySource[f.source]=(bySource[f.source]||0)+1;
+      console.log([f.sequence,iso(f.recordedAt),g,m,f.source].join("|")); });
+    const sorted=[...gaps].sort((a,b)=>a-b);
+    console.log("");
+    console.log("total_distance_m=" + moved);
+    console.log("median_gap_s=" + sorted[Math.floor(sorted.length/2)]);
+    console.log("max_gap_s=" + Math.max(...gaps));
+    console.log("gaps_over_120s=" + gaps.filter(g=>g>120).length);
+    console.log("by_source=" + JSON.stringify(bySource));
+  })().catch(e=>console.log("query_error="+e.message)).finally(()=>prisma.$disconnect());
+  '
+
+To find the session id from the incident id, query incident.journeySessionId
+first. NOTE: session a55de600 has been ACTIVE since 6 August - see 5.2 - so
+a windowed query is mandatory or you will read four days of unrelated fixes.
+
+3.4 WHAT WAS BUILT
+
+A TaskManager background task that CAPTURES ONLY. It opens its own store
+handle, reads the persisted capture sequence, writes one row, stops. No
+flush, no replay, no fault handling.
+
+That boundary is not laziness. A TaskManager task runs in a SEPARATE JS
+CONTEXT: none of journey-tracker.ts's module state exists there - not
+queueStore, not sessionId, not captureSeq, not replayFault, not flushing.
+Replay policy depends on all of them, so replay stays in the foreground and
+the tracker drains what accumulated when the app returns.
+
+THREE DESIGN POINTS, each of which was WRONG in the first draft and corrected
+on review. They are recorded because the wrong version looked reasonable:
+
+  EXCLUSIVE-OR CAPTURE, NOT ADDITIVE. The first draft ran
+  startLocationUpdatesAsync alongside watchPositionAsync and claimed INSERT
+  OR IGNORE would deduplicate. IT WOULD NOT. The idempotency key is
+  sessionId:timestamp:sequence - two independent subscriptions produce
+  different timestamps and draw different sequences, so BOTH ROWS INSERT.
+  That is doubled history in an emergency record. Now: background granted ->
+  the task owns capture; denied or unavailable -> the foreground watcher.
+  Never both.
+
+  source: 'background', NOT 'foreground'. The first draft wrote 'foreground'
+  from a background context and argued a migration would be needed. MEASURED
+  AND FALSE: TRACKED_SOURCES in ingest-fixes.dto.ts is already
+  ['foreground','background','manual'], the column is String @db.VarChar(32)
+  not an enum, and tracking-state.ts already derives an origin from
+  'background'. NO API CHANGE, NO MIGRATION. Writing false provenance into a
+  tamper-evident record to avoid a five-minute check is indefensible.
+  journey-queue-store.ts's hydration guard needed the value too - without it
+  the queue would ACCEPT a background fix and then refuse to read its own row
+  back on replay.
+
+  ACTIVE_INCIDENT_QUEUE_DEPTH = 7200, replacing MAX_QUEUED_FIXES = 600 and
+  MAX_FAULTED_QUEUED_FIXES = 6 * MAX_BATCH. Ultra 27 section 4.6 measured 4-5
+  fixes per 15s cycle on a MOVING device with DISTANCE_INTERVAL_M = 0, so 600
+  is about twenty minutes before the OLDEST fixes are evicted - and the start
+  of a journey is exactly what an investigation needs. 7200 is roughly four
+  hours. The faulted ceiling uses the same number rather than a lower one: if
+  upload is failing during a transport event, that is precisely when MORE
+  history should be preserved.
+
+THE FOREGROUND SERVICE. Since Android 10, background location WITHOUT a
+persistent notification is throttled to a few updates per hour - which is
+what a 3617-second gap looks like. The notification is the price of not being
+throttled, and a person being tracked during an emergency has a right to see
+it happening.
+
+SESSION ID ACROSS CONTEXTS: SecureStore, key opa-background-session-id.
+journey_queue_meta.value is INTEGER NOT NULL and a session id is a UUID, so
+the meta table would have meant migrating the 10B schema. api.ts already
+reads tokens from SecureStore per request, so the pattern was established.
+
+PERMISSION DENIAL IS NOT FATAL. Background permission is requested only AFTER
+foreground is granted, the order Android requires. A refusal returns false
+and the foreground watcher starts instead. The SOS is never blocked.
+
+3.5 THE COLD-START BUG - IDENTIFIED, NOT FIXED, AND THE PRIME SUSPECT
+
+_layout.tsx fires stopTracking() whenever isAuthenticated is false, as a
+defensive reset. Its comment says "stopTracking is idempotent, so the
+false-on-cold-start pass is harmless". IT WAS. It stopped being harmless the
+moment stopTracking() started calling stopBackgroundCapture(), which deletes
+the SecureStore session key and unregisters the OS task.
+
+MEASURED IN THE TREE AT 83ffcfa - the guard is NOT there:
+
+    useEffect(() => {
+      if (!isAuthenticated) {
+        void stopTracking();
+      }
+    }, [isAuthenticated]);
+
+The isLoading guard was discussed, drafted and NEVER COMMITTED. sos.tsx's
+`void stopTracking()` change DID land in the same commit, so part of that
+work is in and part is not - which is exactly how this kind of gap survives.
+
+The failure mode: on every cold start, before auth resolves, isAuthenticated
+is false, the session key is wiped and the task unregistered. Every
+subsequent background fix would log "no active session - discarding
+background fix". SILENT, and indistinguishable from the defect being fixed.
+
+Fix: guard on !isLoading and add isLoading to the dependency array so the
+effect re-runs when auth resolves and a genuine logout still tears down.
+
+DIAGNOSE BEFORE APPLYING. It is a strong candidate for the zero-fix result,
+but it is not the only one, and stacking a second speculative change on an
+undiagnosed failure is how the first one got missed.
+
+THERE IS NO TEST FOR THIS EFFECT. If _layout gains a spec, the scenario is
+two lines and worth having.
+
+3.6 WHAT THE DRIVE ACTUALLY PRODUCED
+
+See section 0 for the numbers. Summarised: one fix, source='activation',
+zero distance, zero /journey/fixes requests across two activations, on a
+build whose predecessor captured fine while foregrounded.
+
+TWO THINGS THAT MAKE THIS HARDER TO REASON ABOUT THAN THE 10 AUGUST FAILURE:
+
+  The exclusive-or design has no fallback. When background capture fails
+  silently, nothing captures. The additive design would have degraded rather
+  than stopped - which is a real argument the review did not weigh, and it
+  should be reconsidered once the cause is known. A safety product probably
+  wants belt and braces even at the cost of some duplicate rows.
+
+  'activation' is a FOURTH source value nobody had mentioned. It is written
+  at incident creation, not by the tracker. Worth knowing before reading
+  by_source output.
+
+================================================================================
+4. DIAGNOSTIC LADDER FOR THE ZERO-FIX RESULT
+================================================================================
+
+The drive is DONE and it failed. Work through these in order. 4.1 is already
+answered; it is kept so nobody re-checks it.
+
+4.1 ANSWERED. "Allowed all the time" verified on device 11 August, and
+    Android's own record shows a location access at 06:54 UTC. The
+    permission is not the problem.
+
+4.0 THE COLD-START TEARDOWN in section 3.5. Check this FIRST - it is in the
+    tree, it is unguarded, and it explains a total absence of fixes.
+
+4.2 Did the persistent notification appear? No notification means no
+    foreground service, which means Android throttling, which produces
+    exactly the old symptom.
+
+4.3 Check by_source in the query. If every fix says 'foreground', the
+    background path never ran and startBackgroundCapture returned false -
+    look at the permission result. If some say 'background', capture worked
+    and the gaps are something else.
+
+4.4 Was the app killed mid-drive? The cold-start teardown is NOT fixed - see
+    3.5 - and OEM battery managers on Samsung, Xiaomi and Oppo kill services
+    regardless of permissions. Settings -> Battery -> unrestricted for OPA.
+    This is a real limitation of the platform, not of the code, and it is
+    worth knowing before promising an estate anything.
+
+4.5 Did the queue evict? Look for "background queue overflow" in the device
+    log. At 7200 that needs four hours, but a long journey with no
+    connectivity could reach it.
+
+
+================================================================================
+5. OPEN, MEASURED, NOT FIXED
+================================================================================
+
+5.1 DND BLOCKS SMS TO NIGERIAN NUMBERS - AND IT IS NOT A CODE PROBLEM
+
+Measured 9 and 10 August against production, with a FUNDED wallet, on the
+production Africa's Talking account:
+
+  +2347037119196   DoNotDisturbRejection
+  +2349066538149   DoNotDisturbRejection
+  +2347030503565   Success - delivered, message rendered correctly
+  +2348077826955 / +2348098015626   accepted, no rejection
+  +14694791451     Sent, charged NGN 122.84, never resolved further
+
+SO SMS WORKS. It works for any Nigerian line without DND enabled, at 5.40
+NGN per 160-character message, sender ID OPAALERT, one segment.
+
++2349066538149 SUCCEEDED FOUR TIMES on 6 August and is now DND-rejected.
+That is worth telling Africa's Talking: it suggests something changed beyond
+a subscriber setting.
+
+This retroactively explains Ultra 29's "wrong contacts" investigation.
+Blessing received every alert and Osa received none, and everyone assumed a
+routing bug. It was the carrier, per-subscriber, all along.
+
+ALSO MEASURED: a US number costs NGN 122.84 versus 5.40 for Nigeria - 23x,
+because it is two segments on an international route. The outbox displays
+USD 0.09 but the wallet is charged in NGN. There is ONE wallet.
+
+ONE HANDSET showed "<<Content not supported.>>" for a message that another
+handset rendered perfectly. Not an OPA defect - that device's SMS app.
+
+STILL OPEN FOR PELUMI:
+  - Is there a route or arrangement that reaches DND-enabled subscribers for
+    genuine emergency notifications? Cost? NCC approval?
+  - Can DND status be checked before sending, so OPA can fail over rather
+    than fail silently?
+  - What does 'Sent' mean on international routes, and does it ever resolve?
+  - Would delivery callbacks surface this? OPA has no callback endpoint and
+    would build one.
+
+5.2 A JOURNEY SESSION HAS BEEN ACTIVE SINCE 6 AUGUST
+
+Session a55de600-3f67-4837-8ca2-d341b10f1723: startedAt 2026-08-06T13:15:46Z,
+status ACTIVE, endedAt null, endedReason null - after the incident that
+referenced it was RESOLVED at 03:11:05 on 10 August.
+
+Ultra 30 section 1.4 says resolve ends the session only when no OTHER OPEN
+incident references it, so another open incident may be holding it. Worth one
+query. A session that never ends collects every fix from every test into one
+bucket, which is what forces windowed queries.
+
+5.3 SEQUENCE 161 AND 162 ARRIVED OUT OF ORDER
+
+162 recorded 03:10:43, 161 at 03:10:52. Not alarming - the hash chain is by
+sequence, not time - but worth understanding before anyone reads recordedAt
+as monotonic.
+
+5.4 THE POST-RESOLVE FIX IS CORRECT - CHECKED, NO ACTION
+
+The fix accepted ~450ms after resolve was seq 163, recorded 03:10:57, i.e.
+BEFORE the 03:11:05 resolve. A final flush of already-captured data, exactly
+as intended. Recorded so nobody re-investigates it.
+
+A LATER run produced a 409 "Journey session has ended" on the same path,
+which is the known deferred-flush race from Ultra 32 section 3.5. Both
+behaviours are now observed.
+
+5.5 WHATSAPP IS FURTHER ALONG THAN THE ROADMAP SUGGESTS
+
+Meta business verification for OPA Technologies Limited is COMPLETE
+(22 July 2026, portfolio 1759124688605360). SPRINT_ROADMAP line 424 records
+a real test message already sent and confirmed via the Meta dashboard.
+
+STILL NEEDED: a WABA with a registered phone number (NOT one already on
+consumer WhatsApp - note the business number +2349066538149 is also a test
+contact), a Meta app giving a Phone Number ID, a PERMANENT access token via a
+System User (the dashboard token expires in 24 hours), an APPROVED message
+template - WhatsApp forbids free-form business-initiated messages, so an
+alert with a name, location URL and tracking link needs placeholder variables
+- and the provider implementation, which has never called an API.
+
+No email to Meta is needed or possible; it is all self-service in Business
+Manager. Template approval is the only step on someone else's clock.
+
+5.6 EMAIL IS TWO SETTINGS AND NO CODE
+
+RESEND_API_KEY and RESEND_FROM_ADDRESS are absent from App Service.
+email.provider.ts is already written and 6b-compliant. Needs a Resend account
+and a verified sending domain. Weak as an emergency channel - nobody watches
+their inbox at 2am - but it is the cheapest working channel available.
+
+5.7 PUSH IS THE BETTER ANSWER FOR A CLOSED BETA
+
+Instant, on the lock screen, no carrier, no DND, free, no external approval
+clock. expo-notifications is standard and the app is now a standalone build
+where it works. push.provider.ts already fails honestly, so the shape exists.
+
+THE CATCH: push reaches an emergency contact only if THEY have OPA installed.
+For ten to twenty known testers who all have the app, that is fine. For a
+stranger's mother it is nothing.
+
+
+================================================================================
+6. STALE DOCUMENTATION - DO NOT TRUST THESE LINES
+================================================================================
+
+Verified wrong this session. Correct them when convenient; do not act on
+them meanwhile.
+
+  SPRINT_ROADMAP.md:218  10C called a "CONFIRMED HARD BLOCKER" for
+                         production. FALSE - OPA_BOOT_WITH_SUPPRESSED_MOCKS
+                         exists and production has been up for days.
+  SPRINT_ROADMAP.md:426  "Africa's Talking Sandbox confirmed rejecting a US
+                         number; Twilio identified as the real fix." FALSE -
+                         production routed to +14694791451 on 9 August at
+                         NGN 122.84 with the sender ID preserved.
+  SPRINT_ROADMAP.md:429  Command Center Sprint 13/14 numbering - already
+                         marked SUPERSEDED by OPA-Execution-Plan.md.
+  SPRINT_ROADMAP.md:430  "SERVICE DOES NOT BOOT" for production. FALSE since
+                         Ultra 28.
+  SPRINT_ROADMAP.md:128  Sprint 3 note "phone normalization defaults
+                         unrecognized numbers to +234". FIXED by 8a1c342.
+  Ultra 28 section 4.1b  "Remove REDIS_URL rather than provision Redis."
+                         THIS TAKES PRODUCTION DOWN. Carried unchallenged
+                         through Ultra 29, 30, 31 and 32.
+  Ultra 28 section 4.4   "app.json is LF-only." It is CRLF. That file has
+                         flipped repeatedly; MEASURE it, never assume.
+  _layout.tsx:29         "stopTracking is idempotent, so the false-on-cold-
+                         start pass is harmless". TRUE WHEN WRITTEN, FALSE
+                         NOW - stopTracking gained a SecureStore delete and
+                         an OS-task unregister. Comments asserting harmless-
+                         ness age badly when the function grows. See 3.5.
+
+The website (apps/website) still describes a HOSPITAL Command Center and
+hospital pilot. The execution plan moved to estates and private security on
+8 August. Sending an estate prospect to opasafety.com today contradicts the
+pitch. This is Sprint 22 and it is writing, not building.
+
+
+================================================================================
+7. COMMERCIAL MODEL - CONFIRMED, NOT CHANGED
+================================================================================
+
+The frozen principle in OPA-Execution-Plan.md section 1 was questioned this
+session and re-confirmed unchanged. The confusion was three different
+questions wearing one label:
+
+  10-20 closed-beta testers            FREE
+  Consumer minimum emergency safety    FREE
+  Estate / security organisational     PAID from day one
+    layer
+
+"OPA does not monetise by withholding the minimum emergency capability needed
+to keep a person safe" stands. The consumer app is also the acquisition path
+into estates: "your residents already use OPA to alert their families -
+connect your gatehouse" is a far easier conversation than selling an empty
+dashboard.
+
+LOCATION CAPTURE IS NAMED IN THAT PRINCIPLE among the things that must
+ACTUALLY WORK. That is why Sprint 11A outranked everything else this session.
+
+SafeWalk, advanced evidence and future premium consumer features were NOT
+decided either way. Nothing here says every future consumer feature is free.
+
+TWO SALES CLAIMS REMAIN REJECTED, both from an earlier pitch draft:
+  "emergency communication delay under 5 seconds" - no acknowledgement
+  timestamp exists, no Command Center, delivery is not reliably confirmed.
+  "waiving our multi-million Naira annual license" - no price has ever been
+  charged or validated.
+
+The defensible promise: OPA measures alert generation, notification
+processing, operator acknowledgement, incident tracking and closure, so an
+organisation can see its actual emergency-response performance.
+
+
+================================================================================
+8. WHAT ACTUALLY BLOCKS REVENUE
+================================================================================
+
+Ranked by time-to-first-paid-pilot, not by sprint number.
+
+UNBLOCKED, NO CODE, HALF A DAY EACH - and the only things standing between
+today and asking an estate for money:
+
+  Sprint 21 - Sales Operations. DOES NOT EXIST. No pricing, no SLA, no pilot
+    agreement. The 150,000 NGN onboarding deposit model lives in a chat
+    transcript, not the repo.
+  Sprint 22 - Marketing Assets. The website says hospital.
+
+THEN, IN DEPENDENCY ORDER:
+
+  Facility routing. Incident.facilityId EXISTS AND NOTHING SETS IT. "Resident
+    triggers SOS -> security desk receives it" has no mechanism today. Ultra
+    31 section 5.3 calls this larger than acknowledgement. The execution plan
+    section 5.2 already froze the design: invite-code membership, and a
+    User.facilityId -> Incident.facilityId snapshot at creation.
+  Facility and staff provisioning. Onboarding an estate today means hand-
+    editing the database.
+  Operator UI. From zero. apps/website is marketing pages plus one public
+    tracking page - no login, no dashboard, nothing.
+
+Ultra 30 section 5 estimated Command Center Phase 1 at TEN TO FOURTEEN DAYS,
+with the uncertainty explicitly in the UI because nothing comparable exists
+in the repo to pace against. Compressing that into two or three days is not
+a stretch, it is a different project.
+
+THE HONEST SEQUENCE: the first estate CONVERSATION does not need the Command
+Center. It needs Sprint 21 and 22, plus what already exists - a working
+standalone APK, real SMS delivery to a real handset, live tracking, and
+production logs. That is evidence. The beta broadens the proof; it is not
+the first possible sales conversation.
+
+ALSO STILL OPEN, from Sprint 10A: the tracking-link auth model is UNDECIDED -
+public-but-unguessable vs signed-URL-with-expiry vs authenticated. That link
+is what a security operator would follow and what family contacts receive.
+"We have not decided how it is secured" is a question a security director
+will ask. It is a decision, not a sprint.
+
+
+================================================================================
+9. BETA READINESS
+================================================================================
+
+WORKS TODAY:
+  Registration from any country, canonical E.164 storage
+  Emergency contacts, create and update, normalised
+  SOS -> incident -> fan-out to every active contact
+  SMS delivery to any non-DND number, correct 160-character message
+  Live tracking link
+  Resolve and cancel, atomic with token revocation and a chained timeline
+    event
+  Token refresh under load, verified on device
+  Durable offline queue, verified holding an hour of fixes and draining
+  Standalone signed APK
+
+DOES NOT WORK, AND TESTERS MUST BE TOLD:
+  SMS does not reach a line with DND enabled. Ask each tester to check.
+  WhatsApp, Push and Voice deliver NOTHING. They now fail honestly.
+  Email is unconfigured.
+  Background location is FIXED IN CODE AND UNPROVEN ON DEVICE. Until the
+    drive in section 0 says otherwise, assume tracking stops when the screen
+    locks.
+  No password reset. Ultra 31 section 3.5 deferred it for known testers -
+    acceptable for this cohort, not beyond it.
+
+NOT ON PLAY. A developer account exists (5791499687166482521) but no listing,
+no content rating, no data-safety declaration. Sideloading works and every
+tester will see the Play Protect warning - "More details, Install anyway".
+For a SAFETY app, asking people to override a security warning is an
+uncomfortable first impression, which is an argument for internal testing
+sooner rather than later.
+
+WHEN THE PLAY LISTING IS BUILT: the data-safety declaration must agree with
+the NDPC filing, which states location is captured "only while an emergency
+alert is active and is initiated by the user". Background capture DURING an
+active incident is consistent with that. Background capture during a SafeWalk
+journey is NOT, without amending the filing. Ultra 30 section 4 already
+records that the NDPC purpose statement is out of step with journey sessions.
+Background location is among Google's most scrutinised permissions and may
+require a demonstration video.
+
+
+================================================================================
+10. TRAPS ADDED THIS SESSION
+================================================================================
+
+Numbering continues from Ultra 32.
+
+#155  A DOCUMENTED RECOMMENDATION IS NOT A MEASUREMENT. Ultra 28 section
+      4.1b's "remove REDIS_URL" was measured against the runtime path, where
+      Redis genuinely is optional, and never against the STARTUP path. It
+      was carried through four handovers and it took production down.
+
+#156  CONFIG VALIDATION IS PART OF THE BOOT PATH AND NEEDS ITS OWN TESTS.
+      Every existing spec assumed a validated environment, so none of them
+      could see a defect in the validator. A schema stricter than the policy
+      it enforces passes every test and fails on the first config change.
+
+#157  A CHECK THAT CANNOT DISTINGUISH THE STATES IT EXISTS TO DISTINGUISH IS
+      DECORATION. "apiBaseUrl=" printed identically for null and for {}.
+      Later, an expo config check printed empty because ConvertFrom-Json ran
+      against a stream carrying stderr - and it was reported as a gate.
+      Assert on TYPE, and assert the assertion can fail.
+
+#158  A TARGETED TEST RUN IS NOT THE SUITE. journey-background-task.spec.ts
+      passed 9/9 in isolation because it mocks TaskManager itself. The full
+      suite then failed: journey-tracker.spec.ts had no such mock and the
+      tracker now imports the background task. RUN THE WHOLE SUITE.
+
+#159  IDEMPOTENCE COMMENTS AGE BADLY. "_layout fires stopTracking on cold
+      start, and stopTracking is idempotent, so it is harmless" was TRUE
+      when written and became false the moment stopTracking grew a
+      SecureStore delete and an OS-task unregister. When a function gains a
+      side effect, grep its callers for comments asserting it has none.
+
+#160  TWO SUBSCRIPTIONS TO ONE QUEUE DOUBLE THE DATA. INSERT OR IGNORE only
+      helps when the key is derived from the OBSERVATION. A key carrying a
+      platform timestamp and an independently drawn sequence differs between
+      two readings of the same position, so both rows insert.
+
+#161  CHECK THE WIRE CONTRACT BEFORE ASSUMING A MIGRATION. 'background' was
+      already in TRACKED_SOURCES and the column was VarChar(32). The first
+      draft wrote FALSE PROVENANCE into a tamper-evident record to avoid a
+      five-minute grep.
+
+#162  A NEW ENUM VALUE NEEDS THE READ PATH TOO. journey-queue-store.ts would
+      have ACCEPTED a background fix and then thrown on replay, because its
+      hydration guard listed only the old two values.
+
+#163  EAS INIT REWRITES null AS {} IN app.json EXTRA. Expo's serialiser
+      represents null that way generally. Any consumer must check the TYPE,
+      never the truthiness.
+
+#164  npm install SILENTLY OVERRIDES PEER CONFLICTS; npm ci REFUSES. A cloud
+      build running npm ci fails on a conflict that never appeared locally.
+      Run npm ci locally before paying for a build.
+
+#165  A FILE CREATED BETWEEN TWO GATE RUNS IS UNCHECKED. app.config.ts
+      shipped with a TypeScript error because tsc last ran before it
+      existed.
+
+#166  MEASURE LINE ENDINGS PER FILE, EVERY TIME. In one session app.json was
+      CRLF while the services were LF; three notification providers were
+      CRLF while three others were LF; app.json had been LF two handovers
+      earlier. A per-file detector earned its place repeatedly.
+
+#167  THE GAPS BETWEEN LOG LINES CARRY THE INFORMATION. The 26 km defect was
+      invisible in the lines themselves - every request was a 201. It was
+      the SILENCE between them that mattered. Read timestamps, not just
+      messages.
+
+
+================================================================================
+11. STANDING RULES
+================================================================================
+
+Verified state before anything else:
+
+  $env:GIT_PAGER='cat'
+  cd C:\Projects\OPA; "head=$(git rev-parse --short HEAD)";
+  "porcelain=" + @(git status --porcelain).Count
+
+Five gates, unpiped:
+
+  cd apps\api;        npx jest                     33 suites / 331 tests
+  cd apps\api;        npm run test:int              7 suites /  35 tests
+  cd apps\api;        npx tsc --noEmit              exit 0
+  cd apps\mobile-app; npm test                      3 suites /  53 tests
+  cd apps\mobile-app; npx tsc --noEmit              exit 0
+
+DEPLOY ORDER IS NOT NEGOTIABLE:
+  code -> gates -> push -> deploy -> CONFIRM A MARKER LOG -> change config ->
+  restart -> verify. /health returns 200 on the old build too, so it is not
+  a deployment signal.
+
+app.json POINTED AT PRODUCTION MUST BE REVERTED. Left pointing there, every
+dev session writes real incidents into the production database.
+
+NO STRAY FILES IN THE TREE. Installers write to $env:TEMP. A stray
+.expo-config json appeared this session and would have gone into the 288 MB
+EAS upload. There is still no .easignore; node_modules is being uploaded on
+every build and EAS reinstalls from the lockfile anyway.
+
+STATE PREDICTED COUNTS AS PREDICTIONS. Confirm them from the run.

@@ -12,11 +12,17 @@ import type { JwtPayload } from '../../modules/auth/jwt.strategy';
 type AuthenticatedRequest = Request & { user: JwtPayload };
 
 /**
- * An incident is visible to: the incident's own owner, HOSPITAL_STAFF
- * assigned to the facility the incident was routed to, or ADMIN.
- * Shared by IncidentTimelineModule and EvidenceModule — both need
- * identical access rules, so this lives in one place rather than two
- * copies that could quietly drift apart.
+ * An incident is visible to its owner, a FACILITY_OPERATOR currently
+ * assigned to the facility snapshotted on the incident, or ADMIN.
+ *
+ * ADMIN is deliberately a platform-wide cross-tenant override.
+ *
+ * Facility authorization is re-read from the database rather than trusted
+ * from JWT claims so revocation and reassignment take effect immediately.
+ *
+ * Shared by IncidentTimelineModule and EvidenceModule. Both need identical
+ * access rules, so this lives in one place rather than as two copies that
+ * could quietly drift apart.
  */
 @Injectable()
 export class IncidentAccessGuard implements CanActivate {
@@ -49,7 +55,7 @@ export class IncidentAccessGuard implements CanActivate {
     }
 
     if (
-      user?.role === 'HOSPITAL_STAFF' &&
+      user?.role === 'FACILITY_OPERATOR' &&
       user.facilityId &&
       user.facilityId === incident.facilityId
     ) {

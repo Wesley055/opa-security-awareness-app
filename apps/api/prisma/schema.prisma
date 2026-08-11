@@ -11,7 +11,7 @@ enum UserRole {
   USER
   RESPONDER
   ADMIN
-  HOSPITAL_STAFF
+  FACILITY_OPERATOR
 }
 
 enum IncidentStatus {

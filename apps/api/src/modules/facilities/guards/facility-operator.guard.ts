@@ -11,15 +11,17 @@ import type { JwtPayload } from '../../auth/jwt.strategy';
 type AuthenticatedRequest = Request & { user: JwtPayload };
 
 /**
- * Restricts access to one facility's data to staff assigned to that
- * facility, or admins. Deliberately re-reads role and facilityId from
- * the database rather than trusting the JWT — the token can be stale
- * (e.g. someone promoted to HOSPITAL_STAFF after their token was
- * issued), and a permission check this important should reflect
- * current truth, not a cached claim.
+ * Restricts one facility's Command Center data to a FACILITY_OPERATOR
+ * assigned to that facility, or ADMIN.
+ *
+ * ADMIN is deliberately a platform-wide cross-tenant override.
+ *
+ * Role and facilityId are re-read from the database rather than trusted
+ * from JWT claims, because authorization must reflect current truth after
+ * promotion, demotion or facility reassignment.
  */
 @Injectable()
-export class FacilityStaffGuard implements CanActivate {
+export class FacilityOperatorGuard implements CanActivate {
   constructor(private readonly prisma: PrismaService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -39,7 +41,7 @@ export class FacilityStaffGuard implements CanActivate {
       return true;
     }
 
-    if (user.role !== 'HOSPITAL_STAFF') {
+    if (user.role !== 'FACILITY_OPERATOR') {
       throw new ForbiddenException('Not authorized for facility access.');
     }
 

@@ -1,9 +1,9 @@
 import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { FacilityStaffGuard } from './guards/facility-staff.guard';
+import { FacilityOperatorGuard } from './guards/facility-operator.guard';
 import { FacilitiesService } from './facilities.service';
 
-@UseGuards(JwtAuthGuard, FacilityStaffGuard)
+@UseGuards(JwtAuthGuard, FacilityOperatorGuard)
 @Controller('facilities')
 export class FacilitiesController {
   constructor(private readonly facilitiesService: FacilitiesService) {}

@@ -6,6 +6,7 @@ import {
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { AdminProvisioningModule } from './modules/admin-provisioning/admin-provisioning.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { EmergencyContactsModule } from './modules/emergency-contacts/emergency-contacts.module';
 import { EmergencyDetectionModule } from './modules/emergency-detection/emergency-detection.module';
@@ -40,6 +41,7 @@ import { RequestLoggingMiddleware } from './shared/middleware/request-logging.mi
     ScheduleModule.forRoot(),
     RedisModule,
     HealthModule,
+    AdminProvisioningModule,
     AuthModule,
     UsersModule,
     IncidentsModule,

@@ -31,6 +31,7 @@ describe('FacilityOperatorGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'FACILITY_OPERATOR',
       facilityId: 'facility-a',
+      isActive: true,
     });
 
     await expect(guard.canActivate(context())).resolves.toBe(true);
@@ -40,6 +41,7 @@ describe('FacilityOperatorGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'FACILITY_OPERATOR',
       facilityId: 'facility-b',
+      isActive: true,
     });
 
     await expect(
@@ -51,6 +53,7 @@ describe('FacilityOperatorGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'USER',
       facilityId: 'facility-a',
+      isActive: true,
     });
 
     // The token also says USER. Passing a privileged token role here would
@@ -65,6 +68,7 @@ describe('FacilityOperatorGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'ADMIN',
       facilityId: null,
+      isActive: true,
     });
 
     await expect(
@@ -76,7 +80,45 @@ describe('FacilityOperatorGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'USER',
       facilityId: 'facility-a',
+      isActive: true,
     });
+
+    await expect(
+      guard.canActivate(context('FACILITY_OPERATOR')),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  // SUSPENSION. Before 13C-6-2 this guard did not read isActive at all, so
+  // a suspended operator kept their facility's live emergency queue until
+  // their access token expired.
+  it('denies a suspended operator whose facility matches', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      role: 'FACILITY_OPERATOR',
+      facilityId: 'facility-a',
+      isActive: false,
+    });
+
+    await expect(
+      guard.canActivate(context('FACILITY_OPERATOR')),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('denies a suspended ADMIN', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      role: 'ADMIN',
+      facilityId: null,
+      isActive: false,
+    });
+
+    // AdminGuard already refuses a suspended administrator. If this guard
+    // let one through, the two would disagree about the same account.
+    await expect(
+      guard.canActivate(context('ADMIN', 'facility-b')),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('denies when the user row no longer exists', async () => {
+    prisma.user.findUnique.mockResolvedValue(null);
 
     await expect(
       guard.canActivate(context('FACILITY_OPERATOR')),

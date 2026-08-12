@@ -42,10 +42,30 @@ describe('IncidentAccessGuard', () => {
     expect(prisma.user.findUnique).not.toHaveBeenCalled();
   });
 
+  // OWNERSHIP OUTRANKS SUSPENSION, DELIBERATELY. Suspension is an
+  // operator-privilege action; it is not a reason to hide somebody's own
+  // emergency record from them. The guard returns on ownership before any
+  // user lookup, so this passes without the row ever being read - and this
+  // test is what fails if a future edit moves the lookup above it.
+  it('allows a suspended owner to see their own incident', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      role: 'USER',
+      facilityId: null,
+      isActive: false,
+    });
+
+    await expect(
+      guard.canActivate(context('resident-1')),
+    ).resolves.toBe(true);
+
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+  });
+
   it('allows an operator in the incident facility', async () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'FACILITY_OPERATOR',
       facilityId: 'facility-a',
+      isActive: true,
     });
 
     await expect(
@@ -57,6 +77,7 @@ describe('IncidentAccessGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'FACILITY_OPERATOR',
       facilityId: 'facility-b',
+      isActive: true,
     });
 
     await expect(
@@ -68,6 +89,7 @@ describe('IncidentAccessGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'USER',
       facilityId: 'facility-a',
+      isActive: true,
     });
 
     await expect(
@@ -79,6 +101,7 @@ describe('IncidentAccessGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'ADMIN',
       facilityId: null,
+      isActive: true,
     });
 
     await expect(
@@ -90,10 +113,35 @@ describe('IncidentAccessGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'USER',
       facilityId: 'facility-a',
+      isActive: true,
     });
 
     await expect(
       guard.canActivate(context('operator-1', 'FACILITY_OPERATOR')),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('denies a suspended operator in the incident facility', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      role: 'FACILITY_OPERATOR',
+      facilityId: 'facility-a',
+      isActive: false,
+    });
+
+    await expect(
+      guard.canActivate(context('operator-1', 'FACILITY_OPERATOR')),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('denies a suspended ADMIN', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      role: 'ADMIN',
+      facilityId: null,
+      isActive: false,
+    });
+
+    await expect(
+      guard.canActivate(context('admin-1', 'ADMIN')),
     ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
@@ -105,6 +153,7 @@ describe('IncidentAccessGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'FACILITY_OPERATOR',
       facilityId: null,
+      isActive: true,
     });
 
     // Both sides null must NOT match. A resident who belongs to no estate

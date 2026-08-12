@@ -41,21 +41,36 @@ export class IncidentAccessGuard implements CanActivate {
       throw new NotFoundException('Incident not found.');
     }
 
+    // THE OWNERSHIP BRANCH IS DELIBERATELY FIRST AND DELIBERATELY DOES
+    // NOT CONSULT isActive. Suspension is an operator-privilege action;
+    // it is not a reason to hide a person's own emergency record from
+    // them. Moving the user lookup above this line, or adding a
+    // suspension check to it, would take that away silently. A spec pins
+    // it.
     if (incident.userId === request.user.sub) {
       return true;
     }
 
     const user = await this.prisma.user.findUnique({
       where: { id: request.user.sub },
-      select: { role: true, facilityId: true },
+      select: { role: true, facilityId: true, isActive: true },
     });
 
-    if (user?.role === 'ADMIN') {
+    // Reached only by someone who is NOT the incident's owner - the
+    // ownership branch above returns before this lookup - so every check
+    // below concerns privileged access to somebody else's emergency.
+    //
+    // Suspension outranks role, so it precedes the ADMIN branch.
+    if (!user?.isActive) {
+      throw new ForbiddenException('Not authorized for this incident.');
+    }
+
+    if (user.role === 'ADMIN') {
       return true;
     }
 
     if (
-      user?.role === 'FACILITY_OPERATOR' &&
+      user.role === 'FACILITY_OPERATOR' &&
       user.facilityId &&
       user.facilityId === incident.facilityId
     ) {

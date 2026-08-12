@@ -16,9 +16,15 @@ type AuthenticatedRequest = Request & { user: JwtPayload };
  *
  * ADMIN is deliberately a platform-wide cross-tenant override.
  *
- * Role and facilityId are re-read from the database rather than trusted
- * from JWT claims, because authorization must reflect current truth after
- * promotion, demotion or facility reassignment.
+ * Role, facilityId and isActive are re-read from the database rather than
+ * trusted from JWT claims, because authorization must reflect current
+ * truth after promotion, demotion, suspension or facility reassignment.
+ *
+ * isActive HERE IS THE USER'S, NOT THE FACILITY'S. A deactivated FACILITY
+ * deliberately keeps its queue visible - see FacilitiesService - because
+ * deactivation is not a revocation workflow and incidents still route
+ * there. A suspended USER is a different question with a different
+ * answer.
  */
 @Injectable()
 export class FacilityOperatorGuard implements CanActivate {
@@ -30,11 +36,24 @@ export class FacilityOperatorGuard implements CanActivate {
 
     const user = await this.prisma.user.findUnique({
       where: { id: request.user.sub },
-      select: { role: true, facilityId: true },
+      select: { role: true, facilityId: true, isActive: true },
     });
 
     if (!user) {
       throw new ForbiddenException('User not found.');
+    }
+
+    // SUSPENSION OUTRANKS ROLE, so this sits above the ADMIN branch. A
+    // suspended administrator must not keep cross-tenant access to every
+    // facility's emergency queue merely because the role check comes
+    // first - AdminGuard already refuses them, and these two must agree.
+    if (!user.isActive) {
+      // Named rather than folded into the generic refusal. This endpoint is
+      // AUTHENTICATED, so the caller already knows the account exists;
+      // telling them it is suspended costs no disclosure and saves a
+      // support desk from guessing. The unauthenticated paths - activation
+      // and refresh - deliberately do the opposite.
+      throw new ForbiddenException('User account is inactive.');
     }
 
     if (user.role === 'ADMIN') {

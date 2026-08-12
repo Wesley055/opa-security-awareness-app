@@ -158,6 +158,12 @@ model Incident {
   @@index([userId, createdAt])
   @@index([status, createdAt])
   @@index([facilityId, status])
+  // The operator queue. [facilityId, status] alone cannot serve an
+  // ordered scan, so every page would sort in memory. The trailing id
+  // matches the cursor tiebreaker exactly - ordering is createdAt DESC,
+  // id DESC - which is what makes the compound seek deterministic when
+  // two incidents share a timestamp.
+  @@index([facilityId, status, createdAt(sort: Desc), id(sort: Desc)])
   @@index([journeySessionId])
 }
 

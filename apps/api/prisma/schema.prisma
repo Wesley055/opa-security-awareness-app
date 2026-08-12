@@ -14,6 +14,14 @@ enum UserRole {
   FACILITY_OPERATOR
 }
 
+/// Activation lifecycle only. Administrative suspension is isActive, and
+/// deliberately does NOT appear here - two fields owning one concept is
+/// how a general column ends up named after one special case.
+enum AccountStatus {
+  ACTIVE
+  PENDING_ACTIVATION
+}
+
 enum IncidentStatus {
   OPEN
   ACKNOWLEDGED
@@ -73,14 +81,35 @@ enum EvidenceStatus {
 }
 
 model User {
-  id                String             @id @default(uuid()) @db.Uuid
-  email             String             @unique
-  phoneNumber       String             @unique
-  passwordHash      String
-  firstName         String
-  lastName          String
-  role              UserRole           @default(USER)
-  isActive          Boolean            @default(true)
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  phoneNumber  String   @unique
+  // NULLABLE, deliberately. A seat provisioned by an administrator has
+  // never chosen a password, and inventing a placeholder credential would
+  // put a hashable value in the column that nothing can ever match but
+  // everything must reason about. login() narrows on this being non-null.
+  passwordHash String?
+  firstName    String
+  lastName     String
+  role         UserRole @default(USER)
+
+  // isActive        -> administrative suspension. May it be used now?
+  // accountStatus   -> activation lifecycle. Has the seat been claimed?
+  // Both are checked at login; neither subsumes the other.
+  isActive      Boolean       @default(true)
+  accountStatus AccountStatus @default(ACTIVE)
+
+  // Only the HASH is stored, as with IncidentAccessToken. The raw token
+  // exists once, in the activation URL handed to the operator, and is not
+  // recoverable from the database afterwards.
+  activationTokenHash String?   @unique
+  activationExpiresAt DateTime?
+  activatedAt         DateTime?
+
+  invitedByUserId String? @db.Uuid
+  invitedBy       User?   @relation("UserInvitations", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  invitedUsers    User[]  @relation("UserInvitations")
+
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   incidents         Incident[]
@@ -92,6 +121,8 @@ model User {
 
   @@index([phoneNumber])
   @@index([facilityId])
+  @@index([invitedByUserId])
+  @@index([accountStatus])
 }
 
 model Incident {

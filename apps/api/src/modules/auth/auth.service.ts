@@ -1,10 +1,11 @@
-﻿import {
+import {
   ConflictException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { AccountStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { toE164 } from '../../shared/phone/normalize-phone-number';
 import { UsersService } from '../users/users.service';
@@ -69,9 +70,24 @@ export class AuthService {
     const user = await this.usersService.findByEmail(
       dto.email.toLowerCase(),
     );
-    if (!user || !user.isActive) {
+    // Authentication requires BOTH lifecycle activation and administrative
+    // enablement, and they are separate questions: a suspended operator and
+    // one who never claimed their seat are different facts, and support
+    // will be asked to tell them apart.
+    //
+    // The passwordHash check is not belt-and-braces. A pending seat has NO
+    // hash, and bcrypt.compare against null throws rather than returning
+    // false - so this narrows the type and keeps the failure a clean 401
+    // instead of a 500 that leaks the account's existence.
+    if (
+      !user ||
+      !user.isActive ||
+      user.accountStatus !== AccountStatus.ACTIVE ||
+      !user.passwordHash
+    ) {
       throw new UnauthorizedException('Invalid credentials.');
     }
+
     const isValid = await bcrypt.compare(
       dto.password,
       user.passwordHash,

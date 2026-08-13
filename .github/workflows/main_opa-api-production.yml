@@ -57,9 +57,83 @@ jobs:
           path: deploy
           include-hidden-files: true
 
+  # Blocks AUTOMATIC deployment when a push carries schema migrations.
+  #
+  # PostgreSQL is VNet-private, so no GitHub-hosted runner can apply
+  # them. A human applies migrations from inside the production network,
+  # then re-runs this workflow manually - and that manual dispatch is the
+  # acknowledgement, made AFTER the operation rather than promised before
+  # it.
+  #
+  # Deliberately a separate job from build: a schema commit should still
+  # prove it compiles and passes tests. Only the production boundary
+  # needs a person.
+  migration-guard:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          # The whole push range must be diffable. The default shallow
+          # clone has no parent commit at all, so HEAD^ does not resolve
+          # and github.event.before is unreachable.
+          fetch-depth: 0
+
+      - name: Block deployment when migrations change
+        if: github.event_name == 'push'
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          ZERO=0000000000000000000000000000000000000000
+
+          # FAIL CLOSED on an unusable range. A force push or the first
+          # push of a branch reports an all-zeros 'before'. A spurious
+          # manual re-run costs a click; a missed migration cost several
+          # hours of broken production login on 12 August.
+          if [ -z "${BEFORE}" ] || [ "${BEFORE}" = "${ZERO}" ]; then
+            echo "::error::Cannot determine the pushed commit range (before=${BEFORE}). Failing closed."
+            echo "Verify production migration state, then dispatch this workflow manually."
+            exit 1
+          fi
+
+          if ! git cat-file -e "${BEFORE}^{commit}" 2>/dev/null; then
+            echo "::error::Commit ${BEFORE} is not present in this checkout. Failing closed."
+            echo "Verify production migration state, then dispatch this workflow manually."
+            exit 1
+          fi
+
+          CHANGED=$(git diff --name-only "${BEFORE}" "${AFTER}" -- apps/api/prisma/migrations)
+
+          if [ -n "${CHANGED}" ]; then
+            echo "::error::Automatic deployment blocked: migration files changed."
+            echo ""
+            echo "Changed:"
+            echo "${CHANGED}"
+            echo ""
+            echo "  1. Apply and verify the production migrations from an approved"
+            echo "     environment inside the production VNet."
+            echo "  2. Confirm production migration status is current."
+            echo "  3. Manually dispatch this workflow."
+            echo ""
+            echo "MIGRATE BEFORE DEPLOYING, not after. New code reads columns the old"
+            echo "schema does not have, and /health stays green while login returns 500."
+            echo ""
+            echo "Do not re-run this failed push; a re-run remains a push event and"
+            echo "will remain blocked."
+            exit 1
+          fi
+
+          echo "No migration changes in this push. Deployment may proceed."
+
   deploy:
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, migration-guard]
     if: github.ref == 'refs/heads/main'
     permissions:
       id-token: write

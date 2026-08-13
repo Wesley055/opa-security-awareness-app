@@ -20,6 +20,7 @@ describe('AdminProvisioningService', () => {
     },
     user: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
     },
@@ -170,6 +171,142 @@ describe('AdminProvisioningService', () => {
     ).rejects.toBeInstanceOf(ConflictException);
 
     expect(prisma.user.create).not.toHaveBeenCalled();
+  });
+
+  it('accepts an email alone', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'resident-1',
+      role: UserRole.USER,
+    });
+
+    await expect(
+      service.findResident({ email: 'ada@example.com' }),
+    ).resolves.not.toBeNull();
+  });
+
+  it('accepts a phone number alone', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'resident-1',
+      role: UserRole.USER,
+    });
+
+    await expect(
+      service.findResident({ phoneNumber: '08024662124' }),
+    ).resolves.not.toBeNull();
+  });
+
+  it('rejects a lookup with no identifier', async () => {
+    await expect(service.findResident({})).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('rejects a lookup with both identifiers', async () => {
+    // Silently preferring one would make the endpoint's behaviour depend
+    // on an undocumented precedence rule.
+    await expect(
+      service.findResident({
+        email: 'ada@example.com',
+        phoneNumber: '08024662124',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('normalises an email before looking a resident up', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'resident-1',
+      role: UserRole.USER,
+    });
+
+    await service.findResident({ email: '  Ada@Example.COM ' });
+
+    // Registration stores the lowercased form, so anything else misses.
+    expect(prisma.user.findUnique.mock.calls[0][0].where).toEqual({
+      email: 'ada@example.com',
+    });
+  });
+
+  it('normalises a phone number to E.164 before looking a resident up', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'resident-1',
+      role: UserRole.USER,
+    });
+
+    await service.findResident({ phoneNumber: '08024662124' });
+
+    // THE POINT OF THIS TEST. An admin types the local form; registration
+    // stored the canonical one. findByPhone deliberately does not
+    // normalise its own argument, so if this boundary stops doing it the
+    // lookup silently finds nothing and the admin concludes the resident
+    // has no account.
+    expect(prisma.user.findUnique.mock.calls[0][0].where).toEqual({
+      phoneNumber: '+2348024662124',
+    });
+  });
+
+  it('returns null for an identifier with no account', async () => {
+    prisma.user.findUnique.mockResolvedValue(null);
+
+    // A question, not an error. 'No' is a useful answer to an admin
+    // checking whether somebody has registered yet.
+    await expect(
+      service.findResident({ email: 'nobody@example.com' }),
+    ).resolves.toBeNull();
+  });
+
+  it('returns null when the identifier belongs to an operator', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'operator-1',
+      email: 'operator@example.com',
+      role: UserRole.FACILITY_OPERATOR,
+    });
+
+    // The endpoint asks whether a RESIDENT exists. An operator is still
+    // no - and saying 'that is an operator' would disclose that some
+    // account exists, which the caller did not ask about.
+    await expect(
+      service.findResident({ email: 'operator@example.com' }),
+    ).resolves.toBeNull();
+  });
+
+  it('reports a missing facility when listing members', async () => {
+    prisma.facility.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.listFacilityMembers('facility-missing'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(prisma.user.findMany).not.toHaveBeenCalled();
+  });
+
+  it('partitions facility members by role from a single query', async () => {
+    prisma.facility.findUnique.mockResolvedValue({
+      id: 'facility-1',
+      name: 'Lekki Estate',
+      isActive: true,
+    });
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'op-1', role: UserRole.FACILITY_OPERATOR },
+      { id: 'res-1', role: UserRole.USER },
+      { id: 'res-2', role: UserRole.USER },
+    ]);
+
+    const result = await service.listFacilityMembers('facility-1');
+
+    expect(result.operators.map((o) => o.id)).toEqual(['op-1']);
+    expect(result.residents.map((r) => r.id)).toEqual(['res-1', 'res-2']);
+
+    // One index scan, not two. Facility.staff is named for operators but
+    // holds both, so the split belongs in code rather than in a second
+    // query filtered by role.
+    expect(prisma.user.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.user.findMany.mock.calls[0][0].where).toEqual({
+      facilityId: 'facility-1',
+    });
   });
 
   it('takes the user lock before resident membership changes', async () => {

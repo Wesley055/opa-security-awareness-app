@@ -2,9 +2,11 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -16,6 +18,7 @@ import { AdminProvisioningService } from './admin-provisioning.service';
 import { AssignResidentFacilityDto } from './dto/assign-resident-facility.dto';
 import { CreateFacilityDto } from './dto/create-facility.dto';
 import { CreateOperatorDto } from './dto/create-operator.dto';
+import { FindResidentDto } from './dto/find-resident.dto';
 
 type AuthenticatedRequest = Request & { user: JwtPayload };
 
@@ -40,6 +43,33 @@ export class AdminProvisioningController {
       request.user.sub,
       dto,
     );
+  }
+
+  /**
+   * Find one RESIDENT by an exact unique identifier.
+   *
+   * Not a search. email and phoneNumber are both unique and indexed, so
+   * this returns one row or none - an admin is about to change somebody's
+   * facility membership, and a list to disambiguate first is the wrong
+   * shape for that.
+   *
+   * A match that is not a USER returns null, not an error. The question
+   * is whether a resident exists; an operator is still no.
+   */
+  @Get('residents')
+  findResident(@Query() query: FindResidentDto) {
+    return this.provisioning.findResident(query);
+  }
+
+  /**
+   * Everyone attached to a facility, partitioned by role.
+   *
+   * User.facilityId carries operators and residents in one column, so
+   * this reads it once and splits rather than issuing two queries.
+   */
+  @Get('facilities/:facilityId/members')
+  listFacilityMembers(@Param('facilityId') facilityId: string) {
+    return this.provisioning.listFacilityMembers(facilityId);
   }
 
   @Patch('residents/:userId/facility')

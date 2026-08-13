@@ -11,6 +11,7 @@ import {
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { toE164 } from '../../shared/phone/normalize-phone-number';
+import type { FindResidentDto } from './dto/find-resident.dto';
 import type { CreateFacilityDto } from './dto/create-facility.dto';
 import type { CreateOperatorDto } from './dto/create-operator.dto';
 
@@ -130,6 +131,117 @@ export class AdminProvisioningService {
         activationExpiresAt,
       };
     });
+  }
+
+  /**
+   * Look one RESIDENT up by an exact unique identifier.
+   *
+   * EXACTLY ONE IDENTIFIER, ENFORCED HERE. class-validator has no XOR, so
+   * a DTO-level version would mean a custom ValidatorConstraint class -
+   * a new abstraction for one invariant, in a codebase with none. It also
+   * sits badly with RegisterDto's rule that the service is the single
+   * validation authority when it already owns the semantics, which here
+   * it does: normalisation and lookup both live below.
+   *
+   * BOTH NORMALISATIONS HAPPEN AT THIS BOUNDARY, exactly as auth.service
+   * does them. An admin typing 08024662124 must find the row registration
+   * stored as +2348024662124, and Ada@Example.com must find
+   * ada@example.com. UsersService.findByPhone deliberately refuses to
+   * normalise its own argument - see its contract - because a lookup that
+   * assumes a region disagrees with a write path that was told one.
+   *
+   * A NON-RESIDENT MATCH RETURNS NULL. The endpoint asks whether a
+   * RESIDENT exists for this identifier; an operator or admin is still
+   * no. Reporting the mismatch instead would disclose that some account
+   * exists - which the caller did not ask about and cannot act on here.
+   *
+   * findUnique is kept rather than findFirst with role in the where
+   * clause: the columns are unique, and findFirst would read as though
+   * the lookup might be ambiguous when it cannot be.
+   */
+  async findResident(query: FindResidentDto) {
+    const hasEmail = !!query.email;
+    const hasPhone = !!query.phoneNumber;
+
+    if (hasEmail === hasPhone) {
+      throw new BadRequestException(
+        'Provide exactly one of email or phoneNumber.',
+      );
+    }
+
+    const where = hasEmail
+      ? { email: (query.email as string).trim().toLowerCase() }
+      : { phoneNumber: toE164(query.phoneNumber as string) };
+
+    const user = await this.prisma.user.findUnique({
+      where,
+      select: {
+        id: true,
+        email: true,
+        phoneNumber: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        facilityId: true,
+        isActive: true,
+        accountStatus: true,
+        createdAt: true,
+      },
+    });
+
+    if (!user || user.role !== UserRole.USER) {
+      return null;
+    }
+
+    return user;
+  }
+
+  /**
+   * Everyone attached to a facility, split by role.
+   *
+   * FACILITY.STAFF IS A MISLEADING NAME. The Prisma relation is called
+   * 'FacilityStaff', but User.facilityId is a single column carrying
+   * operators and residents alike, so it returns both. This reads the
+   * column once and partitions here rather than trusting the relation's
+   * name or issuing two queries for one index scan.
+   *
+   * Deliberately UNPAGINATED, unlike the incident queue. A facility's
+   * membership is bounded by how many people an estate has; its incident
+   * history is not. If an estate ever has enough residents for this to
+   * matter, it needs pagination AND a different admin screen.
+   */
+  async listFacilityMembers(facilityId: string) {
+    const facility = await this.prisma.facility.findUnique({
+      where: { id: facilityId },
+      select: { id: true, name: true, isActive: true },
+    });
+
+    if (!facility) {
+      throw new NotFoundException('Facility not found.');
+    }
+
+    const members = await this.prisma.user.findMany({
+      where: { facilityId },
+      select: {
+        id: true,
+        email: true,
+        phoneNumber: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        isActive: true,
+        accountStatus: true,
+      },
+      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+    });
+
+    return {
+      facility,
+      operators: members.filter(
+        (m) => m.role === UserRole.FACILITY_OPERATOR,
+      ),
+      residents: members.filter((m) => m.role === UserRole.USER),
+    };
   }
 
   async assignResidentToFacility(userId: string, facilityId: string) {

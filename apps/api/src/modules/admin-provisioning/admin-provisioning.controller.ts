@@ -53,8 +53,27 @@ export class AdminProvisioningController {
     );
   }
 
-  @Delete('residents/:userId/facility')
-  removeResident(@Param('userId') userId: string) {
-    return this.provisioning.removeResidentFromFacility(userId);
+  /**
+   * Membership removal is FACILITY-SCOPED.
+   *
+   * The facility in the route is the admin's EXPECTED current membership.
+   * If somebody reassigned the resident after the admin loaded their
+   * screen, removal must fail rather than silently detach them from the
+   * facility they were moved to.
+   *
+   * ASSIGNMENT DELIBERATELY STAYS LAST-WRITE-WINS. Assigning STATES where
+   * a resident belongs, so the admin's intent is the target value.
+   * Removing REVERSES a specific membership, so it is inherently about
+   * the current one. The asymmetry is intentional, not an oversight.
+   */
+  @Delete('facilities/:facilityId/residents/:userId')
+  removeResident(
+    @Param('facilityId') facilityId: string,
+    @Param('userId') userId: string,
+  ) {
+    return this.provisioning.removeResidentFromFacility(
+      userId,
+      facilityId,
+    );
   }
 }

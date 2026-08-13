@@ -234,6 +234,38 @@ describe('AdminProvisioningService', () => {
     expect(prisma.user.update).not.toHaveBeenCalled();
   });
 
+  it('rejects removal when the resident belongs to another facility', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'resident-1',
+      role: UserRole.USER,
+      facilityId: 'facility-b',
+    });
+
+    // The admin is looking at facility-a's roster. Somebody moved this
+    // resident to facility-b. Removing must fail, not detach them from b.
+    await expect(
+      service.removeResidentFromFacility('resident-1', 'facility-a'),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects removal when the resident is already unassigned', async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'resident-1',
+      role: UserRole.USER,
+      facilityId: null,
+    });
+
+    // The previous version wrote facilityId: null over null and reported
+    // success, so an admin could not tell a removal from a no-op.
+    await expect(
+      service.removeResidentFromFacility('resident-1', 'facility-a'),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
   it('removes resident membership under the same user lock', async () => {
     prisma.user.findUnique.mockResolvedValue({
       id: 'resident-1',
@@ -249,7 +281,7 @@ describe('AdminProvisioningService', () => {
     });
 
     const result =
-      await service.removeResidentFromFacility('resident-1');
+      await service.removeResidentFromFacility('resident-1', 'facility-1');
 
     expect(result.facilityId).toBeNull();
     expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);

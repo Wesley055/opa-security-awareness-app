@@ -178,7 +178,17 @@ export class AdminProvisioningService {
     });
   }
 
-  async removeResidentFromFacility(userId: string) {
+  /**
+   * Remove a resident from a SPECIFIC facility.
+   *
+   * expectedFacilityId is the membership the caller believes exists. It is
+   * compared under the advisory lock, so a concurrent reassignment cannot
+   * slip between the read and the update.
+   */
+  async removeResidentFromFacility(
+    userId: string,
+    expectedFacilityId: string,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`
         SELECT pg_advisory_xact_lock(hashtext(${userId}))
@@ -196,6 +206,18 @@ export class AdminProvisioningService {
       if (user.role !== UserRole.USER) {
         throw new BadRequestException(
           'Only USER accounts may be assigned as residents.',
+        );
+      }
+
+      // LOAD-BEARING. Without it, a stale admin screen removes a resident
+      // from facility B while believing it is removing them from A.
+      //
+      // It also catches an already-unassigned resident, which the previous
+      // version wrote null over null for and reported as a successful
+      // removal - so an admin could not tell a removal from a no-op.
+      if (user.facilityId !== expectedFacilityId) {
+        throw new ConflictException(
+          'Resident facility membership has changed.',
         );
       }
 

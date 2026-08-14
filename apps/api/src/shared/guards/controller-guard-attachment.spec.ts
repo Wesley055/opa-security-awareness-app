@@ -16,6 +16,7 @@ import { OperatorIncidentsController } from '../../modules/facilities/operator-i
 import { IncidentTimelineController } from '../../modules/incident-timeline/incident-timeline.controller';
 import { AdminGuard } from './admin.guard';
 import { IncidentAccessGuard } from './incident-access.guard';
+import { IncidentDetailController } from '../../modules/incidents/incident-detail.controller';
 
 /**
  * Every guard in this codebase has its own spec, and every one of those
@@ -66,6 +67,13 @@ describe('privileged controller guard attachment', () => {
 
   it('protects incident evidence with JWT + IncidentAccessGuard', () => {
     expect(classGuards(EvidenceController)).toEqual([
+      JwtAuthGuard,
+      IncidentAccessGuard,
+    ]);
+  });
+
+  it('protects incident detail with JWT + IncidentAccessGuard', () => {
+    expect(classGuards(IncidentDetailController)).toEqual([
       JwtAuthGuard,
       IncidentAccessGuard,
     ]);

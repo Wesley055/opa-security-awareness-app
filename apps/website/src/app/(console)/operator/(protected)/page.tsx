@@ -43,8 +43,7 @@ export default async function OperatorHomePage() {
     <div className="px-6 py-16">
       <h1 className="font-display text-3xl font-bold text-ink">Signed in</h1>
       <p className="mt-2 max-w-prose text-sm text-muted">
-        The session cookies are set. Facility context arrives in 14A-5 and the
-        incident queue in 14A-6.
+        Facility context is live above. The incident queue arrives in 14A-6.
       </p>
     </div>
   );

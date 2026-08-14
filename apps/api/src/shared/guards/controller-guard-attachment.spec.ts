@@ -11,6 +11,8 @@ import { JwtAuthGuard } from '../../modules/auth/jwt-auth.guard';
 import { EvidenceController } from '../../modules/evidence/evidence.controller';
 import { FacilitiesController } from '../../modules/facilities/facilities.controller';
 import { FacilityOperatorGuard } from '../../modules/facilities/guards/facility-operator.guard';
+import { OperatorFacilityGuard } from '../../modules/facilities/guards/operator-facility.guard';
+import { OperatorIncidentsController } from '../../modules/facilities/operator-incidents.controller';
 import { IncidentTimelineController } from '../../modules/incident-timeline/incident-timeline.controller';
 import { AdminGuard } from './admin.guard';
 import { IncidentAccessGuard } from './incident-access.guard';
@@ -52,6 +54,13 @@ describe('privileged controller guard attachment', () => {
     expect(classGuards(FacilitiesController)).toEqual([
       JwtAuthGuard,
       FacilityOperatorGuard,
+    ]);
+  });
+
+  it('protects the operator queue with JWT + OperatorFacilityGuard', () => {
+    expect(classGuards(OperatorIncidentsController)).toEqual([
+      JwtAuthGuard,
+      OperatorFacilityGuard,
     ]);
   });
 

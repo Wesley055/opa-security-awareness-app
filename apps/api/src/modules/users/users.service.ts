@@ -45,6 +45,30 @@ export class UsersService {
         facilityId: true,
         isActive: true,
         createdAt: true,
+
+        // FACILITY CONTEXT FOR THE OPERATOR CONSOLE, and deliberately five
+        // fields rather than the relation.
+        //
+        // facilityId alone is a UUID, which is not context - an operator
+        // needs to see the estate they are watching, not a0ede9e9-9771-...
+        //
+        // WHAT IS ABSENT IS THE POINT. No address, no latitude or longitude,
+        // no phoneNumber, no staff list, no incidents. Identity is not the
+        // place to leak an estate's location or its roster, and this method
+        // answers "who is the caller", not "tell me about a facility".
+        //
+        // isVerified is included because the console may need to say so.
+        // NOTE that OPA Demo Estate is isVerified FALSE in production - if
+        // the UI renders this, it will show an unverified estate.
+        facility: {
+          select: {
+            id: true,
+            name: true,
+            type: true,
+            isActive: true,
+            isVerified: true,
+          },
+        },
       },
     });
   }

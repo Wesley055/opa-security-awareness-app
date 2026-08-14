@@ -97,3 +97,33 @@ export async function getRefreshToken(): Promise<string | null> {
 export async function hasOperatorSession(): Promise<boolean> {
   return (await getAccessToken()) !== null;
 }
+
+/**
+ * Three-state session read, added for 14A-3.
+ *
+ * hasOperatorSession() is binary and cannot express the state the refresh
+ * flow exists for: the access cookie has expired while the 30-day refresh
+ * cookie is still present. It is left exactly as committed because it is
+ * left exactly as committed. IT NOW HAS NO CALLERS - both operator pages
+ * moved to getSessionState. Kept for 14A-4 to use or delete deliberately.
+ *
+ *   active       an authenticated call can be attempted right now
+ *   refreshable  access is gone, rotation may recover the session
+ *   none         nothing to work with, sign in
+ *
+ * As with hasOperatorSession, this is NOT a claim that anything is VALID.
+ * Only the API can say that. This reports which cookies exist.
+ */
+export type OperatorSessionState = 'active' | 'refreshable' | 'none';
+
+export async function getSessionState(): Promise<OperatorSessionState> {
+  if (await getAccessToken()) {
+    return 'active';
+  }
+
+  if (await getRefreshToken()) {
+    return 'refreshable';
+  }
+
+  return 'none';
+}

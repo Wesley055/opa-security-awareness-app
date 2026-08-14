@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
-import { hasOperatorSession } from '@/lib/operator-session';
+import { getSessionState } from '@/lib/operator-session';
 
 /**
  * STUB. Replaced by the real shell in 14A-4 and the queue in 14A-6.
@@ -12,6 +12,10 @@ import { hasOperatorSession } from '@/lib/operator-session';
  * deliberate for now: middleware would need the Next 16 middleware -> proxy
  * migration, and a server component redirect is the more robust guarantee
  * anyway because it cannot be bypassed by a route the matcher missed.
+ *
+ * 14A-3: the check is now three-state. A server component CANNOT write
+ * cookies, so this page cannot rotate - it sends the browser to the refresh
+ * route, which owns every mutation of the session cookies, and comes back.
  */
 
 export const metadata: Metadata = {
@@ -22,7 +26,13 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic';
 
 export default async function OperatorHomePage() {
-  if (!(await hasOperatorSession())) {
+  const state = await getSessionState();
+
+  if (state === 'refreshable') {
+    redirect('/api/operator/refresh');
+  }
+
+  if (state === 'none') {
     redirect('/operator/login');
   }
 

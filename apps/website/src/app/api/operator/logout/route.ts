@@ -17,16 +17,25 @@ import { clearOperatorSession } from '@/lib/operator-session';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST() {
+/**
+ * REDIRECTS, IT DOES NOT RETURN JSON. The sign-out control is a plain HTML
+ * form in the console shell, and a form NAVIGATES to whatever the POST
+ * returns - so a JSON body left the operator staring at {"ok":true} with no
+ * way back. 303 is the correct status for POST -> GET.
+ *
+ * That also keeps sign-out working with no client JavaScript, which is the
+ * reason it is a form rather than a fetch.
+ */
+export async function POST(request: Request) {
   await clearOperatorSession();
 
-  return NextResponse.json(
-    { ok: true },
-    {
-      headers: {
-        'Cache-Control': 'no-store, private',
-        'Referrer-Policy': 'no-referrer',
-      },
-    },
+  const response = NextResponse.redirect(
+    new URL('/operator/login', request.url),
+    { status: 303 },
   );
+
+  response.headers.set('Cache-Control', 'no-store, private');
+  response.headers.set('Referrer-Policy', 'no-referrer');
+
+  return response;
 }

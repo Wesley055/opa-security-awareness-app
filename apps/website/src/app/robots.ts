@@ -12,7 +12,7 @@ export default function robots(): MetadataRoute.Robots {
     rules: {
       userAgent: '*',
       allow: '/',
-      disallow: ['/i/', '/api/'],
+      disallow: ['/i/', '/api/', '/operator/'],
     },
     sitemap: 'https://opasafety.com/sitemap.xml',
     host: 'https://opasafety.com',

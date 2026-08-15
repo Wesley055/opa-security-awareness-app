@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { QueueIncident } from '@/lib/operator-queue';
 
@@ -366,10 +367,11 @@ export function IncidentQueue({
               : 'Unknown resident';
 
             return (
-              <li
-                key={incident.id}
-                className="rounded-md border border-line bg-panel px-4 py-3"
-              >
+              <li key={incident.id}>
+                <Link
+                  href={`/operator/incidents/${incident.id}`}
+                  className="block rounded-md border border-line bg-panel px-4 py-3 transition hover:border-protection focus-visible:border-protection focus-visible:outline-none"
+                >
                 <div className="flex flex-wrap items-baseline justify-between gap-3">
                   <span className="font-display text-lg font-bold text-ink">
                     {name}
@@ -391,6 +393,7 @@ export function IncidentQueue({
                 {where ? (
                   <p className="mt-1 font-mono text-xs text-muted">{where}</p>
                 ) : null}
+                </Link>
               </li>
             );
           })}

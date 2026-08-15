@@ -1,0 +1,305 @@
+OPA HANDOVER - ULTRA 35
+Written 13 August 2026. HEAD 74c1b3d, WITH UNCOMMITTED WORK.
+
+Supersedes Ultra 34 for sections 0, 6 and 8 below. Ultra 34 remains
+authoritative for everything else, and its sections 3, 4, 5 and 7 have not
+changed. Read Ultra 34 first if you have not.
+
+
+================================================================================
+0. STATE, AND THE UNCOMMITTED PART
+================================================================================
+
+  HEAD          74c1b3d   main, pushed
+  porcelain     6         SIX UNTRACKED FILES, NOT COMMITTED
+  API           deployed, healthy, migrations current
+  Gates         not re-run since 74c1b3d; API untouched this session
+
+THE SIX UNTRACKED FILES ARE 14A-1 AND 14A-2 - the operator login page,
+session bridge and cookie handling. They are WRITTEN AND VERIFIED BY THE
+INSTALLER'S OWN CHECKS, BUT THE WEBSITE HAS NOT BEEN BUILT SINCE, AND
+NOTHING HAS BEEN OPENED IN A BROWSER.
+
+  apps/website/src/lib/operator-session.ts
+  apps/website/src/app/api/operator/login/route.ts
+  apps/website/src/app/api/operator/logout/route.ts
+  apps/website/src/app/operator/login/page.tsx
+  apps/website/src/app/operator/login/login-form.tsx
+  apps/website/src/app/operator/page.tsx
+
+THE NEXT COMMAND IS:
+
+  cd apps\website
+  npm run build
+
+If it fails, the likeliest causes are a React.FormEvent import under this
+tsconfig, or Tailwind class names I inferred from globals.css rather than
+measured - bg-panel-2 and text-muted in particular. CLASS NAME ERRORS DO
+NOT FAIL THE BUILD, they render unstyled, so the browser check matters as
+much as the build.
+
+DO NOT COMMIT UNTIL IT BUILDS AND A REAL LOGIN SUCCEEDS.
+
+
+================================================================================
+1. 14A-0 IS DONE, AND IT PROVED MORE THAN PROVISIONING
+================================================================================
+
+The full production chain now exists and every call succeeded first time.
+
+  facility   a0ede9e9-9771-477a-a36e-777454f6e31e   "OPA Demo Estate"
+                                                     SECURITY_PROVIDER
+                                                     isActive true
+                                                     isVerified FALSE
+  operator   operator@opasafety.com                  e1c927b1-0cff-43c0-ac88-141d7b8a9e1a
+                                                     FACILITY_OPERATOR, ACTIVE
+                                                     phone +2349066538149
+  resident   wesleycharles055@gmail.com              16f6ede5-e3e2-42e2-a03c-d36342ed1e8b
+                                                     USER, assigned to the facility
+
+THE ROUTING SNAPSHOT IS NOW PROVEN LIVE, not just by unit tests. A real SOS
+at 07:03:47Z carried facilityId a0ede9e9 and was read back through the
+OPERATOR'S OWN TOKEN, scoped by FacilityOperatorGuard:
+
+  8878eb2e-9cbb-44f7-8a69-37fa720db2da
+  RESOLVED, created 07:03:47Z, resolved 07:04:06Z
+  33.148261, -96.810323, resident "Collins Hynes"
+
+That is c7a2d43 working end to end in production for the first time.
+
+toE164 ALSO PROVEN AT THE PRODUCTION BOUNDARY: 09066538149 was submitted and
+stored as +2349066538149.
+
+THE DEMO NEEDS AN OPEN INCIDENT. That one was resolved 19 seconds after
+creation, and the queue defaults to OPEN + ACKNOWLEDGED, so it does not
+appear. Trigger a fresh SOS before the demo and LEAVE IT OPEN.
+
+  We spent time diagnosing an "empty queue" that was working correctly. The
+  default filter is doing exactly what it says. Check status before
+  concluding anything is wrong.
+
+
+================================================================================
+2. 14A-1 AND 14A-2, AND WHY THEY LOOK LIKE THAT
+================================================================================
+
+  browser -> opasafety.com (Next route handler) -> OPA API
+
+THE PATTERN WAS ALREADY DECIDED IN THIS CODEBASE AND WAS FOLLOWED, NOT
+REINVENTED. lib/tracking.ts opens with `import 'server-only'` and argues
+that if it reached a client component the API base URL would ship to the
+browser and the capability token would be handled client-side, "which is
+exactly what the same-origin bridge exists to prevent". An operator
+credential reads a whole facility's live emergencies with resident names and
+coordinates - strictly more powerful than a tracking link - so it gets the
+same treatment.
+
+  Tokens live in httpOnly cookies. Client JavaScript cannot read them.
+  The login response body carries NO TOKENS - only whether it worked.
+  The API hostname never reaches client code.
+  localStorage was rejected: readable by any XSS on a page that will render
+  resident names and live coordinates.
+
+COOKIE SETTINGS, each deliberate:
+
+  httpOnly  the point
+  secure    production only, so local http development still works
+  sameSite  strict - no cross-site flow needs them
+  maxAge    access 900s matching JWT_ACCESS_EXPIRES_IN, so the browser drops
+            it when the token dies rather than sending a corpse; refresh 30d
+
+THE ACCESS COOKIE EXPIRING IS THE DESIGNED SIGNAL FOR 14A-3. Absent access
+cookie plus present refresh cookie means rotate.
+
+ROLE IS CHECKED IN THE BRIDGE ONLY TO KEEP RESIDENTS OUT OF THE CONSOLE, NOT
+AS AUTHORIZATION. The API re-reads role from the database on every guarded
+request and that is what decides. The claim in the login response could be
+stale. A resident who got in would see an empty shell and 403s, which is a
+confusing way to be told no.
+
+LOGOUT IS LOCAL ONLY. There is no revocation endpoint on the API, so
+clearing the cookies means the browser can no longer present the tokens -
+which is the whole of what a browser-side logout can honestly promise. The
+access token stays technically valid for up to 15 minutes. DO NOT DESCRIBE
+THIS AS "SIGNING OUT EVERYWHERE".
+
+/operator IS A STUB. It exists so the redirect lands somewhere real and the
+login is testable. The session check is a server component redirect rather
+than middleware, deliberately: middleware would need the Next 16
+middleware -> proxy migration first, and a server redirect cannot be
+bypassed by a route a matcher missed.
+
+
+================================================================================
+3. THE CHECKLIST
+================================================================================
+
+  14A-0   Production provisioning dry run        DONE
+          facility, operator seat, activation, resident assignment,
+          live SOS routed and read back through the operator queue
+
+  14A-1   Operator Login                         WRITTEN, UNBUILT
+  14A-2   Operator Session                       WRITTEN, UNBUILT
+  14A-3   Automatic Token Refresh                NOT STARTED
+  14A-4   Protected Operator Shell               NOT STARTED
+  14A-5   Facility Context                       NOT STARTED
+  14A-6   Incident Queue                         NOT STARTED
+  14A-7   Incident Detail                        NOT STARTED
+  14A-8   Live Location                          NOT STARTED - map library
+                                                 is a separate decision, no
+                                                 map dependency exists
+  14A-9   Incident Timeline                      NOT STARTED
+  14A-10  Evidence Viewer                        NOT STARTED
+  14A-11  Facility Membership View               NOT STARTED
+  14A-12  Responsive UX / Polish                 NOT STARTED
+  14A-13  End-to-end Demo Verification           NOT STARTED
+
+FRIDAY IS TOMORROW. The realistic target is 14A-1 through 14A-6: login,
+session, refresh, shell, facility context, queue. That is a working console
+showing a real emergency in a real facility, and everything on screen is
+true. Detail, timeline, evidence and polish are the day after.
+
+Ultra 30's ten-to-fourteen-day estimate for Command Center Phase 1 has not
+changed. The backend being finished does not shorten the frontend.
+
+BLOCKED, DO NOT BUILD:
+  Acknowledgement or "this operator owns this incident" - nothing writes
+  IncidentStatus.ACKNOWLEDGED anywhere in the codebase.
+  Dispatch, assignment, responder command - ADR forbids it.
+  ETA, battery, network, device-online, "carrier SMS fallback" - no data
+  exists. public-incident-snapshot.dto.ts established that a field OPA
+  cannot populate honestly is OMITTED, not shown empty.
+
+
+================================================================================
+4. NEW DEBTS FROM THIS SESSION
+================================================================================
+
+4.1 OPERATOR SEATS REQUIRE A PERMANENT UNIQUE PHONE NUMBER FOR A FIELD
+    NOTHING READS
+
+User.phoneNumber is non-null and unique - inherited from consumer
+registration, where the phone IS the point. An operator is a login. They do
+not receive SOS alerts; only emergency contacts do.
+
+The constraint bit twice tonight with only four users in the system:
++14694791451 was already on wesleycharles055@gmail.com from SOS testing, so
+the seat took 09066538149 instead.
+
+FIVE GUARDS AT ONE ESTATE MEANS FIVE PERMANENT, UNIQUE, UNCHANGEABLE
+NUMBERS. There is no endpoint to update a phone number. This will be a real
+obstacle at the first estate onboarding, and it is a design question, not a
+bug.
+
+4.2 THERE IS STILL NO PASSWORD CHANGE, RESET, OR PHONE UPDATE
+
+AuthController has register, login, activate. Nothing else. Three related
+holes in the same area:
+
+  - no password reset (a locked-out operator cannot be recovered)
+  - no password change (a weak password cannot be strengthened)
+  - no phone number update (see 4.1)
+
+THIS BECAME URGENT TONIGHT. The info@opasafety.com admin password was typed
+in plaintext into PowerShell during this session and is in the console
+scrollback and in PSReadline's persisted history file. That account holds
+cross-tenant read access to every facility's emergencies.
+
+  IMMEDIATE, BEFORE ANYTHING ELSE:
+    Clear-History
+    Remove-Item (Get-PSReadlineOption).HistorySavePath
+
+  Then change that password. With no endpoint, that means a bcrypt hash
+  written directly to the row - the same shape as the ADMIN promotions in
+  Ultra 34 section 4.
+
+An account self-service sprint is now overdue.
+
+4.3 THREE PASSWORDS ARE IN PLAY AND THEY GET CONFUSED
+
+  info@opasafety.com       existing admin password
+  operator@opasafety.com   set during activation, 22 characters
+  the M365 mailbox         unrelated to OPA entirely
+
+Two failed logins tonight were the wrong one of the three. Worth writing
+them down somewhere deliberate rather than remembering.
+
+4.4 THE 15-MINUTE EXPIRY WAS HIT MANUALLY THREE TIMES IN ONE SESSION
+
+Every time, it looked like a failure before it was recognised as an expiry.
+An operator watching a queue for a shift hits it every 15 minutes. THIS IS
+THE WHOLE ARGUMENT FOR 14A-3, and it should not slip.
+
+4.5 operator@opasafety.com HAS NO MAILBOX
+
+Created in M365 as an unlicensed identity, so
+OwaUserHasNoMailboxAndNoLicenseAssignedException on any attempt to open it.
+That is fine today - activation returns the token in the API response, not
+by email - but password reset will need somewhere to send to.
+
+
+================================================================================
+5. TRAPS ADDED
+================================================================================
+
+Numbering continues from Ultra 34.
+
+#184  AN EMPTY QUEUE IS NOT NECESSARILY A BROKEN QUEUE. The facility
+      incident list defaults to OPEN + ACKNOWLEDGED. A resolved incident is
+      correctly absent. Check the status filter before diagnosing anything.
+
+#185  THE FACILITY SNAPSHOT CANNOT BE BACKFILLED. Incident.facilityId is
+      written at creation. Assigning a resident to a facility affects only
+      FUTURE incidents. A demo needs an SOS triggered AFTER the assignment.
+
+#186  A CREDENTIAL TYPED INTO Read-Host WITHOUT -AsSecureString IS ECHOED TO
+      THE SCREEN AND PERSISTED TO PSReadline HISTORY ACROSS SESSIONS. It
+      happened once tonight with a production ADMIN password. Use
+      -AsSecureString for anything that is not disposable.
+
+#187  A SINGLE-USE ACTIVATION TOKEN IS RETURNED EXACTLY ONCE AND STORED ONLY
+      AS A HASH. Losing it means recreating the seat - which costs another
+      permanent phone number, because the first one is now taken.
+
+#188  UNIQUE CONSTRAINTS INHERITED FROM ONE ROLE BECOME OBSTACLES FOR
+      ANOTHER. phoneNumber is unique because consumer registration needs it
+      to be. Operators inherit the constraint and get no benefit from it.
+
+#189  AN UNLICENSED M365 ACCOUNT IS AN IDENTITY WITH NO MAILBOX. It never
+      gets one by waiting. The exception name says so:
+      OwaUserHasNoMailboxAndNoLicenseAssignedException.
+
+#190  A BROWSER-SIDE LOGOUT CANNOT REVOKE A TOKEN, ONLY FORGET IT. With no
+      revocation endpoint, clearing cookies leaves the access token valid
+      for up to 15 minutes and the refresh token until used. Say what it
+      does, not what it sounds like.
+
+
+================================================================================
+6. IMMEDIATE NEXT ACTIONS, IN ORDER
+================================================================================
+
+  1. Clear PowerShell history and change the info@ admin password.
+     It is the only item here with a live security consequence.
+
+  2. cd apps\website; npm run build
+     Six uncommitted files have never been compiled.
+
+  3. npm run dev, open http://localhost:3001/operator/login
+     Sign in as operator@opasafety.com.
+     EXPECT: redirect to /operator showing "Signed in".
+     CHECK devtools: Local Storage EMPTY, and two cookies both flagged
+     HttpOnly. If the HttpOnly flag is missing the whole design is absent.
+     ALSO TRY a resident account and expect "not an operator account".
+
+  4. Commit 14A-1 and 14A-2 only after 3 passes.
+
+  5. 14A-3 automatic refresh. Do not defer it - see 4.4.
+
+  6. Trigger a fresh SOS and LEAVE IT OPEN for the demo.
+
+STILL UNTOUCHED FROM ULTRA 34, ALL OF IT: Sprint 11A undiagnosed, no rate
+limiting anywhere in the API, the JWT carrying a role nothing should trust,
+POST /incidents as a second creation door, Facility.staff being a misleading
+name, and the three website debts - self-host Archivo, reconcile
+outputFileTracingRoot with turbopack.root, and migrate middleware to proxy.

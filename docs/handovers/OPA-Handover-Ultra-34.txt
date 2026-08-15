@@ -1,0 +1,607 @@
+OPA HANDOVER - ULTRA 34
+Written 13 August 2026 at commit 74c1b3d.
+
+NUMBERING: this was requested as "Ultra 31". Ultra 31 already exists and is
+cited by Ultra 33 (sections 3.5 and 5.3) and by SPRINT_ROADMAP. A second
+document with that number would make both ambiguous, so this is Ultra 34 -
+Ultra 33 was the previous one. Rename it if you disagree, but not silently.
+
+Supersedes Ultra 33 for everything below. Ultra 33 remains authoritative for
+anything this document does not touch, EXCEPT its section 0 - see section 8.
+
+
+================================================================================
+0. THE STATE, AND THE ONE THING THAT BROKE
+================================================================================
+
+  HEAD          74c1b3d   main, pushed, porcelain 0
+  API           deployed, healthy, running current main
+  Migrations    14 of 14 applied to production
+  Gates         api 41 suites / 421 tests, int 7 / 35, api tsc 0
+  Production    2 ADMINs, 4 users total, login verified working
+  Vercel        healthy, every deployment Ready for the last nine builds
+
+PRODUCTION LOGIN WAS BROKEN FOR ROUGHLY NINE HOURS TODAY AND NOBODY KNEW.
+
+The deploy workflow ships code on every push to main and has never run
+migrations. Three commits added columns to the Prisma schema; the code
+deployed, the schema did not. findByEmail is a findUnique with NO select, so
+Prisma names every column it believes exists - including five that did not.
+login() calls it first.
+
+  /health returned 200 throughout, because it never touches User.
+  /auth/login returned 500 from roughly 368c176's deploy until 02:26 UTC.
+
+It was found by testing an endpoint on a hunch, not by any alarm. There is
+no monitoring that would have caught it. That is the most important sentence
+in this document.
+
+Fixed by applying the three migrations from inside the App Service, then
+verified: 401 "Invalid credentials." on a bad password, which is the correct
+answer and proves the query runs.
+
+A guard now blocks automatic deployment when a push carries migrations - see
+section 5.
+
+
+================================================================================
+1. COMMITS THIS SESSION, OLDEST FIRST
+================================================================================
+
+  c7a2d43  API: snapshot the resident's facility on the incident at creation
+  bd30be5  API: authorize facility access by FACILITY_OPERATOR rather than
+           HOSPITAL_STAFF                                        [MIGRATION]
+  1c5b2b3  API: add one-off platform ADMIN bootstrap script
+  368c176  API: add operator account activation lifecycle        [MIGRATION]
+  7133931  API: add administrative facility and operator provisioning
+  b0b3445  API: add single-use operator account activation
+  bda2d6c  API: bound and paginate the facility incident queue   [MIGRATION]
+  511834d  API: revoke refresh rotation when account state changes
+  fd78eee  API: enforce user suspension on privileged guard branches
+  a8492d9  API: scope resident removal to the expected facility
+  5a4c4d6  API: pin guard attachment on privileged controllers
+  187b6c6  API: add admin resident lookup and facility membership visibility
+  74c1b3d  CI: block automatic deploys when migrations change
+
+Test count 331 -> 421. Suites 33 -> 41. Int unchanged at 7 / 35.
+
+THE THREE MARKED [MIGRATION] ARE THE ONES THAT BROKE PRODUCTION. Each
+deployed green. The workflow reported success while login returned 500.
+
+
+================================================================================
+2. WHAT THE COMMAND CENTER BACKEND NOW DOES
+================================================================================
+
+The whole chain exists in code and is reachable in production:
+
+  bootstrap an ADMIN (manual, one-off)
+    -> create a Facility
+      -> provision a FACILITY_OPERATOR seat with a single-use activation token
+        -> operator activates and chooses a password
+      -> find a resident by exact email or phone
+      -> assign the resident to the facility
+    -> resident triggers SOS
+      -> the incident snapshots User.facilityId at creation
+        -> only that facility's ACTIVE operators can read it
+
+2.1 FACILITY ROUTING (c7a2d43)
+
+Incident.facilityId existed and nothing set it. Now IncidentsService.create
+reads the subject's membership and freezes it onto the incident, inside the
+same transaction as the insert.
+
+  facilityId is SERVER-DERIVED. It is not on CreateIncidentDto and cannot
+  be. A test asserts that a request body carrying facilityId is ignored -
+  the difference between "we route incidents to facilities" and "a client
+  can post an emergency into any estate's queue".
+
+  The RE-TRIGGER path deliberately does not set it. A resident who joins an
+  estate between activations must not retroactively pull an older incident
+  into that estate's queue.
+
+  NO ADVISORY LOCK, deliberately, and this reverses an earlier decision in
+  the same session. Nothing in the codebase writes User.facilityId at that
+  point, so a lock served no counterparty. 13C-3 later added the writers;
+  they take the 1-arg user lock, but create() still does not. IF TWO
+  SIMULTANEOUS WRITERS EVER MATTER, BOTH SIDES NEED THE LOCK - one alone
+  does nothing.
+
+2.2 OPERATOR AUTHORIZATION (bd30be5)
+
+UserRole.HOSPITAL_STAFF replaced by FACILITY_OPERATOR. Measured first: zero
+rows held the old value in production or locally, which is what made a
+destructive enum rebuild free. It is only free once.
+
+  FacilityType already carried HOSPITAL, POLICE_STATION, FIRE_STATION,
+  SECURITY_PROVIDER, NGO, GOVERNMENT_AGENCY and OTHER. A role named after
+  one of seven cases would have been inherited by every guard written after.
+
+2.3 ACCOUNT LIFECYCLE (368c176)
+
+  accountStatus  ACTIVE | PENDING_ACTIVATION   the activation lifecycle
+  isActive       boolean                       administrative suspension
+
+Two fields, two meanings, one owner each. DISABLED is deliberately absent
+from the enum: isActive already owns suspension, and a third value would
+duplicate it.
+
+passwordHash became NULLABLE. A provisioned seat has never chosen a
+password, and a placeholder credential would be a hashable value nothing can
+match but every reader must reason about.
+
+2.4 PROVISIONING (7133931, a8492d9, 187b6c6)
+
+ADMIN-only. Creates facilities and operator seats, assigns and removes
+residents, looks residents up, lists facility membership.
+
+  REMOVAL IS FACILITY-SCOPED: DELETE /admin/facilities/:facilityId/residents/
+  :userId. The facility in the route is the admin's EXPECTED membership, and
+  a mismatch is 409. Without it a stale admin screen detaches a resident from
+  whichever estate they were moved to.
+
+  ASSIGNMENT STAYS LAST-WRITE-WINS, deliberately, and the controller says so.
+  Assigning STATES where somebody belongs; removing REVERSES a specific
+  membership. The asymmetry is intentional.
+
+  findResident TAKES EXACTLY ONE IDENTIFIER, enforced in the service because
+  class-validator has no XOR and a custom ValidatorConstraint would be a new
+  abstraction for one invariant. A non-USER match returns null, not an error:
+  the question is whether a RESIDENT exists, and disclosing that an operator
+  account exists answers something the caller did not ask.
+
+2.5 ACTIVATION (b0b3445)
+
+POST /auth/activate, public and unauthenticated because the operator has no
+credentials yet - that is what they are there to create.
+
+  THE TOKEN IS IN THE BODY, NOT THE URL. 13C-3 returns the path
+  /operator/activate/<token> for the future web page; that page posts it. A
+  capability in a URL lands in access logs, proxy logs and browser history.
+
+  ONE FAILURE MESSAGE FOR EVERYTHING. Deliberately unlike
+  IncidentAccessTokenService, which distinguishes EXPIRED from REVOKED
+  because a family watching a tracking link needs to know which. Here the
+  caller holds a guess; saying "expired" confirms a token once existed.
+
+  THE RE-READ UNDER THE LOCK IS WHAT MAKES IT SINGLE-USE. Two simultaneous
+  posts both pass the pre-lock lookup, then serialise. The first nulls the
+  hash; the second sees null and fails.
+
+2.6 THE OPERATOR QUEUE (bda2d6c)
+
+Before: every incident ever routed to a facility, unpaginated, each with its
+full hash chain, every notification and every evidence record.
+
+Now: compact projection, default OPEN + ACKNOWLEDGED, optional exact status,
+cursor pagination at 25 with a 100 ceiling, ordered createdAt DESC id DESC
+against a new composite index.
+
+  THE CURSOR IS AN OPAQUE COMPOUND SEEK, not Prisma's cursor: { id }. Prisma
+  resolves a cursor row by unique id regardless of the facility and status
+  filter, so an id from another facility's queue would still find a
+  position. The predicate mirrors the ordering exactly.
+
+  NOTHING OPA CANNOT POPULATE HONESTLY. No acknowledgedAt, no ETA, no
+  battery or device state. public-incident-snapshot.dto.ts set that rule:
+  such a field is OMITTED, because a null implies the capability exists and
+  is merely empty. THE WEBSITE PROMISES ETA AND PATIENT CONTEXT. It has
+  neither.
+
+  NOTHING WRITES IncidentStatus.ACKNOWLEDGED. Measured: every status write
+  is OPEN plus the terminal states. The default names both live states
+  anyway, and the service says why so nobody hunts for a bug.
+
+
+================================================================================
+3. THE SECURITY DEFECT NOBODY WAS LOOKING FOR
+================================================================================
+
+RefreshTokenService.rotate() verified the token SIGNATURE and nothing else.
+No database read at all. It copied sub, email and role out of the payload
+into a new access token AND A NEW 30-DAY REFRESH TOKEN.
+
+SUSPENSION DID NOT SUSPEND. isActive=false stopped login() and nothing else:
+the holder kept minting access tokens for 30 days, and because every
+rotation issued a fresh refresh token, the window rolled forward
+indefinitely. There was no revocation path at all.
+
+The same held for every other lifecycle change. A demoted admin kept
+role: 'ADMIN' in every rotated token. A PENDING_ACTIVATION seat, or a
+deleted user, passed through untouched.
+
+Fixed in 511834d: rotate() reads the row, rejects unless it exists, isActive
+and accountStatus ACTIVE, and mints from the database rather than the
+payload. THE STALE ROLE CLAIM IS IGNORED, NOT REJECTED - a legitimate
+promotion must not force a logout.
+
+HOW IT SURVIVED: all three guards re-read from PostgreSQL, and each says in
+its own doc comment that authorization must reflect current truth. The
+principle was written down three times and absent from the one place that
+MINTS the credentials. Nobody read the token service because it looked like
+plumbing.
+
+fd78eee then closed the smaller version of the same gap: FacilityOperator
+Guard and IncidentAccessGuard did not check User.isActive, so a suspended
+operator kept their facility's queue for the 15-minute access token
+lifetime. AdminGuard already checked it. Three guards, one principle, two
+answers.
+
+  THE OWNERSHIP BRANCH IS UNTOUCHED AND TESTED. IncidentAccessGuard returns
+  true for the incident's owner BEFORE any user lookup. A suspended person
+  still sees their own emergency record - suspension is an operator-
+  privilege action, not a reason to hide somebody's safety history from
+  them. The obvious version of that edit would have taken it away silently.
+
+
+================================================================================
+4. PRODUCTION, AS IT ACTUALLY IS
+================================================================================
+
+  URL       https://opa-api-production-g4f6cxdyanfbaub0
+            .southafricanorth-01.azurewebsites.net
+            NOTE THE REGIONAL SUFFIX. opa-api-production.azurewebsites.net
+            does not resolve.
+
+  Users     4 total
+              info@opasafety.com          ADMIN
+              charles@opasafety.com       ADMIN
+              wesleycharles055@gmail.com  USER
+              firefoxemmanuel@gmail.com   USER
+
+  Facilities 0. Operators 0. Residents assigned 0.
+
+THE TEN-TO-TWENTY TESTER COHORT HAS NOT REGISTERED. Four accounts is the
+entire user base.
+
+NETWORKING, and it constrains everything about deployment:
+
+  PostgreSQL is PRIVATE ACCESS (VNet Integration) on
+  opa-api-productionDbSubnet. No public endpoint. Nothing to allowlist.
+
+  The App Service is VNet-integrated on opa-api-productionAppSubnet with
+  DNS inherited from the VNet, which is how it resolves
+  privatelink.postgres.database.azure.com.
+
+  A GitHub-hosted runner HAS NO ROUTE TO THE DATABASE. Not a firewall rule
+  away - there is no public endpoint at all. Making one would mean exposing
+  a database of emergency records publicly to save a manual step.
+
+TWO ADMINS DELIBERATELY. One is a lockout risk.
+
+THE ADMIN PASSWORDS ARE WHATEVER THEY WERE REGISTERED WITH, and at least one
+is known to be weak. Those accounts now hold cross-tenant read access to
+every facility's emergencies. THERE IS NO PASSWORD CHANGE OR RESET ENDPOINT
+- AuthController has register, login and activate, nothing else. Changing
+one today means a direct database write. This was deferred deliberately, to
+be done with the reset flow rather than as a database poke, and it is the
+oldest debt on this list that has become newly important.
+
+
+================================================================================
+5. THE MIGRATION GUARD, AND WHAT IT DOES NOT DO
+================================================================================
+
+74c1b3d adds a migration-guard job to main_opa-api-production.yml.
+
+  push, no migration files changed   -> build, test, deploy as before
+  push, migration files changed      -> build and test run; DEPLOY BLOCKS
+  workflow_dispatch                  -> guard skipped entirely
+
+THE MANUAL DISPATCH IS THE ACKNOWLEDGEMENT, and it happens AFTER the
+migration. A commit-message token or a checked-in "last applied" file would
+both be claims made BEFORE the operation, and both can be wrong. Re-running
+the failed push in the UI stays a push event and stays blocked, which is
+correct.
+
+Build still runs on a migration-changing push. A schema commit should prove
+it compiles; the human is needed at the production boundary, not the
+compiler.
+
+THE RANGE IS THE WHOLE PUSH - github.event.before to github.sha, with
+fetch-depth 0. The default shallow checkout has no HEAD^ at all, and today's
+three migrations arrived in three separate commits, so a last-commit check
+would have missed two.
+
+AN UNUSABLE RANGE FAILS CLOSED. A force push gives an all-zeros before.
+
+WHAT IT HAS NOT DONE: the blocking path has never run for real. Only the
+quiet path is proven, by run #167 and by local git diff against three
+ranges - one migration detected, one code-only push correctly silent, one
+multi-commit range catching all three. The first migration-bearing push is
+its first live test, and the failure mode there is a blocked deploy, not a
+broken production.
+
+THE PROCEDURE IT TELLS YOU TO FOLLOW EXISTS NOWHERE. The guard says "apply
+from an approved environment inside the production VNet" and deliberately
+does not name commands, because the working invocation depends on accidental
+runtime state (below) and a stale command in a permanent file will be
+followed. THERE IS NO RUNBOOK. Write one.
+
+HOW TO APPLY A PRODUCTION MIGRATION, as of 13 August:
+
+  Portal -> App Services -> opa-api-production
+         -> Development Tools -> SSH
+
+  cd /home/site/wwwroot
+  node node_modules/prisma/build/index.js migrate status --schema prisma/schema.prisma
+  node node_modules/prisma/build/index.js migrate deploy --schema prisma/schema.prisma
+
+  NOT ./node_modules/.bin/prisma - that shim resolves its wasm against
+  /node_modules and fails with ENOENT on prisma_schema_build_bg.wasm.
+
+  AND THIS IS ACCIDENTAL. prisma is a devDependency and the workflow runs
+  npm prune --omit=dev. It survived because /home/site/wwwroot contains a
+  whole repo checkout from some earlier deployment - apps, src, test,
+  docker-compose.yml, _del_node_modules, node_modules.tar.gz - not the clean
+  deploy folder the workflow assembles. DO NOT BUILD ON THIS.
+
+MIGRATE BEFORE DEPLOYING, NOT AFTER. New code reads columns the old schema
+does not have, and /health stays green while login returns 500.
+
+
+================================================================================
+6. SPRINT 13 AND 14 - WHAT IS ACTUALLY UNFINISHED
+================================================================================
+
+SPRINT_ROADMAP calls them:
+
+  Sprint 13 - Dashboard Foundation      NOT STARTED
+  Sprint 14 - Incident Management UI    NOT STARTED
+
+BOTH ARE STILL NOT STARTED. Everything this session built is the BACKEND
+underneath them, which the roadmap has no number for. There is no operator
+console. apps/website is marketing pages plus one public tracking page: no
+login, no session, no dashboard, nothing an operator could open.
+
+Ultra 30 section 5 estimated Command Center Phase 1 at TEN TO FOURTEEN DAYS,
+with the uncertainty explicitly in the UI because nothing comparable exists
+in the repo to pace against. That estimate is unchanged. The backend being
+done does not shorten it.
+
+THE NEXT PIECE IS 14A: an operator login page that posts to /auth/login,
+holds the token, and calls GET /facilities/:facilityId/incidents. That is
+the scaffolding everything else hangs from.
+
+WHAT THE UI WILL FIND WAITING:
+
+  GET /facilities/:facilityId/incidents now returns
+    { incidents, nextCursor, hasMore }
+  rather than a bare array. Nothing consumes it yet, so the shape is free to
+  change, but it is not what an older reader would expect.
+
+  An operator cannot exist until an admin creates a facility and provisions
+  a seat. There are zero facilities in production.
+
+DELIBERATELY LEFT OUT OF 13C-7: richer assignment and removal responses
+carrying previousFacilityId. Three response shapes and their tests, and the
+admin console can read membership from the new endpoint instead. Do it if a
+screen needs it, not before.
+
+
+================================================================================
+7. OPEN, MEASURED, NOT FIXED
+================================================================================
+
+7.1 SPRINT 11A IS STILL UNDIAGNOSED
+
+The zero-fix drive from Ultra 33 section 0 was never diagnosed. The adb
+logcat run has not happened. No production row shows source='background'
+recorded while the screen was locked.
+
+What DID land was the _layout cold-start guard - and I argued at the time
+that it does not account for the observed failure. It explains fix loss
+AFTER a mid-incident restart, not silence from the first second. The
+exclusive-or design remains the prime suspect: startBackgroundCapture
+returns true, the foreground watcher never starts, and the task never
+delivers.
+
+DO NOT MARK 11A DONE. The bar is unchanged: a production row with
+source='background' recorded while the screen was locked.
+
+7.2 THERE IS NO RATE LIMITING
+
+Measured: no ThrottlerGuard, no APP_GUARD, no @Throttle, no SkipThrottle
+anywhere in apps/api/src. ThrottlerModule.forRoot in app.module REGISTERS
+the module; nothing APPLIES it. There is no rate limiting on any route,
+including /auth/login and /auth/activate.
+
+SPRINT_ROADMAP.md:303 says "basic rate limiting already real, ThrottlerModule
+confirmed in app.module.ts". That line is now measured wrong.
+
+7.3 THE JWT CARRIES A ROLE NOTHING SHOULD TRUST
+
+JwtPayload has sub, email and role, and validate() returns it unchanged, so
+request.user.role is available on every controller. All three guards
+correctly ignore it and re-read. Nothing stops the next controller reaching
+for it because it is conveniently to hand.
+
+7.4 Facility.staff IS A MISLEADING NAME
+
+The Prisma relation is called "FacilityStaff", but User.facilityId is a
+single column carrying operators AND residents, so it returns both.
+listFacilityMembers reads it once and partitions by role rather than
+trusting the name. Renaming touches every consumer for no behavioural gain,
+so it was left - but the name lies.
+
+7.5 POST /incidents IS A SECOND CREATION DOOR
+
+incidents.controller.ts calls create() directly, bypassing the orchestrator:
+no journey session, no notifications. It DOES now route to a facility, since
+the snapshot lives in the service. Either wire it properly or mark it
+internal.
+
+7.6 DEACTIVATING A FACILITY DOES NOT REVOKE ANYTHING
+
+Facility.isActive gates PROVISIONING only. It deliberately does NOT hide the
+incident queue, because incident creation does not consult it and residents
+stay assigned - so filtering the read would leave live emergencies routed to
+a facility whose operators cannot see them. Making deactivation mean
+revocation needs an atomic workflow that also reassigns residents and
+revokes operator access. It cannot be a filter in a list query.
+
+7.7 EVERYTHING FROM ULTRA 33 SECTION 5 STILL STANDS
+
+DND blocking SMS to Nigerian numbers, the journey session ACTIVE since
+6 August, WhatsApp needing a WABA, email unconfigured, push reaching only
+people who have OPA installed. None of it was touched.
+
+
+================================================================================
+8. WEBSITE DEBTS - NON-URGENT, ALL THREE MEASURED
+================================================================================
+
+Vercel is HEALTHY. Every deployment for the last nine builds is Ready,
+including 74c1b3d in 24 seconds. The failure that prompted the investigation
+was on bd30be5 and has not recurred.
+
+8.1 SELF-HOST ARCHIVO BEFORE COMMERCIAL DEPENDENCE
+
+The bd30be5 build died with 12 "Module not found" errors resolving
+@vercel/turbopack-next/internal/font/google/font. The cause was three 404s
+from fonts.gstatic.com for versioned Archivo woff2 URLs - Google rotated
+them, and next/font/google fetches at BUILD time.
+
+It builds locally because .next already holds the fonts. It has succeeded on
+Vercel every time since. IT CAN RECUR AT ANY TIME AND THE TRIGGER IS OUTSIDE
+YOUR CONTROL. Move Archivo to next/font/local with the woff2 files committed.
+For a safety product, one fewer external dependency in the build is worth
+having before a prospect is looking at the site.
+
+8.2 outputFileTracingRoot AND turbopack.root DISAGREE
+
+Warned on every build: "Both `outputFileTracingRoot` and `turbopack.root`
+are set, but they must have the same value. Using `outputFileTracingRoot`
+value: /vercel/path0." Harmless today; it means one of the two is being
+ignored.
+
+8.3 middleware IS DEPRECATED IN NEXT 16
+
+"The 'middleware' file convention is deprecated. Please use 'proxy'
+instead." Warned on every build, local and remote. Currently renders as
+"Proxy (Middleware)" in the route table, so it still works.
+
+
+================================================================================
+9. TRAPS ADDED THIS SESSION
+================================================================================
+
+Numbering continues from Ultra 33.
+
+#168  A GREEN DEPLOY PIPELINE IS NOT A WORKING DEPLOYMENT. Every push today
+      reported success while production login returned 500. The workflow
+      proved the code shipped, which is not the same claim.
+
+#169  /health THAT TOUCHES NO TABLE PROVES ONLY THAT THE PROCESS IS UP. It
+      returned 200 for nine hours of broken login. A health check should
+      exercise something the application actually depends on.
+
+#170  A PRINCIPLE WRITTEN IN THREE DOC COMMENTS IS NOT ENFORCED ANYWHERE.
+      All three guards said authorization must reflect current truth rather
+      than a cached claim. The token service, which MINTS the credentials,
+      did no database read at all. Grep for the principle, not the prose.
+
+#171  A VERIFY CHECK THAT GREPS FOR A TOKEN APPEARING LEGITIMATELY ELSEWHERE
+      IN THE SAME FILE WILL FIRE FALSELY. This happened THREE TIMES in one
+      session: pg_advisory_xact_lock matched a doc block and close();
+      timelineEvents matched the comment explaining its own absence;
+      sub: payload.sub matched createAccessToken's own parameter. Each
+      reported a correct edit as failed AFTER writing the tree. Assert on
+      code constructs, and scope to the region edited.
+
+#172  PROVE THE CHECK CAN FAIL. The guard-attachment spec was exercised by
+      commenting out one @UseGuards: exactly one test failed, three passed,
+      then it was restored. Without that, four green assertions could have
+      been vacuous. Same for the migration guard, run against three known
+      ranges before being trusted.
+
+#173  A TEST WHOSE FIXTURES DIFFER FROM THE PRODUCTION SHAPE PASSES FOR THE
+      WRONG REASON. The invalid-credentials login test had no accountStatus,
+      so the new lifecycle check would have rejected on undefined and the
+      test would have stayed green without ever reaching bcrypt.compare.
+
+#174  A SUITE OF ONLY REJECTION TESTS CANNOT DISTINGUISH "CORRECTLY
+      SELECTIVE" FROM "ALWAYS REJECTS". auth.service.spec.ts had four tests,
+      every one a failure path, and no successful login at all. A login()
+      that refused everybody would have passed the whole suite.
+
+#175  jest.spyOn CANNOT REDEFINE A NATIVE MODULE EXPORT. bcrypt.compare is
+      non-configurable; the spy threw. The assertion was recoverable a
+      better way - the exception TYPE proves the guard fired first, and the
+      1ms versus 92ms timings show it independently.
+
+#176  [IO.File] RESOLVES RELATIVE PATHS AGAINST THE PROCESS WORKING
+      DIRECTORY, NOT THE SHELL'S. After an elevation those differ, and a
+      scripted edit silently targeted C:\Windows\system32. Absolute paths in
+      scripted edits, always.
+
+#177  WriteAllText DOES NOT CREATE DIRECTORIES. An installer wrote three
+      files then threw on the fourth because facilities/dto did not exist -
+      the fifth partial-application of the session.
+
+#178  CHECK EVERY ANCHOR BEFORE WRITING ANY FILE. Several installers this
+      session verified anchors as they went and left half-applied trees when
+      a later one missed. Verify all, then write all.
+
+#179  A DOC COMMENT ASSERTING A CONSTRAINT THE SHAPE DOES NOT ENFORCE IS A
+      LIE THAT READS AS TRUE. FindResidentDto said "exactly one of email or
+      phoneNumber" while both fields were independently @IsOptional. Say
+      where the rule LIVES, not what you wish it were.
+
+#180  AN ENUM VALUE WITH NO WRITER IS NOT A BUG, BUT SILENCE ABOUT IT IS.
+      IncidentStatus.ACKNOWLEDGED has never been set by anything. The queue
+      default names it anyway; the service says why, so the next reader does
+      not go hunting.
+
+#181  A CAPABILITY TOKEN IN A URL LANDS IN ACCESS LOGS, PROXY LOGS AND
+      BROWSER HISTORY. The activation endpoint takes it in the body. The
+      tracking link cannot, because it arrives by SMS - that is a
+      constraint, not a precedent.
+
+#182  A PRISMA CLI SURVIVING npm prune --omit=dev IS AN ACCIDENT OF WHAT IS
+      DEPLOYED, NOT A PROPERTY. It worked because wwwroot holds a whole old
+      repo checkout. Do not build a migration strategy on it.
+
+#183  MEASURE THE ENUM BEFORE A DESTRUCTIVE REBUILD, AND SAY WHEN. Zero rows
+      held HOSPITAL_STAFF, which is what made the rebuild free. It is only
+      free once, and the measurement has a timestamp for a reason.
+
+
+================================================================================
+10. STANDING RULES - AMENDED
+================================================================================
+
+Verified state before anything else:
+
+  $env:GIT_PAGER='cat'
+  cd C:\Projects\OPA; "head=$(git rev-parse --short HEAD)";
+  "porcelain=" + @(git status --porcelain).Count
+
+Five gates, unpiped:
+
+  cd apps\api;        npx jest                     41 suites / 421 tests
+  cd apps\api;        npm run test:int              7 suites /  35 tests
+  cd apps\api;        npx tsc --noEmit              exit 0
+  cd apps\mobile-app; npm test                      3 suites /  53 tests
+  cd apps\mobile-app; npx tsc --noEmit              exit 0
+
+DEPLOY ORDER IS AMENDED. Ultra 33's rule was written for a config change and
+has the dependency backwards for schema changes:
+
+  MIGRATIONS FIRST, THEN CODE.
+
+  migrate -> verify migrate status -> push -> workflow_dispatch -> verify
+
+New code reads columns old schemas lack. Migrations are additive and the old
+code ignores the new columns, so a widened schema is safe under running
+code. The reverse is not.
+
+VERIFY BY EXERCISING A REAL PATH. /health returns 200 on a broken build.
+POST /auth/login with a bad password and expect 401.
+
+RUN EACH GATE SEPARATELY. Piping jest through Select-String makes PowerShell
+treat node's stderr as a terminating error and swallows the exit code.
+
+STATE PREDICTED COUNTS AS PREDICTIONS. Confirm them from the run. One
+prediction was wrong this session - 404 against 405 - because a test was
+written and not counted. The discrepancy is the point of predicting.

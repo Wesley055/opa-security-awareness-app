@@ -1,0 +1,951 @@
+OPA HANDOVER - ULTRA 36
+Written 15 August 2026. HEAD f19e92c, main, pushed, porcelain 2.
+
+NUMBERING: Ultra 35 was drafted twice with contradictory state - one
+version reported porcelain 6 with 14A-1/14A-2 unbuilt, another reported
+porcelain 3 with a clean compile. ONLY THE PORCELAIN-6 VERSION WAS EVER
+SAVED, so docs/handovers holds one Ultra 35 and there is no ambiguity on
+disk. Recorded in case the second draft exists elsewhere.
+
+This document supersedes Ultra 35 for everything below. Ultra 34 remains
+authoritative for its sections 3, 4, 5 and 7 except where noted here.
+
+
+================================================================================
+0. THE STATE
+================================================================================
+
+  HEAD          f19e92c   main, pushed
+  porcelain     2         the two handover docs, untracked
+  API           deployed, healthy, 15 of 15 workflow runs green
+  Gates         api 44 suites / 439 tests, int 7 / 35, api tsc 0
+                website builds clean, 21 routes
+  Production    Command Center LIVE and VERIFIED on opasafety.com
+  Vercel        healthy
+
+TEN COMMITS THIS SESSION, 74c1b3d -> f19e92c. 14A-1 through 14A-7 are done.
+Nine of the thirteen 14A slices are complete.
+
+THE COMMAND CENTER IS LIVE. An operator can go to opasafety.com, find
+"Operator sign in" in the footer, sign in, and watch real emergencies from
+a real facility appear in a polling queue, then open one for detail. Every
+field on screen is true. This was verified end to end on the production
+domain, not on localhost - see section 4.
+
+
+================================================================================
+1. COMMITS THIS SESSION, OLDEST FIRST
+================================================================================
+
+  f0df9b6  Web: add operator login and HttpOnly session          14A-1, 14A-2
+  d12daad  Web: add automatic operator token refresh             14A-3
+  5ff62ee  Web: add protected operator console shell             14A-4
+  11c3800  API: expose operator facility context                 14A-5 backend
+  9ebc11a  web: show facility context in the Command Center      14A-5 website
+  e752f72  API: add operator incident queue                      14A-6 backend
+  3e54305  Web: add live operator incident queue                 14A-6 website
+  ada6ab1  API: add authorized incident detail                   14A-7 backend
+  01987d8  Web: add operator incident detail                     14A-7 website
+  f19e92c  Web: add operator sign-in footer link
+
+NO MIGRATIONS. The deploy guard from 74c1b3d took its quiet path on every
+API push. ITS BLOCKING PATH HAS STILL NEVER RUN FOR REAL - unchanged from
+Ultra 34 section 5.
+
+Test count 421 -> 439. Suites 41 -> 44. Int unchanged at 7 / 35.
+
+
+================================================================================
+2. WHAT THE COMMAND CENTER NOW DOES
+================================================================================
+
+  opasafety.com footer "Operator sign in"
+    -> /operator/login, same-origin bridge, httpOnly cookies
+      -> /operator, Command Center shell with facility context
+        -> live incident queue, 5-second polling
+          -> click a card -> /operator/incidents/<id>, detail, 5s polling
+
+2.1 THE SAME-ORIGIN BRIDGE (14A-1, 14A-2)
+
+The browser never talks to the Azure API. Every operator call goes to a
+Next route handler on opasafety.com which reads an httpOnly cookie and
+forwards. THE API HOSTNAME AND THE TOKENS NEVER REACH CLIENT CODE.
+
+  Tokens in httpOnly cookies, sameSite strict, secure in production.
+  The login response body carries NO tokens - only whether it worked.
+  localStorage was rejected: readable by any XSS on a page that renders
+  resident names and live coordinates.
+
+The pattern was already decided by lib/tracking.ts and was FOLLOWED, not
+reinvented.
+
+2.2 AUTOMATIC TOKEN REFRESH (14A-3)
+
+The access token lives 15 minutes. Ultra 35 section 4.4 recorded hitting
+that expiry three times manually in one session, each time mistaking it for
+a failure. It is now invisible.
+
+  GET  /api/operator/refresh   the page flow: /operator redirects here, it
+                               rotates, sets cookies, redirects back
+  POST /api/operator/refresh   for client polling - 14A-6 is its first
+                               caller, written in 14A-3 with none
+
+  A REJECTION AND AN OUTAGE ARE NOT THE SAME EVENT. 401 is authoritative -
+  rotate() re-reads the user row and refuses unless the account exists, is
+  isActive and is ACTIVE - so both cookies are cleared. A network failure
+  or 5xx says nothing about the credential, so the cookies are PRESERVED.
+  Clearing on an outage would destroy a valid 30-day refresh token because
+  the API restarted.
+
+  NO SINGLE-FLIGHT LOCK, AND THIS DEPENDS ON A BACKEND PROPERTY. rotate()
+  performs no writes and nothing persists refresh-token state - there is no
+  RefreshToken model in the schema, and IncidentAccessToken's revokedAt is
+  for tracking links. IF SERVER-SIDE REVOCATION IS EVER ADDED, 14A-6's
+  polling becomes a race and needs a guard.
+
+  NO ROLE CHECK ON REFRESH. POST /auth/refresh returns tokens and no user
+  object. Checking would mean decoding the token, which the three API
+  guards deliberately refuse to do. Cost: an operator demoted mid-session
+  keeps the console shell until their refresh token expires, seeing 403s.
+
+  THE LOOP BREAKER IS THE LOGIN PAGE. Every failure lands on
+  /operator/login WITH a reason parameter, and that page does not attempt
+  rotation when a reason is present. Without it an outage bounces
+  login -> refresh -> login forever.
+
+2.3 THE CHROME SPLIT (14A-4)
+
+app/layout.tsx rendered Navbar and Footer on EVERY route, including the
+console and the public tracking page. A nested layout cannot remove them -
+a nested layout renders inside its parent.
+
+So app/ now has NO root layout, and there are two:
+
+  app/(site)/layout.tsx      html/body/fonts + Navbar + Footer
+  app/(console)/layout.tsx   html/body/fonts, NO chrome
+
+  URLs DID NOT CHANGE. Route group names in parentheses never appear in a
+  URL. The build produced the same 17 routes before and after.
+
+  THE FONT DEBT GOT WORSE. Two root layouts means two next/font/google
+  blocks and twice the build-time fetches to fonts.gstatic.com - the
+  dependency that killed the bd30be5 build. Ultra 34 section 8.1 stands and
+  is now more urgent.
+
+  THE SHELL DOES NOT GUARD, DELIBERATELY. (protected)/layout.tsx renders
+  chrome; every protected page keeps its own getSessionState() check. A
+  layout guard only covers what it happens to wrap, and a route added
+  outside it is silently unprotected - the same argument the operator page
+  already makes against middleware.
+
+2.4 FACILITY CONTEXT (14A-5)
+
+GET /users/me now returns a nested facility projection: id, name, type,
+isActive, isVerified. Five fields, no address, no coordinates, no phone,
+no staff list.
+
+  UsersService.findById WAS WIDENED RATHER THAN DUPLICATED, and that
+  reverses Ultra 34 section 3's reasoning for a measured reason: findById
+  has exactly two runtime callers, and the other one -
+  incident-orchestrator.service.ts:79 - reads firstName and lastName only.
+  A nested relation is invisible to it.
+
+  facilityId IS SERVER-AUTHORITATIVE AND STAYS THAT WAY. It is not cached
+  in a cookie or localStorage. getOperatorContext() is wrapped in React
+  cache() so the shell and the page share one call per render.
+
+  isVerified IS CARRIED BUT NOT DISPLAYED. The header answers "which
+  facility am I monitoring", not "what is this facility's standing", and
+  OPA Demo Estate is isVerified FALSE. An "Unverified" badge above a live
+  queue would imply the estate is unauthorised.
+
+  AN ADMIN GETS A PLAIN EXPLANATION, NOT A DEAD END. facilityId is null
+  for ADMIN, so the context bridge returns 409 and the console says "This
+  account has no facility assigned." The session stays valid.
+
+2.5 THE OPERATOR QUEUE (14A-6)
+
+  GET /operator/incidents   API, new controller, new guard
+
+WHY A SECOND ROUTE when /facilities/:facilityId/incidents already worked:
+the console would otherwise need the facility id in the browser to build
+that URL. It could - FacilityOperatorGuard is the real boundary - but then
+the browser holds a fact the server could supply, the bridge grows a query
+parameter any authenticated caller can point anywhere, and a 403 path has
+to exist for a reassigned operator. Deriving the facility from the token
+removes all three at the cost of one controller.
+
+  OperatorFacilityGuard BOTH AUTHORIZES AND ESTABLISHES CONTEXT. It reads
+  the user row once and attaches request.operatorFacilityId. The
+  alternative is reading the same row twice per 5-second poll.
+
+  IT REFUSES AN ADMIN WITH NO FACILITY, and that is the one place it
+  differs from FacilityOperatorGuard. That guard gives admins a cross-tenant
+  override because a facility is named in the URL to override TO. Here there
+  is nothing to override to.
+
+  A METHOD-LEVEL GUARD ON FacilitiesController WOULD NOT HAVE WORKED. Nest
+  guards are ADDITIVE, not overriding. The class-level FacilityOperatorGuard
+  reads params.facilityId and would refuse a route that has none.
+
+The website polls every 5 seconds, pauses while document.hidden, fetches
+immediately on becoming visible, recovers a 401 with one rotation and one
+retry, stops permanently on 403, and NEVER lets a failed poll empty the
+queue - only a 200 replaces what is on screen.
+
+2.6 INCIDENT DETAIL (14A-7)
+
+  GET /incidents/:incidentId   API, new controller, IncidentAccessGuard
+
+READ-ONLY, AND THAT IS A PRODUCT DECISION NOT AN OMISSION. No resolve, no
+cancel, no acknowledge. incidents.service.ts states it: only the incident
+owner may close an incident, because a Command Centre operator resolving
+somebody else's emergency is a claim about the world made by an interested
+party. A verify check in the installer fires if any write verb appears on
+that controller.
+
+The projection excludes metadata (dispatch plumbing), trustedContact
+(untyped JSON that may carry a third party's details), facilityId, and
+every relation. It includes journeySessionId, which nothing renders - 14A-8
+needs it and this saves widening the projection later.
+
+  THE PAGE SAYS "A location tracking session is linked", NOT "live". The
+  projection returns the session id and not its state, and close() ends the
+  session when an incident resolves - so a linked id on a closed incident
+  belongs to a stream that has stopped.
+
+  CANCELLED GETS ITS OWN BRANCH. close() writes resolvedAt only for
+  RESOLVED, deliberately null for CANCELLED, because "an insurer, an auditor
+  and a hospital risk committee will read 'this did not happen' and 'this
+  happened and is over' very differently". Rendering "Resolved: -" would
+  flatten that.
+
+
+================================================================================
+3. THREE DEFECTS FOUND AND FIXED
+================================================================================
+
+3.1 A RESOLVED INCIDENT STAYED ON SCREEN FOREVER
+
+mergePages() fell through to a boundary path on an empty fresh page, took
+POSITIVE_INFINITY as the boundary, and preserved every existing row. An
+operator would have watched a closed emergency until they reloaded.
+
+FOUND BY RESOLVING A LIVE INCIDENT AND WATCHING THE QUEUE NOT CHANGE. Not
+by a test - apps/website has none.
+
+Fixed by asking the server: hasMore=false means page 1 IS the live set, so
+the fresh page replaces everything. That covers the empty case without
+special-casing it. A first fix handled only fresh=[] and left the sibling
+bug one row up - two loaded, one resolves, and the boundary path kept it.
+
+3.2 THE DETAIL PAGE SHOWED THE WRONG INCIDENT
+
+Navigating from /operator/incidents/A to /B keeps the same route pattern,
+so React reconciled IncidentDetailView as the same element and did NOT
+remount it. useState kept A's data and poll() kept calling A's endpoint.
+The URL said B; the screen showed A.
+
+FOUND BY NOTICING THAT A QUEUE ROW CREATED AT 11:58 OPENED A DETAIL PAGE
+DATED 11:44. In an emergency console, clicking one emergency and being
+shown another is close to the worst UI defect available.
+
+Fixed with key={result.incident.id} on the client component.
+
+THIS FIX IS REASONED, NOT OBSERVED. Reproducing it needs two clicks through
+two different open incidents, which needs two simultaneously-open
+incidents, which is impossible with one assigned resident - see 7.1.
+
+3.3 SIGN OUT NAVIGATED TO RAW JSON
+
+The logout route returned NextResponse.json({ ok: true }). A form POST
+NAVIGATES to whatever the POST returns, so the operator landed on
+{"ok":true} with no way back. It went unnoticed while the button sat in a
+page body; 14A-4 moved it into the permanent shell where every operator
+presses it at the end of every shift.
+
+Fixed with a 303 redirect to /operator/login.
+
+
+================================================================================
+4. PRODUCTION VERIFICATION - AND WHAT IT CAUGHT
+================================================================================
+
+THE COMMAND CENTER WAS DEPLOYED BUT NOT WORKING ON opasafety.com, AND
+NOBODY KNEW. Every website commit had deployed green to Vercel for days.
+
+  OPA_API_URL WAS NOT SET IN VERCEL. The project had NO environment
+  variables at all. Every production sign-in returned 503 "Sign-in is
+  unavailable." The local .env.local is gitignored and never ships.
+
+  THIS ALSO MEANS THE PUBLIC TRACKING PAGE /i/[token] HAS BEEN BROKEN IN
+  PRODUCTION SINCE IT SHIPPED. lib/tracking.ts reads the same variable.
+  NOT YET VERIFIED - do it. A family member following an SOS link would
+  have seen "unavailable".
+
+Fixed by adding the variable to the Vercel project (All Environments) and
+redeploying. VERCEL BAKES ENV VARS AT BUILD TIME - adding one changes
+nothing until a redeploy.
+
+Verified on the real domain afterwards:
+
+  login as operator@opasafety.com                     OK
+  facility context "OPA Demo Estate / Security Provider"  OK
+  queue renders, LIVE indicator polling               OK
+  BOTH cookies HttpOnly AND Secure over HTTPS         OK
+  document.cookie returns ''                          OK
+  a real SOS from the phone appeared in 11 SECONDS    OK
+  clicking a card opens its detail page               OK
+
+THE Secure FLAG HAD NEVER EXECUTED BEFORE. Every local test ran on http,
+where secure is deliberately false so the dev server is not silently
+unauthenticated. This was its first run.
+
+
+================================================================================
+5. THE ADMIN PASSWORD IS ROTATED
+================================================================================
+
+Ultra 35 section 6 item 1 - the only outstanding item with a live security
+consequence - is CLOSED.
+
+  PSReadline history cleared and its file removed.
+  info@opasafety.com password rotated and verified through the real login
+  path, not just by a bcrypt check inside the container.
+
+HOW, because there is still no password-change endpoint: a node script run
+from the App Service SSH console, reading the new password with a muted
+readline prompt, hashing with bcrypt, updating the row, then verifying with
+bcrypt.compare. The script was deleted afterwards.
+
+  BCRYPT_ROUNDS COMES FROM CONFIG, NOT A LITERAL. auth.service.ts reads
+  this.config.getOrThrow<number>('BCRYPT_ROUNDS'). The bcrypt.hash(..., 10)
+  in auth.service.spec.ts is a TEST FIXTURE. Any direct hash write must read
+  the env var.
+
+  DO NOT PASTE A PASSWORD INTO AN INLINE node -e IN BASH. History expansion
+  ate every "!" in the first attempt and silently mangled the script. Write
+  it to a file with a quoted heredoc instead.
+
+charles@opasafety.com was NOT exposed and was not rotated.
+
+
+================================================================================
+6. THE GOOGLE GEOCODING LICENSING GATE - 14A-8a IS BLOCKED
+================================================================================
+
+THE OPERATOR SEES COORDINATES, NOT AN ADDRESS, AND THAT IS CORRECT
+BEHAVIOUR RATHER THAN A UI SHORTCUT.
+
+GeocodingProvider is a MOCK. providerName is literally
+'MockGeocodingProvider', dataConfidence is 'MOCK', and it returns
+"12 Allen Avenue, Ikeja, Lagos" FOR ANY COORDINATE ON EARTH. So are the
+places, hospital, police, routing and safe-place providers.
+
+EmergencyIntelligenceService then nulls every geocoding-derived field
+before it reaches a response, and ProviderConfidenceValidator refuses to
+boot unless OPA_BOOT_WITH_SUPPRESSED_MOCKS=true. The validator's own
+comment says why: "a responder could be sent to the wrong place."
+
+So the suppression layer is working exactly as designed, and no amount of
+website work produces an address.
+
+There are TWO independent reasons the console shows coordinates:
+
+  1. The geocoder is a mock, so the address is suppressed to null.
+  2. Even when it is not null, the intelligence is computed for
+     NOTIFICATIONS and discarded. Nothing writes it to Incident.address.
+     incident-orchestrator.service.ts:153-159 documents the workaround -
+     it sends a maps.google.com coordinate link instead.
+
+FIX ONLY THE PROVIDER and the notification gets a real address while the
+console still shows coordinates. FIX ONLY THE PERSISTENCE and you write
+"12 Allen Avenue" onto every incident on earth. Both must land, provider
+first.
+
+6.1 THE DESIGN IS FULLY SPECIFIED AND PROVIDER-NEUTRAL
+
+  GeocodingSweepService in emergency-intelligence (that module already owns
+  the provider and the confidence boundary)
+  @Cron every 60 seconds, batch 10, max 5 attempts, backoff 1m/5m/15m/1h
+  Opt-in by OPA_GEOCODING_SWEEP_ENABLED, default false, so local dev and
+  test never burn quota
+  Retry state in Incident.metadata, never exposed to the console
+  Writes only accepted addresses to the existing Incident.address column
+  NEVER overwrites a non-null address - there is no addressSource
+  provenance field, so overwriting would destroy information we cannot
+  explain
+  Coordinates always remain the fallback; OPA never fabricates an address
+
+  IT MUST NOT RUN ON THE SOS PATH. A Google timeout, outage, quota error or
+  DNS problem must never delay incident creation.
+
+  IT MUST NOT RUN ON THE 5-SECOND POLL. That would geocode every row of
+  every render.
+
+  THE ACCEPTANCE FUNCTION MATTERS AS MUCH AS THE CALL. Parse
+  address_components by semantic TYPE, never by array position - Google
+  documents that the number of components varies, a component can change
+  position, its type can change, and a component may be missing in a later
+  response. Reject: empty formatted_address, plus-code-only results (a
+  single result with no components, no formatted address and no types),
+  and country/state/postal-only results. Distinguish ZERO_RESULTS (do not
+  retry) from OVER_QUERY_LIMIT (retry later) from REQUEST_DENIED (never
+  retry, alert).
+
+6.2 WHAT IS BLOCKED, AND WHY
+
+Google Maps Platform Service Specific Terms, last modified 10 June 2026,
+non-EEA:
+
+  6.3.2 permits INDEFINITE caching of latitude, longitude,
+  formatted_address and structured address values "solely to support the
+  direct, End User facing functionality of the Customer Application that
+  initiated the request", where cached data "must be logically isolated to
+  the specific End User it is associated with and must not be used across
+  multiple End Users."
+
+  6.2 states Geocoding API content must not be used in conjunction with a
+  non-Google map.
+
+OPA's operators are DIFFERENT PEOPLE from the resident who triggered the
+SOS, and the planned post-incident report would send the address to an
+insurer or an estate. Whether that is "used across multiple End Users" is
+exactly what 6.3.2 does not settle - its examples are a weather app and a
+photograph, both single-user.
+
+And 6.2 couples the geocoder choice to the MAP choice: a Google-derived
+address displayed beside a Leaflet or Mapbox map may breach it.
+
+A SUPPORT CASE HAS BEEN RAISED asking both questions, in writing, by email,
+citing the dated non-EEA terms and stating plainly that operators are
+separate individuals. FIND THE CASE NUMBER AND ATTACH IT HERE.
+
+  DO NOT TREAT A REPLY THAT LINKS BACK TO THE TERMS AS APPROVAL. Front-line
+  support often cannot interpret contract language. Escalate to Maps
+  Platform sales/contracts before committing the architecture.
+
+  AN EARLIER READING OF THIS WAS WRONG AND IS RECORDED SO IT IS NOT
+  REPEATED. Web searches returned ARCHIVED term versions and third-party
+  blog commentary, all of which predate 6.3.2, and the conclusion drawn -
+  "Google does not permit storing the formatted address" - was too broad.
+  The current live terms page settled it. READ THE VENDOR'S LIVE DOCUMENT,
+  NOT COMMENTARY ABOUT IT.
+
+6.3 THE GOOGLE ACCOUNT AS IT STANDS
+
+  project        OPA Safety Production / opa-safety-production
+  billing        linked, free trial, $300 credit, 90 days
+  Geocoding API  enabled
+  API key        created, RESTRICTED TO GEOCODING API ONLY (was 35 APIs)
+  application restrictions  NONE, deliberately
+
+  WHY NONE: the only applicable option is IP addresses, and App Service
+  outbound IPs are a set Azure can change on scale or move operations.
+  Pinning them means geocoding silently stops the next time that happens.
+  In an emergency console that is worse than the risk it prevents.
+
+  THE DAILY QUOTA CAP COULD NOT BE SET - the free trial does not permit
+  editing quotas. THE TRIAL CREDIT IS ITSELF A CAP, so this is acceptable
+  now. IT IS A HARD PREREQUISITE FOR UPGRADING TO PAID: the day billing
+  moves to a real card without a daily cap is the day a loop becomes
+  expensive. Google Maps Platform budgets alert; they do not stop.
+
+  THE KEY IS NOT IN OPA PRODUCTION AND MUST STAY OUT until the licensing
+  answer arrives.
+
+
+================================================================================
+7. GAPS - VERIFIED BY REASONING, NOT BY OBSERVATION
+================================================================================
+
+Everything in this section works as far as anyone can tell. None of it has
+been watched working.
+
+7.1 THE DETAIL PAGE key FIX
+
+Section 3.2. Reproducing the bug needs two clicks through two different
+open incidents. ONE RESIDENT CAN HOLD ONLY ONE OPEN INCIDENT - the mobile
+app stays in the emergency-activated state until the resident presses
+"I'm safe" or cancels. And only one resident is assigned to OPA Demo
+Estate.
+
+TO TEST IT: assign firefoxemmanuel@gmail.com to the facility as a second
+resident, trigger from both devices, then click one card, go back, click
+the other, and check the URL id matches the timestamp shown. That also
+gives the demo a two-row queue.
+
+Note trap #185: assignment only affects FUTURE incidents.
+
+7.2 THE 403 BRANCH ON INCIDENT DETAIL
+
+There is one facility, so an operator cannot be denied an incident that
+exists. The page's access-denied state has never rendered from a real 403.
+
+7.3 mergePages WITH hasMore=true, AND LOAD MORE
+
+Production has never had more than 25 live incidents. Neither the boundary
+merge nor the Load more button has executed.
+
+7.4 THE MIGRATION GUARD'S BLOCKING PATH
+
+Unchanged from Ultra 34 section 5. Only the quiet path is proven. The first
+migration-bearing push is still its first live test.
+
+7.5 THE PUBLIC TRACKING PAGE IN PRODUCTION
+
+Section 4. It reads OPA_API_URL, which was missing from Vercel until this
+session. It should work now. NOBODY HAS OPENED A TRACKING LINK ON
+opasafety.com TO CHECK.
+
+
+================================================================================
+8. STRUCTURAL GAPS
+================================================================================
+
+8.1 apps/website HAS NO TEST RUNNER AT ALL
+
+Jest is configured in apps/api only. The website has 44 suites' worth of
+nothing.
+
+BOTH WEBSITE DEFECTS THIS SESSION WOULD HAVE BEEN CAUGHT BY A FIVE-LINE
+UNIT TEST. mergePages shipped broken and was found by accident, by
+resolving a live incident and watching. The detail-page bug was found by
+noticing two timestamps disagreed.
+
+This is the highest-value unaddressed item in the repository.
+
+8.2 THE GUARD-ATTACHMENT SPEC CANNOT SEE METHOD-LEVEL GUARDS
+
+controller-guard-attachment.spec.ts exists precisely to catch "a correct
+guard on an undecorated controller is an unprotected endpoint with a
+passing test suite". It reads Reflect.getMetadata(GUARDS_METADATA, target)
+on the CLASS. A method-level @UseGuards is invisible to it.
+
+Both new controllers this session use class-level guards, so both are
+covered - but the suite's doc comment claims more than it proves. Trap
+#191.
+
+8.3 THERE IS NO .gitattributes AND THE REPO HAS MIXED LINE ENDINGS
+
+Some files are CRLF from checkout, others LF because an installer rewrote
+them. Some have a UTF-8 BOM, others do not.
+
+THIS BROKE INSTALLER ANCHORS REPEATEDLY. A multi-line anchor written with
+LF silently misses a CRLF file even though every line is present. Two
+installers stripped a BOM and produced an unrelated line-1 diff that had to
+be reverted by hand.
+
+Adding "* text=auto" would prevent the next person seeing spurious
+whole-file diffs. Every installer written after this discovery detects the
+target file's own line ending and BOM and preserves both.
+
+8.4 .next GOES STALE AFTER A BUILD AND GIVES A PHANTOM 404
+
+Running npm run build while a dev server is live can leave the dev route
+table inconsistent. /operator returned 404 while the build listed all 21
+routes and the files were present on disk.
+
+THIS COST DIAGNOSIS TIME FOUR SEPARATE TIMES. The fix is always:
+
+  Ctrl+C; Remove-Item -Recurse -Force .next; npm run dev
+
+8.5 TRAP #171 FIRED FOUR MORE TIMES, ALL SELF-INFLICTED
+
+A verify check that greps for a token appearing legitimately elsewhere in
+the same file will fire falsely. Four installers failed on exactly this:
+
+  'getSessionState'  matched the doc comment explaining why the guard
+                     lives in the page and not the layout
+  'email'            matched "No email, no phone number, no token"
+  'isVerified'       matched "isVerified is available and NOT shown"
+  'Date.now()'       matched "AGE IS COMPUTED AGAINST serverTime, NOT
+                     Date.now()"
+
+Every one was a correct file failed by its own prose. The lesson is not
+"remember the trap" - the warning was written in the header of the very
+installers that then violated it. It is that a grep over a file which
+documents its own decisions is inherently prone to this, and checks must be
+written against SYNTAX from the start: `email:` not `email`,
+`await getSessionState(` not `getSessionState`.
+
+
+================================================================================
+9. STILL OPEN FROM ULTRA 34 AND 35 - NONE OF THIS WAS TOUCHED
+================================================================================
+
+9.1 SPRINT 11A IS STILL UNDIAGNOSED
+
+The zero-fix drive from Ultra 33 section 0 has never been diagnosed. The
+adb logcat run has not happened. No production row shows source='background'
+recorded while the screen was locked.
+
+The exclusive-or design remains the prime suspect: startBackgroundCapture
+returns true, the foreground watcher never starts, and the task never
+delivers.
+
+DO NOT MARK 11A DONE. The bar is unchanged: a production row with
+source='background' recorded while the screen was locked.
+
+9.2 THERE IS NO RATE LIMITING
+
+ThrottlerModule.forRoot in app.module REGISTERS the module; nothing APPLIES
+it. No ThrottlerGuard, no APP_GUARD, no @Throttle anywhere in apps/api/src.
+No rate limiting on any route, including /auth/login and /auth/activate.
+
+SPRINT_ROADMAP.md:303 is still measured wrong.
+
+This now matters more: /operator/incidents is polled every 5 seconds per
+operator, and nothing bounds a misbehaving client.
+
+9.3 THE JWT CARRIES A ROLE NOTHING SHOULD TRUST
+
+JwtPayload has sub, email and role, and validate() returns it unchanged.
+All four guards now correctly ignore it and re-read from PostgreSQL.
+Nothing stops the next controller reaching for it.
+
+9.4 POST /incidents IS A SECOND CREATION DOOR
+
+incidents.controller.ts calls create() directly, bypassing the
+orchestrator: no journey session, no notifications. Either wire it properly
+or mark it internal.
+
+9.5 Facility.staff IS A MISLEADING NAME
+
+The relation returns operators AND residents because User.facilityId is one
+column. listFacilityMembers partitions by role rather than trusting the
+name.
+
+9.6 DEACTIVATING A FACILITY DOES NOT REVOKE ANYTHING
+
+Facility.isActive gates PROVISIONING only, deliberately. Making
+deactivation mean revocation needs an atomic workflow that also reassigns
+residents and revokes operator access.
+
+9.7 NO PASSWORD CHANGE, RESET, OR PHONE UPDATE ENDPOINT
+
+AuthController has register, login, activate. Nothing else.
+
+The info@ rotation this session was done by direct database write from the
+App Service SSH console. That is not a process anyone should repeat
+routinely.
+
+  no password reset - a locked-out operator cannot be recovered
+  no password change - a weak password cannot be strengthened
+  no phone update - see 9.8
+
+An account self-service sprint is overdue.
+
+9.8 OPERATOR SEATS NEED A PERMANENT UNIQUE PHONE NUMBER FOR A FIELD
+    NOTHING READS
+
+User.phoneNumber is non-null and unique, inherited from consumer
+registration. An operator is a login; they do not receive SOS alerts.
+
+FIVE GUARDS AT ONE ESTATE MEANS FIVE PERMANENT, UNIQUE, UNCHANGEABLE
+NUMBERS. This will be a real obstacle at the first estate onboarding.
+
+9.9 THERE IS NO OPERATOR ACTIVATION UI
+
+The API returns the path /operator/activate/<token> "for the future web
+page". THAT PAGE DOES NOT EXIST. A provisioned operator cannot activate
+their own seat through a browser - activation currently requires calling
+POST /auth/activate directly.
+
+This is a bigger gap than it looks: it is the entire operator onboarding
+flow.
+
+9.10 operator@opasafety.com HAS NO MAILBOX
+
+Created in M365 as an unlicensed identity. Fine today because activation
+returns the token in the API response, but password reset will need
+somewhere to send to.
+
+9.11 NOTIFICATION CHANNELS
+
+DND blocking SMS to Nigerian numbers. WhatsApp needs a WABA. Email
+unconfigured. Push reaches only people who have OPA installed. The push,
+voice and WhatsApp providers all log "NOT IMPLEMENTED" and return no
+messageId, deliberately.
+
+A POST-INCIDENT REPORT ENGINE WITH NO WORKING OUTBOX IS A REPORT NOBODY
+RECEIVES. See section 11.
+
+9.12 THE JOURNEY SESSION ACTIVE SINCE 6 AUGUST
+
+Untouched.
+
+9.13 THE THREE WEBSITE DEBTS
+
+  self-host Archivo via next/font/local - MORE URGENT NOW, see 2.3
+  outputFileTracingRoot and turbopack.root disagree on every build
+  the middleware convention is deprecated in Next 16; migrate to proxy
+
+The middleware one is now load-bearing for a decision: 14A-4 deliberately
+did NOT use middleware for auth, partly because the convention is being
+removed.
+
+
+================================================================================
+10. THINGS DISCOVERED THAT ARE NOT BUGS
+================================================================================
+
+10.1 ONE RESIDENT, ONE OPEN INCIDENT
+
+The mobile app holds the resident in the emergency-activated state until
+they press "I'm safe" or cancel as a false alarm. A second SOS is not
+possible until then. Separately, a 60-second dedupe window re-triggers an
+existing incident rather than creating a new one.
+
+CONSEQUENCE: a multi-row queue needs multiple assigned residents. Monday's
+demo will show one row unless a second resident is assigned.
+
+10.2 THE COORDINATES DIFFER BETWEEN INCIDENTS BY METRES
+
+33.14823 / 33.14826 / 33.14827 / 33.14832. Four incidents were created
+during testing and it became easy to lose track of which was which. Read
+the id, not the position.
+
+10.3 lastTriggeredAt CAN PRECEDE createdAt
+
+By milliseconds. One is a device clock, the other is the server's. NEVER
+compute a duration between them. Age is computed from createdAt against a
+serverTime the bridge stamps - the browser clock never enters the
+comparison, for the same reason PublicTrackingResponse carries serverTime.
+
+10.4 latitude AND longitude ARRIVE AS STRINGS
+
+Prisma Decimal over JSON. Validate with Number.isFinite before converting;
+a non-finite value is OMITTED rather than rendered as NaN.
+
+10.5 Incident.address IS FREQUENTLY NULL AND THAT IS HONEST
+
+See section 6.
+
+
+================================================================================
+11. AUTOMATED POST-INCIDENT REPORTING - ARCHITECTURE DECIDED, NOT BUILT
+================================================================================
+
+A requirement recorded this session. NOT to be built until 14A-8 through
+14A-11 exist, because those slices produce most of the data it consumes.
+
+It sits AFTER incident closure and BEFORE audit/archival:
+
+  RESOLVED / CANCELLED
+    -> freeze incident snapshot
+    -> gather timeline, locations, evidence metadata, notifications
+    -> generate structured facts (deterministic)
+    -> AI summarises a narrative FROM THOSE FACTS ONLY
+    -> render report
+    -> authorized delivery
+    -> audit / archive
+
+  AI IS NOT THE SOURCE OF TRUTH. The database and the timeline are. The
+  narrative generator is the highest-risk place in the whole system for the
+  omission rule to break, because prose fills gaps invisibly where a null
+  field does not. If OPA does not know which guard arrived, the report
+  cannot say one did.
+
+FOUR CONSTRAINTS ALREADY KNOWN:
+
+  Some data the pipeline wants DOES NOT EXIST. "Operator actions" and "who
+  physically responded" have no source - nothing writes ACKNOWLEDGED and
+  dispatch is forbidden by ADR. The report can state notifications sent and
+  delivery status, not response.
+
+  DELIVERY HAS NO WORKING CHANNEL. See 9.11.
+
+  "FREEZE THE SNAPSHOT" NEEDS A DECISION. Regenerate on demand from live
+  data, or freeze at closure? An insurer reading a report a year later
+  should get what was true at closure.
+
+  CANCELLED AND RESOLVED MUST NOT COLLAPSE. See 2.6.
+
+  AND THE GEOCODING LICENCE BEARS ON IT DIRECTLY. A report handed to an
+  insurer is neither "End User facing functionality" nor "isolated to the
+  specific End User". Section 6.
+
+
+================================================================================
+12. THE 14A CHECKLIST
+================================================================================
+
+  14A-0   Production provisioning dry run   DONE
+  14A-1   Operator Login                    DONE, verified in production
+  14A-2   Operator Session                  DONE, verified in production
+  14A-3   Automatic Token Refresh           DONE, observed recovering live
+  14A-4   Protected Operator Shell          DONE
+  14A-5   Facility Context                  DONE, both halves
+  14A-6   Incident Queue                    DONE, both halves
+  14A-7   Incident Detail                   DONE, both halves
+  14A-8a  Initial Address                   BLOCKED on Google licensing
+  14A-8b  Live Location                     deferred until 8a resolves
+  14A-8c  Map                               deferred; map choice is coupled
+                                            to geocoder licensing, see 6.2
+  14A-9   Incident Timeline                 NOT STARTED - NEXT
+  14A-10  Evidence Viewer                   NOT STARTED
+  14A-11  Facility Membership View          NOT STARTED
+  14A-12  Responsive UX / Polish            NOT STARTED
+  14A-13  End-to-end Demo Verification      NOT STARTED
+
+Ultra 30's ten-to-fourteen-day estimate for Command Center Phase 1 has not
+changed.
+
+BLOCKED, DO NOT BUILD:
+  Acknowledgement or incident ownership - nothing writes ACKNOWLEDGED.
+  Dispatch, assignment, responder command - ADR forbids it.
+  ETA, battery, network, device-online - no data exists.
+
+
+================================================================================
+13. TRAPS ADDED THIS SESSION
+================================================================================
+
+Numbering continues from Ultra 35's #190.
+
+#191  A GUARD-ATTACHMENT SPEC THAT READS CLASS METADATA CANNOT PROVE A
+      METHOD-LEVEL GUARD IS ATTACHED. controller-guard-attachment.spec.ts
+      calls Reflect.getMetadata(GUARDS_METADATA, target) on the class. A
+      method-level @UseGuards is invisible to it - and its own doc comment
+      claims to catch exactly that failure mode.
+
+#192  A MULTI-LINE ANCHOR MISSES ON THE LINE ENDING IT WAS NOT WRITTEN FOR.
+      This repo has both CRLF and LF files and both BOM and no-BOM files,
+      with no .gitattributes. An installer written in LF silently fails to
+      match a CRLF file even though every line is present. Detect the target
+      file's own ending and BOM; preserve both.
+
+#193  A BUILD LEAVES THE DEV SERVER'S ROUTE TABLE STALE. npm run build
+      while dev is running produced a 404 on a route the build had just
+      listed, four separate times. Clear .next before npm run dev.
+
+#194  A SUCCESSFUL EMPTY FIRST PAGE IS AUTHORITATIVE. mergePages preserved
+      every existing row when the fresh page was empty, leaving a resolved
+      emergency on screen forever. hasMore=false means page 1 IS the live
+      set. Ask the server whether it is telling you everything.
+
+#195  REACT DOES NOT REMOUNT A CLIENT COMPONENT WHEN ONLY A ROUTE PARAMETER
+      CHANGES. Navigating between two detail pages kept the first
+      incident's state and kept polling the first incident's endpoint, under
+      the second incident's URL. key={id} forces the remount.
+
+#196  A FORM POST NAVIGATES TO ITS RESPONSE. A route handler returning JSON
+      to an HTML form leaves the user staring at {"ok":true}. Redirect with
+      303 for POST -> GET.
+
+#197  VERCEL BAKES ENVIRONMENT VARIABLES AT BUILD TIME. Adding one changes
+      nothing until a redeploy. And a variable set on the wrong project, or
+      scoped to Preview but not Production, fails only on the real domain -
+      the most confusing possible variant.
+
+#198  A MISSING ENV VAR IN PRODUCTION IS INDISTINGUISHABLE FROM AN API
+      OUTAGE FROM THE OUTSIDE. Both render "Sign-in is unavailable" (503).
+      Only the server log separates them, and only the "not configured"
+      branch logs a distinct line. Check the log, not the status.
+
+#199  READ THE VENDOR'S LIVE TERMS PAGE, NOT COMMENTARY ABOUT IT. Search
+      results returned archived versions and blog posts, all predating the
+      clause that decided the question. A conclusion was drawn and had to be
+      retracted.
+
+#200  A MOCK PROVIDER BEHIND A SUPPRESSION LAYER MEANS null IS CORRECT.
+      Incident.address is null because ProviderConfidenceValidator and
+      EmergencyIntelligenceService are deliberately keeping a fabricated
+      address out of a responder's hands. Before "fixing" a null field,
+      check whether something is refusing to lie.
+
+#201  ONE RESIDENT CAN HOLD ONLY ONE OPEN INCIDENT. The app stays in the
+      emergency-activated state until resolved or cancelled, and a 60-second
+      dedupe window re-triggers rather than creating. A multi-row queue
+      needs multiple residents, which is a provisioning task, not a code
+      task.
+
+#202  A CREDENTIAL TYPED INTO AN INLINE node -e IN BASH LOSES EVERY "!" TO
+      HISTORY EXPANSION. The script was silently mangled -
+      "!Number.isInteger: event not found". Write it to a file with a quoted
+      heredoc.
+
+
+================================================================================
+14. STANDING RULES - AMENDED
+================================================================================
+
+Verified state before anything else:
+
+  $env:GIT_PAGER='cat'
+  cd C:\Projects\OPA; "head=$(git rev-parse --short HEAD)";
+  "porcelain=" + @(git status --porcelain).Count
+
+Five gates, unpiped, each separately:
+
+  cd apps\api;        npx jest                     44 suites / 439 tests
+  cd apps\api;        npm run test:int              7 suites /  35 tests
+  cd apps\api;        npx tsc --noEmit              exit 0
+  cd apps\mobile-app; npm test                      3 suites /  53 tests
+  cd apps\mobile-app; npx tsc --noEmit              exit 0
+
+  test:int NEEDS DOCKER. docker compose up -d, wait for healthy.
+
+Website gate:
+
+  cd apps\website;    npm run build                 exit 0, 21 routes
+
+MIGRATIONS FIRST, THEN CODE. Unchanged.
+
+VERIFY BY EXERCISING A REAL PATH. /health returns 200 on a broken build.
+This session extended the rule: a green Vercel deployment proves nothing
+about whether the site works, because env vars are a separate axis. Open
+the page and sign in.
+
+BEFORE npm run dev AFTER A BUILD, CLEAR .next. See #193.
+
+EVERY INSTALLER GETS A PRE-RUN VERIFICATION BLOCK stating expected bytes,
+sha256, head and porcelain. A browser saving "(1)" copies caused four
+wrong-file runs this session.
+
+INSTALLER VERIFY CHECKS ASSERT ON SYNTAX, NOT WORDS. See 8.5.
+
+STATE PREDICTED COUNTS AS PREDICTIONS. Every prediction this session was
+confirmed exactly - 425, 433, 439 - which is what makes the practice worth
+keeping.
+
+
+================================================================================
+15. THE RESTART POINT
+================================================================================
+
+15.1 IMMEDIATE NEXT ACTION: 14A-9 INCIDENT TIMELINE
+
+Fully unblocked. GET /incidents/:incidentId/timeline already exists,
+IncidentAccessGuard already admits operators, and it needs no geocoder and
+no map. It is the largest piece of genuinely available work.
+
+The timeline is a HASH CHAIN with a verifyChain endpoint. Whether the
+console surfaces verification, and what it says when the chain does not
+verify, is a real design question and not a detail.
+
+15.2 MONDAY, BEFORE THE DEMO
+
+  1. Trigger a fresh SOS from the phone and LEAVE IT OPEN. Do this SHORTLY
+     BEFORE the demo - an incident created tonight will read "3d ago".
+     The queue is empty as of this writing.
+
+  2. Open opasafety.com/operator and confirm it appears within 5 seconds.
+
+  3. Consider assigning firefoxemmanuel@gmail.com to OPA Demo Estate for a
+     two-row queue. That also makes 7.1 testable.
+
+15.3 WHEN GOOGLE REPLIES
+
+  Read section 6. If the answer is yes to both questions, 14A-8a is
+  writable as specified and needs no further design. If no to 6.3.2, or if
+  6.2 forecloses the map choice, evaluate providers licensed for permanent
+  storage and redistribution - and remember that Nigeria coverage quality
+  is a data question no contract answers. It needs real Lagos and Abuja
+  coordinates put through each candidate and compared.
+
+15.4 THE HIGHEST-VALUE UNADDRESSED ITEM
+
+A test harness for apps/website. Section 8.1. Two shipped defects this
+session, both trivially unit-testable, both found by accident.

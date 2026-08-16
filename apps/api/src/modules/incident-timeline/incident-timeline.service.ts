@@ -2,6 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import {
+  toReaderTimelineEvent,
+  type ReaderTimelineEvent,
+} from './dto/timeline-event.dto';
 
 export interface RecordTimelineEventParams {
   incidentId: string;
@@ -97,11 +101,30 @@ export class IncidentTimelineService {
     return outerTx ? append(outerTx) : this.prisma.$transaction(append);
   }
 
+  /**
+   * The RAW read. Every column, including payload and the hash chain,
+   * because verifyChain recomputes from all of it.
+   *
+   * NOT SAFE TO RETURN TO A READER - see getTimelineForReader.
+   */
   getTimeline(incidentId: string) {
     return this.prisma.incidentTimelineEvent.findMany({
       where: { incidentId },
       orderBy: { sequence: 'asc' },
     });
+  }
+
+  /**
+   * The same events, projected to what a reader may see.
+   *
+   * The allowlist lives in dto/timeline-event.dto.ts so write-time
+   * knowledge of payload shapes stays on this side of the API.
+   */
+  async getTimelineForReader(
+    incidentId: string,
+  ): Promise<ReaderTimelineEvent[]> {
+    const events = await this.getTimeline(incidentId);
+    return events.map((event) => toReaderTimelineEvent(event));
   }
 
   /**

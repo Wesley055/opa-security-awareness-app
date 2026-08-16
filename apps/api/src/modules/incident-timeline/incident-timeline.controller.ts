@@ -10,7 +10,7 @@ export class IncidentTimelineController {
 
   @Get()
   getTimeline(@Param('incidentId') incidentId: string) {
-    return this.timelineService.getTimeline(incidentId);
+    return this.timelineService.getTimelineForReader(incidentId);
   }
 
   @Get('verify')

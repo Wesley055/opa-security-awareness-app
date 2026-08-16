@@ -954,3 +954,214 @@ verify, is a real design question and not a detail.
 
 A test harness for apps/website. Section 8.1. Two shipped defects this
 session, both trivially unit-testable, both found by accident.
+
+
+================================================================================
+16. ADDENDUM - 14A-9 INCIDENT TIMELINE, AND WHAT IT FOUND
+================================================================================
+
+Written 16 August 2026, after Ultra 36's main body. HEAD a22ef32.
+
+  e9ffac8  API: add safe incident timeline reader projection   14A-9 backend
+  a22ef32  Web: add operator incident timeline                 14A-9 website
+
+  Gates   api 45 suites / 447 tests, int 7 / 35, tsc 0
+          website builds clean, 23 routes
+
+ELEVEN OF THIRTEEN 14A SLICES ARE DONE.
+
+16.1 WHAT WAS BUILT
+
+The raw timeline endpoint returned findMany with NO select: payload
+(arbitrary internal JSON), hash, previousHash, actorUserId, correlationId
+and incidentId, straight to any caller. Every other operator-facing
+projection in this codebase is explicitly narrow; this one was not a
+projection at all.
+
+  GET /incidents/:incidentId/timeline now returns ONLY
+    sequence, type, occurredAt, source, display
+
+  display is a PER-EVENT-TYPE ALLOWLIST, because neither extreme was
+  right. Measured against a real production incident, one payload held
+  reason: 'USER_SAFE' - exactly what an operator needs - alongside
+  endedJourneySessionId, an internal UUID.
+
+  THE ALLOWLIST IS A PRESENCE-PRESERVING FILTER, NOT A SCHEMA. A key is
+  copied only if the payload has it, tested with hasOwnProperty. close()
+  spreads `reason` in conditionally, so a cancellation without one has no
+  such key and emitting `reason: undefined` would manufacture a field the
+  source never had. Falsy values survive: queued: 0 means nobody was
+  reached, and an operator needs that.
+
+  confidenceLevel and confidenceScore are EXCLUDED from INCIDENT_CREATED.
+  They come from detection.outcome - the emergency DETECTION model's
+  confidence that an activation is genuine, not confidence in the
+  location. A deliberate SOS button press scores LOW, and "Confidence:
+  Low" beside a live emergency would read as doubt about whether it is
+  real.
+
+  actorUserId is EXCLUDED for a reason beyond being a UUID: on the
+  production sample it was the RESIDENT on every event, including the
+  three the orchestrator wrote. It means "on whose behalf", not "who did
+  this". source - MOBILE versus INCIDENT_ORCHESTRATOR - carries the
+  distinction that matters.
+
+  THE EXISTING ENDPOINT WAS CHANGED IN PLACE. Measured first: nothing
+  consumes it. Not the mobile app, not the website - every website match
+  for "timeline" is marketing copy on the hospitals, privacy and home
+  pages. A parallel route would have been two contracts free to drift.
+
+  verifyChain STILL USES THE RAW READ. It needs every column to recompute.
+  A verify check in the installer fires if that call ever disappears.
+
+16.2 THE WEBSITE HALF
+
+Inline on the detail page, below location and tracking. NOT a separate
+route: the timeline is part of the incident, and during an emergency an
+operator should not have to leave the page to learn what happened.
+
+  ONE TIMER, NOT TWO. IncidentDetailView already owned the 5-second poll,
+  so it also owns fetching the timeline. incident-timeline.tsx is PURELY
+  PRESENTATIONAL and fetches nothing. Two timers would allow the header to
+  say LIVE while the timeline sat several intervals behind.
+
+  TWO DUMB BRIDGES. /timeline and /timeline/verify, each translating and
+  authenticating, neither owning change-detection. A combined endpoint
+  taking ?sequence= was designed and rejected: it would put application
+  state into the bridge and force response variants for "verification ran"
+  versus "it did not".
+
+  LIFECYCLE-AWARE POLLING, and the transition rule is the subtle part:
+
+    SSR fetches detail + timeline + verify, so a deep link to a resolved
+    incident arrives complete on first paint.
+    The client refetches the timeline only while OPEN or ACKNOWLEDGED,
+    PLUS ONE FINAL FETCH ON THE TERMINAL TRANSITION. The event that
+    RECORDS a resolution is appended by the same operation that makes the
+    status terminal - stopping the moment status flips would miss it, and
+    every resolved incident would be missing the record of its own
+    closure.
+    /verify re-runs only when the last sequence changes. sequence is
+    monotonic and unique per incident, so a change IS an append.
+
+  INTEGRITY HAS THREE STATES, NOT TWO: verified, failed, and UNKNOWN. A
+  failed request is not a failed chain. Rendering a tampering warning
+  because the network was down would be a serious false alarm - and the
+  public site already tells customers each entry can be independently
+  verified, so the indicator has to mean what it says.
+
+16.3 VERIFIED, AND HOW
+
+  Timeline renders on SSR, four events, correct labels           OBSERVED
+  USER_SAFE mapped to "Resident reported safe"                   OBSERVED
+  confidenceScore suppressed, revokedTokens absent               OBSERVED
+  RESOLVED incident: detail polls, timeline NEVER fetched        OBSERVED
+  OPEN incident: detail and timeline alternate every tick        OBSERVED
+  Navigating OPEN -> RESOLVED stops timeline polling             OBSERVED
+  Terminal transition captures the closing event without reload  OBSERVED
+  401 -> refresh -> retry, with no timeline fetch during it      OBSERVED
+  Production response carries no payload/hash/UUIDs              OBSERVED
+
+  That last one was checked against production, not a spec.
+
+  THE NAVIGATION TEST ALSO CLOSED A GAP FROM SECTION 7.1. Switching from
+  an OPEN incident to a RESOLVED one by clicking a queue card stopped the
+  timeline polling - which only happens if the client component
+  REMOUNTED. That is the key={result.incident.id} fix working, observed
+  indirectly. The direct two-incident test still needs two residents.
+
+16.4 SOS_RETRIGGERED IS UNREACHABLE FROM THE MOBILE APP
+
+A PRODUCT GAP, NOT A TEST FAILURE, AND THE MORE INTERESTING FINDING.
+
+The backend writes SOS_RETRIGGERED when an SOS arrives for a resident who
+already has an open incident. Its payload carries retriggerCount and
+secondsSinceInitialTrigger, and public-incident-snapshot.dto.ts notes that
+repeated taps may signal RISING DISTRESS - which is why the queue and the
+timeline both surface it.
+
+BUT THE ACTIVE-EMERGENCY SCREEN OFFERS NO WAY TO PRESS SOS AGAIN. Its
+three actions are:
+
+    I'm safe                        resolves the incident
+    False alarm                     cancels it
+    Done - keep the emergency active  dismisses the sheet, triggers nothing
+
+So the orchestrator's dedupe-and-retrigger path cannot fire from the
+production app. Either the mobile flow is missing a "still in danger"
+affordance, or the retrigger path is dead code.
+
+CONSEQUENCE FOR 14A-9: the SOS_RETRIGGERED label and its detail formatter
+are written and UNVERIFIED IN RENDER. Do not describe them as working.
+
+CONSEQUENCE FOR THE PRODUCT: worth deciding deliberately. A person whose
+situation is deteriorating has no way to say so, and the data model was
+built expecting they could.
+
+16.5 THE INTEGRITY-FAILURE BANNER IS UNTESTED
+
+Nothing can break a production hash chain to see it render, and it must
+not be faked by hand-editing a live database. Exercise it locally against
+opa_test if the rendering matters.
+
+16.6 FOUR INSTALLER DEFECTS, EACH CAUGHT BY A DIFFERENT GATE
+
+Recorded because the pattern matters more than the individual bugs: the
+14A-9 website installer needed FOUR attempts, and no single gate would
+have caught all of them.
+
+    the installer's own verify   wrong dependency array targeted
+    the build                    eaten backticks, invalid JavaScript
+    tsc                          props typed but never destructured
+    the build again              parse failure from bad PowerShell
+
+The layered gates worked. But every one of those was simulable before
+publishing, and simulating the EMITTED OUTPUT - not just the source -
+would have caught three of the four.
+
+16.7 NEW TRAPS
+
+#203  A BACKTICK INSIDE A DOUBLE-QUOTED POWERSHELL STRING IS AN ESCAPE
+      CHARACTER. A JavaScript template literal written that way emits
+      WITHOUT its backticks - `${base}/verify` becomes ${base}/verify -
+      and the file is written successfully. Every installer verify check
+      passed; only the build caught it. Use single-quoted strings with ''
+      for inner quotes when emitting JS templates.
+
+#204  .Replace() REPLACES EVERY OCCURRENCE. Two useCallback bodies ended
+      with the identical `}, [initialIncident.id]);` line, so adding a
+      dependency to one added it to both - including making a callback
+      depend on itself. Anchor on something unique to the target.
+
+#205  POWERSHELL 5.1 HAS NO TRAILING-DOT LINE CONTINUATION. A chained
+      .Replace() written across lines is a 7.x feature and fails to parse
+      before anything runs. Use separate statements.
+
+#206  ANCHORING ON A PROPS TYPE MISSES THE DESTRUCTURING. Adding fields to
+      `}: { ... }) {` gave the component props it never bound; tsc
+      reported "Cannot find name". The destructuring and the type are one
+      anchor.
+
+#207  A CHECK THAT SCANS A WHOLE FILE FAILS ON LEGITIMATE CODE, NOT ONLY
+      ON PROSE. `payload:` matched toReaderTimelineEvent's INPUT
+      parameter, which is exactly what that function should accept. Scope
+      exclusion checks to the block that must not contain the thing -
+      here, the exported type - not to the file.
+
+16.8 WHAT IS NEXT
+
+  14A-10  Evidence Viewer            UNBLOCKED. The route and
+                                     IncidentAccessGuard already exist.
+  14A-11  Facility Membership View   UNBLOCKED.
+  14A-8a  Initial Address            STILL BLOCKED. Google support case
+                                     74429063, no reply yet. See section 6.
+  14A-12  Responsive UX / Polish
+  14A-13  End-to-end Demo Verification
+
+  AND STILL, FROM SECTION 8.1: apps/website HAS NO TEST RUNNER. This
+  session added 641 more lines of untested website code, including a
+  presence-preserving renderer with seven per-type branches that is
+  exactly what a unit test suite exists for.
+
+  ONE OPEN INCIDENT EXISTS as of writing - keep it, or trigger a fresh one
+  shortly before the demo. See 15.2.

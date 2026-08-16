@@ -2,6 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { IncidentDetail } from '@/lib/operator-incident';
+import type {
+  TimelineEvent,
+  TimelineVerification,
+} from '@/lib/operator-timeline';
+import { IncidentTimeline } from './incident-timeline';
 
 /**
  * One incident, kept current. 14A-7.
@@ -95,17 +100,97 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 export function IncidentDetailView({
   initialIncident,
   initialServerTime,
+  initialTimeline,
+  initialVerification,
 }: {
   initialIncident: IncidentDetail;
   initialServerTime: string;
+  initialTimeline: TimelineEvent[];
+  /** null means OPA could not check - NOT that the chain is broken. */
+  initialVerification: TimelineVerification | null;
 }) {
   const [incident, setIncident] = useState(initialIncident);
   const [serverTime, setServerTime] = useState(initialServerTime);
   const [status, setStatus] = useState<Status>('live');
   const [notice, setNotice] = useState<string | null>(null);
 
+  const [timeline, setTimeline] = useState(initialTimeline);
+  const [verification, setVerification] = useState(initialVerification);
+
+  /**
+   * The last sequence this component has seen. sequence is monotonic
+   * and unique per incident, so a change IS an append - which is the
+   * only reason to re-run verification.
+   */
+  const lastSequence = useRef(
+    initialTimeline.length
+      ? initialTimeline[initialTimeline.length - 1].sequence
+      : 0,
+  );
+
+  /**
+   * A closed incident cannot gain events, so its timeline is fetched
+   * once and never again. Set on the TERMINAL TRANSITION rather than
+   * on first seeing a terminal status, because the event that RECORDS
+   * a resolution is appended by the same operation that makes the
+   * status terminal - stopping the moment status flips would miss it.
+   */
+  const timelineSettled = useRef(
+    initialIncident.status === 'RESOLVED' ||
+      initialIncident.status === 'CANCELLED',
+  );
+
   const inFlight = useRef(false);
   const stopped = useRef(false);
+
+  /**
+   * Refetch the timeline, and verification ONLY if it grew.
+   *
+   * A failure here is silent by design: the detail poll owns the
+   * stale indicator, and a timeline that could not be refreshed is
+   * still the last thing OPA knew. Replacing it with nothing would
+   * claim an incident has no history.
+   */
+  const refreshTimeline = useCallback(async () => {
+    const base = `/api/operator/incidents/${encodeURIComponent(
+      initialIncident.id,
+    )}/timeline`;
+
+    try {
+      const response = await fetch(base, { cache: 'no-store' });
+      if (!response.ok) return;
+
+      const data = (await response.json()) as {
+        events?: TimelineEvent[];
+      };
+      if (!Array.isArray(data.events)) return;
+
+      setTimeline(data.events);
+
+      const latest = data.events.length
+        ? data.events[data.events.length - 1].sequence
+        : 0;
+
+      if (latest === lastSequence.current) return;
+      lastSequence.current = latest;
+
+      const checked = await fetch(`${base}/verify`, { cache: 'no-store' });
+      if (!checked.ok) {
+        // OPA does not know. NOT the same as a broken chain.
+        setVerification(null);
+        return;
+      }
+
+      const body = (await checked.json()) as {
+        verification?: TimelineVerification;
+      };
+      if (typeof body.verification?.valid === 'boolean') {
+        setVerification(body.verification);
+      }
+    } catch {
+      // Keep what is on screen.
+    }
+  }, [initialIncident.id]);
 
   const poll = useCallback(async () => {
     if (stopped.current || inFlight.current) return;
@@ -163,13 +248,24 @@ export function IncidentDetailView({
       if (data.serverTime) setServerTime(data.serverTime);
       setStatus('live');
       setNotice(null);
+
+      // Same tick, same lifecycle state. A failed timeline fetch leaves
+      // what is on screen alone - only a 200 replaces it.
+      if (!timelineSettled.current) {
+        await refreshTimeline();
+
+        if (data.incident.status === 'RESOLVED' ||
+            data.incident.status === 'CANCELLED') {
+          timelineSettled.current = true;
+        }
+      }
     } catch {
       setStatus('stale');
       setNotice('Updates are temporarily unavailable.');
     } finally {
       inFlight.current = false;
     }
-  }, [initialIncident.id]);
+  }, [initialIncident.id, refreshTimeline]);
 
   useEffect(() => {
     if (status === 'stopped') return;
@@ -317,6 +413,8 @@ export function IncidentDetailView({
           the Command Center does not.
         </p>
       ) : null}
+
+      <IncidentTimeline events={timeline} verification={verification} />
     </div>
   );
 }

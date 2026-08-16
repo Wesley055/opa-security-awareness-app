@@ -3,6 +3,10 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getSessionState } from '@/lib/operator-session';
 import { fetchIncidentDetail } from '@/lib/operator-incident';
+import {
+  fetchIncidentTimeline,
+  fetchTimelineVerification,
+} from '@/lib/operator-timeline';
 import { IncidentDetailView } from './incident-detail';
 
 /**
@@ -56,6 +60,16 @@ export default async function IncidentDetailPage({
 
   const { incidentId } = await params;
   const result = await fetchIncidentDetail(incidentId);
+
+  // Fetched alongside the detail so a deep link to a resolved
+  // incident arrives complete, rather than showing an empty
+  // timeline that fills in after hydration. Neither failing
+  // blocks the page: the timeline renders empty and integrity
+  // reads UNKNOWN, which is honest.
+  const [timeline, verified] = await Promise.all([
+    fetchIncidentTimeline(incidentId),
+    fetchTimelineVerification(incidentId),
+  ]);
 
   if (result.state === 'REJECTED') {
     redirect('/api/operator/refresh');
@@ -115,6 +129,10 @@ export default async function IncidentDetailPage({
         key={result.incident.id}
         initialIncident={result.incident}
         initialServerTime={result.serverTime}
+        initialTimeline={timeline.state === 'READY' ? timeline.events : []}
+        initialVerification={
+          verified.state === 'READY' ? verified.verification : null
+        }
       />
     </Frame>
   );

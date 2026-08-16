@@ -419,7 +419,12 @@ address displayed beside a Leaflet or Mapbox map may breach it.
 
 A SUPPORT CASE HAS BEEN RAISED asking both questions, in writing, by email,
 citing the dated non-EEA terms and stating plainly that operators are
-separate individuals. FIND THE CASE NUMBER AND ATTACH IT HERE.
+separate individuals.
+
+  GOOGLE CLOUD SUPPORT CASE 74429063
+  raised 15 August 2026, Technical issue, P4, opened against the
+  OPA Safety Production project. Email, not chat, so there is a written
+  record to cite.
 
   DO NOT TREAT A REPLY THAT LINKS BACK TO THE TERMS AS APPROVAL. Front-line
   support often cannot interpret contract language. Escalate to Maps

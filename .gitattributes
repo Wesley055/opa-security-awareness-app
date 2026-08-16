@@ -2,3 +2,29 @@
 # on every migrate dev/deploy. CRLF conversion changes the bytes and breaks
 # that check. Keep SQL as LF on every platform.
 *.sql text eol=lf
+
+
+# Added 15 August 2026. See Ultra 36 trap #192.
+#
+# This repo accumulated mixed CRLF and LF files, which broke multi-line
+# installer anchors four times in one session: an anchor written with LF
+# silently misses a CRLF file even though every line is present. The rule
+# above pinned .sql only, for Prisma's checksum - nothing covered source.
+#
+# DELIBERATELY NOT RENORMALIZED. `git add --renormalize .` would rewrite
+# every file in the repository and bury the next real change in noise.
+# Files normalize as they are touched.
+
+* text=auto
+
+*.ts     text eol=lf
+*.tsx    text eol=lf
+*.js     text eol=lf
+*.json   text eol=lf
+*.md     text eol=lf
+*.prisma text eol=lf
+*.sh     text eol=lf
+
+# Windows-native, and this session found the PowerShell parser fussy enough
+# not to gamble on it.
+*.ps1    text eol=crlf

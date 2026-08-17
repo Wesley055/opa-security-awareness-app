@@ -6,6 +6,7 @@ describe('FacilitiesService', () => {
   const prisma = {
     facility: { findUnique: jest.fn() },
     incident: { findMany: jest.fn() },
+    user: { findMany: jest.fn() },
   };
 
   const service = new FacilitiesService(prisma as never);
@@ -227,5 +228,110 @@ describe('FacilitiesService', () => {
 
     expect(result.hasMore).toBe(false);
     expect(result.nextCursor).toBeNull();
+  });
+
+  // 14A-11. THE ASSERTIONS ARE ON THE QUERY, NOT THE RESULT - the standard
+  // this suite already set with "never selects timeline events". A response
+  // assertion only checks what the mock was told to return.
+  describe('listMembersForOperator', () => {
+    const facilityRow = {
+      id: 'facility-1',
+      name: 'OPA Demo Estate',
+      isActive: true,
+      isVerified: false,
+    };
+
+    const memberSelect = {
+      id: true,
+      firstName: true,
+      lastName: true,
+      role: true,
+      isActive: true,
+      accountStatus: true,
+    };
+
+    const member = (id: string, role: string, first: string, last: string) => ({
+      id,
+      firstName: first,
+      lastName: last,
+      role,
+      isActive: true,
+      accountStatus: 'ACTIVE',
+    });
+
+    const memberArgs = () => prisma.user.findMany.mock.calls[0][0];
+
+    beforeEach(() => {
+      prisma.facility.findUnique.mockResolvedValue(facilityRow);
+      prisma.user.findMany.mockResolvedValue([]);
+    });
+
+    it('reports a missing facility as not found, without reading users', async () => {
+      prisma.facility.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.listMembersForOperator('nope'),
+      ).rejects.toBeInstanceOf(NotFoundException);
+
+      expect(prisma.user.findMany).not.toHaveBeenCalled();
+    });
+
+    // THE SECURITY BOUNDARY. AdminProvisioningService.listFacilityMembers()
+    // selects email and phoneNumber because provisioning needs them. A
+    // resident's mobile number is the most sensitive field this projection
+    // could leak. If this test is ever deleted alongside a "consolidation"
+    // of the two methods, that is the failure it exists to prevent.
+    it('never selects email or phoneNumber', async () => {
+      await service.listMembersForOperator('facility-1');
+
+      const select = memberArgs().select;
+
+      expect(select).not.toHaveProperty('email');
+      expect(select).not.toHaveProperty('phoneNumber');
+      expect(memberArgs().include).toBeUndefined();
+    });
+
+    // Exact equality, not a subset check. A subset assertion passes when a
+    // field is ADDED, which is the direction that matters here.
+    it('selects exactly the roster fields and no others', async () => {
+      await service.listMembersForOperator('facility-1');
+
+      expect(memberArgs().select).toEqual(memberSelect);
+    });
+
+    it('scopes the member query to the facility it was given', async () => {
+      await service.listMembersForOperator('facility-1');
+
+      expect(memberArgs().where).toEqual({ facilityId: 'facility-1' });
+      expect(memberArgs().orderBy).toEqual([
+        { lastName: 'asc' },
+        { firstName: 'asc' },
+      ]);
+    });
+
+    // User.facilityId is one column carrying every role - 9.5. An ADMIN with
+    // a facility id must fall into neither group rather than into residents.
+    it('partitions by role and drops roles that are neither', async () => {
+      prisma.user.findMany.mockResolvedValue([
+        member('resident-1', 'USER', 'Collins', 'Hynes'),
+        member('operator-1', 'FACILITY_OPERATOR', 'Demo', 'Operator'),
+        member('admin-1', 'ADMIN', 'OPA', 'Admin'),
+      ]);
+
+      const result = await service.listMembersForOperator('facility-1');
+
+      expect(result.operators.map((m) => m.id)).toEqual(['operator-1']);
+      expect(result.residents.map((m) => m.id)).toEqual(['resident-1']);
+    });
+
+    it('returns empty groups rather than omitting them', async () => {
+      const result = await service.listMembersForOperator('facility-1');
+
+      // The website renders an empty state per group. Omitted keys would make
+      // "no residents assigned" indistinguishable from a failed response.
+      expect(result.operators).toEqual([]);
+      expect(result.residents).toEqual([]);
+      expect(result.facility.name).toBe('OPA Demo Estate');
+    });
   });
 });

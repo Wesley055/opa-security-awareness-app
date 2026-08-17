@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { IncidentStatus, Prisma } from '@prisma/client';
+import { IncidentStatus, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { ListFacilityIncidentsDto } from './dto/list-facility-incidents.dto';
 
@@ -192,6 +192,69 @@ export class FacilitiesService {
       // Null means the end of the queue, not an error.
       nextCursor: hasMore && last ? encodeCursor(last) : null,
       hasMore,
+    };
+  }
+
+  /**
+   * Reader-safe membership for the signed-in facility operator.
+   *
+   * DO NOT CONSOLIDATE THIS WITH
+   * AdminProvisioningService.listFacilityMembers(). That projection selects
+   * email and phoneNumber, which an administrator provisioning a seat
+   * legitimately needs. An operator answering "who is at this estate" does
+   * not, and the resident whose number it would expose never agreed to be
+   * reachable by a gatehouse. THE DIFFERENCE IN PROJECTION IS THE SECURITY
+   * BOUNDARY - a later refactor that notices two similar reads and merges
+   * them removes it silently.
+   *
+   * THE FACILITY ID IS NEVER A PARAMETER THE BROWSER CONTROLS. It arrives
+   * from OperatorFacilityGuard, which read it from the caller's row. Same
+   * argument as the operator queue: the browser does not need to know, send,
+   * or be trusted with a facility id.
+   *
+   * isActive AND accountStatus ARE CARRIED BUT NEED NOT BE RENDERED. Both are
+   * provisioning facts, and today every member of OPA Demo Estate is
+   * ACTIVE/ACTIVE, so a status column would show one value twice. Carried
+   * because 14A-12 may want them and widening later is worse - the same call
+   * 2.6 made for journeySessionId.
+   */
+  async listMembersForOperator(facilityId: string) {
+    const facility = await this.prisma.facility.findUnique({
+      where: { id: facilityId },
+      select: {
+        id: true,
+        name: true,
+        isActive: true,
+        isVerified: true,
+      },
+    });
+
+    if (!facility) {
+      throw new NotFoundException('Facility not found.');
+    }
+
+    const members = await this.prisma.user.findMany({
+      where: { facilityId },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        isActive: true,
+        accountStatus: true,
+      },
+      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+    });
+
+    // User.facilityId is ONE COLUMN carrying operators and residents alike -
+    // 9.5's "Facility.staff is a misleading name". Partition by role rather
+    // than trusting any relation to have done it.
+    return {
+      facility,
+      operators: members.filter(
+        (member) => member.role === UserRole.FACILITY_OPERATOR,
+      ),
+      residents: members.filter((member) => member.role === UserRole.USER),
     };
   }
 }

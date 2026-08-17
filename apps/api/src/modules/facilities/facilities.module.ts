@@ -4,9 +4,14 @@ import { FacilitiesService } from './facilities.service';
 import { FacilityOperatorGuard } from './guards/facility-operator.guard';
 import { OperatorFacilityGuard } from './guards/operator-facility.guard';
 import { OperatorIncidentsController } from './operator-incidents.controller';
+import { OperatorMembersController } from './operator-members.controller';
 
 @Module({
-  controllers: [FacilitiesController, OperatorIncidentsController],
+  controllers: [
+    FacilitiesController,
+    OperatorIncidentsController,
+    OperatorMembersController,
+  ],
   providers: [
     FacilitiesService,
     FacilityOperatorGuard,

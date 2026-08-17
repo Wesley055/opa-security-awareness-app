@@ -1,6 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { BlobServiceClient, BlockBlobClient } from '@azure/storage-blob';
+import {
+  BlobSASPermissions,
+  BlobServiceClient,
+  BlockBlobClient,
+} from '@azure/storage-blob';
 import { EvidenceType } from '@prisma/client';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -134,13 +138,23 @@ export class EvidenceService {
    * demand, so access is tied to this specific authorized request
    * rather than a link that could be copied and reused indefinitely.
    */
-  async getDownloadUrl(evidenceId: string): Promise<string> {
-    const evidence = await this.prisma.evidence.findUniqueOrThrow({
-      where: { id: evidenceId },
+  async getDownloadUrl(
+    incidentId: string,
+    evidenceId: string,
+  ): Promise<string> {
+    const evidence = await this.prisma.evidence.findFirst({
+      where: {
+        id: evidenceId,
+        incidentId,
+      },
     });
 
+    if (!evidence) {
+      throw new NotFoundException('Evidence not found.');
+    }
+
     if (!evidence.storageKey) {
-      throw new Error('Evidence has no stored file yet.');
+      throw new NotFoundException('Evidence file is not available.');
     }
 
     const containerClient = this.blobServiceClient.getContainerClient(
@@ -151,7 +165,7 @@ export class EvidenceService {
     );
 
     return blockBlobClient.generateSasUrl({
-      permissions: { read: true } as never,
+      permissions: BlobSASPermissions.parse('r'),
       expiresOn: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
     });
   }

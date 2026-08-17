@@ -57,7 +57,10 @@ export class EvidenceController {
   }
 
   @Get(':evidenceId/download-url')
-  getDownloadUrl(@Param('evidenceId') evidenceId: string) {
-    return this.evidenceService.getDownloadUrl(evidenceId);
+  getDownloadUrl(
+    @Param('incidentId') incidentId: string,
+    @Param('evidenceId') evidenceId: string,
+  ) {
+    return this.evidenceService.getDownloadUrl(incidentId, evidenceId);
   }
 }

@@ -1165,3 +1165,723 @@ would have caught three of the four.
 
   ONE OPEN INCIDENT EXISTS as of writing - keep it, or trigger a fresh one
   shortly before the demo. See 15.2.
+
+================================================================================
+17. ADDENDUM - THE NOTIFICATION SESSION. NO CODE WAS WRITTEN.
+================================================================================
+
+Written 16 August 2026, after the 14A-9 addendum. HEAD a232660, main, pushed.
+Deployed to Vercel and Ready. Porcelain 0 at the start of this section and 0 at
+the end: NOTHING WAS CHANGED. Every finding below is a measurement.
+
+  Gates    unchanged from section 16 - api 45 / 447, int 7 / 35, tsc 0,
+           website builds clean, 23 routes
+
+This session set out to probe 14A-10 and found something more important on the
+way. THE THING THAT LOOKED LIKE THE DEFECT WAS NOT THE DEFECT, TWICE. Both
+wrong diagnoses were confident, both were built on real-looking evidence, and
+both were killed by one further measurement. That pattern is the point of the
+section.
+
+THE DEADLINE MOVED TO WEDNESDAY 19 AUGUST. That is not a licence to record
+every gap as closable. Section 6's Google case, the WABA approval, and the DND
+route below are all waiting on somebody else's clock.
+
+
+================================================================================
+17.1 EMERGENCY SMS DOES NOT REACH NIGERIAN NUMBERS
+================================================================================
+
+THE MOST SERIOUS FINDING IN THIS DOCUMENT, AND IT IS NOT A CODE DEFECT.
+
+Incident 2bbae78c-d914-4fea-9427-86688b84241e, OPEN, created 16 August
+21:03:55.321Z by wesleycharles055@gmail.com. Three active emergency contacts,
+two channels, SIX IncidentNotification rows, ALL QUEUED AT THE SAME
+MILLISECOND - 21:03:55.395Z.
+
+  +2349022419252  SMS       FAILED   Africa's Talking: DoNotDisturbRejection
+  +2349022419252  WHATSAPP  FAILED   WhatsApp provider not implemented
+  +14694791451    SMS       SENT     ATXid_ad0fcce227b66b54b24884f8fc8f34cc
+  +14694791451    WHATSAPP  FAILED   WhatsApp provider not implemented
+  +2348037504000  SMS       FAILED   Africa's Talking: DoNotDisturbRejection
+  +2348037504000  WHATSAPP  FAILED   WhatsApp provider not implemented
+
+Both Nigerian numbers rejected. The one delivery that left the building went to
+a US number. IN A NIGERIA-FIRST EMERGENCY PRODUCT, THE EMERGENCY CHANNEL DOES
+NOT WORK IN NIGERIA.
+
+  SENT IS NOT DELIVERED. sentAt is 21:03:58.423Z on the US row and deliveredAt
+  IS NULL. That is the provider accepting the message, not a handset receiving
+  it. Nothing in OPA consumes Africa's Talking delivery reports, so deliveredAt
+  can never become non-null on any row by any path that currently exists. The
+  successful send is UNKNOWN, not reached.
+
+  providerMessageId: 'None' ON THE REJECTED ROWS IS THE STRING "None", NOT A
+  NULL AND NOT AN IDENTIFIER. It is provider output stored verbatim. A future
+  reader looking for "rows that have a message id" will match it. Do not treat
+  it as evidence that anything was dispatched.
+
+  THE SAME NUMBER SUCCEEDS UNDER A DIFFERENT ACCOUNT. Observed, not explained.
+  If DND rejection were purely a property of the destination MSISDN this could
+  not happen, which means sender ID, application, or route is part of the
+  determination. THIS IS THE SINGLE MOST USEFUL QUESTION TO PUT TO THE VENDOR
+  and it is the one they cannot answer with a link to their DND documentation.
+
+  §9.11 RECORDED DND AS A KNOWN PROBLEM. It is no longer a report; it is a
+  production incident with a provider error string, six rows, and timestamps.
+
+STATUS: escalation email to Africa's Talking being sent this session. Asking
+for the transactional/emergency route, the sender-ID registration process, and
+an explanation of the per-account difference. THIS IS AN APPROVAL CLOCK LIKE
+SECTION 6'S. It will not resolve by Wednesday.
+
+
+================================================================================
+17.2 THE RECIPIENT-SELECTION DEFECT DOES NOT EXIST
+================================================================================
+
+RECORDED BECAUSE IT WAS BELIEVED, ARGUED FOR, AND WRONG.
+
+The reported symptom was: a contact was added, an SOS was triggered, and only
+the old number received an SMS. The natural reading is that dispatch selects
+one recipient - a findFirst, a take: 1, an index zero, or an isPrimary filter.
+That reading survived two rounds of evidence and was about to become a code
+change.
+
+IT IS DISPROVEN BY THE SIX ROWS IN 17.1. Every active contact was resolved,
+every one got a row on every channel, and all six were queued in the same
+millisecond. The orchestrator's fan-out is correct and needs no work.
+
+  THE isPrimary READING WAS ALSO WRONG, AND WRONG IN AN INSTRUCTIVE WAY: the
+  ONE number that got through was isPrimary FALSE. A primary-only filter would
+  have produced the opposite result. The evidence pointed at a defect whose
+  signature it did not actually match, and nobody noticed until the
+  notification rows were read.
+
+  CONTACT PERSISTENCE IS ALSO FINE. All three contacts are in production with
+  isActive true, including both added on 16 August at 20:57:22.722Z and
+  21:01:41.543Z - minutes before the incident. There is no mobile save defect
+  here. THIS MATTERS BECAUSE THREE SLICES IN A ROW HAD ONE, and the fourth
+  instance was assumed rather than measured.
+
+WHAT THE USER SAW WAS TRUE. WHAT IT MEANT WAS NOT. Two of three contacts were
+silently not reached, which is indistinguishable from not being sent to, from
+outside the system. That indistinguishability is the actual product defect -
+see 17.5.
+
+
+================================================================================
+17.3 TRAP #208 - THE PROBES READ THE WRONG DATABASE
+================================================================================
+
+THE MOST EXPENSIVE MISTAKE OF THE SESSION AND THE MOST REUSABLE LESSON.
+
+Two Prisma probes were run from apps/api on Windows. Both returned complete,
+well-formed, entirely plausible result sets. Users with real names, incidents
+with real statuses, emergency contacts with sensible timestamps. A defect
+diagnosis was built on them and nearly acted on.
+
+THEY WERE READING localhost:5432. DATABASE_URL was UNSET in the shell, so
+Prisma read apps/api/.env from disk, which points at the local Docker Postgres.
+The newest incident in that database is dated 8 AUGUST.
+
+  IT WAS CAUGHT BY A DATE COLUMN, NOT BY A TOOL. Every incident stopped on the
+  8th, and the account that owned them had not been signed into since the 8th.
+  Nothing in the output named the database, and nothing would have.
+
+  THE CONCLUSIONS DRAWN FROM THOSE PROBES ARE VOID and are recorded here only
+  so they are not re-derived: "the new contact was never saved", "Charles
+  Haynes has exactly two contacts", "the SMS went to a different user's
+  contact", and the existence of a user named Collins Hynes in the user table.
+  All were artefacts of a stale dev database.
+
+  THE COMMAND CENTER WAS THE RELIABLE WITNESS THROUGHOUT. It reads production
+  through the API and showed an OPEN incident for a user who did not exist in
+  the queried database. The disagreement between the console and the probe was
+  visible for several exchanges before it was believed.
+
+THE CORRECT PATH IS SECTION 5'S: run it from the App Service SSH console, where
+DATABASE_URL is the real one and there is no way to be pointed elsewhere by
+accident. Verify the host FIRST:
+
+  node -e "const s=process.env.DATABASE_URL||'';console.log(s.replace(/:[^:@]*@/,':***@'))"
+
+  Expect opa-api-production-server.postgres.database.azure.com. Anything else,
+  stop.
+
+  DO NOT EXPORT A PRODUCTION CONNECTION STRING INTO A LOCAL SHELL. It lands in
+  history. Section 5 spent a whole section clearing PSReadline for exactly that.
+
+  DO NOT DUMP THE WHOLE emergencyContacts TABLE ON PRODUCTION. It is real
+  family members' names and telephone numbers. Query the one incident's owner.
+
+
+================================================================================
+17.4 THE PUBLIC TRACKING PAGE RENDERS. THAT IS ALL IT PROVES.
+================================================================================
+
+Section 7.5 is PARTLY closed and the limit matters.
+
+  buildTrackingUrl HARDCODES https://opasafety.com/i/${token} in
+  notification-payload.ts:41. No environment variable, deliberately - its own
+  doc comment says a misconfigured base would silently produce links that can
+  never resolve. So the failure mode hunted for in section 4 CANNOT occur on
+  the link itself.
+
+  A REAL TOKEN FROM A REAL SMS WAS OPENED ON opasafety.com. It rendered - OPA
+  chrome, footer, a styled "This link has expired" state with the 112 guidance.
+  A 503 "unavailable" would have meant the Vercel OPA_API_URL fix had not
+  reached the public page. It has.
+
+WHAT IS NOT PROVEN: that a family member following a live link sees a live
+incident. The token exercised had expired. THE HAPPY PATH HAS STILL NEVER BEEN
+OBSERVED IN PRODUCTION. Do not upgrade "the page rendered an expiry state" into
+"public tracking works".
+
+  ALSO UNRESOLVED: why that token was expired eleven minutes after its SMS.
+  Either the TTL is very short, or a closed incident renders as "expired",
+  which would flatten the distinction section 2.6 went to some trouble to
+  preserve - a relative deserves to know whether the link ran out or the
+  emergency ended.
+
+  ON A RETRIGGER THERE IS NO NEW LINK. incident-orchestrator.service.ts:368 -
+  only the token HASH is stored, so a family member who loses the first SMS
+  cannot be sent another. ADR-008 working as designed, and a real consequence.
+
+
+================================================================================
+17.5 THE NOTIFICATION PRINCIPLE - DECIDED, NOT BUILT
+================================================================================
+
+  OPA MUST NEVER INTERPRET AN ACCEPTED OR QUEUED NOTIFICATION AS PROOF THAT AN
+  EMERGENCY CONTACT WAS REACHED.
+
+That is section 11's rule - "if OPA does not know which guard arrived, the
+report cannot say one did" - applied one layer earlier, and it now has a
+production instance behind it.
+
+DECIDED:
+
+  SMS REMAINS THE NIGERIA-FIRST BASELINE. Not because it is reliable - 17.1
+  proves it is not - but because it is the lowest-dependency channel. Nigerian
+  users turn mobile data off routinely. An emergency system that requires data
+  is an emergency system that fails for the people who most need it.
+
+  WHATSAPP IS SUPPLEMENTARY, NOT THE ANSWER TO DND. It needs a WABA, which is
+  its own approval clock, and it needs the recipient to have data at the moment
+  of the emergency.
+
+  CHANNELS FAN OUT CONCURRENTLY, NOT SEQUENTIALLY. A fallback that waits for
+  SMS to fail before trying WhatsApp spends the seconds that matter; a provider
+  timeout is not instantaneous and a delivery report is much slower. The system
+  already does this - six rows at one millisecond - and it should stay that way.
+
+  PREFERENCE IS PER CONTACT, AND IT ORDERS DISPLAY RATHER THAN GATING DISPATCH.
+  A resident can reasonably know that one contact has a feature phone. A
+  resident CANNOT know whether their brother has data right now, and an
+  exclusive SMS-or-WhatsApp selector asks them to predict exactly that. An
+  explicit per-contact opt-out ("never WhatsApp this contact") is honest about
+  what it does; an exclusive selector is not.
+
+  DELIVERY TRUTH IS PER RECIPIENT AND PER CHANNEL. IncidentNotification already
+  models this correctly and it is the reason this session reached the truth at
+  all.
+
+NOT BUILT:
+
+  THE COMMAND CENTER DOES NOT SHOW DELIVERY STATE. An operator today has no way
+  to learn that two of three emergency contacts were never reached. This is the
+  cheapest high-value item in this section: the rows exist with status,
+  lastError, sentAt and deliveredAt, so it is a projection and a render with no
+  new backend.
+
+  THREE STATES, NOT TWO - the same shape as 16.2's integrity indicator.
+  REACHED, NOT REACHED, and UNKNOWN. A SENT row with deliveredAt null is
+  UNKNOWN. Rendering it as reached would be the same class of lie the
+  suppression layer in section 6 exists to prevent.
+
+  DELIVERY REPORT INGESTION DOES NOT EXIST. There is no webhook consuming
+  Africa's Talking DLRs, so deliveredAt cannot become non-null and REACHED is
+  currently an unreachable state. This is a prerequisite for the above, not a
+  follow-up to it.
+
+  DoNotDisturbRejection SHOULD BE A FIRST-CLASS FAILURE, not a generic SMS
+  error. It is not transient, retrying will not fix it, and it means something
+  specific an operator can act on.
+
+  THE MODEL SHOULD BE PROVIDER-NEUTRAL. Africa's Talking is today's SMS
+  provider, not an architectural commitment.
+
+
+================================================================================
+17.6 PROTECTED IDENTITY - A CAPABILITY DECIDED, NOTHING BUILT
+================================================================================
+
+Raised this session for the institutional market - embassies, diplomatic
+missions, banks, executives, and equally lone workers and domestic-violence
+protection. The principle:
+
+  OPERATIONAL ACCESS DOES NOT IMPLY PII ACCESS. An operator needs a live
+  location to respond to an emergency. They do not need the protected person's
+  telephone number, and today OPA gives it to them.
+
+DIRECTION FOR ADR-016, recorded so the design does not have to be re-derived:
+
+  Masking happens at the API boundary, never in the UI. CSS is not a boundary.
+  Mask by DEFAULT for all operators, at every classification - a gatehouse
+  guard does not need a STANDARD resident's number either.
+  Classification (STANDARD / SENSITIVE / PROTECTED) governs who may reveal,
+  audit requirements, retention and key isolation - NOT whether encryption
+  exists at all. Everyone gets encryption.
+  Equality lookup by keyed HMAC-SHA256; storage by authenticated encryption
+  (AES-256-GCM) with nonce, auth tag and key version.
+  Plaintext resolution ONLY inside the notification/delivery boundary. The
+  incident domain should say "send to contactRef", never handle a number.
+  Reveal is exceptional, authorized and audited.
+
+THREE THINGS THAT WILL BE GOT WRONG IF NOT WRITTEN DOWN NOW:
+
+  ADDING CIPHERTEXT COLUMNS BESIDE THE PLAINTEXT SECURES NOTHING. If
+  User.phoneNumber remains populated, compromising the table still yields every
+  number. The migration is only complete when plaintext is retired - and
+  User.phoneNumber is UNIQUE and NON-NULL and section 9.8 says operator seats
+  depend on it. That is a schema change under a live dispatch path and it is
+  the entire risk of this work.
+
+  THE PII INVENTORY IS NOT User.phoneNumber. It is at minimum
+  EmergencyContact.phoneNumber, IncidentNotification.recipient - which holds
+  plaintext E.164 in production today, see 17.1 - timeline payloads,
+  application logs, reports and analytics. Emergency-contact numbers may be
+  MORE sensitive than the resident's own, because they map the protected
+  person's family and security network.
+
+  THE PROVIDER MUST RECEIVE A ROUTABLE NUMBER. This cannot be engineered away.
+  A vault protects the number from OPA's own operators, logs, timelines and
+  reports - which is real and defensible - and does nothing about Africa's
+  Talking. The honest claim is "your operators never see it", not anything
+  stronger.
+
+  DO NOT CLAIM NDPA COMPLIANCE WITHOUT NIGERIAN PRIVACY COUNSEL. Describe
+  controls; let counsel characterise compliance. Trap #199 in a new domain -
+  read the primary source, do not infer the obligation.
+
+THREE DOCUMENTS ARE WANTED, and the order matters: BUILD THE CAPABILITY FIRST,
+THEN DESCRIBE WHAT EXISTS. Do not sell structurally inaccessible numbers until
+a test proves an operator cannot obtain one through the API, logs, reports or
+timeline.
+
+  1. Architecture / security specification - ADR-016 plus threat model,
+     key management, acceptance tests.
+  2. Commercial security brief - capability, boundaries, deployment tiers,
+     auditability. No implementation secrets, no unsupported claims.
+  3. Employee training - operational access is not PII access, in practice:
+     screenshots, support tickets, production access, vendor escalation,
+     exceptional reveal, exposure reporting. Scenarios, not policy prose.
+
+A fourth, later: a due-diligence pack for customers' security teams.
+
+SEQUENCING: this is a security slice of its own. It goes AFTER the 14A Command
+Center work. It is not a Wednesday item and nothing about the deadline
+extension makes it one.
+
+
+================================================================================
+17.7 THE AFRICA'S TALKING PRIVACY TICKET - PARKED, DELIBERATELY
+================================================================================
+
+A second vendor conversation is drafted and NOT sent: MSISDN masking in
+dashboards, RBAC over support access, log retention and purge, data residency,
+DPA and subprocessors, incident-notification timeframes, and what protects the
+number in transit to Nigerian MNOs.
+
+  IT IS DELIBERATELY SEPARATE FROM THE DND TICKET. Mixing a compliance
+  questionnaire into a delivery investigation dilutes the question that has to
+  be answered this week, and the two go to different teams.
+
+  ASK NEUTRALLY. "Describe the controls protecting destination MSISDNs in
+  transit and which parties necessarily receive them" invites an architecture
+  answer. "Do you pass raw numbers unencrypted" invites a defensive one.
+
+  DO NOT OVERSTATE THE PIPELINE. Naming embassies as an incoming portfolio in
+  writing, to a vendor, is a claim that will be remembered.
+
+
+================================================================================
+17.8 WHAT THIS SESSION DID NOT CHANGE
+================================================================================
+
+Recorded plainly, because the section is long and no code was written.
+
+  14A-9 IS PRODUCTION-DEPLOYED AND UNCHANGED. Section 16 stands. The backend
+  reader projection and the website timeline are production-proven per 16.3.
+  Deployment a232660 is Ready on Vercel. READY IS A BUILD STATUS - the timeline
+  is production-proven because 16.3 opened the page, not because Vercel went
+  green.
+
+  14A-10 IS UNCHANGED AND STILL BLOCKED. Zero evidence rows in production; the
+  mobile app contains no reference to /evidence, uploadEvidence, FormData,
+  multipart or EvidenceType. Backend upload, blob storage, hashing, dedupe,
+  timeline event and SAS download all exist and none has ever run from the
+  product. Do not claim capture or viewer capability. See 17.9 for two defects
+  in that path found by reading it.
+
+  SPRINT 11A IS UNCHANGED AND UNDIAGNOSED. Section 9.1. The adb logcat run has
+  still not happened. IT IS NOW LOAD-BEARING: any offline evidence upload queue
+  depends on background execution, which is the exact mechanism 11A suspects.
+  Diagnose 11A before designing that queue.
+
+  apps/website STILL HAS NO TEST RUNNER. Section 8.1, section 15.4. Unchanged
+  and still the highest-value unaddressed item.
+
+  THE ULTRA 35 NUMBERING COLLISION IS UNCHANGED. Two documents, same number,
+  contradictory. Renumber one.
+
+
+================================================================================
+17.9 TWO DEFECTS READ OUT OF THE EVIDENCE PATH, NEITHER FIXED
+================================================================================
+
+Found by reading evidence.service.ts during the 14A-10 probe. Both are
+currently UNREACHABLE because nothing uploads, which makes them free to fix and
+easy to forget.
+
+  getDownloadUrl DOES NOT BIND evidenceId TO incidentId. The controller is
+  mounted at incidents/:incidentId/evidence and IncidentAccessGuard authorizes
+  on params.incidentId, but the service does findUniqueOrThrow on evidenceId
+  alone. An operator authorized for incident A can put A in the path and any
+  evidence UUID from incident B in the segment and receive a SAS URL for B's
+  file. The guard passes because it is reading a different parameter than the
+  query. Fix is findFirst on { id, incidentId }.
+
+  THE SAS PERMISSIONS ARGUMENT HAS NEVER EXECUTED AND IS PROBABLY WRONG.
+  generateSasUrl({ permissions: { read: true } as never, ... }). Azure calls
+  toString() on that argument; a plain object literal stringifies to
+  [object Object], not "r". The as never is silencing the type error that would
+  have caught it. Wants BlobSASPermissions.parse('r'). PROVE THE DOWNLOAD PATH
+  AGAINST A HAND-UPLOADED BLOB BEFORE BUILDING CAPTURE - it is the last link in
+  the chain and the cheapest end to test.
+
+  encryptionKeyId IS NULL AND NOTHING WRITES IT. Evidence sits under Azure's
+  default at-rest encryption only. The most sensitive data OPA holds is the
+  least protected thing in the schema. Belongs in ADR-016's inventory.
+
+
+================================================================================
+17.10 TRAPS ADDED THIS SESSION
+================================================================================
+
+Numbering continues from section 16.7's #207.
+
+#208  A PRISMA SCRIPT RUN FROM THE REPO ANSWERS ABOUT THE WRONG DATABASE,
+      CONFIDENTLY AND SILENTLY. DATABASE_URL was unset in the shell, so Prisma
+      read .env and returned a complete, plausible result set from a local
+      Docker database eight days stale. Two probes and a defect diagnosis were
+      built on it before a date column gave it away. Nothing in the output
+      names the database. Print the host before trusting the rows, and query
+      production from the App Service SSH console.
+
+#209  A SYMPTOM CAN MATCH A DEFECT WHOSE SIGNATURE IT DOES NOT HAVE. "Only the
+      old contact got the SMS" reads as one-recipient selection. The recipient
+      that got through was isPrimary FALSE, which a primary-only filter would
+      have excluded - the evidence contradicted the theory and was read as
+      supporting it for two rounds. Check the signature, not just the symptom.
+
+#210  A PROVIDER STRING THAT LOOKS LIKE A VALUE IS NOT A VALUE.
+      providerMessageId is the literal string "None" on DND-rejected rows, not
+      null. Any query for "rows with a message id" matches it. Normalise
+      provider output at the boundary or a rejected message will one day be
+      counted as sent.
+
+#211  SENT IS A PROVIDER OUTCOME, NOT A DELIVERY. sentAt set with deliveredAt
+      null means the provider accepted the message and nothing more. OPA
+      consumes no delivery reports, so deliveredAt is null on every row that
+      has ever existed. Do not render acceptance as arrival.
+
+#212  Select-String -Pattern WITH A BACKTICK-CONTINUED COMMA LIST MISPARSES IN
+      POWERSHELL 5.1. Build the pattern list as an @() array in a variable.
+      Related: -Include with -Recurse can return nothing for path reasons that
+      look identical to no matches, so a probe returning zero hits should be
+      sanity-checked against a pattern known to be present before an absence is
+      recorded as a finding.
+
+#213  A DEADLINE EXTENSION IS NOT A LICENCE TO PROMISE EVERY GAP. Section 6's
+      Google case, the WABA, the DND route and Nigerian privacy counsel are all
+      other people's clocks. More days close engineering items; they do not
+      close approval items.
+
+
+================================================================================
+17.11 THE STATE OF THINGS, BY KIND
+================================================================================
+
+Preserved as five distinct kinds, because conflating them is how a handover
+stops being useful.
+
+PRODUCTION-PROVEN
+  Operator login, session, refresh, shell, facility context, queue, detail
+  14A-9 timeline, both halves - see 16.3
+  Emergency contact persistence and notification fan-out - 17.2
+  Per-recipient, per-channel notification recording - 17.1
+  SMS delivery to a US number, to provider acceptance only - 17.1
+  The public tracking page renders a real branch on opasafety.com - 17.4
+
+IMPLEMENTED, NOT PROVEN
+  Evidence upload, hashing, dedupe, blob storage, SAS download - never run
+  from the product, and see 17.9
+  SOS_RETRIGGERED label and formatter - 16.4, unreachable from the app
+  The detail-page key fix, direct two-incident test - 7.1, 16.3
+  The integrity-failure banner - 16.5
+  mergePages boundary path and Load more - 7.3
+  The migration guard's blocking path - 7.4
+
+DECIDED, NOT BUILT
+  Delivery-status surfacing in the Command Center - 17.5
+  Delivery report ingestion - 17.5
+  Per-contact channel preference and opt-out - 17.5
+  Protected Identity / ADR-016 and its three documents - 17.6
+  Post-incident reporting - section 11
+  GeocodingSweepService - 6.1
+
+BLOCKED ON SOMEBODY ELSE
+  14A-8a - Google case 74429063, no reply - section 6
+  Nigerian SMS delivery - Africa's Talking DND route - 17.1
+  WhatsApp as a channel at all - WABA approval - 9.11
+  NDPA characterisation - Nigerian privacy counsel - 17.6
+
+PARKED DELIBERATELY
+  The Africa's Talking privacy ticket - 17.7
+  ADR-016 implementation, until after the 14A work - 17.6
+
+
+================================================================================
+17.12 THE RESTART POINT
+================================================================================
+
+Ordered by what changes what. The first three are under two hours combined and
+each can alter what is true about the rest.
+
+  1. PROVE THE SAS DOWNLOAD PATH against a hand-uploaded blob, and land the
+     getDownloadUrl incident binding. 17.9. Twenty minutes, and it de-risks all
+     of 14A-10 from the cheap end.
+
+  2. DIAGNOSE SPRINT 11A. Section 9.1. The adb logcat run. It is now a
+     prerequisite for any offline evidence queue, and it is the only open item
+     that cannot be advanced from a keyboard, which is why it has lost every
+     scheduling contest for four handovers.
+
+  3. SURFACE DELIVERY STATE IN THE COMMAND CENTER. 17.5. The rows exist. This
+     is the cheapest way to stop an operator believing three contacts were
+     reached when one was. It also makes the demo more honest, not less.
+
+  THEN: a test harness for apps/website - 8.1, still the highest-value
+  unaddressed item and the only one that compounds across everything after it.
+
+  THEN: 14A-10 as a vertical slice - one photo, phone to blob to console -
+  before any durable queue exists, so the queue is built on something observed.
+  14A-11 Facility Membership View is unblocked and cheaper if 14A-10 stalls.
+
+BEFORE THE DEMO, UNCHANGED FROM 15.2: trigger a fresh SOS shortly before, not
+the night before. Consider assigning a second resident to OPA Demo Estate for a
+two-row queue, which also makes 7.1 testable at last.
+
+ONE OPEN INCIDENT EXISTS - 2bbae78c, created 16 August 21:03Z. Keep it or
+replace it with a fresher one.
+
+AND SAY PLAINLY, WHEREVER THIS IS DEMONSTRATED, THAT NIGERIAN SMS DELIVERY IS
+CURRENTLY BLOCKED BY CARRIER DND. It is a vendor and regulatory matter with an
+escalation open. It is not fixed by Wednesday because somebody wrote code.
+
+================================================================================
+18. THE GOOGLE GEOCODING LICENSING RESPONSE
+================================================================================
+
+Written 16 August 2026, immediately after section 17 and before returning to
+the 14A-10 evidence work. A DOCUMENTATION CHECKPOINT ONLY. No code was written,
+no provider was selected, and nothing about the location stack changed tonight.
+
+Support case 74429063 has been answered. Section 6 recorded the questions;
+this section records the reply and what it does to the roadmap.
+
+  STATUS CHANGE. 14A-8a and 14A-8c are NO LONGER WAITING ON GOOGLE. They move
+  from BLOCKED ON SOMEBODY ELSE to DECIDED, NOT BUILT - the decision being that
+  the architecture specified in 6.1 will not be implemented on Google.
+
+  THIS IS NOT A COMPLETED SLICE. Nothing was built and the status word matters
+  in this document. 14A-8a is REDIRECTED: the Google path is closed and
+  provider selection is now a prerequisite to any implementation.
+
+
+================================================================================
+18.1 WHAT SUPPORT SAID
+================================================================================
+
+Four statements, each answering something section 6.2 flagged as unsettled.
+
+  LONG-TERM PERSISTENCE OF formatted_address AS A HISTORICAL INCIDENT RECORD -
+  NOT PERMITTED. This is precisely the design in 6.1: a sweep writing accepted
+  addresses to the existing Incident.address column.
+
+  SHARING A CACHED ADDRESS ACROSS SEPARATE OPERATOR ACCOUNTS - NOT PERMITTED.
+  Support addressed the operator question directly: because Command Centre
+  operators are separate individuals from the End User who triggered the SOS,
+  displaying that cached address across those accounts breaks the single-End-
+  User logical isolation requirement. SECTION 6.2 IDENTIFIED THIS AS THE EXACT
+  UNSETTLED POINT and it has been answered against the design.
+
+  INCLUSION IN A PDF OR PRINTED POST-INCIDENT REPORT - NOT PERMITTED, as
+  extracting and exporting Google content for offline use outside the Services.
+  Section 11 anticipated this and it is now answered.
+
+  DISPLAY IN CONJUNCTION WITH A NON-GOOGLE MAP - NOT PERMITTED, AND THE
+  DEFINITION IS BROADER THAN EXPECTED. Support stated that "in conjunction
+  with" is not limited to rendering the address on the map canvas: showing the
+  text on the same browser screen, sidebar or panel visually associated with a
+  Leaflet or Mapbox map is itself a violation.
+
+THE LAST ONE HAS THE WIDEST BLAST RADIUS AND IS THE REASON 8c IS NOW TIED TO
+8a. The map choice and the geocoder choice are welded together. A Command
+Center showing a Google-derived address beside any non-Google map is out, so
+any provider evaluation must score geocoding and map licensing as ONE decision.
+
+
+================================================================================
+18.2 THE QUALIFICATION - READ THIS BEFORE CITING SECTION 18
+================================================================================
+
+  THE REPLY CAME FROM GOOGLE MAPS PLATFORM TECHNICAL SUPPORT, NOT FROM
+  CONTRACTS OR LEGAL.
+
+  IT CITED POLICIES SECTION 3.3.2, NOT SERVICE SPECIFIC TERMS SECTION 6.3.2.
+  Section 6.3.2 is the clause carrying the indefinite-caching permission for
+  formatted_address, and it is the clause the case was opened about. The reply
+  answers the caching question from the general Policies page instead. RECORDED
+  BECAUSE IT IS THE DETAIL MOST LIKELY TO BE LOST AND MOST LIKELY TO MATTER.
+
+  THE CONCLUSION HOLDS EITHER WAY ON THE POINT THAT DECIDES THE DESIGN. Both
+  documents carry the same single-End-User isolation requirement, and OPA's
+  operators are separate individuals under either reading. The discrepancy does
+  not rescue the architecture; it only bears on whether escalation is worth
+  pursuing.
+
+  SECTION 6.2 WARNED IN ADVANCE NOT TO TREAT FRONT-LINE SUPPORT AS FINAL, and
+  that warning was written about a reply that AGREED with an unfavourable
+  reading. IT APPLIES EQUALLY HERE. This is an interpretation from the team
+  least likely to be authoritative on contract language.
+
+SO:
+
+  Treat this as Google's technical-support interpretation.
+  Do NOT describe it as contractual or legal advice.
+  Retain Google's own recommendation to review with OPA's counsel - they said
+  it, and for a decision shaping the data model and a report handed to
+  insurers it is the right advice.
+  If OPA ever wants to rely on a broader interpretation, ESCALATE TO MAPS
+  PLATFORM SALES / CONTRACTS. Support is not the last word in either direction.
+
+  KEEP THE EMAIL VERBATIM, NOT JUST THIS SUMMARY. Trap #199 exists because a
+  conclusion drawn from secondary reading had to be retracted once already.
+  The primary source belongs in the vendor and compliance evidence pack, so
+  that when an institutional customer asks why OPA does not persist Google-
+  derived addresses, the answer is the provider's own guidance rather than an
+  interpretation of it.
+
+
+================================================================================
+18.3 WHAT IS AND IS NOT BEING CLAIMED
+================================================================================
+
+  NOT: "Google Maps cannot be used by OPA."
+
+  YES: "Google Geocoding does not fit OPA's planned persisted, multi-operator,
+  reportable, non-Google-map incident-address architecture, under the written
+  technical-support guidance received on 16 August 2026."
+
+The narrower claim is the true one and it is also the more useful one. Other
+Google Maps Platform surfaces may remain legitimate elsewhere in OPA; what is
+foreclosed is Google-derived address text as the PERSISTED, SHARED,
+AUTHORITATIVE incident address.
+
+
+================================================================================
+18.4 ENGINEERING CONSEQUENCE
+================================================================================
+
+  14A-8a AS DESIGNED IN 6.1 IS REJECTED. The chain Google Geocoding ->
+  Incident.address -> operator console -> post-incident report will not be
+  implemented on Google.
+
+  MOST OF 6.1 SURVIVES AND SHOULD NOT BE REWRITTEN. The sweep design was
+  deliberately provider-neutral: off the SOS path, off the 5-second poll,
+  cron-batched with backoff, opt-in by environment variable, retry state in
+  metadata, never overwriting a non-null address, coordinates always the
+  fallback. All of that stands. WHAT CHANGES IS THE PROVIDER, NOT THE SHAPE.
+
+  THE ACCEPTANCE FUNCTION IN 6.1 IS THE PART THAT MUST BE REWRITTEN PER
+  PROVIDER. Parsing address_components by semantic type, rejecting plus-code-
+  only and country-only results, and distinguishing ZERO_RESULTS from
+  OVER_QUERY_LIMIT from REQUEST_DENIED are all Google response semantics. A
+  different provider has different failure modes and a different rejection set.
+
+  SECTION 10.5 IS UNCHANGED AND STILL HONEST. Incident.address is null, the
+  operator sees coordinates, and trap #200 still holds: something is refusing
+  to lie. Nothing about this reply makes a null address wrong.
+
+  SECTION 11 IS DIRECTLY AFFECTED. The post-incident report cannot carry
+  Google-derived address text. It can carry OPA-owned facts - coordinates,
+  timeline, notification outcomes - which is what section 11 already said the
+  report is made of.
+
+  THE API KEY STAYS OUT OF PRODUCTION. Section 6.3's instruction is unchanged
+  and now permanent for this purpose. The trial credit and the quota-cap
+  prerequisite in 6.3 remain relevant only if Google is used for something
+  else.
+
+
+================================================================================
+18.5 THE NEXT LOCATION DECISION - NOT TONIGHT
+================================================================================
+
+A provider is needed whose licence permits ALL of:
+
+  permanent storage of the returned address
+  display to multiple operator accounts who are not the End User
+  redistribution inside an incident report handed to an insurer or estate
+  use alongside OPA's chosen map, whichever that is
+  commercial emergency-response use
+
+  AND SEPARATELY, NIGERIA DATA QUALITY MUST BE TESTED. Section 15.3 said it
+  and it is the part a contract cannot answer: LICENSING APPROVAL DOES NOT
+  PROVE DISPATCH-QUALITY DATA. Real Lagos and Abuja coordinates put through
+  each candidate and compared, against a mock that currently returns
+  "12 Allen Avenue, Ikeja, Lagos" for every coordinate on earth.
+
+  THE SUPPRESSION LAYER MEANS THERE IS NO DEADLINE PRESSURE HERE.
+  ProviderConfidenceValidator and EmergencyIntelligenceService are already
+  keeping a fabricated address out of a responder's hands, and the coordinate
+  fallback in the SMS is proven working in production - see 17.4 and the maps
+  link observed today. Choosing a provider badly is worse than choosing one
+  late.
+
+THIS IS A DELIBERATE FOLLOW-UP SLICE. It is not a Wednesday item, it does not
+block 14A-9 through 14A-13, and it must not steal the current engineering block.
+
+
+================================================================================
+18.6 CHECKLIST AMENDMENT
+================================================================================
+
+  14A-8a  Initial Address    REDIRECTED. Google path closed by written vendor
+                             guidance, 16 August. Provider selection is a
+                             prerequisite. Sweep design in 6.1 survives; the
+                             acceptance function does not.
+  14A-8b  Live Location      deferred; unchanged.
+  14A-8c  Map                COUPLED TO 8a AND NOW MORE TIGHTLY. Support's
+                             reading of "in conjunction with" covers sidebars
+                             and panels, not only the map canvas. Geocoder and
+                             map are one licensing decision.
+
+Everything else in the section 12 checklist and section 16.8 is unchanged.
+
+RETURN TO 14A-10: the incident/evidence binding fix, BlobSASPermissions.
+parse('r'), first tests for a module that has none, then a synthetic blob and a
+real production SAS retrieval. Section 17.9 and 17.12.

@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getOperatorContext } from '@/lib/operator-context';
 
@@ -96,6 +97,25 @@ export default async function OperatorShellLayout({
           </div>
 
           <div className="flex items-center gap-4">
+            <nav
+              aria-label="Operator"
+              className="flex items-center gap-1"
+            >
+              <Link
+                href="/operator"
+                className="rounded-md px-3 py-1.5 text-sm text-muted transition hover:bg-panel hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-protection"
+              >
+                Incidents
+              </Link>
+
+              <Link
+                href="/operator/members"
+                className="rounded-md px-3 py-1.5 text-sm text-muted transition hover:bg-panel hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-protection"
+              >
+                Members
+              </Link>
+            </nav>
+
             {operatorName ? (
               <span className="text-sm text-muted">{operatorName}</span>
             ) : null}

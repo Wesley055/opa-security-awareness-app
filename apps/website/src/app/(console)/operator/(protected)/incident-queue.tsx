@@ -326,16 +326,16 @@ export function IncidentQueue({
   }, [nextCursor, loadingMore]);
 
   return (
-    <section className="px-6 py-8">
-      <div className="flex items-baseline justify-between gap-4">
-        <h1 className="font-display text-2xl font-bold text-ink">
+    <section className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <h1 className="font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
           Active incidents
         </h1>
         <span
           className={
             status === 'live'
-              ? 'font-mono text-xs uppercase tracking-widest text-protection'
-              : 'font-mono text-xs uppercase tracking-widest text-muted'
+              ? 'inline-flex w-fit items-center rounded-full border border-protection/30 bg-protection/10 px-3 py-1 font-mono text-xs uppercase tracking-widest text-protection'
+              : 'inline-flex w-fit items-center rounded-full border border-line bg-panel-2 px-3 py-1 font-mono text-xs uppercase tracking-widest text-muted'
           }
         >
           {status === 'live' ? 'Live' : status === 'stale' ? 'Not updating' : 'Stopped'}
@@ -354,11 +354,11 @@ export function IncidentQueue({
       {incidents.length === 0 ? (
         // #184 - AN EMPTY QUEUE IS NOT A BROKEN QUEUE. Say so, rather than
         // leaving a blank panel an operator has to interpret.
-        <p className="mt-6 text-sm text-muted">
+        <p className="mt-6 rounded-lg border border-line bg-panel px-4 py-5 text-sm text-muted sm:px-5">
           No active incidents. New emergencies appear here automatically.
         </p>
       ) : (
-        <ul className="mt-6 space-y-3">
+        <ul className="mt-6 grid gap-3">
           {incidents.map((incident) => {
             const coords = formatCoords(incident.latitude, incident.longitude);
             const where = incident.address?.trim() || coords;
@@ -370,18 +370,18 @@ export function IncidentQueue({
               <li key={incident.id}>
                 <Link
                   href={`/operator/incidents/${incident.id}`}
-                  className="block rounded-md border border-line bg-panel px-4 py-3 transition hover:border-protection focus-visible:border-protection focus-visible:outline-none"
+                  className="block rounded-xl border border-line bg-panel p-4 transition duration-150 hover:border-emergency/50 hover:bg-panel-2 focus-visible:border-emergency focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emergency/30 sm:p-5"
                 >
                 <div className="flex flex-wrap items-baseline justify-between gap-3">
-                  <span className="font-display text-lg font-bold text-ink">
+                  <span className="font-display text-lg font-bold tracking-tight text-ink sm:text-xl">
                     {name}
                   </span>
-                  <span className="font-mono text-xs uppercase tracking-widest text-protection">
+                  <span className="inline-flex rounded-full border border-emergency/30 bg-emergency/10 px-2.5 py-1 font-mono text-xs uppercase tracking-widest text-emergency">
                     {formatEnum(incident.status)}
                   </span>
                 </div>
 
-                <p className="mt-1 text-sm text-muted">
+                <p className="mt-2 text-sm text-muted">
                   {formatEnum(incident.trigger)}
                   {' \u00b7 '}
                   {formatAge(incident.createdAt, serverTime)}
@@ -391,7 +391,7 @@ export function IncidentQueue({
                 </p>
 
                 {where ? (
-                  <p className="mt-1 font-mono text-xs text-muted">{where}</p>
+                  <p className="mt-3 break-all rounded-md border border-line bg-panel-2/50 px-3 py-2 font-mono text-xs text-muted">{where}</p>
                 ) : null}
                 </Link>
               </li>
@@ -405,7 +405,7 @@ export function IncidentQueue({
           type="button"
           onClick={() => void loadMore()}
           disabled={loadingMore}
-          className="mt-6 rounded-md border border-line bg-panel px-4 py-2 text-sm text-ink disabled:opacity-60"
+          className="mt-6 min-h-11 rounded-md border border-line bg-panel px-4 py-2.5 text-sm font-medium text-ink transition hover:border-muted-2 hover:bg-panel-2 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-protection"
         >
           {loadingMore ? 'Loading...' : 'Load more'}
         </button>

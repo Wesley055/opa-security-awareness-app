@@ -68,9 +68,28 @@ function formatAge(from: string, serverTime: string): string {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
-function formatAbsolute(value: string): string {
+/**
+ * Absolute timestamps use the operator terminal's local timezone.
+ *
+ * No explicit timeZone is supplied. Until Facility has a timezone field,
+ * browser-local display is more truthful than imposing a country assumption.
+ *
+ * The value may render differently during server pre-render and browser
+ * hydration, so timestamp nodes use suppressHydrationWarning.
+ */
+function formatLocalDateTime(value: string): string {
   const d = new Date(value);
-  return Number.isFinite(d.getTime()) ? d.toISOString().replace('T', ' ').replace('.000Z', 'Z') : '';
+  if (!Number.isFinite(d.getTime())) return '';
+
+  return new Intl.DateTimeFormat('en-US', {
+    year: 'numeric',
+    month: 'short',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+  }).format(d);
 }
 
 /**
@@ -88,11 +107,11 @@ function displayVoicePhrase(value: string | null): string | null {
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="border-t border-line py-3">
+    <div className="min-w-0 rounded-lg border border-line bg-panel-2/60 p-4">
       <dt className="font-mono text-xs uppercase tracking-widest text-muted">
         {label}
       </dt>
-      <dd className="mt-1 text-sm text-ink break-words">{children}</dd>
+      <dd className="mt-2 break-words text-sm leading-6 text-ink">{children}</dd>
     </div>
   );
 }
@@ -308,45 +327,65 @@ export function IncidentDetailView({
     incident.status === 'RESOLVED' || incident.status === 'CANCELLED';
 
   return (
-    <div>
-      <div className="flex flex-wrap items-baseline justify-between gap-4">
-        <div>
-          <h1 className="font-display text-3xl font-bold text-ink">{name}</h1>
-          <p className="mt-1 font-mono text-xs uppercase tracking-widest text-protection">
-            {formatEnum(incident.status)}
-          </p>
+    <div className="space-y-8">
+      <section className="rounded-xl border border-line bg-panel p-4 sm:p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <p className="font-mono text-xs uppercase tracking-widest text-muted">
+              {isClosed ? 'Incident record' : 'Active incident'}
+            </p>
+
+            <h1 className="mt-2 break-words font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+              {name}
+            </h1>
+
+            <span
+              className={
+                incident.status === 'RESOLVED'
+                  ? 'mt-3 inline-flex rounded-full border border-success/30 bg-success/10 px-2.5 py-1 font-mono text-xs uppercase tracking-widest text-success'
+                  : incident.status === 'CANCELLED'
+                    ? 'mt-3 inline-flex rounded-full border border-line bg-panel-2 px-2.5 py-1 font-mono text-xs uppercase tracking-widest text-muted'
+                    : 'mt-3 inline-flex rounded-full border border-emergency/30 bg-emergency/10 px-2.5 py-1 font-mono text-xs uppercase tracking-widest text-emergency'
+              }
+            >
+              {formatEnum(incident.status)}
+            </span>
+          </div>
+
+          <span
+            className={
+              status === 'live'
+                ? 'inline-flex w-fit rounded-full border border-protection/30 bg-protection/10 px-3 py-1 font-mono text-xs uppercase tracking-widest text-protection'
+                : 'inline-flex w-fit rounded-full border border-line bg-panel-2 px-3 py-1 font-mono text-xs uppercase tracking-widest text-muted'
+            }
+          >
+            {status === 'live'
+              ? 'Live'
+              : status === 'stale'
+                ? 'Not updating'
+                : 'Stopped'}
+          </span>
         </div>
-        <span
-          className={
-            status === 'live'
-              ? 'font-mono text-xs uppercase tracking-widest text-protection'
-              : 'font-mono text-xs uppercase tracking-widest text-muted'
-          }
-        >
-          {status === 'live'
-            ? 'Live'
-            : status === 'stale'
-              ? 'Not updating'
-              : 'Stopped'}
-        </span>
-      </div>
 
       {notice ? (
         <p
           role="status"
-          className="mt-4 rounded-md border border-line bg-panel-2 px-3 py-2 text-sm text-ink"
+          className="mt-4 rounded-lg border border-line bg-panel-2 px-4 py-3 text-sm text-ink"
         >
           {notice}
         </p>
       ) : null}
 
-      <dl className="mt-6">
+        <dl className="mt-6 grid gap-3 md:grid-cols-2">
         <Row label="Triggered by">{formatEnum(incident.trigger)}</Row>
 
         <Row label="Raised">
           {formatAge(incident.createdAt, serverTime)}
-          <span className="ml-2 font-mono text-xs text-muted">
-            {formatAbsolute(incident.createdAt)}
+          <span
+            suppressHydrationWarning
+            className="ml-2 font-mono text-xs text-muted"
+          >
+            {formatLocalDateTime(incident.createdAt)}
           </span>
         </Row>
 
@@ -391,9 +430,17 @@ export function IncidentDetailView({
 
         {incident.status === 'RESOLVED' ? (
           <Row label="Resolved">
-            {incident.resolvedAt
-              ? `${formatAge(incident.resolvedAt, serverTime)} \u00b7 ${formatAbsolute(incident.resolvedAt)}`
-              : 'Marked resolved.'}
+            {incident.resolvedAt ? (
+              <>
+                {formatAge(incident.resolvedAt, serverTime)}
+                {' · '}
+                <span suppressHydrationWarning>
+                  {formatLocalDateTime(incident.resolvedAt)}
+                </span>
+              </>
+            ) : (
+              'Marked resolved.'
+            )}
           </Row>
         ) : null}
 
@@ -407,12 +454,13 @@ export function IncidentDetailView({
         ) : null}
       </dl>
 
-      {isClosed ? (
-        <p className="mt-6 max-w-prose text-sm text-muted">
-          This incident is closed. Only the resident can close an incident;
-          the Command Center does not.
-        </p>
-      ) : null}
+        {isClosed ? (
+          <p className="mt-6 max-w-prose rounded-lg border border-line bg-panel-2 px-4 py-3 text-sm text-muted">
+            This incident is closed. Only the resident can close an incident;
+            the Command Center does not.
+          </p>
+        ) : null}
+      </section>
 
       <IncidentTimeline events={timeline} verification={verification} />
     </div>

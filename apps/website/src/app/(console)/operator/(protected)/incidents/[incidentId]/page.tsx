@@ -31,14 +31,14 @@ export const dynamic = 'force-dynamic';
 
 function Frame({ children }: { children: React.ReactNode }) {
   return (
-    <section className="px-6 py-8">
+    <section className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
       <Link
         href="/operator"
-        className="font-mono text-xs uppercase tracking-widest text-protection"
+        className="inline-flex min-h-10 items-center rounded-md border border-line bg-panel px-3 py-2 font-mono text-xs uppercase tracking-widest text-protection transition hover:border-protection/50 hover:bg-panel-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-protection"
       >
         &larr; Active incidents
       </Link>
-      <div className="mt-6">{children}</div>
+      <div className="mt-5 sm:mt-6">{children}</div>
     </section>
   );
 }

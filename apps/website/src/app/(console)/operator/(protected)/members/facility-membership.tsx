@@ -7,7 +7,7 @@ function MemberRow({ member }: { member: OperatorMember }) {
   const name = `${member.firstName} ${member.lastName}`.trim();
 
   return (
-    <li className="rounded-md border border-line bg-panel px-4 py-3">
+    <li className="rounded-lg border border-line bg-panel-2 px-4 py-3.5">
       <p className="font-display font-bold text-ink">
         {name || 'Unnamed member'}
       </p>
@@ -25,7 +25,7 @@ function MemberGroup({
   emptyMessage: string;
 }) {
   return (
-    <section>
+    <section className="rounded-xl border border-line bg-panel p-4 sm:p-5">
       <div className="flex items-baseline justify-between gap-4">
         <h2 className="font-display text-xl font-bold text-ink">
           {title}
@@ -68,7 +68,7 @@ export function FacilityMembership({
 }) {
   if (result.state === 'FORBIDDEN') {
     return (
-      <section className="px-6 py-8">
+      <section className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
         <h1 className="font-display text-2xl font-bold text-ink">
           Facility membership
         </h1>
@@ -82,7 +82,7 @@ export function FacilityMembership({
 
   if (result.state === 'UNAVAILABLE') {
     return (
-      <section className="px-6 py-8">
+      <section className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
         <h1 className="font-display text-2xl font-bold text-ink">
           Facility membership
         </h1>
@@ -100,20 +100,26 @@ export function FacilityMembership({
   }
 
   const { membership } = result;
+  const residentCount = membership.residents.length;
+  const operatorCount = membership.operators.length;
+  const residentLabel = residentCount === 1 ? 'resident' : 'residents';
+  const operatorLabel = operatorCount === 1 ? 'operator' : 'operators';
 
   return (
-    <div className="px-6 py-8">
+    <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
       <header>
-        <h1 className="font-display text-2xl font-bold text-ink">
+        <h1 className="font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
           Facility membership
         </h1>
 
-        <p className="mt-1 text-sm text-muted">
-          {membership.facility.name}
+        <p className="mt-2 text-sm text-muted">
+          {residentCount} {residentLabel}
+          {' · '}
+          {operatorCount} {operatorLabel}
         </p>
       </header>
 
-      <div className="mt-8 grid gap-8 lg:grid-cols-2">
+      <div className="mt-8 grid gap-4 lg:grid-cols-2">
         <MemberGroup
           title="Operators"
           members={membership.operators}

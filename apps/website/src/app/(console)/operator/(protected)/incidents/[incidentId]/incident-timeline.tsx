@@ -138,7 +138,13 @@ function detailLine(event: TimelineEvent): string | null {
 function clockTime(iso: string): string {
   const d = new Date(iso);
   if (!Number.isFinite(d.getTime())) return '';
-  return d.toISOString().slice(11, 19);
+
+  return new Intl.DateTimeFormat('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    timeZoneName: 'short',
+  }).format(d);
 }
 
 function IntegrityBanner({
@@ -148,7 +154,7 @@ function IntegrityBanner({
 }) {
   if (verification === null) {
     return (
-      <span className="font-mono text-xs uppercase tracking-widest text-muted">
+      <span className="inline-flex rounded-full border border-line bg-panel-2 px-2.5 py-1 font-mono text-xs uppercase tracking-widest text-muted">
         Integrity unknown
       </span>
     );
@@ -156,14 +162,14 @@ function IntegrityBanner({
 
   if (verification.valid) {
     return (
-      <span className="font-mono text-xs uppercase tracking-widest text-protection">
+      <span className="inline-flex rounded-full border border-protection/30 bg-protection/10 px-2.5 py-1 font-mono text-xs uppercase tracking-widest text-protection">
         &#10003; Integrity verified
       </span>
     );
   }
 
   return (
-    <span className="font-mono text-xs uppercase tracking-widest text-ink">
+    <span className="inline-flex rounded-full border border-emergency/40 bg-emergency/10 px-2.5 py-1 font-mono text-xs uppercase tracking-widest text-emergency">
       &#9888; Integrity check failed
     </span>
   );
@@ -180,9 +186,9 @@ export function IncidentTimeline({
   const broken = verification !== null && !verification.valid;
 
   return (
-    <section className="mt-10 border-t border-line pt-6">
+    <section className="rounded-xl border border-line bg-panel p-4 sm:p-6">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
-        <h2 className="font-mono text-xs uppercase tracking-widest text-muted">
+        <h2 className="font-display text-xl font-bold tracking-tight text-ink">
           Incident timeline
         </h2>
         <IntegrityBanner verification={verification} />
@@ -194,9 +200,9 @@ export function IncidentTimeline({
         // operator must not read it as trustworthy.
         <div
           role="alert"
-          className="mt-4 rounded-md border border-line bg-panel-2 px-4 py-3"
+          className="mt-4 rounded-lg border border-emergency/40 bg-emergency/10 px-4 py-3"
         >
-          <p className="text-sm font-bold text-ink">
+          <p className="text-sm font-bold text-emergency">
             Incident record integrity check failed
           </p>
           <p className="mt-1 text-sm text-ink">
@@ -213,19 +219,36 @@ export function IncidentTimeline({
           No timeline entries have been recorded for this incident.
         </p>
       ) : (
-        <ol className="mt-6 space-y-4">
+        <ol className="mt-6 border-l border-line">
           {events.map((event) => {
             const line = detailLine(event);
 
             return (
-              <li key={event.sequence} className="flex gap-4">
-                <span className="w-20 shrink-0 font-mono text-xs text-muted">
+              <li
+                key={event.sequence}
+                className="relative grid gap-1 py-3 pl-5 sm:grid-cols-[9rem_1fr] sm:gap-4 sm:pl-6"
+              >
+                <span
+                  aria-hidden="true"
+                  className="absolute -left-[5px] top-[1.15rem] h-2 w-2 rounded-full bg-protection"
+                />
+
+                <span
+                  suppressHydrationWarning
+                  className="font-mono text-xs text-muted"
+                >
                   {clockTime(event.occurredAt)}
                 </span>
-                <div>
-                  <p className="text-sm text-ink">{label(event.type)}</p>
+
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-ink">
+                    {label(event.type)}
+                  </p>
+
                   {line ? (
-                    <p className="mt-0.5 font-mono text-xs text-muted">{line}</p>
+                    <p className="mt-1 break-words font-mono text-xs leading-5 text-muted">
+                      {line}
+                    </p>
                   ) : null}
                 </div>
               </li>

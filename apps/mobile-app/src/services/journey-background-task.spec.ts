@@ -1,6 +1,6 @@
 import * as Location from 'expo-location';
 import * as SecureStore from 'expo-secure-store';
-import { openJourneyQueueStore } from './journey-queue-store';
+import { openJourneyQueueStoreForBackground } from './journey-queue-store';
 
 jest.mock('expo-secure-store', () => ({
   getItemAsync: jest.fn(),
@@ -15,7 +15,7 @@ jest.mock('expo-task-manager', () => ({
 }));
 
 jest.mock('./journey-queue-store', () => ({
-  openJourneyQueueStore: jest.fn(),
+  openJourneyQueueStoreForBackground: jest.fn(),
 }));
 
 jest.mock('./api', () => ({
@@ -23,9 +23,10 @@ jest.mock('./api', () => ({
 }));
 
 const mockedSecureStore = SecureStore as jest.Mocked<typeof SecureStore>;
-const mockedOpenStore = openJourneyQueueStore as jest.MockedFunction<
-  typeof openJourneyQueueStore
->;
+const mockedOpenStore =
+  openJourneyQueueStoreForBackground as jest.MockedFunction<
+    typeof openJourneyQueueStoreForBackground
+  >;
 
 /**
  * The background task is the fix for a MEASURED production defect: a 26 km

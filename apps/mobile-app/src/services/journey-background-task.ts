@@ -56,7 +56,7 @@ import {
   cleanNonNegative,
   type TrackedFix,
 } from './journey-fix-contract';
-import { openJourneyQueueStore } from './journey-queue-store';
+import { openJourneyQueueStoreForBackground } from './journey-queue-store';
 
 export const BACKGROUND_LOCATION_TASK = 'opa-background-location';
 
@@ -102,7 +102,10 @@ export async function captureBackgroundFix(
     return;
   }
 
-  const store = await openJourneyQueueStore();
+  // HEADLESS-SAFE OPEN. No DDL and no pragma - see the two open functions
+  // in journey-queue-store.ts. This callback runs on every GPS delivery, so
+  // anything it does happens hundreds of times an hour.
+  const store = await openJourneyQueueStoreForBackground();
   const captureSequence = (await store.getCaptureSequence()) + 1;
 
   const coords = position.coords;

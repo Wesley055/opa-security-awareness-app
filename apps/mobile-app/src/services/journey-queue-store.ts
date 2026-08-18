@@ -11,23 +11,38 @@ import type {
 const DATABASE_NAME = 'opa-journey-queue.db';
 
 /**
- * NO `PRAGMA journal_mode` HERE, AND THAT IS THE WHOLE POINT.
+ * WAL IS INTENDED AND IS NOT CURRENTLY ENABLED. Read this before adding it.
  *
- * journal_mode RETURNS A ROW; execAsync is documented for statements that
- * return nothing. In the foreground context the extra row was tolerated. In
- * the headless TaskManager context it was not: every invocation threw
+ * Both runtime ways of setting it were measured failing on a real Samsung
+ * device on 18 August 2026, under Expo SDK 54 / expo-sqlite 16:
  *
- *   Call to function 'NativeDatabase.execAsync' has been rejected.
- *   Caused by: java.lang.NullPointerException
+ *   inside the execAsync batch
+ *     Call to function 'NativeDatabase.execAsync' has been rejected.
+ *     Caused by: java.lang.NullPointerException
  *
- * openJourneyQueueStore() calls initialize() on EVERY background invocation,
- * so every fix Android delivered was captured and then discarded. Measured
- * on a real device 18 August 2026 - eight consecutive failures in 35
- * seconds. This is a concrete failure mechanism consistent with the
- * previously observed background-capture gap; the 10 August drive has no
- * log behind it and is NOT proven to share this cause.
+ *   through getFirstAsync, which prepares a statement
+ *     Call to function 'NativeDatabase.prepareAsync' has been rejected.
  *
- * foreign_keys returns nothing and is safe to leave in this batch.
+ * The first failed in the headless TaskManager context on every background
+ * invocation, so every fix Android delivered was captured and discarded.
+ * The second failed in the foreground tracker, which then refused to start
+ * at all - DURABLE QUEUE UNAVAILABLE.
+ *
+ * DEFAULT SQLITE JOURNALING REMAINS IN USE. Rollback mode is crash-safe.
+ * What WAL would add is concurrent readers and sequential writes, and
+ * whether this queue needs them is a real question rather than a settled
+ * one - two JS contexts do share this file. It is DEFERRED, NOT DISMISSED.
+ *
+ * WHY THIS IS NOT SILENT DEBT: the compatibility question is bounded and
+ * named. API misuse, an expo-sqlite 16 regression, a headless-context
+ * limitation, or Samsung-specific behaviour? Nobody has measured. Answer
+ * that before the pilot.
+ *
+ * DO NOT REINTRODUCE RUNTIME journal_mode MUTATION IN THE HEADLESS TASK
+ * under any circumstances. If WAL becomes settable it belongs in
+ * bootstrapJourneyQueueStore and nowhere else.
+ *
+ * foreign_keys returns no rows and is safe in this batch.
  */
 const CREATE_SCHEMA_SQL = `
 PRAGMA foreign_keys = ON;
@@ -54,6 +69,18 @@ CREATE TABLE IF NOT EXISTS journey_queue_meta (
 `;
 
 const CAPTURE_SEQUENCE_KEY = 'capture_sequence';
+
+/**
+ * Written by bootstrap, read by the background open path.
+ *
+ * The value is the schema version. It exists so a headless invocation can
+ * ASK whether the store is ready rather than assume it, and so a future
+ * migration has somewhere to record what it did.
+ */
+const SCHEMA_VERSION_KEY = 'schema_version';
+
+/** Bump when CREATE_SCHEMA_SQL changes in a way a live database must follow. */
+const SCHEMA_VERSION = 1;
 
 const COUNT_SQL = 'SELECT COUNT(*) AS count FROM journey_queue';
 
@@ -141,19 +168,73 @@ export class JourneyQueueStore {
   constructor(private readonly database: SQLiteDatabase) {}
 
   /**
-   * WAL IS SET THROUGH getFirstAsync, NOT execAsync.
+   * CREATES THE SCHEMA. CALLED FROM THE APP CONTEXT ONLY.
    *
-   * `PRAGMA journal_mode = WAL` answers with the resulting mode, so it is a
-   * query rather than a statement. Reading that row is what makes it safe in
-   * the headless task context - see the note above CREATE_SCHEMA_SQL for the
-   * failure this replaces.
+   * The headless TaskManager context must never reach this. Before 18
+   * August every background delivery ran it - the single open function
+   * called it unconditionally - which meant DDL on every GPS fix. At the
+   * ~2s cadence observed on a real device that is on the order of a
+   * thousand schema statements an hour inside a callback whose only job is
+   * to append one row.
    *
-   * The two calls are deliberately NOT wrapped in a transaction: SQLite
-   * refuses to change journal_mode inside one.
+   * Every statement in the batch returns no rows. That property is what the
+   * native layer requires of execAsync, and it is why journal_mode is not
+   * here - see the note above CREATE_SCHEMA_SQL.
+   *
+   * THESE ARE TWO OPERATIONS, NOT ONE ATOMIC ONE, AND THE RECOVERY
+   * SEMANTICS ARE DELIBERATE. Schema creation happens first; the readiness
+   * marker is written only after it succeeds. A crash between them leaves a
+   * database with tables and no marker, which the background path then
+   * REFUSES to write to until a foreground bootstrap completes again. That
+   * is fail-closed and recoverable: every schema statement is idempotent,
+   * so the next bootstrap simply finishes the job.
+   *
+   * A transaction was considered and rejected tonight. Wrapping DDL in
+   * withExclusiveTransactionAsync is unverified against this native layer,
+   * and this layer has already rejected two things it should not have. The
+   * one path that must work is not where an unmeasured assumption belongs.
    */
-  async initialize(): Promise<void> {
-    await this.database.getFirstAsync('PRAGMA journal_mode = WAL');
+  async bootstrap(): Promise<void> {
     await this.database.execAsync(CREATE_SCHEMA_SQL);
+
+    await this.database.runAsync(
+      `
+INSERT INTO journey_queue_meta (key, value)
+VALUES (?, ?)
+ON CONFLICT(key) DO UPDATE SET value = excluded.value
+`,
+      [SCHEMA_VERSION_KEY, SCHEMA_VERSION],
+    );
+  }
+
+  /**
+   * True when bootstrap has completed against this database file.
+   *
+   * A read, never a write. The background path uses this to decide whether
+   * it may append - it must not create what it finds missing.
+   */
+  async isBootstrapped(): Promise<boolean> {
+    try {
+      const row = await this.database.getFirstAsync<MetadataRow>(
+        'SELECT value FROM journey_queue_meta WHERE key = ?',
+        [SCHEMA_VERSION_KEY],
+      );
+
+      return (row?.value ?? 0) >= SCHEMA_VERSION;
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : String(error);
+
+      if (message.includes('no such table: journey_queue_meta')) {
+        // The meta table itself does not exist yet. That specifically means
+        // bootstrap has not completed against this database file.
+        return false;
+      }
+
+      // Corruption, I/O failure, locking, native bridge failures and every
+      // other unexpected storage fault must remain visible to the caller.
+      throw error;
+    }
   }
 
   /**
@@ -396,13 +477,7 @@ WHERE idempotency_key IN (${placeholders})`,
   }
 }
 
-/**
- * Opens and initializes the mobile queue.
- *
- * Web and unsupported platforms fail closed rather than silently using weaker
- * persistence or transaction semantics.
- */
-export async function openJourneyQueueStore(): Promise<JourneyQueueStore> {
+function assertSupportedPlatform(): void {
   if (Platform.OS === 'web') {
     throw new Error(
       'Durable Journey tracking is not supported on web.',
@@ -414,11 +489,59 @@ export async function openJourneyQueueStore(): Promise<JourneyQueueStore> {
       'Durable Journey tracking requires Android or iOS.',
     );
   }
+}
+
+/**
+ * BOOTSTRAP. Opens the queue and creates the schema. APP CONTEXT ONLY.
+ *
+ * Called once by the foreground tracker before any capture path exists.
+ * Web and unsupported platforms fail closed rather than silently using
+ * weaker persistence or transaction semantics.
+ */
+export async function bootstrapJourneyQueueStore(): Promise<JourneyQueueStore> {
+  assertSupportedPlatform();
 
   const database = await openDatabaseAsync(DATABASE_NAME);
   const store = new JourneyQueueStore(database);
 
-  await store.initialize();
+  await store.bootstrap();
+
+  return store;
+}
+
+/**
+ * OPEN. Attaches to an ALREADY-BOOTSTRAPPED database. HEADLESS-SAFE.
+ *
+ * No DDL, no pragma, no migration - it opens the file and checks a marker.
+ * This is the path the background TaskManager callback uses, and the reason
+ * it exists is that the callback previously ran the full bootstrap on every
+ * GPS delivery.
+ *
+ * IT REFUSES RATHER THAN CREATES. A headless context finding no schema is a
+ * context that should not be writing: the app has not started since install,
+ * or storage was cleared, and inventing a database there would produce a
+ * queue the foreground tracker never bootstrapped and may configure
+ * differently. The fix is lost either way in that situation - what this
+ * buys is that it is lost VISIBLY, with a distinguishable error, rather
+ * than into a half-made file.
+ *
+ * In practice it should be unreachable: startTracking() bootstraps before
+ * it registers the task, and the task is unregistered when tracking stops.
+ * "Should be unreachable" is not a design, which is why this check exists.
+ */
+export async function openJourneyQueueStoreForBackground(): Promise<JourneyQueueStore> {
+  assertSupportedPlatform();
+
+  const database = await openDatabaseAsync(DATABASE_NAME);
+  const store = new JourneyQueueStore(database);
+
+  const ready = await store.isBootstrapped();
+
+  if (!ready) {
+    throw new Error(
+      'Journey queue is not bootstrapped - the background task will not create it.',
+    );
+  }
 
   return store;
 }

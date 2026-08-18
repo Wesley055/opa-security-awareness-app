@@ -47,7 +47,7 @@ import {
   type TrackedFix,
   type TrackedFixSource,
 } from './journey-fix-contract';
-import { openJourneyQueueStore } from './journey-queue-store';
+import { bootstrapJourneyQueueStore } from './journey-queue-store';
 import type {
   JourneyQueueStore,
   StoredJourneyFix,
@@ -175,9 +175,9 @@ function errorMessage(error: unknown): string {
  * Opens the durable queue and restores the persisted capture sequence
  * before any fix is captured.
  *
- * openJourneyQueueStore() already enforces the ADR-014 section 11 platform
- * boundary and calls initialize() itself, so this function does NOT repeat
- * either check. Any rejection fails closed: tracking does not start.
+ * bootstrapJourneyQueueStore() already enforces the ADR-014 section 11
+ * platform boundary and creates the schema itself, so this function does
+ * NOT repeat either. Any rejection fails closed: tracking does not start.
  *
  * NOT DECIDED: whether a runtime storage fault on a supported platform
  * should degrade to the pre-9c in-memory path instead of failing closed.
@@ -190,7 +190,10 @@ async function initializeDurableQueue(): Promise<boolean> {
   }
 
   try {
-    const store = await openJourneyQueueStore();
+    // BOOTSTRAP, not open. The tracker runs in the app context and owns
+    // schema creation; the headless task only ever attaches. This is what
+    // keeps DDL out of a callback that fires on every GPS fix.
+    const store = await bootstrapJourneyQueueStore();
     const persistedCaptureSequence = await store.getCaptureSequence();
     const persistedCount = await store.count();
 

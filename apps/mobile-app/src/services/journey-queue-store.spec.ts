@@ -6,7 +6,7 @@ import {
 } from 'expo-sqlite';
 import {
   JourneyQueueStore,
-  openJourneyQueueStore,
+  bootstrapJourneyQueueStore,
 } from './journey-queue-store';
 import type { TrackedFix } from './journey-fix-contract';
 
@@ -76,7 +76,7 @@ describe('JourneyQueueStore', () => {
     const { database, databaseMock } = createDatabaseMock();
     const store = new JourneyQueueStore(database);
 
-    await store.initialize();
+    await store.bootstrap();
 
     expect(databaseMock.execAsync).toHaveBeenCalledTimes(1);
 
@@ -95,51 +95,88 @@ describe('JourneyQueueStore', () => {
   });
 
   /**
-   * GAP-01. These tests exist because a mocked execAsync accepts anything,
-   * so this suite passed for weeks against SQL that threw a
-   * NullPointerException on a real device in the headless task context.
+   * GAP-01A. These tests exist because a mocked execAsync accepts anything,
+   * so this suite passed for weeks against SQL that threw on a real device.
    * Trap #218: when a test exists to catch a specific defect, it must
    * assert the thing that was actually wrong.
    *
-   * THEY STILL CANNOT PROVE THE FIX. execAsync is mocked here too. Only a
-   * device run showing source='background' fixes on the server can do that.
+   * THEY CANNOT PROVE THE FIX WORKS. Every native call is mocked here.
+   * Only a device log showing no rejection, followed by source='background'
+   * fixes reaching the server, closes GAP-01A.
    */
-  it('sets journal_mode through getFirstAsync, never execAsync', async () => {
+  it('never mutates journal_mode at runtime, in any API', async () => {
+    // Measured 18 August 2026: rejected inside execAsync (NPE) AND through
+    // getFirstAsync (prepareAsync rejected). Deferred, not dismissed - see
+    // the note above CREATE_SCHEMA_SQL.
     const { database, databaseMock } = createDatabaseMock();
     const store = new JourneyQueueStore(database);
 
-    await store.initialize();
-
-    // PRAGMA journal_mode returns a row. execAsync is for statements that
-    // return nothing, and that row is what the native layer choked on.
-    expect(databaseMock.getFirstAsync).toHaveBeenCalledWith(
-      'PRAGMA journal_mode = WAL',
-    );
-  });
-
-  it('never puts journal_mode in the execAsync batch', async () => {
-    const { database, databaseMock } = createDatabaseMock();
-    const store = new JourneyQueueStore(database);
-
-    await store.initialize();
+    await store.bootstrap();
 
     const sql = databaseMock.execAsync.mock.calls[0]?.[0] ?? '';
 
     expect(sql).not.toContain('journal_mode');
   });
 
-  it('sets the journal mode BEFORE creating the schema', async () => {
-    // Order matters: WAL cannot be set inside a transaction, and the schema
-    // batch is the first thing that could open one.
+  it('writes the schema version marker as part of bootstrap', async () => {
+    // The marker is what lets a headless context ASK whether the store is
+    // ready instead of assuming it.
     const { database, databaseMock } = createDatabaseMock();
     const store = new JourneyQueueStore(database);
 
-    await store.initialize();
+    await store.bootstrap();
 
-    const pragmaOrder = databaseMock.getFirstAsync.mock.invocationCallOrder[0];
+    expect(databaseMock.runAsync).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO journey_queue_meta'),
+      ['schema_version', 1],
+    );
+  });
+
+  it('writes the readiness marker AFTER the schema exists', async () => {
+    // These are two operations, not one. Reversed, a crash between them
+    // would leave a database that claims to be ready and has no tables.
+    // In this order the crash leaves it unmarked, and the background path
+    // refuses until a foreground bootstrap completes.
+    const { database, databaseMock } = createDatabaseMock();
+    const store = new JourneyQueueStore(database);
+
+    await store.bootstrap();
+
     const schemaOrder = databaseMock.execAsync.mock.invocationCallOrder[0];
+    const markerOrder = databaseMock.runAsync.mock.invocationCallOrder[0];
 
-    expect(pragmaOrder).toBeLessThan(schemaOrder);
+    expect(schemaOrder).toBeLessThan(markerOrder);
+  });
+
+  it('reports an unbootstrapped database rather than throwing', async () => {
+    // A missing meta table is the ANSWER to "is this ready", not a fault.
+    const { database, databaseMock } = createDatabaseMock();
+    databaseMock.getFirstAsync.mockRejectedValue(
+      new Error('no such table: journey_queue_meta'),
+    );
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(store.isBootstrapped()).resolves.toBe(false);
+  });
+
+  it('rethrows unexpected readiness-check storage failures', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+    const failure = new Error('NativeDatabase.prepareAsync rejected');
+
+    databaseMock.getFirstAsync.mockRejectedValue(failure);
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(store.isBootstrapped()).rejects.toBe(failure);
+  });
+  it('reports a bootstrapped database when the marker is current', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+    databaseMock.getFirstAsync.mockResolvedValue({ value: 1 });
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(store.isBootstrapped()).resolves.toBe(true);
   });
 
   it('atomically inserts a fix and advances capture sequence', async () => {
@@ -564,7 +601,7 @@ describe('JourneyQueueStore', () => {
     mockedOpenDatabaseAsync.mockResolvedValue(database);
 
     try {
-      const store = await openJourneyQueueStore();
+      const store = await bootstrapJourneyQueueStore();
 
       expect(store).toBeInstanceOf(JourneyQueueStore);
       expect(mockedOpenDatabaseAsync).toHaveBeenCalledWith(
@@ -588,7 +625,7 @@ describe('JourneyQueueStore', () => {
     });
 
     try {
-      await expect(openJourneyQueueStore()).rejects.toThrow(
+      await expect(bootstrapJourneyQueueStore()).rejects.toThrow(
         'Durable Journey tracking is not supported on web.',
       );
 
@@ -610,7 +647,7 @@ describe('JourneyQueueStore', () => {
     });
 
     try {
-      await expect(openJourneyQueueStore()).rejects.toThrow(
+      await expect(bootstrapJourneyQueueStore()).rejects.toThrow(
         'Durable Journey tracking requires Android or iOS.',
       );
 

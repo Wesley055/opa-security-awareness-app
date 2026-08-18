@@ -2,7 +2,7 @@ import * as Location from 'expo-location';
 import { cleanNonNegative } from './journey-fix-contract';
 import {
   api } from './api';
-import { openJourneyQueueStore } from './journey-queue-store';
+import { bootstrapJourneyQueueStore } from './journey-queue-store';
 import {
   cleanHeading,
   flushForTests,
@@ -37,12 +37,12 @@ jest.mock('./api', () => ({
 }));
 
 jest.mock('./journey-queue-store', () => ({
-  openJourneyQueueStore: jest.fn(),
+  bootstrapJourneyQueueStore: jest.fn(),
 }));
 
 const mockedLocation = Location as jest.Mocked<typeof Location>;
 const mockedPost = api.post as jest.Mock;
-const mockedOpenStore = openJourneyQueueStore as jest.Mock;
+const mockedOpenStore = bootstrapJourneyQueueStore as jest.Mock;
 
 const IDLE_STATE = {
   running: false,
@@ -651,7 +651,7 @@ describe('journey-tracker module reset', () => {
       // are different function objects from the ones the fresh tracker sees.
       const freshStoreModule = jest.requireMock(
         './journey-queue-store',
-      ) as { openJourneyQueueStore: jest.Mock };
+      ) as { bootstrapJourneyQueueStore: jest.Mock };
       const freshApi = jest.requireMock('./api') as { api: { post: jest.Mock } };
       const freshLocation = jest.requireMock(
         'expo-location',
@@ -674,7 +674,7 @@ describe('journey-tracker module reset', () => {
         getCaptureSequence: jest.fn().mockResolvedValue(31),
       };
 
-      freshStoreModule.openJourneyQueueStore.mockResolvedValue(store);
+      freshStoreModule.bootstrapJourneyQueueStore.mockResolvedValue(store);
       freshLocation.getForegroundPermissionsAsync.mockResolvedValue({
         granted: true,
       });
@@ -693,7 +693,7 @@ describe('journey-tracker module reset', () => {
 
       await fresh.startTracking();
 
-      expect(freshStoreModule.openJourneyQueueStore).toHaveBeenCalledTimes(1);
+      expect(freshStoreModule.bootstrapJourneyQueueStore).toHaveBeenCalledTimes(1);
       expect(store.getCaptureSequence).toHaveBeenCalledTimes(1);
 
       const state = fresh.trackerDebugState();

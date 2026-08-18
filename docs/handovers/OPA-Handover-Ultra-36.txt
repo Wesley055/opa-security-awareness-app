@@ -1885,3 +1885,752 @@ Everything else in the section 12 checklist and section 16.8 is unchanged.
 RETURN TO 14A-10: the incident/evidence binding fix, BlobSASPermissions.
 parse('r'), first tests for a module that has none, then a synthetic blob and a
 real production SAS retrieval. Section 17.9 and 17.12.
+
+
+================================================================================
+19. THE LONG SESSION - COMMAND CENTER FINISHED, MOBILE OPENED UP
+================================================================================
+
+Written 18 August 2026, roughly 05:00, at the end of a session that ran from
+the previous afternoon. HEAD d55048c, main, pushed, porcelain 0.
+
+  a9b7b5c  Docs: sections 17 and 18                              17, 18
+  019ae3c  API: secure evidence download access                  14A-10 partial
+  06bb830  API: add operator facility membership view            14A-11 backend
+  750c71b  Website: add operator facility membership view        14A-11 website
+  233623f  Website: polish Command Center operator experience    14A-12
+  f528682  Mobile: fix background journey SQLite initialization   GAP-01 attempt
+  d55048c  Mobile: split journey queue bootstrap from background  GAP-01A
+
+  Gates   api 48 suites / 459 tests, int 7 / 35, tsc 0
+          mobile 3 suites / 59 tests, tsc 0
+          website builds clean, 24 routes
+
+  THE DEADLINE MOVED TO WEDNESDAY 19 AUGUST. It has been missed three times.
+  This section records what was finished, what was found, and - the part that
+  matters most - what is NOT finished despite a night's work on it.
+
+  AN EARLIER DRAFT OF SECTION 19 EXISTS AND IS SUPERSEDED BY THIS ONE. It
+  covered only the evidence security fix and the resequencing decision, both
+  of which appear here in 19.2.
+
+
+================================================================================
+19.1 THE COMMAND CENTER IS COMPLETE EXCEPT FOR EVIDENCE
+================================================================================
+
+  14A-0 to 14A-7   DONE, production-verified
+  14A-8a           REDIRECTED - Google path closed, section 18
+  14A-8b / 8c      deferred, coupled to 8a's provider decision
+  14A-9            DONE, production-proven
+  14A-10           PARTIAL - security hardening only, see 19.2
+  14A-11           DONE, PRODUCTION-PROVEN, see 19.3
+  14A-12           DONE, see 19.4
+  14A-13           NOT STARTED - deliberately last
+
+Twelve of thirteen slices have both halves. THAT IS THE HEADLINE AND IT IS
+GENUINELY GOOD. What follows is mostly about what it does not cover.
+
+
+================================================================================
+19.2 14A-10 - TWO SECURITY DEFECTS FIXED, THE SLICE STILL PARTIAL
+================================================================================
+
+Both defects were read out of the source in 17.9 and neither was reachable
+from the product, because production has zero evidence rows and the blob
+container is empty. Fixed anyway: unreachable today is not unreachable after
+14A-10, and an unreachable defect is free to fix and easy to forget.
+
+  CROSS-INCIDENT EVIDENCE ACCESS. getDownloadUrl did findUniqueOrThrow on
+  evidenceId ALONE while IncidentAccessGuard authorized params.incidentId. An
+  operator holding incident A could name A in the path and any evidence id
+  from incident B in the segment; the guard passed because it read a different
+  parameter than the query. Now findFirst on both ids, 404 on a miss - a 403
+  would confirm the record exists somewhere the caller cannot reach.
+
+  THE SAS PERMISSION ARGUMENT WAS BROKEN FOR EVERY CALLER, ALWAYS.
+  generateSasUrl({ permissions: { read: true } as never }) - the SDK calls
+  toString(), a plain object stringifies to [object Object], and the parser
+  rejects it character by character with "Invalid permission: [". Not a subtly
+  wrong permission: a total failure of the download path. The `as never` cast
+  was silencing the type error that would have caught it. Now
+  BlobSASPermissions.parse('r').
+
+  AN UNSTORED BLOB THREW A BARE Error AND SURFACED AS 500. PENDING and FAILED
+  are normal lifecycle states. Now NotFoundException.
+
+  THE ACCOUNT-KEY QUESTION IS CLOSED. Production uses an account-key
+  connection string - account opaevidencestore01, container opa-evidence, SAS
+  absent - so BlockBlobClient can sign locally. No user-delegation redesign.
+
+19.2.1 THE FIRST TESTS THIS MODULE HAS EVER HAD
+
+apps/api had 45 suites and NONE touched evidence. That is why both defects
+shipped: no gate could have caught them.
+
+  THE SAS ASSERTION SIGNS AGAINST A REAL BlockBlobClient, NOT A MOCK, AND THAT
+  IS THE ENTIRE POINT. A mocked generateSasUrl would have accepted
+  { read: true } forever. The spec builds a client from a synthetic connection
+  string with a fake account key; the SDK signs offline, no network.
+
+  VERIFIED BY MUTATION. The permissions line was reverted, the suite run, and
+  it FAILED with the same RangeError observed against production storage. Then
+  restored, byte-clean. A test that passes both before and after a fix proves
+  nothing; this one detects the defect.
+
+19.2.2 STATUS - DO NOT UPGRADE THIS
+
+  14A-10 PARTIAL. Evidence download security hardened at 019ae3c:
+  cross-incident access bound, real SAS serialization regression-tested,
+  first module tests added. PRODUCTION CONTAINS ZERO EVIDENCE. The blob
+  container is empty. Mobile capture and upload do not exist - the app
+  contains no reference to /evidence, uploadEvidence, FormData, multipart
+  or EvidenceType. The Command Center viewer is not built. The full
+  evidence subsystem resumes after 14A-13.
+
+THE PRODUCTION SYNTHETIC SAS PROOF WAS DEFERRED DELIBERATELY. The fix is
+already proven twice - direct probe against production storage, and a
+mutation-verified unit test. A synthetic run would put fabricated evidence on
+a real incident, and must never go through POST /incidents/:id/evidence
+because that writes EVIDENCE_ADDED into the HASH CHAIN: deleting it afterwards
+breaks verifyChain for that incident permanently and 16.2's indicator would
+correctly report tampering forever.
+
+
+================================================================================
+19.3 14A-11 FACILITY MEMBERSHIP - DONE AND PRODUCTION-PROVEN
+================================================================================
+
+Opened on opasafety.com and observed: OPA Demo Estate, Operators 1 (Demo
+Operator), Residents 1 (Collins Hynes). Real data, real API, real domain.
+
+  THE BACKEND EXISTED IN THE WRONG PLACE. listFacilityMembers is on
+  AdminProvisioningService, mounted under @Controller('admin') - NOT
+  'admin-provisioning', which is the module's directory name. That mismatch
+  cost real time: a request to /admin-provisioning/... 404s identically to an
+  undeployed route, and a correct deployment was briefly suspected of being
+  stale. See trap #219.
+
+  THE ADMIN PROJECTION IS TOO BROAD FOR OPERATORS. It selects email and
+  phoneNumber, which an administrator provisioning a seat legitimately needs.
+  An operator answering "who is at this estate" does not, and a resident's
+  mobile number is the most sensitive field the projection could leak.
+
+  SO THE METHODS ARE DELIBERATELY DUPLICATED AND MUST NOT BE CONSOLIDATED.
+  FacilitiesService.listMembersForOperator selects id, firstName, lastName,
+  role, isActive, accountStatus. THE DIFFERENCE IN PROJECTION IS THE SECURITY
+  BOUNDARY. Both methods carry comments saying so, and a test asserts the
+  Prisma select has no email and no phoneNumber - asserted on the QUERY, not
+  the response, so a widening fails where it happens.
+
+  GET /operator/facility/members, class-level JwtAuthGuard and
+  OperatorFacilityGuard, facility id from the caller's row and never from the
+  browser. Same boundary as /operator/incidents.
+
+  THE PARTITION IS BY ROLE, NOT BY RELATION. User.facilityId is one column
+  carrying every role - 9.5's "Facility.staff is a misleading name". An ADMIN
+  with a facility id lands in neither group, and a test pins that.
+
+  isActive, accountStatus AND facility.isVerified ARE CARRIED AND NOT
+  RENDERED. Every member of OPA Demo Estate is ACTIVE/ACTIVE, so a status
+  column would print one value twice. isVerified is FALSE on the demo estate
+  and 2.4 already decided a badge saying so would read as "unauthorised"
+  rather than "not yet onboarded".
+
+  THE WEBSITE HALF IS A SEPARATE ROUTE, NOT A PANEL ON THE QUEUE. 16.2 kept
+  the timeline inline because an operator should not leave the incident page
+  during an emergency; membership is reference information and must not
+  compete with a live queue. Concretely: NO Promise.all WITH THE QUEUE FETCH,
+  because a slow roster must never delay the queue's first paint, and a
+  membership REJECTED must never redirect an operator away from live
+  emergencies.
+
+  NO SAME-ORIGIN BRIDGE ROUTE. Nothing polls this, and an unused route handler
+  is a contract free to drift. The page imports the server-only lib directly,
+  as the shell does with getOperatorContext.
+
+  THE SHELL GAINED AN Incidents / Members NAV. It had none - the console was
+  reachable only by URL.
+
+
+================================================================================
+19.4 14A-12 - THE PALETTE NOW MEANS SOMETHING
+================================================================================
+
+Presentation only. No API contracts, auth, polling intervals, queue merge
+behaviour or timeline verification were touched, and the installer's verify
+block asserted each of those.
+
+  EVERY STATUS PREVIOUSLY RENDERED IN text-protection - IDENTICAL TO THE
+  "COMMAND CENTER" WORDMARK. An operator scanning the queue had nothing to
+  find. The token file defines --color-emergency as "SOS, primary CTA, urgent -
+  never decorative" and it was used NOWHERE in the console.
+
+  NOW: OPEN is emergency. RESOLVED is success. CANCELLED is muted. protection
+  retreats to brand identity, connection health and verified integrity. An
+  operator's eye has one job - find the orange.
+
+  TIMESTAMPS WERE UTC. formatAbsolute used toISOString(), and the timeline
+  sliced it. An operator in Lagos was mentally adding an hour during an
+  emergency; the demo estate is in Texas, where it was six. Now the terminal's
+  local zone with its label, rendered under suppressHydrationWarning because
+  the server and browser zones differ BY DESIGN and that difference is not an
+  error. Observed on device: 04:03:55 PM CDT against Texas coordinates.
+
+  THE INTEGRITY-FAILURE BANNER WAS STYLED IDENTICALLY TO A ROUTINE NOTICE -
+  border-line bg-panel-2, the same as "Updates are temporarily unavailable".
+  16.2 required that indicator to mean what it says. Now emergency.
+
+  RESPONSIVE: the shell header stacked nothing and overflowed below ~700px.
+  Now two levels, nav ahead of Sign out, touch targets 40px or more, every
+  screen bounded at max-w-7xl instead of stretching across a large monitor.
+
+  MEMBERSHIP DROPPED THE FACILITY NAME THE SHELL ALREADY SHOWS, for a count
+  the shell does not carry.
+
+  THE SCOPE BOUNDARY THAT MADE THIS SAFE: polish what exists, invent no
+  backend capability. No severity, no ETA, no response-time metric, no chart
+  of data OPA does not measure. A console that implies capabilities the
+  backend lacks is a demo that fails its first real question.
+
+
+================================================================================
+19.5 GAP-01 - THE MOBILE FINDING. THE MOST IMPORTANT WORK OF THE SESSION.
+================================================================================
+
+Sprint 11A has been open and undiagnosed since section 9.1, across five
+handovers. Tonight it was diagnosed on real hardware, and the diagnosis is not
+what anybody expected.
+
+19.5.1 NO STANDALONE BUILD HAD EVER EXISTED
+
+  THE ONLY PREVIOUS EAS BUILD ERRORED. 9 August, 20 seconds, npm ci failed
+  because package.json and package-lock.json were out of sync. So there had
+  never been an OPA APK.
+
+  WHAT WAS ON THE PHONE WAS EXPO GO. A QR code from `npx expo start` loads
+  JavaScript into Expo Go - a pre-signed container from the Play Store with
+  its own manifest, its own permissions and no OPA foreground service.
+  BACKGROUND LOCATION IN EXPO GO IS UNRELIABLE BY DESIGN.
+
+  SO EVERY PREVIOUS BACKGROUND TEST MAY HAVE BEEN RUN IN A CONTAINER THAT
+  COULD NOT SUPPORT IT. That is the most likely reason 11A survived five
+  handovers: the measurement instrument was wrong, and nothing in the app's
+  behaviour said so. See trap #222.
+
+19.5.2 THE ACTUAL DEFECT, FOUND BY logcat
+
+Wireless adb, real device, real APK. The log:
+
+  [journey-background] failed to store a background fix
+  Error: Call to function 'NativeDatabase.execAsync' has been rejected.
+  -> Caused by: java.lang.NullPointerException
+
+  EIGHT CONSECUTIVE FAILURES IN 35 SECONDS while ACCESS_BACKGROUND_LOCATION
+  was granted=true and TaskService was firing normally.
+
+  THE CAUSE: `PRAGMA journal_mode = WAL` was the first line of
+  CREATE_SCHEMA_SQL, executed through execAsync. journal_mode RETURNS A ROW;
+  execAsync is documented for statements that return nothing. In the headless
+  TaskManager context that row threw.
+
+  AND openJourneyQueueStore() CALLED initialize() ON EVERY BACKGROUND
+  INVOCATION. So every location Android delivered was captured and then
+  discarded, on every fix, forever.
+
+  THE PERMISSION AND BATTERY THEORIES WERE BOTH WRONG. Location was "Allowed
+  all the time" with "Last accessed" current. Battery was moved from Optimized
+  to Unrestricted and the behaviour did not change. Both were checked before
+  the code was, which was the right order and still cost an hour.
+
+19.5.3 THE SECOND FAILURE - WAL CANNOT BE SET AT ALL
+
+Moving the pragma to getFirstAsync, which expects a row, produced:
+
+  [journey-tracker] DURABLE QUEUE UNAVAILABLE - not tracking
+  Error: Call to function 'NativeStatement.prepareAsync' has been rejected.
+
+  SO BOTH RUNTIME APIS REJECT IT on Expo SDK 54 / expo-sqlite 16 on this
+  Samsung device. WAL was removed rather than moved a third time.
+
+  WAL IS RECORDED AS DEFERRED, NOT DISMISSED, AND THAT DISTINCTION MATTERS
+  MORE THAN IT DID WHEN IT WAS WRITTEN - see 19.5.5. Rollback journal mode is
+  crash-safe; what WAL adds is concurrent readers and sequential writes, and
+  TWO JS CONTEXTS DO SHARE THIS FILE. Whether it is API misuse, an
+  expo-sqlite 16 regression, a headless-context limitation or Samsung-specific
+  behaviour is UNMEASURED. Answer it before the pilot.
+
+19.5.4 THE STRUCTURAL FIX - BOOTSTRAP SPLIT FROM OPEN
+
+The pragma was the immediate cause. The architecture was the deeper one: a
+headless callback whose only job is to append one row was running full schema
+DDL on every GPS delivery.
+
+  bootstrapJourneyQueueStore - APP CONTEXT ONLY. Creates the schema, then
+  writes a schema_version marker.
+
+  openJourneyQueueStoreForBackground - HEADLESS-SAFE. Opens the file, checks
+  the marker, and REFUSES if absent. It creates nothing. A headless context
+  finding no schema should not be writing; the fix is lost either way, and
+  this makes it lost VISIBLY with a distinguishable error.
+
+  BOOTSTRAP IS TWO OPERATIONS, NOT ONE, AND THE COMMENT SAYS SO. Schema first,
+  marker after. A crash between them leaves the database unmarked and the
+  background path refusing until the next foreground bootstrap. Every schema
+  statement is idempotent, so recovery is finishing the job. FAIL-CLOSED AND
+  RECOVERABLE.
+
+  A TRANSACTION WAS CONSIDERED AND REJECTED. DDL inside
+  withExclusiveTransactionAsync is unverified against this native layer, and
+  this layer has already rejected two things it should not have. The one path
+  that must work is not where an unmeasured assumption belongs.
+
+  isBootstrapped DISTINGUISHES A MISSING TABLE FROM A REAL FAULT. "no such
+  table" returns false - it is the ANSWER to the question. Anything else
+  rethrows, because "not bootstrapped yet" is recoverable on the next launch
+  and a corrupt or locked database is not.
+
+19.5.5 WHAT THE FIX ACHIEVED, AND WHAT IT DID NOT
+
+MEASURED ON DEVICE AFTER d55048c:
+
+  [journey-tracker] durable queue ready - 132 rows, captureSequence=132
+  [journey-tracker] background capture OWNS this session
+
+  132 ROWS PERSISTED LOCALLY. Capture and durable storage WORK. Most task
+  invocations now complete silently - Handling job -> Finished task with
+  nothing between. That mechanism is fixed and it is a real result.
+
+BUT THE SERVER TELLS A DIFFERENT STORY. Session
+122b8cf2-0452-4d7d-8ba8-5bbae70023a3:
+
+  total_fixes=5
+  by_source=[{"_count":5,"source":"activation"}]
+
+  FIVE FIXES, ALL 'activation', SEQUENCES 0-4 - one per SOS press, on 16
+  August 21:03 and 18 August 04:28, 05:21, 07:58, 15:47. NOTHING BETWEEN THEM.
+  ZERO BACKGROUND FIXES HAVE EVER REACHED PRODUCTION.
+
+  132 rows on the phone. 0 on the server. THE QUEUE IS NOT DRAINING.
+
+AND A NEW FAILURE APPEARED:
+
+  [journey-background] failed to store a background fix
+  Error: NativeStatement.finalizeAsync rejected - database is locked
+
+  Note what surrounds it: THREE OVERLAPPING TASK INVOCATIONS IN 70ms
+  (39.152, 39.206, 39.215). That is a concurrency symptom, and it is precisely
+  what WAL relieves - the thing deferred in 19.5.3. The deferral was
+  defensible when it was made and is now load-bearing.
+
+  ALSO NOTED: the server's `sequence` counts activations 0-4 while the phone's
+  local capture sequence is at 132. Two different counters. Which one the
+  ordering guarantee depends on has not been established.
+
+19.5.6 GAP-01 IS NOT CLOSED. THE BAR HAS THREE PARTS.
+
+  GAP-01A  reliable background capture + durable storage
+           MECHANISM WORKS - 132 rows, no execAsync rejection.
+           NOT FULLY PROVEN - intermittent database-locked failures remain.
+
+  GAP-01B  reliable background TRANSMISSION + retry
+           BROKEN. Zero background fixes have reached the server.
+           THIS IS THE ONE THAT MATTERS FOR KIDNAPPING: a victim never
+           reopens the app. A queue that only drains in the foreground is a
+           queue that does not exist for the case OPA is built for.
+
+  GAP-01C  cadence, battery, endurance, real movement proof
+           NOT STARTED. TaskManager fires every ~2 SECONDS against a
+           configured timeInterval of 10000. Unexplained. At that rate the
+           overlapping invocations above are not an edge case, they are the
+           normal state, and battery cost is five times what was designed.
+
+  DO NOT RECORD GAP-01 AS FIXED UNTIL A DEVICE RUN PRODUCES source='background'
+  ROWS ON THE SERVER after a locked-screen drive. Section 9.1's bar, unchanged
+  and still unmet.
+
+19.5.7 THE NEXT MOVE, AND A HYPOTHESIS WORTH TESTING FIRST
+
+The session ended before this was read. IT IS THE FIRST THING TO CHECK:
+
+  DOES THE FLUSH TIMER START AT ALL WHEN BACKGROUND CAPTURE OWNS THE SESSION?
+  startTracking() has a branch - if startBackgroundCapture succeeds, the
+  foreground watcher does not run. If the flush interval is set inside that
+  same branch, it may never start, and 132 undrained rows would be explained
+  entirely without invoking lock contention.
+
+  That is cheaper to check than either cadence or WAL, and it would change
+  what GAP-01B actually is.
+
+Then, in order: cadence (a config question that may dissolve the contention),
+then WAL at open time - openDatabaseAsync may accept options that do not route
+through the two failing native paths.
+
+
+================================================================================
+19.6 THE MOBILE APP IS REAL NOW - AND WHAT THAT EXPOSED
+================================================================================
+
+First standalone APK ever built and installed. Findings from actually using it:
+
+  SOS FROM A REAL APK REACHED THE CONSOLE IN ~6 SECONDS. Observed. That is
+  the demo, and it works.
+
+  MULTIPLE EMERGENCY CONTACTS ALREADY WORK. Three contacts on the account, one
+  marked PRIMARY, all three active. 17.1 already proved dispatch fans out to
+  every active contact. THE BACKEND DOES WHAT WAS ASKED FOR.
+
+  BUT THE SCREEN IMPLIES OTHERWISE. "PRIMARY" with a "Set" button on the
+  others reads as a selection of who gets alerted. A resident would reasonably
+  conclude only the primary is notified. That is a LABELLING defect, not a
+  feature gap - the fix is a line saying all contacts are alerted, and primary
+  reframed as ordering rather than selection.
+
+  UI TRUNCATION. Buttons render as "Bac" and "Remov" - the contacts screen
+  clips at device width.
+
+  "Welcome," WITH NO NAME on the home screen. Either a missing string or the
+  profile fetch returning nothing. Unresolved and worth a look - the second
+  possibility is a real symptom.
+
+  PASSWORD RESET DOES NOT EXIST. 9.7. AuthController has register, login,
+  activate and nothing else. A locked-out resident cannot recover, and email
+  is unconfigured (9.11), so it is not a small piece of work.
+
+  TWO OPEN INCIDENTS FOR ONE RESIDENT EXISTED SIMULTANEOUSLY, which contradicts
+  10.1 and trap #201. Either app state did not survive the new install, or the
+  constraint is not what those sections record. Unresolved.
+
+  ANDROID "REMOVE PERMISSIONS IF APP UNUSED" AND "PAUSE APP ACTIVITY IF
+  UNUSED" ARE ON BY DEFAULT. For an emergency app that may sit unopened for
+  months, Android will silently revoke background location and the next SOS
+  will not track. EVERY OPA USER WILL HAVE THIS. The app should detect and
+  prompt; today it does not.
+
+  GOOGLE PLAY: app record created as "OPA - Emergency Safety", package
+  com.opasafety.app, internal testing track configured with a tester list.
+  Keystore is EAS-managed - Build Credentials KW_h6NzJKc. Play binds to that
+  signature permanently; DO NOT REGENERATE IT.
+
+  THE BACKGROUND LOCATION DECLARATION IS BLOCKED ON GAP-01. Google requires a
+  video showing the in-app disclosure and permission grant. It cannot be
+  produced until background tracking works.
+
+
+================================================================================
+19.7 COMMERCIAL - A REAL PROSPECT, AND A REAL LIMITATION
+================================================================================
+
+  A NIGERIAN SECURITY AGENCY MANAGING ~40 FACILITIES IS READY TO ENGAGE. That
+  is the first genuine commercial interest in OPA and it changes the shape of
+  the work.
+
+  HIS FIRST QUESTION WAS FOR A DEMO. The recommendation on record: a
+  screen-share the founder drives - press SOS on the phone, he watches it
+  arrive in the console live - NOT self-service credentials to an empty
+  queue. Self-service operator onboarding is the right build for AFTER he
+  signs, not before: an operator seat is bound to a facility, and a public
+  form granting console access needs an approval workflow that does not exist.
+
+  HIS SECOND POINT IS THE MOST VALUABLE FEEDBACK OPA HAS RECEIVED. A previous
+  solution failed in northern Nigeria because it relied on USSD where mobile
+  data could not be relied on. OPA REQUIRES DATA ON THE RESIDENT'S PHONE. No
+  data, no SOS, nothing reaches the Command Center at all. The offline
+  buffering that exists is for connectivity lost DURING an incident - it does
+  not help someone with no data when they press the button.
+
+  RECORDED AS A DEMAND-DRIVEN REQUIREMENT, NOT A SPRINT. USSD or SMS-
+  origination activation needs an aggregator relationship, a short code and
+  network approvals - months, and it collides with the DND problem in 17.1.
+  DO NOT PROMISE IT. Find out how many of the 40 facilities are actually
+  affected, and what the previous system's users were actually sending.
+
+  FORTY FACILITIES IS A RESELLER CONVERSATION; ONE IS A PILOT. Do not let the
+  size of the opportunity turn the first deployment into forty.
+
+  THE FIRST HIRE SHOULD NOT BE AN EMPLOYEE. No customers, no pilots, founder's
+  own money, founder not in Lagos. A BD contractor on a small retainer plus
+  commission for ACTIVATED pilots - defined as agreement signed, operator
+  provisioned, and at least one real SOS in the first two weeks - aligns them
+  to what OPA needs rather than to hours worked. A JD exists; the claim
+  boundaries in it are the important part.
+
+  THE PILOT OFFER IS DRAFTED: one estate, 8 weeks, free, 25 households, 3
+  operator seats, in-person setup. Section 6 of it - what OPA does and does
+  not do, including the SMS position - GOES TO THE PROSPECT IN WRITING. Six
+  open decisions are listed in its section 9; two are blocking, and one is
+  GAP-01.
+
+  DO NOT START A PILOT BEFORE GAP-01 CLOSES. An estate will ask whether it
+  keeps tracking in a pocket, and today the answer is no.
+
+  NDPC REGISTRATION IS MISFILED. A payment of NGN 226,397.50 on 13 August
+  (RRR 291500490967) was applied to Data Protection Compliance Organisation
+  registration instead of Data Controller/Data Processor of Major Importance.
+  A correction letter to the National Commissioner has been drafted and sent.
+  OPA is not correctly registered until that resolves.
+
+
+================================================================================
+19.8 ADR-016 PROTECTED IDENTITY - DECIDED, NOTHING BUILT
+================================================================================
+
+Carried from 17.6 and unchanged. Direction recorded so it is not re-derived:
+
+  OPERATIONAL ACCESS DOES NOT IMPLY PII ACCESS. Masking at the API boundary,
+  never in the UI. Mask by DEFAULT for all operators at every classification.
+  Classification governs who may reveal, audit, retention and key isolation -
+  not whether encryption exists. Equality lookup by keyed HMAC-SHA256, storage
+  by AES-256-GCM with nonce, auth tag and key version. Plaintext resolution
+  ONLY inside the notification boundary.
+
+  ADDING CIPHERTEXT COLUMNS BESIDE THE PLAINTEXT SECURES NOTHING.
+  User.phoneNumber is UNIQUE and NON-NULL and 9.8 says operator seats depend
+  on it. Retiring it is a schema change under a live dispatch path, and that
+  migration is the entire risk of the work.
+
+  THE PII INVENTORY IS NOT User.phoneNumber. EmergencyContact.phoneNumber,
+  IncidentNotification.recipient - plaintext E.164 in production today -
+  timeline payloads, logs, reports, analytics. Emergency-contact numbers may
+  be MORE sensitive than the resident's own: they map the protected person's
+  family and security network.
+
+  THE PROVIDER MUST RECEIVE A ROUTABLE NUMBER. A vault protects it from OPA's
+  own operators, logs, timelines and reports - real and defensible - and does
+  nothing about Africa's Talking. The honest claim is "your operators never
+  see it", not anything stronger.
+
+  14A-11 SHIPPED THE PRINCIPLE'S FIRST INSTANCE WITHOUT THE MACHINERY -
+  masking by omission rather than by encryption. See 19.3.
+
+  DO NOT CLAIM NDPA COMPLIANCE WITHOUT NIGERIAN PRIVACY COUNSEL. Describe
+  controls; let counsel characterise compliance. Trap #199 in a new domain.
+
+  THREE DOCUMENTS ARE WANTED AND THE ORDER MATTERS: architecture/security
+  specification, commercial security brief, employee training. BUILD THE
+  CAPABILITY FIRST, THEN DESCRIBE WHAT EXISTS. Do not sell structurally
+  inaccessible numbers until a test proves an operator cannot obtain one
+  through the API, logs, reports or timeline.
+
+
+================================================================================
+19.9 THE SECURITY OPERATIONS EVOLUTION ROADMAP - DIRECTION, NOT A PLAN
+================================================================================
+
+Discussed at length and recorded so today's decisions do not foreclose it.
+
+  OPA 1.0  Emergency Safety Platform - SOS, tracking, notifications, console
+  OPA 2.0  Incident Management - ownership, escalation, evidence, reporting
+  OPA 3.0  Multi-Facility Operations - provider views, facility hierarchy
+  OPA 4.0  Security Integration - CCTV, access control, alarms, partner APIs
+  OPA 5.0  Intelligence - SafeWalk, journey correlation, assistance
+
+  THE NIGERIA RATIONALE: OPA need not convince individual consumers to
+  subscribe. A security company managing 30 estates, an estate association
+  with 2,000 residents, or a corporate security team becomes the customer
+  while OPA protects the people underneath. OPA owns software, telemetry,
+  incident intelligence, identity, auditing and integrations; response
+  partners own physical response.
+
+  DO NOT ADVERTISE OPA AS A "SOC PLATFORM". In cybersecurity SOC implies SIEM,
+  endpoint telemetry and threat detection, and security firms may read it
+  differently again. "Security Operations & Incident Management Platform" says
+  what OPA actually does. The broader positioning can emerge as integrations
+  mature.
+
+  THE STANDING PRINCIPLE: new OPA 1.0 decisions should be checked for
+  compatibility with the multi-facility future, but future functionality must
+  NOT expand the current MVP unless a customer or pilot need requires it.
+
+  THREE THINGS NOT TO FORECLOSE - cheap now, expensive to retrofit:
+    TENANT HIERARCHY. User.facilityId is one nullable column and 9.5 already
+      shows it doing too much. A provider tier sits above facility. Do not
+      build anything assuming facility is the top of the tree.
+    AUTHORIZATION. OperatorFacilityGuard derives ONE facility from the user
+      row. A provider operator has many. The guard need not change now, but
+      nothing should assume the answer is singular.
+    EVENT SOURCE. The timeline's source field already distinguishes MOBILE
+      from INCIDENT_ORCHESTRATOR. Keep it naming the ORIGIN SYSTEM rather than
+      assuming SOS, so CCTV, access control or an overdue SafeWalk fit later.
+
+  A CONFLICT TO NAME HONESTLY. OPA 2.0's assignment and ownership model, and
+  OPA 3.0's dispatch intelligence, REVERSE AN EXISTING ADR. Section 12 records
+  dispatch, assignment and responder command as deliberately excluded, and 2.6
+  gives the reasoning: an operator asserting something about an emergency is a
+  claim by an interested party. ACKNOWLEDGED exists in the enum with no writer
+  for the same reason, and there is an installer verify check that fires if a
+  write verb appears on the operator incident controller.
+
+  THE FOUNDER'S POSITION, RECORDED VERBATIM IN SUBSTANCE: it is his product,
+  and when changes are needed they will be made. That is correct and it is his
+  call. THE ONLY THING ASKED IN RETURN: when the decision changes, AMEND THE
+  ADR AND SAY IT WAS REVERSED. A decision that was revised is useful to the
+  next reader; a rule that was quietly broken is not. That practice is most of
+  what has made these handovers worth having.
+
+
+================================================================================
+19.10 TRAPS ADDED
+================================================================================
+
+Continues from 17.10's #213.
+
+#214  A .NET METHOD CALLED FROM POWERSHELL IGNORES THE SHELL'S CURRENT
+      DIRECTORY. [IO.File]::ReadAllBytes('docs\...') resolved against
+      C:\Windows\system32 despite a preceding cd, because Set-Location does
+      not change the process working directory. Use absolute paths.
+
+#215  A POWERSHELL VARIABLE SURVIVES A FAILED ASSIGNMENT, AND THE NEXT WRITE
+      USES THE STALE VALUE. A read that throws is NON-TERMINATING. This
+      session overwrote a 52,708-byte handover document with a
+      space-separated decimal byte dump of incidents.module.ts left in a
+      variable by an earlier probe. RECOVERED BY git checkout - THE DOCUMENT
+      WAS TRACKED, WHICH IS THE ONLY REASON IT SURVIVED. Set
+      $ErrorActionPreference = 'Stop' and read every input before writing any.
+
+#216  JEST RUN FROM THE WRONG DIRECTORY REPORTS A SYNTAX ERROR IN A VALID
+      FILE. jest.config.ts lives in apps/api; from the repo root jest finds no
+      config, applies no ts-jest transform, and Babel fails on the first
+      TypeScript annotation. THE TELL IS THE PATH IN THE FAIL LINE:
+      apps/api/src/... means the wrong cwd, src/... means the right one.
+
+#217  A PASTED TERMINAL BLOCK RE-EXECUTES ITS OWN OUTPUT. Copying a command
+      AND its output back into PowerShell runs the output as commands, and any
+      cd inside is swallowed - which is how #216 was triggered. Copy the
+      command, not the transcript.
+
+#218  A MOCKED SDK CALL CANNOT PROVE THE REAL ONE WORKS. The first draft of
+      evidence.service.spec.ts mocked generateSasUrl and would have passed
+      against the broken object literal indefinitely. BREAK THE FIX AND WATCH
+      IT FAIL before trusting a test that exists to catch a specific defect.
+
+#219  A MODULE'S DIRECTORY NAME IS NOT ITS ROUTE PREFIX.
+      admin-provisioning.controller.ts is @Controller('admin'). A request to
+      /admin-provisioning/... 404s identically to an undeployed route, which
+      is how a correct deployment came to be suspected of being stale. Read
+      the decorator in dist/, not the filename.
+
+#220  jest.clearAllMocks() IN A SHARED beforeEach STRIPS RETURN VALUES, NOT
+      JUST CALL COUNTS. A mock armed once at module scope returns undefined
+      from the second test onward, and a mockResolvedValue set inside one test
+      leaks into the next. Every nested describe must re-arm what it depends
+      on.
+
+#221  AN ANCHOR TAKEN FROM DISPLAYED OUTPUT INHERITS ITS INDENTATION, NOT THE
+      FILE'S. Two 14A-12 anchors were written at 18 spaces from a probe that
+      rendered them so; the file had 16. Verify anchors against bracketed raw
+      lines, not pasted output.
+
+#222  EXPO GO IS NOT THE APP. A QR code from `npx expo start` loads JavaScript
+      into a pre-signed container with its own manifest, its own permissions
+      and no foreground service. Background location is unreliable there BY
+      DESIGN. A NATIVE-CAPABILITY TEST RUN IN EXPO GO MEASURES EXPO GO. This
+      is the likeliest reason Sprint 11A survived five handovers.
+
+#223  A PRAGMA THAT RETURNS A ROW CANNOT GO THROUGH execAsync, AND ON SDK 54
+      IT CANNOT GO THROUGH getFirstAsync EITHER. journal_mode threw a
+      NullPointerException in the first and a prepareAsync rejection in the
+      second. When a native layer rejects two APIs for one statement, stop
+      looking for a third and ask whether the statement is needed at all.
+
+#224  AN INSTALLER'S OWN DOCUMENTATION WILL TRIP A WORD-SCOPED VERIFIER. The
+      GAP-01A installer refused to write because its comments NAMED the pragma
+      whose absence they were explaining. Traps #171 and #207 in a third
+      costume: scope verify checks to EXECUTABLE FORMS, always.
+
+#225  A HEADLESS CALLBACK THAT OPENS ITS OWN STORE RUNS EVERY LINE OF THAT
+      OPEN ON EVERY INVOCATION. The background task ran full schema DDL on
+      every GPS delivery - at the observed ~2s cadence, on the order of a
+      thousand DDL statements an hour inside a callback whose job is to append
+      one row. Bootstrap and open are different operations and belong in
+      different functions.
+
+
+================================================================================
+19.11 THE STATE OF THINGS, BY KIND
+================================================================================
+
+PRODUCTION-PROVEN
+  Operator login, session, refresh, shell, facility context, queue, detail
+  14A-9 timeline, both halves
+  14A-11 membership, both halves - opened and observed
+  Emergency contact persistence and notification fan-out - 17.2
+  Per-recipient, per-channel notification recording - 17.1
+  SMS to a US number, to provider acceptance only - 17.1
+  The public tracking page renders a real branch - 17.4
+  SOS from a standalone APK reaching the console in ~6 seconds
+  Background location CAPTURE to local SQLite - 132 rows, 19.5.5
+
+IMPLEMENTED, NOT PROVEN
+  Evidence upload, hashing, dedupe, blob storage, SAS download - never run
+    from the product
+  SOS_RETRIGGERED label and formatter - unreachable from the app
+  The detail-page key fix, direct two-incident test - 7.1
+  The integrity-failure banner - 16.5
+  mergePages boundary path and Load more - 7.3
+  The migration guard's blocking path - 7.4
+
+BROKEN, MEASURED
+  Background TRANSMISSION - 132 local rows, 0 on the server - 19.5.5
+  Nigerian SMS to the tested DND numbers - 17.1
+  Task cadence ~2s against a configured 10s - 19.5.6
+  Intermittent SQLite "database is locked" under overlapping invocations
+
+DECIDED, NOT BUILT
+  Delivery-status surfacing in the Command Center - 17.5
+  Delivery report ingestion - deliveredAt is null on every row ever written
+  Per-contact channel preference and opt-out - 17.5
+  Protected Identity / ADR-016 - 19.8
+  Security Operations roadmap - 19.9
+  Post-incident reporting - section 11
+  Password reset - 9.7
+  Self-service operator onboarding - 19.7
+  Emergency-contacts screen labelling - 19.6
+
+BLOCKED ON SOMEBODY ELSE
+  14A-8a - Google answered; provider selection now required - section 18
+  Nigerian SMS - Africa's Talking transactional route - 17.1
+  WhatsApp - WABA approval - 9.11
+  NDPA characterisation - Nigerian privacy counsel - 19.8
+  Play Store background location declaration - blocked on GAP-01
+  NDPC registration - payment misapplied, correction letter sent - 19.7
+
+PARKED DELIBERATELY
+  The Africa's Talking privacy ticket - 17.7
+  The production synthetic SAS proof - 19.2.2
+  USSD / low-data activation - 19.7
+  A second demo resident - one PATCH to /admin/residents/:userId/facility
+
+
+================================================================================
+19.12 THE RESTART POINT
+================================================================================
+
+  1. READ 19.5.7 FIRST. Does the flush timer start when background capture
+     owns the session? Cheapest question in this document and it may explain
+     132 undrained rows entirely, without lock contention.
+
+  2. GAP-01B. Background transmission. The victim never reopens the app.
+     Nothing else about mobile matters more.
+
+  3. GAP-01C cadence. ~2s against a configured 10s, unexplained, and it is
+     what produces the overlapping invocations behind the locked-database
+     failures. A config question may dissolve a concurrency problem.
+
+  4. THE WAL QUESTION - now load-bearing rather than academic. Try
+     openDatabaseAsync options before concluding it cannot be set.
+
+  5. 14A-13. LAST, and an acceptance run rather than a checkbox. The
+     "implemented, not proven" list above has six entries and several get
+     exercised there for the first time. BUDGET FOR WHAT IT FINDS.
+
+  BEFORE ANY DEMO: trigger a fresh SOS shortly before, not the night before.
+  And say plainly that SMS to the tested Nigerian numbers is currently
+  rejected by carrier DND, and that background tracking is under active
+  repair. Both are better said than discovered in the room.
+
+  SECTION 19 WAS WRITTEN AT 05:00 AFTER A SESSION OF ROUGHLY FIFTEEN HOURS.
+  ANYTHING IN IT THAT READS AS CERTAIN AND IS NOT MEASURED SHOULD BE TREATED
+  AS A HYPOTHESIS. The measured facts are: 132 local rows, 5 server fixes all
+  'activation', two native SQLite rejections with their exact error strings,
+  a ~2s task cadence, and 48/459 + 7/35 + 3/59 green.

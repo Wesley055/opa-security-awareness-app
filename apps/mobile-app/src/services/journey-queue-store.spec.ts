@@ -88,10 +88,58 @@ describe('JourneyQueueStore', () => {
     expect(sql).toContain(
       'CREATE TABLE IF NOT EXISTS journey_queue_meta',
     );
-    expect(sql).toContain('PRAGMA journal_mode = WAL');
+    expect(sql).toContain('PRAGMA foreign_keys = ON');
     expect(sql).toContain(
       'CREATE INDEX IF NOT EXISTS journey_queue_fifo_idx',
     );
+  });
+
+  /**
+   * GAP-01. These tests exist because a mocked execAsync accepts anything,
+   * so this suite passed for weeks against SQL that threw a
+   * NullPointerException on a real device in the headless task context.
+   * Trap #218: when a test exists to catch a specific defect, it must
+   * assert the thing that was actually wrong.
+   *
+   * THEY STILL CANNOT PROVE THE FIX. execAsync is mocked here too. Only a
+   * device run showing source='background' fixes on the server can do that.
+   */
+  it('sets journal_mode through getFirstAsync, never execAsync', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+    const store = new JourneyQueueStore(database);
+
+    await store.initialize();
+
+    // PRAGMA journal_mode returns a row. execAsync is for statements that
+    // return nothing, and that row is what the native layer choked on.
+    expect(databaseMock.getFirstAsync).toHaveBeenCalledWith(
+      'PRAGMA journal_mode = WAL',
+    );
+  });
+
+  it('never puts journal_mode in the execAsync batch', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+    const store = new JourneyQueueStore(database);
+
+    await store.initialize();
+
+    const sql = databaseMock.execAsync.mock.calls[0]?.[0] ?? '';
+
+    expect(sql).not.toContain('journal_mode');
+  });
+
+  it('sets the journal mode BEFORE creating the schema', async () => {
+    // Order matters: WAL cannot be set inside a transaction, and the schema
+    // batch is the first thing that could open one.
+    const { database, databaseMock } = createDatabaseMock();
+    const store = new JourneyQueueStore(database);
+
+    await store.initialize();
+
+    const pragmaOrder = databaseMock.getFirstAsync.mock.invocationCallOrder[0];
+    const schemaOrder = databaseMock.execAsync.mock.invocationCallOrder[0];
+
+    expect(pragmaOrder).toBeLessThan(schemaOrder);
   });
 
   it('atomically inserts a fix and advances capture sequence', async () => {

@@ -10,8 +10,26 @@ import type {
 
 const DATABASE_NAME = 'opa-journey-queue.db';
 
+/**
+ * NO `PRAGMA journal_mode` HERE, AND THAT IS THE WHOLE POINT.
+ *
+ * journal_mode RETURNS A ROW; execAsync is documented for statements that
+ * return nothing. In the foreground context the extra row was tolerated. In
+ * the headless TaskManager context it was not: every invocation threw
+ *
+ *   Call to function 'NativeDatabase.execAsync' has been rejected.
+ *   Caused by: java.lang.NullPointerException
+ *
+ * openJourneyQueueStore() calls initialize() on EVERY background invocation,
+ * so every fix Android delivered was captured and then discarded. Measured
+ * on a real device 18 August 2026 - eight consecutive failures in 35
+ * seconds. This is a concrete failure mechanism consistent with the
+ * previously observed background-capture gap; the 10 August drive has no
+ * log behind it and is NOT proven to share this cause.
+ *
+ * foreign_keys returns nothing and is safe to leave in this batch.
+ */
 const CREATE_SCHEMA_SQL = `
-PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE IF NOT EXISTS journey_queue (
@@ -122,7 +140,19 @@ export interface JourneyQueueTrimResult {
 export class JourneyQueueStore {
   constructor(private readonly database: SQLiteDatabase) {}
 
+  /**
+   * WAL IS SET THROUGH getFirstAsync, NOT execAsync.
+   *
+   * `PRAGMA journal_mode = WAL` answers with the resulting mode, so it is a
+   * query rather than a statement. Reading that row is what makes it safe in
+   * the headless task context - see the note above CREATE_SCHEMA_SQL for the
+   * failure this replaces.
+   *
+   * The two calls are deliberately NOT wrapped in a transaction: SQLite
+   * refuses to change journal_mode inside one.
+   */
   async initialize(): Promise<void> {
+    await this.database.getFirstAsync('PRAGMA journal_mode = WAL');
     await this.database.execAsync(CREATE_SCHEMA_SQL);
   }
 

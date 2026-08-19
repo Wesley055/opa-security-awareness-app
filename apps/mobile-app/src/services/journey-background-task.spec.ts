@@ -35,8 +35,7 @@ const mockedOpenStore =
  */
 describe('captureBackgroundFix', () => {
   let store: {
-    getCaptureSequence: jest.Mock;
-    enqueue: jest.Mock;
+    enqueueBatch: jest.Mock;
   };
 
   const position = {
@@ -54,14 +53,16 @@ describe('captureBackgroundFix', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+
     store = {
-      getCaptureSequence: jest.fn().mockResolvedValue(41),
-      enqueue: jest.fn().mockResolvedValue({
-        inserted: true,
+      enqueueBatch: jest.fn().mockResolvedValue({
+        inserted: 1,
         dropped: 0,
         durableDepth: 1,
+        captureSequences: [42],
       }),
     };
+
     mockedOpenStore.mockResolvedValue(store as never);
     mockedSecureStore.getItemAsync.mockResolvedValue('session-abc');
   });
@@ -70,71 +71,77 @@ describe('captureBackgroundFix', () => {
     return require('./journey-background-task') as typeof import('./journey-background-task');
   }
 
-  it('writes the fix to the durable queue', async () => {
+  it('writes the fix to the durable queue through enqueueBatch', async () => {
     const { captureBackgroundFix } = await subject();
+
     await captureBackgroundFix(position);
 
-    expect(store.enqueue).toHaveBeenCalledTimes(1);
-    const [input] = store.enqueue.mock.calls[0];
-    expect(input.sessionId).toBe('session-abc');
-    expect(input.fix.latitude).toBe(6.5244);
-    expect(input.fix.longitude).toBe(3.3792);
+    expect(store.enqueueBatch).toHaveBeenCalledTimes(1);
+
+    const [sessionId, items] = store.enqueueBatch.mock.calls[0];
+
+    expect(sessionId).toBe('session-abc');
+    expect(items).toHaveLength(1);
+    expect(items[0].fix.latitude).toBe(6.5244);
+    expect(items[0].fix.longitude).toBe(3.3792);
   });
 
   it("records source as 'background', not 'foreground'", async () => {
-    // TRUTHFUL PROVENANCE. 'background' is already in TRACKED_SOURCES on the
-    // API and the column is VarChar(32), so this costs no migration. Writing
-    // 'foreground' would put a false claim into a tamper-evident record.
     const { captureBackgroundFix } = await subject();
+
     await captureBackgroundFix(position);
 
-    const [input] = store.enqueue.mock.calls[0];
-    expect(input.fix.source).toBe('background');
+    const [, items] = store.enqueueBatch.mock.calls[0];
+
+    expect(items[0].fix.source).toBe('background');
   });
 
-  it('reads the capture sequence from SQLite and advances it', async () => {
-    // NOT cached in module scope. Two JS contexts must not mint the same
-    // sequence, so the persisted value is read fresh on every invocation.
+  it('delegates sequence and idempotency-key allocation to the durable store', async () => {
     const { captureBackgroundFix } = await subject();
+
     await captureBackgroundFix(position);
 
-    expect(store.getCaptureSequence).toHaveBeenCalled();
-    const [input] = store.enqueue.mock.calls[0];
-    expect(input.captureSequence).toBe(42);
-    expect(input.fix.idempotencyKey).toBe('session-abc:1786000000000:42');
+    const [, items] = store.enqueueBatch.mock.calls[0];
+
+    // The headless caller no longer reads or allocates captureSequence.
+    // enqueueBatch owns that operation inside its exclusive transaction.
+    expect(items[0]).not.toHaveProperty('captureSequence');
+    expect(items[0].fix).not.toHaveProperty('idempotencyKey');
+    expect(items[0].capturedAtMs).toBe(1786000000000);
   });
 
   it('records CAPTURE time, not the time the fix is eventually sent', async () => {
     const { captureBackgroundFix } = await subject();
+
     await captureBackgroundFix(position);
 
-    const [input] = store.enqueue.mock.calls[0];
-    expect(input.fix.recordedAt).toBe(new Date(1786000000000).toISOString());
+    const [, items] = store.enqueueBatch.mock.calls[0];
+
+    expect(items[0].capturedAtMs).toBe(1786000000000);
+    expect(items[0].fix.recordedAt).toBe(
+      new Date(1786000000000).toISOString(),
+    );
   });
 
   it('retains the full active-incident depth and never defers eviction', async () => {
-    // The same bound the foreground path uses. A background capture must not
-    // discard emergency history the foreground path would have kept - and
-    // deferral is impossible here, because this context cannot observe
-    // whether a replay is in flight.
     const { captureBackgroundFix } = await subject();
+
     await captureBackgroundFix(position);
 
-    const [, options] = store.enqueue.mock.calls[0];
+    const [, , options] = store.enqueueBatch.mock.calls[0];
+
     expect(options.maxQueuedFixes).toBe(7200);
     expect(options.deferOverflowEviction).toBe(false);
   });
 
   it('discards the fix when no session is active', async () => {
-    // Tracking stopped while the OS still had a pending delivery. A fix with
-    // no session cannot be ingested, and inventing one would attach real
-    // movement to the wrong incident.
     mockedSecureStore.getItemAsync.mockResolvedValue(null);
 
     const { captureBackgroundFix } = await subject();
+
     await captureBackgroundFix(position);
 
-    expect(store.enqueue).not.toHaveBeenCalled();
+    expect(store.enqueueBatch).not.toHaveBeenCalled();
     expect(mockedOpenStore).not.toHaveBeenCalled();
   });
 
@@ -142,25 +149,31 @@ describe('captureBackgroundFix', () => {
     mockedSecureStore.getItemAsync.mockResolvedValue('');
 
     const { captureBackgroundFix } = await subject();
+
     await captureBackgroundFix(position);
 
-    expect(store.enqueue).not.toHaveBeenCalled();
+    expect(store.enqueueBatch).not.toHaveBeenCalled();
+    expect(mockedOpenStore).not.toHaveBeenCalled();
   });
 
-  it('omits negative accuracy and speed rather than sending them', async () => {
-    // ADR-010. forbidNonWhitelisted is true and validation is per request, so
-    // ONE negative field rejects the ENTIRE batch of up to 200 fixes.
+  it('omits negative accuracy and speed rather than storing them', async () => {
     const negative = {
-      coords: { ...position.coords, accuracy: -1, speed: -1 },
+      coords: {
+        ...position.coords,
+        accuracy: -1,
+        speed: -1,
+      },
       timestamp: 1786000000000,
     } as unknown as Location.LocationObject;
 
     const { captureBackgroundFix } = await subject();
+
     await captureBackgroundFix(negative);
 
-    const [input] = store.enqueue.mock.calls[0];
-    expect(input.fix.accuracy).toBeUndefined();
-    expect(input.fix.speed).toBeUndefined();
+    const [, items] = store.enqueueBatch.mock.calls[0];
+
+    expect(items[0].fix.accuracy).toBeUndefined();
+    expect(items[0].fix.speed).toBeUndefined();
   });
 
   it('falls back to wall clock when the platform timestamp is unusable', async () => {
@@ -170,14 +183,17 @@ describe('captureBackgroundFix', () => {
     } as unknown as Location.LocationObject;
 
     const { captureBackgroundFix } = await subject();
+
     await captureBackgroundFix(noTimestamp);
 
-    const [input] = store.enqueue.mock.calls[0];
-    expect(typeof input.fix.recordedAt).toBe('string');
-    expect(Number.isNaN(Date.parse(input.fix.recordedAt))).toBe(false);
+    const [, items] = store.enqueueBatch.mock.calls[0];
+
+    expect(Number.isSafeInteger(items[0].capturedAtMs)).toBe(true);
+    expect(typeof items[0].fix.recordedAt).toBe('string');
+    expect(Number.isNaN(Date.parse(items[0].fix.recordedAt))).toBe(false);
   });
 
-  it('opens the durable queue exactly once for a multi-location native batch', async () => {
+  it('opens once and submits one atomic enqueueBatch for a multi-location native delivery', async () => {
     const secondPosition = {
       ...position,
       coords: {
@@ -188,9 +204,12 @@ describe('captureBackgroundFix', () => {
       timestamp: 1786000010000,
     } as unknown as Location.LocationObject;
 
-    store.getCaptureSequence
-      .mockResolvedValueOnce(41)
-      .mockResolvedValueOnce(42);
+    store.enqueueBatch.mockResolvedValue({
+      inserted: 2,
+      dropped: 0,
+      durableDepth: 2,
+      captureSequences: [42, 43],
+    });
 
     const { captureBackgroundBatch } = await subject();
 
@@ -198,10 +217,24 @@ describe('captureBackgroundFix', () => {
 
     expect(mockedOpenStore).toHaveBeenCalledTimes(1);
     expect(mockedSecureStore.getItemAsync).toHaveBeenCalledTimes(1);
-    expect(store.enqueue).toHaveBeenCalledTimes(2);
 
-    expect(store.enqueue.mock.calls[0]?.[0].captureSequence).toBe(42);
-    expect(store.enqueue.mock.calls[1]?.[0].captureSequence).toBe(43);
+    // This is the GAP-01A invariant: one native TaskManager delivery causes
+    // ONE store batch operation, not one exclusive transaction per fix.
+    expect(store.enqueueBatch).toHaveBeenCalledTimes(1);
+
+    const [sessionId, items, options] = store.enqueueBatch.mock.calls[0];
+
+    expect(sessionId).toBe('session-abc');
+    expect(items).toHaveLength(2);
+
+    expect(items[0].capturedAtMs).toBe(1786000000000);
+    expect(items[1].capturedAtMs).toBe(1786000010000);
+
+    expect(items[0].fix.latitude).toBe(6.5244);
+    expect(items[1].fix.latitude).toBe(6.525);
+
+    expect(options.maxQueuedFixes).toBe(7200);
+    expect(options.deferOverflowEviction).toBe(false);
   });
 
   it('does not open SQLite for a batch after session ownership has disappeared', async () => {
@@ -212,6 +245,6 @@ describe('captureBackgroundFix', () => {
     await captureBackgroundBatch([position, position]);
 
     expect(mockedOpenStore).not.toHaveBeenCalled();
-    expect(store.enqueue).not.toHaveBeenCalled();
+    expect(store.enqueueBatch).not.toHaveBeenCalled();
   });
 });

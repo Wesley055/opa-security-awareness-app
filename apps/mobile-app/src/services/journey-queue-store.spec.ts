@@ -234,6 +234,176 @@ describe('JourneyQueueStore', () => {
     ]);
   });
 
+  describe('enqueueBatch', () => {
+    function batchFix(
+      capturedAtMs: number,
+      latitude: number,
+      longitude: number,
+    ) {
+      return {
+        capturedAtMs,
+        fix: {
+          source: 'background' as const,
+          latitude,
+          longitude,
+          accuracy: 5,
+          speed: 1.5,
+          recordedAt: new Date(capturedAtMs).toISOString(),
+        },
+      };
+    }
+
+    it('stores a native batch inside one exclusive transaction', async () => {
+      const { database, databaseMock, transaction } = createDatabaseMock();
+
+      transaction.getFirstAsync
+        .mockResolvedValueOnce({ value: 40 })
+        .mockResolvedValueOnce({ count: 2 });
+
+      transaction.runAsync
+        .mockResolvedValueOnce(runResult(1))
+        .mockResolvedValueOnce(runResult(1))
+        .mockResolvedValueOnce(runResult(1));
+
+      const store = new JourneyQueueStore(database);
+
+      await store.enqueueBatch(
+        'session-1',
+        [
+          batchFix(1000, 6.5244, 3.3792),
+          batchFix(2000, 6.5250, 3.3800),
+        ],
+        {
+          maxQueuedFixes: 600,
+          deferOverflowEviction: false,
+        },
+      );
+
+      expect(
+        databaseMock.withExclusiveTransactionAsync,
+      ).toHaveBeenCalledTimes(1);
+
+      const insertCalls = transaction.runAsync.mock.calls.filter(([sql]) =>
+        String(sql).includes('INSERT OR IGNORE INTO journey_queue'),
+      );
+
+      expect(insertCalls).toHaveLength(2);
+    });
+
+    it('allocates sequence and idempotency key from persisted state inside the transaction', async () => {
+      const { database, transaction } = createDatabaseMock();
+
+      transaction.getFirstAsync
+        .mockResolvedValueOnce({ value: 40 })
+        .mockResolvedValueOnce({ count: 2 });
+
+      transaction.runAsync
+        .mockResolvedValueOnce(runResult(1))
+        .mockResolvedValueOnce(runResult(1))
+        .mockResolvedValueOnce(runResult(1));
+
+      const store = new JourneyQueueStore(database);
+
+      const result = await store.enqueueBatch(
+        'session-1',
+        [
+          batchFix(1000, 6.5244, 3.3792),
+          batchFix(2000, 6.5250, 3.3800),
+        ],
+        {
+          maxQueuedFixes: 600,
+          deferOverflowEviction: false,
+        },
+      );
+
+      expect(result.captureSequences).toEqual([41, 42]);
+
+      const insertCalls = transaction.runAsync.mock.calls.filter(([sql]) =>
+        String(sql).includes('INSERT OR IGNORE INTO journey_queue'),
+      );
+
+      expect(insertCalls[0]?.[1]?.[1]).toBe('session-1:1000:41');
+      expect(insertCalls[1]?.[1]?.[1]).toBe('session-1:2000:42');
+
+      const metadataCall = transaction.runAsync.mock.calls.find(([sql]) =>
+        String(sql).includes('MAX(journey_queue_meta.value, excluded.value)'),
+      );
+
+      expect(metadataCall?.[1]).toEqual(['capture_sequence', 42]);
+    });
+
+    it('counts duplicate inserts without reusing an allocated sequence', async () => {
+      const { database, transaction } = createDatabaseMock();
+
+      transaction.getFirstAsync
+        .mockResolvedValueOnce({ value: 40 })
+        .mockResolvedValueOnce({ count: 1 });
+
+      transaction.runAsync
+        .mockResolvedValueOnce(runResult(1))
+        .mockResolvedValueOnce(runResult(0))
+        .mockResolvedValueOnce(runResult(1));
+
+      const store = new JourneyQueueStore(database);
+
+      await expect(
+        store.enqueueBatch(
+          'session-1',
+          [
+            batchFix(1000, 6.5244, 3.3792),
+            batchFix(2000, 6.5250, 3.3800),
+          ],
+          {
+            maxQueuedFixes: 600,
+            deferOverflowEviction: false,
+          },
+        ),
+      ).resolves.toMatchObject({
+        inserted: 1,
+        captureSequences: [41, 42],
+      });
+    });
+
+    it('enforces the depth bound once after the whole batch', async () => {
+      const { database, transaction } = createDatabaseMock();
+
+      transaction.getFirstAsync
+        .mockResolvedValueOnce({ value: 40 })
+        .mockResolvedValueOnce({ count: 602 });
+
+      transaction.runAsync
+        .mockResolvedValueOnce(runResult(1))
+        .mockResolvedValueOnce(runResult(1))
+        .mockResolvedValueOnce(runResult(1))
+        .mockResolvedValueOnce(runResult(2));
+
+      const store = new JourneyQueueStore(database);
+
+      await expect(
+        store.enqueueBatch(
+          'session-1',
+          [
+            batchFix(1000, 6.5244, 3.3792),
+            batchFix(2000, 6.5250, 3.3800),
+          ],
+          {
+            maxQueuedFixes: 600,
+            deferOverflowEviction: false,
+          },
+        ),
+      ).resolves.toMatchObject({
+        dropped: 2,
+        durableDepth: 600,
+      });
+
+      const evictionCalls = transaction.runAsync.mock.calls.filter(([sql]) =>
+        String(sql).includes('ORDER BY queue_id ASC'),
+      );
+
+      expect(evictionCalls).toHaveLength(1);
+      expect(evictionCalls[0]?.[1]).toEqual([2]);
+    });
+  });
   it('reads insert changes before the metadata statement', async () => {
     const { database, transaction } = createDatabaseMock();
 

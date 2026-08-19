@@ -92,13 +92,10 @@ interface BackgroundLocationPayload {
  * directly from a spec, and a task that is only exercised through its
  * registration is a task nobody has tested.
  */
-async function persistBackgroundFix(
-  position: Location.LocationObject,
-  sessionId: string,
-  store: JourneyQueueStore,
-): Promise<void> {
-  const captureSequence = (await store.getCaptureSequence()) + 1;
-
+function toBackgroundBatchItem(position: Location.LocationObject): {
+  capturedAtMs: number;
+  fix: Omit<TrackedFix, 'idempotencyKey'>;
+} {
   const coords = position.coords;
   const ms =
     typeof position.timestamp === 'number' && Number.isFinite(position.timestamp)
@@ -111,8 +108,7 @@ async function persistBackgroundFix(
   // not an enum, so no API change or migration is involved. Writing
   // 'foreground' here to avoid checking would have put a false claim into a
   // tamper-evident record.
-  const fix: TrackedFix = {
-    idempotencyKey: sessionId + ':' + String(ms) + ':' + String(captureSequence),
+  const fix: Omit<TrackedFix, 'idempotencyKey'> = {
     source: 'background',
     latitude: coords.latitude,
     longitude: coords.longitude,
@@ -129,28 +125,11 @@ async function persistBackgroundFix(
     fix.speed = speed;
   }
 
-  const result = await store.enqueue(
-    { sessionId, fix, captureSequence },
-    {
-      // The SAME depth the foreground path uses. A background capture must
-      // never discard emergency history the foreground path would have kept.
-      maxQueuedFixes: ACTIVE_INCIDENT_QUEUE_DEPTH,
-      // NEVER defer. Deferral protects an in-flight replay batch, and this
-      // context cannot observe whether a replay is in flight. Deferring
-      // blindly would let the queue grow unbounded through a long drive with
-      // no foreground app to trim it.
-      deferOverflowEviction: false,
-    },
-  );
-
-  if (result.dropped > 0) {
-    log(
-      'background queue overflow - dropped ' + String(result.dropped) +
-        ' oldest fixes, depth ' + String(result.durableDepth),
-    );
-  }
+  return {
+    capturedAtMs: ms,
+    fix,
+  };
 }
-
 /**
  * Single-fix entry point retained for direct callers and focused tests.
  *
@@ -168,7 +147,22 @@ export async function captureBackgroundFix(
   }
 
   const store = await openJourneyQueueStoreForBackground();
-  await persistBackgroundFix(position, sessionId, store);
+
+  const result = await store.enqueueBatch(
+    sessionId,
+    [toBackgroundBatchItem(position)],
+    {
+      maxQueuedFixes: ACTIVE_INCIDENT_QUEUE_DEPTH,
+      deferOverflowEviction: false,
+    },
+  );
+
+  if (result.dropped > 0) {
+    log(
+      'background queue overflow - dropped ' + String(result.dropped) +
+        ' oldest fixes, depth ' + String(result.durableDepth),
+    );
+  }
 }
 
 /**
@@ -197,13 +191,27 @@ export async function captureBackgroundBatch(
 
   const store = await openJourneyQueueStoreForBackground();
 
-  for (const position of locations) {
-    try {
-      await persistBackgroundFix(position, sessionId, store);
-    } catch (err: unknown) {
-      // One bad fix must not abandon the remainder of the native batch.
-      log('failed to store a background fix', err);
+  try {
+    const result = await store.enqueueBatch(
+      sessionId,
+      locations.map(toBackgroundBatchItem),
+      {
+        maxQueuedFixes: ACTIVE_INCIDENT_QUEUE_DEPTH,
+        deferOverflowEviction: false,
+      },
+    );
+
+    if (result.dropped > 0) {
+      log(
+        'background queue overflow - dropped ' + String(result.dropped) +
+          ' oldest fixes, depth ' + String(result.durableDepth),
+      );
     }
+  } catch (err: unknown) {
+    // One native delivery is one atomic queue transaction. A failure leaves
+    // the whole batch uncommitted rather than producing a partially sequenced
+    // emergency record.
+    log('failed to store background batch', err);
   }
 }
 

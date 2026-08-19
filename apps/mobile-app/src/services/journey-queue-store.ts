@@ -331,6 +331,141 @@ ON CONFLICT(key) DO UPDATE SET
   }
 
   /**
+   * Atomically stores one native background delivery using ONE exclusive
+   * transaction connection.
+   *
+   * Sequence ownership lives here rather than in the headless caller. The
+   * starting persisted sequence is read inside the same transaction that
+   * inserts every row, advances metadata and applies the queue bound.
+   *
+   * One OS delivery therefore pays for one Transaction.createAsync() /
+   * useNewConnection=true lifecycle instead of one per captured position.
+   */
+  async enqueueBatch(
+    sessionId: string,
+    items: readonly {
+      capturedAtMs: number;
+      fix: Omit<TrackedFix, 'idempotencyKey'>;
+    }[],
+    options: EnqueueJourneyFixOptions,
+  ): Promise<{
+    inserted: number;
+    dropped: number;
+    durableDepth: number;
+    captureSequences: number[];
+  }> {
+    if (sessionId.length === 0) {
+      throw new Error('sessionId must not be empty.');
+    }
+
+    assertPositiveSafeInteger(options.maxQueuedFixes, 'maxQueuedFixes');
+
+    if (typeof options.deferOverflowEviction !== 'boolean') {
+      throw new Error('deferOverflowEviction must be a boolean.');
+    }
+
+    for (const item of items) {
+      if (!Number.isSafeInteger(item.capturedAtMs) || item.capturedAtMs < 0) {
+        throw new Error('capturedAtMs must be a non-negative safe integer.');
+      }
+    }
+
+    if (items.length === 0) {
+      return {
+        inserted: 0,
+        dropped: 0,
+        durableDepth: await this.count(),
+        captureSequences: [],
+      };
+    }
+
+    let inserted = 0;
+    let dropped = 0;
+    let durableDepth = 0;
+    const captureSequences: number[] = [];
+
+    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+      const sequenceRow = await transaction.getFirstAsync<MetadataRow>(
+        'SELECT value FROM journey_queue_meta WHERE key = ?',
+        [CAPTURE_SEQUENCE_KEY],
+      );
+
+      let sequence = sequenceRow?.value ?? 0;
+
+      for (const item of items) {
+        sequence += 1;
+        captureSequences.push(sequence);
+
+        const idempotencyKey =
+          sessionId + ':' + String(item.capturedAtMs) + ':' + String(sequence);
+
+        const insertResult = await transaction.runAsync(
+          `
+INSERT OR IGNORE INTO journey_queue (
+  session_id,
+  idempotency_key,
+  source,
+  latitude,
+  longitude,
+  accuracy,
+  speed,
+  recorded_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+`,
+          [
+            sessionId,
+            idempotencyKey,
+            item.fix.source,
+            item.fix.latitude,
+            item.fix.longitude,
+            item.fix.accuracy ?? null,
+            item.fix.speed ?? null,
+            item.fix.recordedAt,
+          ],
+        );
+
+        if (insertResult.changes === 1) {
+          inserted += 1;
+        }
+      }
+
+      await transaction.runAsync(
+        `
+INSERT INTO journey_queue_meta (key, value)
+VALUES (?, ?)
+ON CONFLICT(key) DO UPDATE SET
+  value = MAX(journey_queue_meta.value, excluded.value)
+`,
+        [CAPTURE_SEQUENCE_KEY, sequence],
+      );
+
+      const countRow = await transaction.getFirstAsync<CountRow>(COUNT_SQL, []);
+      durableDepth = countRow?.count ?? 0;
+
+      if (
+        !options.deferOverflowEviction &&
+        durableDepth > options.maxQueuedFixes
+      ) {
+        const excess = durableDepth - options.maxQueuedFixes;
+
+        const deleteResult = await transaction.runAsync(
+          EVICT_OLDEST_SQL,
+          [excess],
+        );
+
+        dropped = deleteResult.changes;
+        durableDepth -= dropped;
+      }
+    });
+
+    return {
+      inserted,
+      dropped,
+      durableDepth,
+      captureSequences,
+    };
+  }
+  /**
    * Applies the tracker-owned depth bound outside an enqueue, for the
    * deferred case recorded in ADR-014 section 11.
    */

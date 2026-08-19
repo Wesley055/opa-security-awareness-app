@@ -56,7 +56,10 @@ import {
   cleanNonNegative,
   type TrackedFix,
 } from './journey-fix-contract';
-import { openJourneyQueueStoreForBackground } from './journey-queue-store';
+import {
+  openJourneyQueueStoreForBackground,
+  type JourneyQueueStore,
+} from './journey-queue-store';
 
 export const BACKGROUND_LOCATION_TASK = 'opa-background-location';
 
@@ -89,23 +92,11 @@ interface BackgroundLocationPayload {
  * directly from a spec, and a task that is only exercised through its
  * registration is a task nobody has tested.
  */
-export async function captureBackgroundFix(
+async function persistBackgroundFix(
   position: Location.LocationObject,
+  sessionId: string,
+  store: JourneyQueueStore,
 ): Promise<void> {
-  const sessionId = await SecureStore.getItemAsync(BACKGROUND_SESSION_KEY);
-
-  if (sessionId === null || sessionId.length === 0) {
-    // Tracking stopped while the OS still had a pending delivery. Dropping is
-    // correct: a fix with no session cannot be ingested, and inventing one
-    // would attach real movement to the wrong incident.
-    log('no active session - discarding background fix');
-    return;
-  }
-
-  // HEADLESS-SAFE OPEN. No DDL and no pragma - see the two open functions
-  // in journey-queue-store.ts. This callback runs on every GPS delivery, so
-  // anything it does happens hundreds of times an hour.
-  const store = await openJourneyQueueStoreForBackground();
   const captureSequence = (await store.getCaptureSequence()) + 1;
 
   const coords = position.coords;
@@ -161,6 +152,62 @@ export async function captureBackgroundFix(
 }
 
 /**
+ * Single-fix entry point retained for direct callers and focused tests.
+ *
+ * A standalone call owns one store open. TaskManager does NOT call this in a
+ * loop; captureBackgroundBatch() owns one open for the entire OS delivery.
+ */
+export async function captureBackgroundFix(
+  position: Location.LocationObject,
+): Promise<void> {
+  const sessionId = await SecureStore.getItemAsync(BACKGROUND_SESSION_KEY);
+
+  if (sessionId === null || sessionId.length === 0) {
+    log('no active session - discarding background fix');
+    return;
+  }
+
+  const store = await openJourneyQueueStoreForBackground();
+  await persistBackgroundFix(position, sessionId, store);
+}
+
+/**
+ * One native queue handle per TaskManager invocation.
+ *
+ * Android may deliver several positions in one callback. Reopening SQLite for
+ * every element created avoidable native-handle churn in the exact headless
+ * path that has produced prepareAsync/finalizeAsync failures on the device.
+ *
+ * Session ownership is also snapshotted once for the batch. A single native
+ * delivery cannot therefore split itself across two incident ids.
+ */
+export async function captureBackgroundBatch(
+  locations: readonly Location.LocationObject[],
+): Promise<void> {
+  if (locations.length === 0) {
+    return;
+  }
+
+  const sessionId = await SecureStore.getItemAsync(BACKGROUND_SESSION_KEY);
+
+  if (sessionId === null || sessionId.length === 0) {
+    log('no active session - discarding background batch');
+    return;
+  }
+
+  const store = await openJourneyQueueStoreForBackground();
+
+  for (const position of locations) {
+    try {
+      await persistBackgroundFix(position, sessionId, store);
+    } catch (err: unknown) {
+      // One bad fix must not abandon the remainder of the native batch.
+      log('failed to store a background fix', err);
+    }
+  }
+}
+
+/**
  * Registered at module load, which is what makes the task resolvable after
  * process death: Android restarts the app into a headless JS context and
  * looks the task up by name, so defineTask must have run by then.
@@ -178,16 +225,8 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }) => {
     return;
   }
 
-  // The OS batches deliveries, so one invocation can carry several positions.
-  // Written sequentially rather than in parallel: enqueue advances the
-  // persisted sequence inside its transaction, and concurrent writers would
-  // contend on the exclusive lock for no gain.
-  for (const position of locations) {
-    try {
-      await captureBackgroundFix(position);
-    } catch (err: unknown) {
-      // One bad fix must not abandon the rest of the batch.
-      log('failed to store a background fix', err);
-    }
-  }
+  // One store open for the whole native delivery. captureBackgroundBatch()
+  // still writes positions sequentially because enqueue advances the persisted
+  // sequence transactionally; parallel writes would only create contention.
+  await captureBackgroundBatch(locations);
 });

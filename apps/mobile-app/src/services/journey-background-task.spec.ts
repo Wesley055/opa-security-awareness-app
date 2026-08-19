@@ -176,4 +176,42 @@ describe('captureBackgroundFix', () => {
     expect(typeof input.fix.recordedAt).toBe('string');
     expect(Number.isNaN(Date.parse(input.fix.recordedAt))).toBe(false);
   });
+
+  it('opens the durable queue exactly once for a multi-location native batch', async () => {
+    const secondPosition = {
+      ...position,
+      coords: {
+        ...position.coords,
+        latitude: 6.525,
+        longitude: 3.38,
+      },
+      timestamp: 1786000010000,
+    } as unknown as Location.LocationObject;
+
+    store.getCaptureSequence
+      .mockResolvedValueOnce(41)
+      .mockResolvedValueOnce(42);
+
+    const { captureBackgroundBatch } = await subject();
+
+    await captureBackgroundBatch([position, secondPosition]);
+
+    expect(mockedOpenStore).toHaveBeenCalledTimes(1);
+    expect(mockedSecureStore.getItemAsync).toHaveBeenCalledTimes(1);
+    expect(store.enqueue).toHaveBeenCalledTimes(2);
+
+    expect(store.enqueue.mock.calls[0]?.[0].captureSequence).toBe(42);
+    expect(store.enqueue.mock.calls[1]?.[0].captureSequence).toBe(43);
+  });
+
+  it('does not open SQLite for a batch after session ownership has disappeared', async () => {
+    mockedSecureStore.getItemAsync.mockResolvedValue(null);
+
+    const { captureBackgroundBatch } = await subject();
+
+    await captureBackgroundBatch([position, position]);
+
+    expect(mockedOpenStore).not.toHaveBeenCalled();
+    expect(store.enqueue).not.toHaveBeenCalled();
+  });
 });

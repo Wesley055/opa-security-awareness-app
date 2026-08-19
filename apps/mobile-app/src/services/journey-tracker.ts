@@ -151,6 +151,65 @@ export type QueueEvictionDiagnostic = {
 } | null;
 
 let replayFault: ReplayFault | null = null;
+
+/**
+ * Faults belonging to sessions that are NOT the active one, and the set of
+ * sessions replay will therefore pass over.
+ *
+ * SEPARATE FROM replayFault BECAUSE THE ACTIVE SESSION IS TREATED THE
+ * OPPOSITE WAY. A live emergency's rows retry on every tick no matter how
+ * many times the server has refused them: they are the only rows whose
+ * arrival still matters to someone. A historical session that is refused
+ * yields the tick immediately, because the alternative is what ran from
+ * 13 to 18 August - one dead session's head blocking every live one behind
+ * it.
+ *
+ * RUNTIME-ONLY CONTAINMENT. Both clear on process restart, which is
+ * deliberate: an HTTP 404 is documented as INDETERMINATE and must not become
+ * a permanent verdict, so the next launch gives it another chance. This is
+ * NOT durable quarantine and does not replace it. Reconciliation of sessions
+ * that fail repeatedly across launches is still unbuilt.
+ */
+const historicalReplayFaults = new Map<string, ReplayFault>();
+const skippedReplaySessions = new Set<string>();
+
+/**
+ * True when ANY session is faulted, active or historical.
+ *
+ * The enqueue depth bound and the steady-state trim both key off this rather
+ * than off replayFault alone. Rows belonging to a blocked historical session
+ * are exactly as undrainable as rows belonging to a blocked active one, and
+ * evicting them would discard emergency evidence the queue is still holding
+ * on purpose.
+ */
+function hasAnyReplayFault(): boolean {
+  return replayFault !== null || historicalReplayFaults.size > 0;
+}
+
+/**
+ * Records a replay fault against the session it belongs to.
+ *
+ * The active session is NEVER added to the skip set. nextReplaySession()
+ * returns it regardless of skip membership, so adding it would be inert at
+ * best and misleading to read at worst.
+ */
+function recordReplayFault(
+  faultedSession: string | null,
+  activeSession: string | null,
+  fault: ReplayFault,
+): void {
+  if (faultedSession === null) {
+    return;
+  }
+
+  if (faultedSession === activeSession) {
+    replayFault = fault;
+    return;
+  }
+
+  historicalReplayFaults.set(faultedSession, fault);
+  skippedReplaySessions.add(faultedSession);
+}
 let evictionDiagnostic: QueueEvictionDiagnostic = null;
 
 /**
@@ -312,7 +371,10 @@ async function enqueueDurable(
 
   // ADR-014 section 11. The TRACKER owns the bound; the store stays free of
   // replay policy and simply enforces the number it is handed.
-  const faulted = replayFault !== null;
+  // ANY fault, not just the active session's. A historical session's rows are
+  // just as stuck, and the emergency ceiling exists to protect storage from a
+  // queue that cannot drain - it does not care WHICH session cannot drain.
+  const faulted = hasAnyReplayFault();
 
   // deferOverflowEviction tracks the in-flight replay cycle. Evicting rows a
   // flush is holding would make the delete count fall short of the keys sent
@@ -413,15 +475,34 @@ async function flush(forSession: string): Promise<void> {
   }
   flushing = true;
 
+  // The session this tick is allowed to drain. May be the active session, an
+  // older recoverable one, or nothing at all. ONE session per invocation.
+  let replaySession: string | null = null;
+
   try {
-    const rows = await store.listOldest(MAX_BATCH);
+    replaySession = await store.nextReplaySession(
+      forSession,
+      skippedReplaySessions,
+    );
+
+    if (replaySession === null) {
+      return;
+    }
+
+    // HOMOGENEOUS BY CONSTRUCTION. The wire carries one sessionId for the
+    // whole request, so a batch spanning two sessions has to mislabel one of
+    // them. That mislabelling is the entire defect this slice removes.
+    const rows = await store.listOldestForSession(replaySession, MAX_BATCH);
     if (rows.length === 0) {
       return;
     }
 
+    // THE STORED SESSION, never the current one. A row's owner is a fact
+    // about when it was captured; the tracker's current session is a fact
+    // about now, and the two are equal only by coincidence.
     await api.post(
       '/journey/fixes',
-      { sessionId: forSession, fixes: rows.map(toPayload) },
+      { sessionId: replaySession, fixes: rows.map(toPayload) },
       { timeout: FLUSH_TIMEOUT_MS },
     );
 
@@ -429,10 +510,23 @@ async function flush(forSession: string): Promise<void> {
     // persistent replay fault is resolved. ADR-014 section 11. This runs
     // BEFORE the delete, so a shortfall in this same cycle can immediately
     // set it again - which is why it is not cleared in the finally block.
-    replayFault = null;
+    // Clears the fault for THIS SESSION ONLY. A historical session draining
+    // successfully says nothing about whether the live one can, and the
+    // reverse is equally true. This runs BEFORE the delete so a shortfall in
+    // the same cycle can immediately set it again - which is why it is not
+    // cleared in the finally block.
+    if (replaySession === forSession) {
+      replayFault = null;
+    } else {
+      historicalReplayFaults.delete(replaySession);
+      skippedReplaySessions.delete(replaySession);
+    }
 
     const keys = rows.map((row) => row.idempotencyKey);
-    const removed = await store.deleteAcknowledged(keys);
+    const removed = await store.deleteAcknowledgedForSession(
+      replaySession,
+      keys,
+    );
 
     if (removed !== keys.length) {
       // ADR-014 section 11 integrity fault. Rows whose keys matched are
@@ -444,12 +538,12 @@ async function flush(forSession: string): Promise<void> {
       const shortfallMessage =
         'replay delete shortfall: expected ' + String(keys.length) +
         ' and actual ' + String(removed);
-      replayFault = {
+      recordReplayFault(replaySession, forSession, {
         kind: 'DELETE_SHORTFALL',
         expected: keys.length,
         actual: removed,
         message: shortfallMessage,
-      };
+      });
       log('INTEGRITY FAULT - ' + shortfallMessage);
       durableQueued = await store.count();
       return;
@@ -457,8 +551,8 @@ async function flush(forSession: string): Promise<void> {
 
     durableQueued = await store.count();
     log(
-      'flushed ' + String(keys.length) + ' fixes, ' +
-        String(durableQueued) + ' still durable',
+      'flushed ' + String(keys.length) + ' fixes for session ' +
+        replaySession + ', ' + String(durableQueued) + ' still durable',
     );
   } catch (error: unknown) {
     // NOTHING is ever discarded here - trap 74 and ADR-014 section 11. Every
@@ -472,19 +566,43 @@ async function flush(forSession: string): Promise<void> {
 
     if (status === 400) {
       // Two conditions with opposite lifetimes share this status, and the
-      // wire cannot distinguish them under Phase B. Retain, halt, surface.
-      replayFault = { kind: 'HTTP_400', status: 400, message: detail };
-      log('REPLAY REJECTED 400 - halting, KEEPING all durable rows');
+      // wire cannot distinguish them under Phase B. Retain and surface.
+      // An active session retries next tick; a historical session yields
+      // subsequent ticks for the remainder of this process lifetime.
+      recordReplayFault(replaySession, forSession, {
+        kind: 'HTTP_400',
+        status: 400,
+        message: detail,
+      });
+      log(
+        'REPLAY REJECTED 400 for session ' + String(replaySession) +
+          ' - KEEPING all durable rows',
+      );
     } else if (status === 404) {
       // INDETERMINATE. A 404 is deliberately ambiguous server-side: it may
       // be a transient identity or auth problem, so it can never mean the
       // row is dead.
-      replayFault = { kind: 'HTTP_404', status: 404, message: detail };
-      log('REPLAY INDETERMINATE 404 - halting, rows never deleted');
+      recordReplayFault(replaySession, forSession, {
+        kind: 'HTTP_404',
+        status: 404,
+        message: detail,
+      });
+      log(
+        'REPLAY INDETERMINATE 404 for session ' + String(replaySession) +
+          ' - rows never deleted',
+      );
     } else if (status === 409) {
-      // ENDED. Recurs every cycle by design until Phase C.
-      replayFault = { kind: 'HTTP_409', status: 409, message: detail };
-      log('REPLAY REJECTED 409 - session ENDED, KEEPING all durable rows');
+      // ENDED. An active session retries every cycle; a historical session
+      // is retained but skipped for the remainder of this process lifetime.
+      recordReplayFault(replaySession, forSession, {
+        kind: 'HTTP_409',
+        status: 409,
+        message: detail,
+      });
+      log(
+        'REPLAY REJECTED 409 - session ' + String(replaySession) +
+          ' ENDED, KEEPING all durable rows',
+      );
     } else if (status === 401) {
       // Transient authentication recovery. Reachable when the refresh
       // interceptor is already refreshing and cannot retry this request.
@@ -506,7 +624,7 @@ async function flush(forSession: string): Promise<void> {
     //
     // No early return - a return inside finally would swallow the pending
     // completion of the try block.
-    if (replayFault !== null) {
+    if (hasAnyReplayFault()) {
       log('TRIM SUPPRESSED - replay faulted, no steady-state eviction');
     } else {
       // Eviction deferred during the cycle is applied now.
@@ -806,6 +924,11 @@ export async function flushForTests(): Promise<void> {
  * clears what it does not.
  */
 export function resetTrackerStateForTests(): void {
+  // Module-scope state survives between tests in one file. A session skipped
+  // by one test would silently starve the next.
+  historicalReplayFaults.clear();
+  skippedReplaySessions.clear();
+
   void stopTracking();
 
   generation = 0;

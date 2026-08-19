@@ -64,8 +64,14 @@ function storeMock(captureSequence = 0, queued = 0) {
       dropped: 0,
       durableDepth: 1,
     }),
+    // Defaults to the session every fixture in this file uses. Paired with an
+    // empty listOldestForSession it makes flush() a no-op, so tests that do
+    // not care about replay are unaffected by the selector existing.
+    nextReplaySession: jest.fn().mockResolvedValue('session-1'),
     listOldest: jest.fn().mockResolvedValue([]),
+    listOldestForSession: jest.fn().mockResolvedValue([]),
     deleteAcknowledged: jest.fn().mockResolvedValue(0),
+    deleteAcknowledgedForSession: jest.fn().mockResolvedValue(0),
     trimToDepth: jest.fn().mockResolvedValue({
       dropped: 0,
       durableDepth: 0,
@@ -101,8 +107,8 @@ function axiosRejection(status: number) {
 
 function replayingStore(rows = 1) {
   const store = storeMock(0, rows);
-  store.listOldest.mockResolvedValue([storedRow()]);
-  store.deleteAcknowledged.mockResolvedValue(1);
+  store.listOldestForSession.mockResolvedValue([storedRow()]);
+  store.deleteAcknowledgedForSession.mockResolvedValue(1);
   store.count.mockResolvedValue(rows);
   return store;
 }
@@ -235,8 +241,8 @@ describe('journey-tracker lifecycle', () => {
 
   it('posts ONLY TrackedFix keys - queueId and sessionId never reach the wire', async () => {
     const store = storeMock(0, 1);
-    store.listOldest.mockResolvedValue([storedRow()]);
-    store.deleteAcknowledged.mockResolvedValue(1);
+    store.listOldestForSession.mockResolvedValue([storedRow()]);
+    store.deleteAcknowledgedForSession.mockResolvedValue(1);
     store.count.mockResolvedValue(0);
 
     grantAndAcquire();
@@ -270,11 +276,11 @@ describe('journey-tracker lifecycle', () => {
 
   it('stops the cycle and records a fault on a delete shortfall', async () => {
     const store = storeMock(0, 2);
-    store.listOldest.mockResolvedValue([
+    store.listOldestForSession.mockResolvedValue([
       storedRow(),
       storedRow({ queueId: 2, idempotencyKey: 'session-1:1000:2' }),
     ]);
-    store.deleteAcknowledged.mockResolvedValue(1);
+    store.deleteAcknowledgedForSession.mockResolvedValue(1);
     store.count.mockResolvedValue(1);
 
     grantAndAcquire();
@@ -301,8 +307,8 @@ describe('journey-tracker lifecycle', () => {
 
   it('applies deferred eviction after the replay cycle', async () => {
     const store = storeMock(0, 1);
-    store.listOldest.mockResolvedValue([storedRow()]);
-    store.deleteAcknowledged.mockResolvedValue(1);
+    store.listOldestForSession.mockResolvedValue([storedRow()]);
+    store.deleteAcknowledgedForSession.mockResolvedValue(1);
     store.count.mockResolvedValue(0);
     store.trimToDepth.mockResolvedValue({ dropped: 4, durableDepth: 600 });
 
@@ -516,12 +522,14 @@ describe('journey-tracker lifecycle', () => {
     // The re-entry guard makes this a no-op rather than a second batch.
     await flushForTests();
 
-    expect(store.listOldest).toHaveBeenCalledTimes(1);
+    expect(store.nextReplaySession).toHaveBeenCalledTimes(1);
+    expect(store.listOldestForSession).toHaveBeenCalledTimes(1);
 
     releasePost?.();
     await first;
 
-    expect(store.listOldest).toHaveBeenCalledTimes(1);
+    expect(store.nextReplaySession).toHaveBeenCalledTimes(1);
+    expect(store.listOldestForSession).toHaveBeenCalledTimes(1);
 
     stopTracking();
   });
@@ -634,6 +642,63 @@ describe('journey-tracker lifecycle', () => {
 
     stopTracking();
   });
+
+  it('posts historical queued fixes under their owning replay session, not the current tracker session', async () => {
+    const store = replayingStore();
+
+    store.nextReplaySession.mockResolvedValue('session-old');
+    store.listOldestForSession.mockResolvedValue([
+      {
+        idempotencyKey: 'historical-fix-1',
+        sessionId: 'session-old',
+        capturedAt: '2026-08-18T12:00:00.000Z',
+        receivedAt: '2026-08-18T12:00:00.000Z',
+        latitude: 6.5244,
+        longitude: 3.3792,
+        accuracy: 10,
+        speed: null,
+        heading: null,
+        source: 'FOREGROUND',
+        captureSequence: 1,
+      },
+    ]);
+
+    grantAndAcquire();
+
+    mockedPost.mockImplementation((url: string) => {
+      if (url === '/journey/fixes') {
+        return Promise.resolve({ data: {} });
+      }
+
+      return Promise.resolve({
+        data: {
+          sessionId: 'session-new',
+          reused: false,
+          purpose: 'INCIDENT',
+        },
+      });
+    });
+
+    mockedOpenStore.mockResolvedValue(store);
+
+    await startTracking();
+    await flushForTests();
+
+    expect(mockedPost).toHaveBeenCalledWith(
+      '/journey/fixes',
+      expect.objectContaining({
+        sessionId: 'session-old',
+      }),
+      expect.anything(),
+    );
+
+    expect(store.listOldestForSession).toHaveBeenCalledWith(
+      'session-old',
+      expect.any(Number),
+    );
+
+    stopTracking();
+  });
 });
 
 describe('journey-tracker module reset', () => {
@@ -667,8 +732,11 @@ describe('journey-tracker module reset', () => {
           dropped: 0,
           durableDepth: 1,
         }),
+        nextReplaySession: jest.fn().mockResolvedValue('session-9'),
         listOldest: jest.fn().mockResolvedValue([]),
+        listOldestForSession: jest.fn().mockResolvedValue([]),
         deleteAcknowledged: jest.fn().mockResolvedValue(0),
+        deleteAcknowledgedForSession: jest.fn().mockResolvedValue(0),
         trimToDepth: jest.fn().mockResolvedValue({ dropped: 0, durableDepth: 0 }),
         count: jest.fn().mockResolvedValue(9),
         getCaptureSequence: jest.fn().mockResolvedValue(31),

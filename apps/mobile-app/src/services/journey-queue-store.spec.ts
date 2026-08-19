@@ -758,3 +758,183 @@ describe('nextReplaySession', () => {
     ).resolves.toBe('session-current');
   });
 });
+
+describe('session-scoped replay contracts', () => {
+  describe('listOldestForSession', () => {
+    it('binds the session before the limit', async () => {
+      const { database, databaseMock } = createDatabaseMock();
+      databaseMock.getAllAsync.mockResolvedValue([]);
+
+      const store = new JourneyQueueStore(database);
+      await store.listOldestForSession('session-live', 200);
+
+      // PARAMETER ORDER IS THE SILENT FAILURE. Reversed, SQLite binds 200 to
+      // session_id, matches nothing, and returns an empty batch - a drain
+      // that looks perfectly healthy and transmits nothing at all.
+      expect(databaseMock.getAllAsync.mock.calls[0]?.[1]).toEqual([
+        'session-live',
+        200,
+      ]);
+    });
+
+    it('filters by session in the statement itself', async () => {
+      const { database, databaseMock } = createDatabaseMock();
+      databaseMock.getAllAsync.mockResolvedValue([]);
+
+      const store = new JourneyQueueStore(database);
+      await store.listOldestForSession('session-live', 50);
+
+      // Asserted on the QUERY, not the response: a widening fails where it
+      // happens rather than somewhere downstream. 14A-11's principle.
+      const sql = databaseMock.getAllAsync.mock.calls[0]?.[0] as string;
+      expect(sql).toContain('WHERE session_id = ?');
+      expect(sql).toContain('ORDER BY queue_id ASC');
+    });
+
+    it('maps rows through the same projection as the unscoped read', async () => {
+      const { database, databaseMock } = createDatabaseMock();
+      databaseMock.getAllAsync.mockResolvedValue([
+        {
+          queue_id: 9,
+          session_id: 'session-live',
+          idempotency_key: 'session-live:1000:9',
+          source: 'background',
+          latitude: 6.5,
+          longitude: 3.3,
+          accuracy: null,
+          speed: null,
+          recorded_at: '2026-08-18T23:38:00.000Z',
+        },
+      ]);
+
+      const store = new JourneyQueueStore(database);
+      const rows = await store.listOldestForSession('session-live', 200);
+
+      expect(rows).toEqual([
+        {
+          queueId: 9,
+          sessionId: 'session-live',
+          idempotencyKey: 'session-live:1000:9',
+          source: 'background',
+          latitude: 6.5,
+          longitude: 3.3,
+          recordedAt: '2026-08-18T23:38:00.000Z',
+        },
+      ]);
+    });
+
+    it('fails closed on a corrupt stored source', async () => {
+      const { database, databaseMock } = createDatabaseMock();
+      databaseMock.getAllAsync.mockResolvedValue([
+        {
+          queue_id: 1,
+          session_id: 'session-live',
+          idempotency_key: 'key-1',
+          source: 'corrupt',
+          latitude: 6.5,
+          longitude: 3.3,
+          accuracy: null,
+          speed: null,
+          recorded_at: '2026-08-18T23:38:00.000Z',
+        },
+      ]);
+
+      const store = new JourneyQueueStore(database);
+
+      await expect(
+        store.listOldestForSession('session-live', 1),
+      ).rejects.toThrow('Stored Journey fix has an unsupported source: corrupt');
+    });
+
+    it('rejects an empty session id before querying', async () => {
+      const { database, databaseMock } = createDatabaseMock();
+      const store = new JourneyQueueStore(database);
+
+      await expect(store.listOldestForSession('', 200)).rejects.toThrow(
+        'sessionId must not be empty.',
+      );
+
+      expect(databaseMock.getAllAsync).not.toHaveBeenCalled();
+    });
+
+    it('rejects a non-positive limit before querying', async () => {
+      const { database, databaseMock } = createDatabaseMock();
+      const store = new JourneyQueueStore(database);
+
+      await expect(
+        store.listOldestForSession('session-live', 0),
+      ).rejects.toThrow('limit must be a positive safe integer.');
+
+      expect(databaseMock.getAllAsync).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('deleteAcknowledgedForSession', () => {
+    it('constrains the delete to one session in SQL', async () => {
+      const { database, transaction } = createDatabaseMock();
+      transaction.runAsync.mockResolvedValue({ changes: 2, lastInsertRowId: 0 });
+
+      const store = new JourneyQueueStore(database);
+
+      await expect(
+        store.deleteAcknowledgedForSession('session-live', ['k-1', 'k-2']),
+      ).resolves.toBe(2);
+
+      // Without the session predicate this delete could reach another
+      // session's evidence, and the shortfall count would stop meaning what
+      // ADR-014 section 11 assumes it means.
+      const sql = transaction.runAsync.mock.calls[0]?.[0] as string;
+      expect(sql).toContain('WHERE session_id = ?');
+      expect(sql).toContain('AND idempotency_key IN (?, ?)');
+    });
+
+    it('binds the session ahead of the key list', async () => {
+      const { database, transaction } = createDatabaseMock();
+      transaction.runAsync.mockResolvedValue({ changes: 2, lastInsertRowId: 0 });
+
+      const store = new JourneyQueueStore(database);
+      await store.deleteAcknowledgedForSession('session-live', ['k-1', 'k-2']);
+
+      expect(transaction.runAsync.mock.calls[0]?.[1]).toEqual([
+        'session-live',
+        'k-1',
+        'k-2',
+      ]);
+    });
+
+    it('reports a shortfall within the session rather than throwing', async () => {
+      const { database, transaction } = createDatabaseMock();
+      // Two keys sent, one row removed: the caller must be able to SEE the
+      // disagreement and classify it. The store reports, it does not decide.
+      transaction.runAsync.mockResolvedValue({ changes: 1, lastInsertRowId: 0 });
+
+      const store = new JourneyQueueStore(database);
+
+      await expect(
+        store.deleteAcknowledgedForSession('session-live', ['k-1', 'k-2']),
+      ).resolves.toBe(1);
+    });
+
+    it('does not open a transaction for an empty acknowledgement', async () => {
+      const { database, databaseMock } = createDatabaseMock();
+      const store = new JourneyQueueStore(database);
+
+      await expect(
+        store.deleteAcknowledgedForSession('session-live', []),
+      ).resolves.toBe(0);
+
+      expect(databaseMock.withExclusiveTransactionAsync).not.toHaveBeenCalled();
+    });
+
+    it('rejects an empty session id before opening a transaction', async () => {
+      const { database, databaseMock } = createDatabaseMock();
+      const store = new JourneyQueueStore(database);
+
+      await expect(
+        store.deleteAcknowledgedForSession('', ['k-1']),
+      ).rejects.toThrow('sessionId must not be empty.');
+
+      expect(databaseMock.withExclusiveTransactionAsync).not.toHaveBeenCalled();
+    });
+  });
+});

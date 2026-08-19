@@ -496,6 +496,102 @@ LIMIT 1`,
     return oldest?.session_id ?? null;
   }
 
+  /**
+   * The oldest durable rows belonging to ONE session, oldest first.
+   *
+   * THE SESSION FILTER IS A CORRECTNESS BOUNDARY, NOT AN OPTIMIZATION. Rows
+   * outlive the session that captured them. A batch spanning two sessions
+   * cannot be posted at all - the wire carries ONE sessionId for the whole
+   * request - so a mixed batch has to be attributed to one of them, and any
+   * choice mislabels the rest. The server catches it: `recordedAt precedes
+   * the session` for an older row, `Journey session has ended` for a closed
+   * one. Because replay retains every row on rejection, one foreign row at
+   * the head halts the drain FOREVER. That is not hypothetical - it ran from
+   * 13 to 18 August 2026 against a single 11 August fix.
+   *
+   * Pairs with nextReplaySession(): the selector names the session, this
+   * returns that session's rows and nothing else.
+   */
+  async listOldestForSession(
+    sessionId: string,
+    limit: number,
+  ): Promise<StoredJourneyFix[]> {
+    if (sessionId.length === 0) {
+      throw new Error('sessionId must not be empty.');
+    }
+
+    if (!Number.isSafeInteger(limit) || limit <= 0) {
+      throw new Error('limit must be a positive safe integer.');
+    }
+
+    const rows = await this.database.getAllAsync<JourneyQueueRow>(
+      `
+SELECT
+  queue_id,
+  session_id,
+  idempotency_key,
+  source,
+  latitude,
+  longitude,
+  accuracy,
+  speed,
+  recorded_at
+FROM journey_queue
+WHERE session_id = ?
+ORDER BY queue_id ASC
+LIMIT ?
+`,
+      [sessionId, limit],
+    );
+
+    return rows.map((row) => this.mapRow(row));
+  }
+
+  /**
+   * Deletes acknowledged keys WITHIN one session.
+   *
+   * THE SESSION PREDICATE MAKES THE SHORTFALL COUNT MEAN SOMETHING. Replay
+   * compares sqlite3_changes() against the number of keys it sent, and
+   * ADR-014 section 11 treats a mismatch as an integrity fault. Keys are
+   * `sessionId:ms:sequence`, so a cross-session collision is implausible -
+   * but implausible is a property of the key FORMAT, and a format is one
+   * refactor away from changing. The predicate makes the guarantee
+   * STRUCTURAL: this statement cannot reach another session's evidence no
+   * matter what the key generator does later.
+   *
+   * The order of the two conditions is deliberate. session_id first lets
+   * SQLite discard the wrong session before evaluating the IN list.
+   */
+  async deleteAcknowledgedForSession(
+    sessionId: string,
+    idempotencyKeys: readonly string[],
+  ): Promise<number> {
+    if (sessionId.length === 0) {
+      throw new Error('sessionId must not be empty.');
+    }
+
+    if (idempotencyKeys.length === 0) {
+      return 0;
+    }
+
+    let changes = 0;
+
+    await this.database.withExclusiveTransactionAsync(async (transaction) => {
+      const placeholders = idempotencyKeys.map(() => '?').join(', ');
+
+      const result = await transaction.runAsync(
+        `DELETE FROM journey_queue
+WHERE session_id = ?
+  AND idempotency_key IN (${placeholders})`,
+        [sessionId, ...idempotencyKeys],
+      );
+
+      changes = result.changes;
+    });
+
+    return changes;
+  }
+
   async count(): Promise<number> {
     const row = await this.database.getFirstAsync<CountRow>(
       'SELECT COUNT(*) AS count FROM journey_queue',

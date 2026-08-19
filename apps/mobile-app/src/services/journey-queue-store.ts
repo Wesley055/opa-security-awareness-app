@@ -421,6 +421,81 @@ WHERE idempotency_key IN (${placeholders})`,
     return changes;
   }
 
+  /**
+   * The ONE session the next replay cycle may drain. Never a loop: a 15s
+   * tick that drains every eligible session puts an unbounded number of
+   * POSTs and deletes inside a single invocation - trap #225 in the replay
+   * path rather than the capture path.
+   *
+   * ACTIVE-SESSION PRIORITY IS THE WHOLE POINT. Plain FIFO by queue_id hands
+   * the tick to a historical session while a live emergency waits, which is
+   * the failure this selector exists to prevent. A victim's current track is
+   * the only queue whose latency matters.
+   *
+   * THE CURRENT SESSION IS CHECKED BEFORE THE SKIP SET AND IS NEVER SKIPPED.
+   * A faulted live session retries every tick BY DESIGN: rows from an
+   * emergency in progress are exactly the ones that must reach the server,
+   * and a transient server condition must not strand them until the process
+   * restarts. Historical sessions get the opposite treatment - one fault and
+   * they yield the tick.
+   *
+   * The skip set is RUNTIME-ONLY CONTAINMENT held by the caller. It is
+   * cleared on process restart and MUST be replaced by durable quarantine
+   * and reconciliation before this subsystem is considered complete. It is
+   * deliberately not persisted yet: the storage lifecycle has rejected three
+   * native calls on this device and a schema change does not belong there
+   * until that is stable.
+   */
+  async nextReplaySession(
+    currentSessionId: string | null,
+    skippedSessionIds: ReadonlySet<string>,
+  ): Promise<string | null> {
+    // An explicit branch, not a null binding. `WHERE session_id = ?` bound to
+    // null matches nothing in SQLite because null never equals null, so the
+    // fallthrough would be correct BY ACCIDENT and read as considered.
+    if (currentSessionId !== null && currentSessionId.length > 0) {
+      const active = await this.database.getFirstAsync<{ session_id: string }>(
+        `SELECT session_id
+FROM journey_queue
+WHERE session_id = ?
+LIMIT 1`,
+        [currentSessionId],
+      );
+
+      if (active) {
+        return active.session_id;
+      }
+    }
+
+    // NOT IN () is a syntax error in SQLite, so the empty set is a DIFFERENT
+    // STATEMENT rather than a placeholder list of length zero.
+    if (skippedSessionIds.size === 0) {
+      const oldest = await this.database.getFirstAsync<{ session_id: string }>(
+        `SELECT session_id
+FROM journey_queue
+ORDER BY queue_id ASC
+LIMIT 1`,
+        [],
+      );
+
+      return oldest?.session_id ?? null;
+    }
+
+    const skipped = Array.from(skippedSessionIds);
+    const placeholders = skipped.map(() => '?').join(', ');
+
+    const oldest = await this.database.getFirstAsync<{ session_id: string }>(
+      `SELECT session_id
+FROM journey_queue
+WHERE session_id NOT IN (${placeholders})
+ORDER BY queue_id ASC
+LIMIT 1`,
+      skipped,
+    );
+
+    return oldest?.session_id ?? null;
+  }
+
   async count(): Promise<number> {
     const row = await this.database.getFirstAsync<CountRow>(
       'SELECT COUNT(*) AS count FROM journey_queue',

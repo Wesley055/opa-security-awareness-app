@@ -660,3 +660,101 @@ describe('JourneyQueueStore', () => {
     }
   });
 });
+
+describe('nextReplaySession', () => {
+  it('prefers the current session over an older historical one', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+    databaseMock.getFirstAsync.mockResolvedValueOnce({
+      session_id: 'session-current',
+    });
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(
+      store.nextReplaySession('session-current', new Set()),
+    ).resolves.toBe('session-current');
+
+    // ONE query, not two. The historical lookup must not run at all, or a
+    // live emergency pays for a scan it does not need on every tick.
+    expect(databaseMock.getFirstAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to historical replay when the current session has no rows', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+    databaseMock.getFirstAsync
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ session_id: 'session-old' });
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(
+      store.nextReplaySession('session-current', new Set()),
+    ).resolves.toBe('session-old');
+
+    const historicalQuery = databaseMock.getFirstAsync.mock.calls[1]?.[0];
+    expect(historicalQuery).toContain('ORDER BY queue_id ASC');
+  });
+
+  it('excludes skipped sessions from the historical lookup', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+    databaseMock.getFirstAsync
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ session_id: 'session-b' });
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(
+      store.nextReplaySession('session-current', new Set(['session-a'])),
+    ).resolves.toBe('session-b');
+
+    // Asserted on the QUERY and its parameters, not on the returned value:
+    // a widening fails where it happens. Same principle as 14A-11's select.
+    const call = databaseMock.getFirstAsync.mock.calls[1];
+    expect(call?.[0]).toContain('NOT IN (?)');
+    expect(call?.[1]).toEqual(['session-a']);
+  });
+
+  it('returns null when nothing is eligible', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+    databaseMock.getFirstAsync.mockResolvedValue(null);
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(
+      store.nextReplaySession('session-current', new Set(['session-a'])),
+    ).resolves.toBeNull();
+  });
+
+  it('skips the active lookup entirely when there is no current session', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+    databaseMock.getFirstAsync.mockResolvedValueOnce({
+      session_id: 'session-old',
+    });
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(store.nextReplaySession(null, new Set())).resolves.toBe(
+      'session-old',
+    );
+
+    expect(databaseMock.getFirstAsync).toHaveBeenCalledTimes(1);
+    expect(databaseMock.getFirstAsync.mock.calls[0]?.[0]).not.toContain(
+      'WHERE session_id = ?',
+    );
+  });
+
+  it('returns a faulted current session rather than skipping it', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+    databaseMock.getFirstAsync.mockResolvedValueOnce({
+      session_id: 'session-current',
+    });
+
+    const store = new JourneyQueueStore(database);
+
+    // The live emergency is IN the skip set and must still be returned.
+    // Skipping it would strand the one track that matters.
+    await expect(
+      store.nextReplaySession('session-current', new Set(['session-current'])),
+    ).resolves.toBe('session-current');
+  });
+});

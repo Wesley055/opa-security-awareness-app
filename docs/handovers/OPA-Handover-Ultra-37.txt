@@ -1,0 +1,545 @@
+================================================================================
+OPA HANDOVER — ULTRA 37
+SECTION 20: GAP-01B CLOSED, GAP-01A NARROWED
+================================================================================
+
+Session: 18 August 2026 ~18:00 CDT → 19 August 2026 ~12:30 CDT
+Baseline at start: d55048c
+Baseline at end:   f0adacb (production) + uncommitted diagnostic instrumentation
+Commits this session: 5 code, 1 docs
+Mobile suite: 83 passed, 3 suites, tsc clean
+
+--------------------------------------------------------------------------------
+20.0  READ THIS FIRST
+--------------------------------------------------------------------------------
+
+Two defects were in play. One is closed with proof. One is not.
+
+GAP-01B (replay never transmitted) — DIAGNOSED, FIXED, PROVEN.
+  Cause identified from production API logs with an exact error string and a
+  six-day recurrence trail. Fixed across three slices. A regression test now
+  fails when the defect is reinstalled.
+
+GAP-01A (background capture fails on device) — OPEN.
+  Narrowed from "background tracking doesn't work" to a single native call
+  with a timestamped transition. Cause still UNKNOWN. Five hypotheses were
+  raised and all five were refuted — four of them by source, one by device
+  evidence. They are recorded in 20.6 so nobody re-derives them.
+
+GAP-01A CLOSES ONLY ON: a device log showing no native rejection over a
+sustained locked-screen run, PLUS rows with source='background' arriving in
+Postgres. That bar was set by journey-queue-store.spec.ts before this session
+and it has NOT been met. No Jest result can substitute for it.
+
+--------------------------------------------------------------------------------
+20.1  COMMITS
+--------------------------------------------------------------------------------
+
+  5d1fb44  docs: add Ultra 36 section 19
+  feb4787  Mobile: prioritize active journey replay session          GAP-01B-01
+  4bef27e  Mobile: add session-scoped journey replay primitives      GAP-01B-02
+  a761dbd  Mobile: make journey replay session authoritative         GAP-01B-03
+  a1a7b7c  Mobile: batch background journey capture                  GAP-01A-01
+  f0adacb  Mobile: make background journey capture atomic            GAP-01A-02
+
+Every code commit was mutation-verified before landing (see 20.5). The tree
+was clean (porcelain=0) after each.
+
+f0adacb IS THE CLEAN PRODUCTION BASELINE. The diagnostic instrumentation
+described in 20.7 sits on top of it, uncommitted, and must not be committed.
+
+--------------------------------------------------------------------------------
+20.2  GAP-01B — THE DIAGNOSIS
+--------------------------------------------------------------------------------
+
+THE DEFECT
+
+  journey-queue-store.ts had:
+
+      async listOldest(limit: number): Promise<StoredJourneyFix[]>
+        SELECT ... FROM journey_queue ORDER BY queue_id ASC LIMIT ?
+
+  No session filter. Rows were written per-session (enqueue carries
+  sessionId) but read globally, oldest first. flush() then posted whatever
+  came back under the CURRENT session id.
+
+  Rows outlive the session that captured them. The wire carries ONE sessionId
+  for the whole request. So any batch containing a row from an older session
+  was mislabelled, and the server correctly rejected it.
+
+THE PROOF — Azure API logs, /journey/fixes
+
+  BadRequestException: recordedAt precedes the session:
+    2026-08-11T05:38:06.426Z
+
+  Same message, same timestamp, on 13 Aug, 14 Aug (six times), 15 Aug,
+  16 Aug, and again at 18 Aug 23:38 UTC. ONE fix recorded on 11 August sat at
+  the head of the queue and was replayed under every later session for six
+  days.
+
+  Before that row existed, the same defect produced:
+    ConflictException: Journey session has ended    (9 Aug)
+
+  So the defect predates the 11 August row. It is not a data problem.
+
+WHY IT NEVER SELF-CLEARED
+
+  flush() retains every row on rejection — correctly, per ADR-014 section 11.
+  Emergency evidence is never discarded on a server refusal. Combined with an
+  unfiltered read, one foreign row at the head halts the drain PERMANENTLY.
+  That is not a bug in the retention policy. The retention policy is right.
+  The read was wrong.
+
+WHY IT SURVIVED FIVE HANDOVERS
+
+  1. Every fixture in journey-tracker.spec.ts used 'session-1' for BOTH the
+     stored row and the tracker's active session. replaySession === forSession
+     in every test. The distinction the defect turns on was never exercised.
+  2. flushForTests() calls flush() directly, bypassing the timer.
+  3. After 16 August the SQLite failure (GAP-01A) began throwing before
+     listOldest could reach the network, so the 400s stopped appearing in the
+     API logs. The second bug MASKED the first.
+
+--------------------------------------------------------------------------------
+20.3  GAP-01B — WHAT WAS BUILT
+--------------------------------------------------------------------------------
+
+GAP-01B-01 — nextReplaySession(currentSessionId, skippedSessionIds)
+  feb4787
+
+  Selects the ONE session the next replay cycle may drain.
+    current session has rows  → return it
+    otherwise                 → oldest queued session not in the skip set
+    nothing eligible          → null
+
+  The current session is checked BEFORE the skip set and is NEVER skipped. A
+  faulted live session retries every tick by design; a faulted historical
+  session yields the tick. That asymmetry is the whole point — it is what
+  stops a dead session starving a live emergency.
+
+  Two bounded queries, not one clever one. NOT IN () is a syntax error in
+  SQLite, so the empty-skip-set case is a separate statement.
+
+GAP-01B-02 — listOldestForSession / deleteAcknowledgedForSession
+  4bef27e
+
+  listOldestForSession(sessionId, limit)
+    Adds WHERE session_id = ?. Parameters bind [sessionId, limit] — REVERSED
+    BINDINGS ARE THE SILENT FAILURE: SQLite binds the limit to session_id,
+    matches nothing, returns an empty batch, and the drain looks perfectly
+    healthy while transmitting nothing.
+
+  deleteAcknowledgedForSession(sessionId, keys)
+    DELETE ... WHERE session_id = ? AND idempotency_key IN (...)
+    Makes the shortfall count structurally session-safe rather than relying on
+    the key format (sessionId:ms:sequence) never colliding.
+
+  Both are NEW NAMES, not changed signatures. listOldest and
+  deleteAcknowledged remain, still tested, because flush() still called them
+  at that point. They lost their last caller in a761dbd and are now dead code
+  — see 20.8.
+
+GAP-01B-03 — the flush() rewrite
+  a761dbd
+
+  flush() now:
+    1. asks nextReplaySession() which session may drain this tick
+    2. reads a HOMOGENEOUS batch for that session
+    3. POSTs under THE STORED SESSION, never the current one
+    4. deletes only that session's acknowledged keys
+    5. faults THAT SESSION on rejection
+
+  ONE session per invocation. Never a loop — a 15s tick that drains every
+  eligible session puts an unbounded number of POSTs and deletes inside one
+  callback, which is trap #225 relocated into the replay path.
+
+  New module state in journey-tracker.ts:
+    historicalReplayFaults: Map<string, ReplayFault>
+    skippedReplaySessions: Set<string>
+    hasAnyReplayFault()      — used by the enqueue depth bound and the trim
+    recordReplayFault()      — active → replayFault; historical → skip set
+
+  RUNTIME-ONLY CONTAINMENT. Both clear on process restart. That is
+  deliberate: HTTP 404 is documented as INDETERMINATE and must not become a
+  permanent verdict. It is NOT durable quarantine and does not replace it.
+
+--------------------------------------------------------------------------------
+20.4  GAP-01A — MEASURED FACTS
+--------------------------------------------------------------------------------
+
+Every line below was observed on the Samsung. Nothing here is inferred.
+
+18 Aug, build from 10:45 (pre-session)
+  17:10–17:54  every background delivery fails, prepareAsync NPE
+  18:07:16     FOREGROUND bootstrap also fails, execAsync rejected
+  18:38 clean start (force-stop first)
+               durable queue ready - 161 rows
+               first flush → REPLAY REJECTED 400
+               ~32s later both contexts NPE on prepareAsync, permanently
+  PID 17414 alive ~1 hour, could not bootstrap at all
+
+19 Aug, build 950cfddf (contains f0adacb)
+  04:23:15     durable queue ready - 0 rows (fresh install)
+  04:24:03     background capture OWNS session 122b8cf2
+  04:24:19 → 04:25:49
+               SEVEN consecutive flushes, 15s apart, all succeed,
+               "0 still durable" every time
+  04:28:25     screen locked. Every background delivery now fails.
+               Continues unbroken to 04:36+.
+
+19 Aug, build 1ea85ec3 (diagnostic instrumentation)
+  09:13:49 → 09:17:31
+               ~15 consecutive background captures, BGSQL 1→9 every time
+  09:17:11     TEN-position batch: count=10 → inserted=10
+  09:29:20     FIFTY-TWO-position batch, succeeds
+  09:36:34     FORTY-TWO-position batch, succeeds
+  09:38:03     background enqueueBatch SUCCEEDS (BGSQL 9)
+  09:38:04     FOREGROUND flush fails, prepareAsync rejected,
+               "KEEPING 0 durable rows"
+  09:38:13     background fails between BGSQL 5 and BGSQL 6
+               → openDatabaseAsync SUCCEEDS
+               → isBootstrapped()'s getFirstAsync is the first prepare, and
+                 it is what throws
+  09:38:23, :33, and onward to 09:40:03 — identical, every cycle
+  12:22 → 12:26 (second run, same build)
+               ALL markers healthy in both contexts simultaneously.
+               No transition captured in that window.
+
+THE JAVA TRACE
+  Caused by: java.lang.NullPointerException: java.lang.NullPointerException
+  JS frames are all React Native error machinery (_construct, Wrapper,
+  _callSuper, SyntheticError, reactConsoleErrorHandler, asyncGeneratorStep).
+  NO OPA FRAMES. The rejection is thrown out of the first await in the
+  callback. logcat gives nothing deeper.
+
+THE SHAPE OF THE FAILURE
+  Not degradation. Not gradual. A SINGLE MOMENT after which
+  NativeDatabase.prepareAsync throws for EVERY statement in the process,
+  permanently, in BOTH contexts, while openDatabaseAsync continues to
+  succeed. Time to transition has been observed at ~32 seconds, ~4 minutes,
+  and ~25 minutes. One run had not transitioned after 4 minutes of
+  observation.
+
+CADENCE
+  TaskManager fires every ~2 seconds against a configured timeInterval of
+  10000. Unexplained since 19.5.6. Each delivery is a store open plus an
+  exclusive transaction, so this is ~30 native connection lifecycles per
+  minute while the foreground flush runs every 15s on the shared connection.
+
+ENVIRONMENT
+  expo-sqlite ~16.0.10, Expo SDK 54, react-native 0.81.5
+  Samsung, targetSdk 36, minSdk 24
+  versionCode 1, versionName 1.0.0 on EVERY build (see traps)
+
+--------------------------------------------------------------------------------
+20.5  MUTATION RESULTS — WHAT IS ACTUALLY PROVEN
+--------------------------------------------------------------------------------
+
+Each slice was mutated to confirm its tests detect the defect they claim to.
+
+  GAP-01B-01  return active.session_id → return null
+              → 2 failures, both active-session-priority tests. PROVEN.
+
+  GAP-01B-02  [sessionId, limit] → [limit, sessionId]
+              → 1 failure, "binds the session before the limit". PROVEN.
+              WHERE session_id = ? removed from the delete
+              → 1 failure, "constrains the delete to one session". PROVEN.
+
+  GAP-01B-03  sessionId: replaySession → sessionId: forSession
+              FIRST ATTEMPT: 76/76 PASSED. The suite could not see the
+              production defect. A regression test was written (stored row
+              on session-old, tracker on session-new) and the mutation then
+              failed with:
+                  Expected: ObjectContaining {"sessionId": "session-old"}
+                  Received: {"sessionId": "session-1"}
+              which is the production bug verbatim. PROVEN.
+
+  GAP-01A-01  per-invocation open → per-position open
+              → 1 failure, "opens the durable queue exactly once". PROVEN.
+
+  GAP-01A-02  batch open → open per fix
+              → 1 failure, "opens once and submits one atomic enqueueBatch".
+              PROVEN.
+
+MUTATIONS THAT DO NOT WORK IN THIS SUITE (do not waste time on them):
+  ASC → DESC in any ORDER BY. The database is mocked; no statement is ever
+  evaluated. Both orderings return the same fixture.
+  = → != in any WHERE clause. Same reason.
+  Ordering and real SQL filtering are IMPLEMENTED, NOT PROVEN, and belong in
+  a SQLite-backed integration test that does not yet exist.
+
+--------------------------------------------------------------------------------
+20.6  FIVE REFUTED HYPOTHESES — DO NOT RE-DERIVE
+--------------------------------------------------------------------------------
+
+All five were raised during this session and all five are dead. Each is
+recorded with the evidence that killed it.
+
+1. "The flush timer never starts when background capture succeeds."
+   REFUTED. journey-tracker.ts line 621: flushTimer = setInterval sits at
+   function level, AFTER the if (!backgroundStarted) block closes at 613.
+   Background capture succeeding does not skip the timer.
+
+2. "flushing = true is never reset, so flush is one-shot."
+   REFUTED. finally block at line 500, unconditional: flushing = false.
+
+3. "openDatabaseAsync leaks a native handle per background delivery."
+   REFUTED. expo-sqlite NativeDatabase.d.ts line 36: useNewConnection
+   defaults FALSE, and the native layer caches connections BY DATABASE NAME.
+   openDatabaseAsync returns a JS wrapper over a SHARED native connection.
+   There is no handle leak. Consequence: calling closeAsync() in the
+   background path would close the connection the FOREGROUND is using. That
+   "fix" would have made things worse.
+
+4. "withExclusiveTransactionAsync leaks its useNewConnection:true connection."
+   REFUTED. SQLiteDatabase.js lines 165–167:
+       finally { await transaction.closeAsync(); }
+   Always closed, on both the commit and rollback paths.
+
+5. "The headless TaskManager context cannot prepare statements."
+   REFUTED BY DEVICE. At 09:38:04 the FOREGROUND flush failed with the same
+   prepareAsync rejection, one second after the last successful background
+   write and nine seconds before the next background failure. The failure is
+   PROCESS-WIDE, not context-specific.
+
+Two commits (a1a7b7c, f0adacb) were built on hypotheses 3 and 4. They are
+DEFENSIBLE IMPROVEMENTS — one open and one transaction per delivery instead
+of one per position, which measurably matters for the 52- and 42-position
+batches later observed — but NEITHER TOUCHED THE CAUSE. The failure is
+bit-for-bit identical before and after.
+
+--------------------------------------------------------------------------------
+20.7  THE ONE REMAINING CANDIDATE (UNTESTED)
+--------------------------------------------------------------------------------
+
+State it as a hypothesis, not a finding. Four have already died.
+
+  The only SQLite work in the second before every observed collapse is an
+  enqueueBatch, whose final act is
+      withExclusiveTransactionAsync → finally → transaction.closeAsync()
+  on a connection opened with useNewConnection: true.
+
+  Closing that connection while the shared cached connection has statements
+  outstanding would plausibly produce exactly what is observed: database
+  handle alive, statement preparation broken process-wide, permanently.
+
+  It is consistent with all four device runs. It is not proven.
+
+THE CHEAP EXPERIMENT THAT DISTINGUISHES IT
+  Build a variant where enqueueBatch writes via plain runAsync — no
+  withExclusiveTransactionAsync. count() and getCaptureSequence() already
+  read without a transaction, so the pattern exists in the file.
+    survives a long locked run  → the exclusive transaction is the cause
+    fails identically           → the transaction is exonerated, and the
+                                  answer is upstream in expo-sqlite
+  Cost: atomicity between the inserts and the sequence marker, which the
+  idempotency_key UNIQUE constraint largely covers anyway. This is a
+  DIAGNOSTIC build, not a shipping design.
+
+WHAT IS STILL UNINSTRUMENTED
+  The transaction boundary itself. BGSQL 8 and 9 bracket the whole
+  enqueueBatch call. Nothing shows whether the transaction CLOSED on the last
+  successful write before the collapse. Markers immediately before
+  withExclusiveTransactionAsync, immediately inside it, and immediately after
+  it returns would settle it.
+
+CURRENT DIAGNOSTIC INSTRUMENTATION (uncommitted, on top of f0adacb)
+  BGSQL 1–9      journey-background-task.ts, the whole capture path
+  BOOTSQL A/B    around isBootstrapped()'s getFirstAsync
+  FLUSHSQL A/B   around nextReplaySession() in flush()
+  plus a `throw err` added to captureBackgroundBatch's catch so the failure
+  reaches TaskManager instead of being swallowed.
+
+  THE `throw err` IS DIAGNOSTIC BEHAVIOUR AND MUST BE REMOVED BEFORE
+  SHIPPING, along with every console.log marker. Production logs the batch
+  failure and returns.
+
+  Passes 83/83 and tsc. Do NOT commit it. EAS packages the working tree, so
+  a diagnostic APK does not require a commit.
+
+--------------------------------------------------------------------------------
+20.8  OUTSTANDING WORK
+--------------------------------------------------------------------------------
+
+GAP-01A  — cause unknown. Blocks everything downstream. See 20.7.
+
+GAP-01B-04 — ReplayHealth
+  trackerDebugState still exposes a single replayFault, which NOW MEANS THE
+  ACTIVE SESSION'S FAULT ONLY. Historical faults live in module state and are
+  invisible to the Command Center. That is a real observability gap. Target
+  shape:
+      type ReplayHealth = {
+        activeSessionFault: ReplayFault | null;
+        historicalFaults: Record<string, ReplayFault>;
+      }
+  Note trackerDebugState is asserted with toEqual in several tracker tests,
+  so changing the return type breaks them loudly. Good.
+
+Durable quarantine and reconciliation
+  The skip set is runtime-only. Sessions that fail repeatedly across launches
+  are never reconciled. Needs a schema change — which should NOT happen while
+  the SQLite lifecycle is unstable.
+
+Eviction policy
+  trimToDepth is global. Quarantined historical rows can eventually consume
+  the live incident's budget. Proposed direction is separate reserves
+  (live / historical-recoverable / quarantined) — this changes
+  evidence-retention semantics and needs an explicit ADR amendment, not a
+  silent reversal of "oldest first".
+
+Tests B and C (specified, not written)
+  B — historical session 409s; the next tick must reach the live session
+      rather than retrying the dead one.
+  C — after a 2xx on session-old, deleteAcknowledgedForSession is called with
+      'session-old' and only that batch's keys.
+  Both depend on whether the spec's beforeEach calls
+  resetTrackerStateForTests(), since historicalReplayFaults and
+  skippedReplaySessions are module state.
+
+SQLite-backed integration test
+  Insert across three sessions, assert real cross-session isolation and real
+  ORDER BY behaviour, and confirm ASC→DESC then fails. Until this exists,
+  ordering and filtering are implemented but unproven.
+
+Dead code
+  listOldest(limit) and deleteAcknowledged(keys) lost their last caller in
+  a761dbd. Removing them is a separate commit.
+
+versionCode
+  Still 1 on every build. Play requires monotonic increments for the internal
+  testing track. Bump it per build in app.json.
+
+--------------------------------------------------------------------------------
+20.9  NEW TRAPS
+--------------------------------------------------------------------------------
+
+#226  A UTF-8 BOM written into a commit-message file lands in the SUBJECT
+      LINE. Commit 5d1fb44's subject does not start with 'd'; any
+      grep '^docs' over git log --oneline silently skips it. Use git commit
+      -m, or write the file as UTF8 WITHOUT BOM.
+
+#227  LINE ENDINGS DIFFER FILE-TO-FILE INSIDE ONE REPO. An installer that
+      rewrites a file with LF leaves it LF while its untouched neighbours stay
+      CRLF (autocrlf=true). An anchor then matches one file and fails against
+      another. THE FAILURE PATTERN IS THE DIAGNOSIS: single-line anchors match,
+      every multi-line anchor returns zero. Normalize BOTH needle and haystack
+      to LF before matching; never infer the convention from one file.
+
+#228  A .ps1 downloaded through a browser arrives CRLF regardless of how it
+      was written. Combined with #227 this produced a 15-of-17 anchor failure
+      that looked like a content mismatch and was not.
+
+#229  Inside a PowerShell hashtable literal, the comma in
+      `-replace "a", "b"` is parsed as an ENTRY SEPARATOR and the literal
+      fails to parse. Assign before building the object, or use .Replace().
+
+#230  A PowerShell here-string does not preserve the blank line before its
+      closing delimiter. Anchor-based method insertion therefore lands the new
+      member FLUSH against the following one. Put the separator inside the
+      replacement string explicitly. This happened twice and needed two manual
+      fixes.
+
+#231  A browser that has seen the filename before saves as "name (1).ps1".
+      Resolve the path with Get-ChildItem rather than typing it.
+
+#232  MOCKED SQLITE TESTS CANNOT PROVE DEVICE BEHAVIOUR. Already recorded in
+      journey-queue-store.spec.ts and re-confirmed this session: 83/83 green
+      while every background write failed on hardware. A test count is not
+      evidence. Only a device log is.
+
+#233  MEASUREMENTS TAKEN AT DIFFERENT PROCESS AGES CONTRADICT EACH OTHER.
+      The durable queue's observable state was a function of process age, not
+      of the code under test. Every device measurement MUST be preceded by
+      `adb shell am force-stop` and `adb logcat -c`, and the process age must
+      be recorded alongside the result. The one run that followed this
+      protocol produced the only coherent story of the night.
+
+--------------------------------------------------------------------------------
+20.10  DEVICE TEST PROTOCOL
+--------------------------------------------------------------------------------
+
+Follow this exactly. Deviations produced every contradictory measurement in
+this session.
+
+  adb devices
+  adb shell dumpsys package com.opasafety.app | Select-String 'lastUpdateTime'
+      → MUST be within minutes of the install. versionCode is 1 on every
+        build, so this is the ONLY way to confirm which APK is running.
+  adb shell am force-stop com.opasafety.app
+  adb logcat -c
+
+  On the phone: cold launch → press SOS → LOCK THE SCREEN → leave it.
+  Observed transitions: ~32s, ~4min, ~25min. GIVE IT 30+ MINUTES. A short
+  healthy run proves nothing.
+
+  Also confirm, before the run:
+    Settings → Apps → OPA → "Pause app activity if unused" OFF
+                          → "Remove permissions if app unused" OFF
+
+  Capture:
+    adb logcat -d -v time |
+      Select-String 'BGSQL|BOOTSQL|FLUSHSQL|prepareAsync|journey-tracker|journey-background' |
+      Out-File -Width 400 -Encoding utf8 run.txt
+
+  -Width 400 is not optional. Default console wrapping shreds these lines at
+  ~47 characters and has cost multiple re-reads.
+
+  THE VALUABLE LINES ARE THE LAST HEALTHY CYCLE AND THE FIRST BROKEN ONE,
+  ADJACENT. Everything before and after is repetition.
+
+  Then, and only then:
+    SELECT source, COUNT(*), MIN(recorded_at), MAX(recorded_at)
+    FROM journey_fixes
+    WHERE session_id = '<session>'
+    GROUP BY source;
+
+  Rows with source='background' in that result is the thing nobody has ever
+  seen. It is the bar.
+
+--------------------------------------------------------------------------------
+20.11  RESTART POINT
+--------------------------------------------------------------------------------
+
+Do NOT start with more store refactoring. GAP-01B is structurally correct and
+GAP-01A's cause is unknown; another green Jest run changes nothing.
+
+In order:
+
+  1. Start a long locked-screen soak on the current diagnostic build and
+     leave it running. It costs a phone and nothing else. Every hour it is
+     not running is evidence not gathered. Two phones in parallel if
+     possible.
+
+  2. Add the transaction-boundary markers (20.7) and build ONE diagnostic
+     APK with the plain-runAsync enqueueBatch variant. One EAS cycle answers
+     whether the exclusive transaction is the cause.
+
+  3. If the transaction is exonerated: this becomes an upstream expo-sqlite
+     issue. The report writes itself —
+       "expo-sqlite 16 / Expo SDK 54 / Samsung: after a period of successful
+        operation, NativeDatabase.prepareAsync begins throwing
+        NullPointerException for every statement in the process,
+        permanently, while openDatabaseAsync continues to succeed. Both
+        foreground and headless contexts affected simultaneously."
+     — with the BGSQL marker sequence as the repro. In parallel, the
+     file-journal design (one immutable file per fix, per-session
+     directories, atomic rename) becomes the serious option rather than a
+     hunch. It is a two-week subsystem done properly. Do not start half of
+     it.
+
+  4. GAP-01B-04 and the remaining tests only after capture is trustworthy.
+
+WHAT TO PRESENT AT THE NEXT CHECKPOINT
+  Device evidence, not a test count. Either "here is the cause" or "here is
+  what it is not, and here is the decision that forces." The store spec's own
+  comment is the standard: mocked tests passed for weeks while the device
+  failed.
+
+WHAT TO SAY ABOUT THE TIMELINE
+  Flag GAP-01A as an open platform defect that may or may not be inside our
+  control, and say so in the SAME message as any deadline. A later extension
+  then reads as the answer to a question already raised, not as a slip.
+
+================================================================================
+END SECTION 20
+================================================================================

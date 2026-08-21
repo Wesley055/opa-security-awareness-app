@@ -15,3 +15,10 @@ pubspec.lock
 
 # Committed intentionally: template only, no credentials.
 !.env.test.example
+
+# GAP-01A diagnostic artifacts (Ultra 37)
+*.bak-*
+apps/mobile-app/device-*.txt
+apps/mobile-app/soak-*.txt
+apps/mobile-app/gap01*.txt
+apps/mobile-app/collapse-window-raw.txt

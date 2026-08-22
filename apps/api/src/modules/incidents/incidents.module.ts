@@ -8,6 +8,7 @@ import { IncidentsService } from './incidents.service';
 import { IncidentAccessGuard } from '../../shared/guards/incident-access.guard';
 import { IncidentDetailController } from './incident-detail.controller';
 import { IncidentDetailService } from './incident-detail.service';
+import { IncidentTrackingService } from './incident-tracking.service';
 
 // IncidentAccessModule has no imports of its own, IncidentTimelineModule
 // imports only PrismaModule, and JourneyModule imports nothing at all - so
@@ -20,7 +21,12 @@ import { IncidentDetailService } from './incident-detail.service';
     JourneyModule,
   ],
   controllers: [IncidentsController, IncidentDetailController],
-  providers: [IncidentsService, IncidentDetailService, IncidentAccessGuard],
+  providers: [
+    IncidentsService,
+    IncidentDetailService,
+    IncidentTrackingService,
+    IncidentAccessGuard,
+  ],
   exports: [IncidentsService],
 })
 export class IncidentsModule {}

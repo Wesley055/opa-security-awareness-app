@@ -2,6 +2,7 @@ import { Controller, Get, Param, UseGuards } from '@nestjs/common';
 import { IncidentAccessGuard } from '../../shared/guards/incident-access.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { IncidentDetailService } from './incident-detail.service';
+import { IncidentTrackingService } from './incident-tracking.service';
 
 /**
  * One incident, read by its owner or by the facility watching it. 14A-7.
@@ -33,7 +34,21 @@ import { IncidentDetailService } from './incident-detail.service';
 @UseGuards(JwtAuthGuard, IncidentAccessGuard)
 @Controller('incidents')
 export class IncidentDetailController {
-  constructor(private readonly detailService: IncidentDetailService) {}
+  constructor(
+    private readonly detailService: IncidentDetailService,
+    private readonly trackingService: IncidentTrackingService,
+  ) {}
+
+  /**
+   * 14A-8b. Authorized, bounded live journey read.
+   *
+   * Inherits JwtAuthGuard + IncidentAccessGuard from this controller.
+   * It is intentionally NOT the public capability-token tracking endpoint.
+   */
+  @Get(':incidentId/tracking')
+  getTracking(@Param('incidentId') incidentId: string) {
+    return this.trackingService.getTracking(incidentId);
+  }
 
   @Get(':incidentId')
   getDetail(@Param('incidentId') incidentId: string) {

@@ -1,16 +1,101 @@
 import { Stack, useRouter, useSegments } from 'expo-router';
-import { useEffect } from 'react';
+import * as Notifications from 'expo-notifications';
+import { useEffect, useRef } from 'react';
 import { useAuthStore } from '../src/store/authStore';
 import { stopTracking } from '../src/services/journey-tracker';
+import {
+  dismissProtectionReadyNotification,
+  ensureProtectionReadyNotification,
+  isLockScreenSosResponse,
+} from '../src/services/lock-screen-sos';
 
 export default function RootLayout() {
   const { isAuthenticated, isLoading, checkAuth } = useAuthStore();
   const segments = useSegments();
   const router = useRouter();
 
+  /*
+   * A notification action may arrive before auth hydration finishes on a
+   * cold start. Remember only that an OPA SOS action is pending; routing is
+   * allowed only after the authenticated state is known.
+   */
+  const pendingLockScreenSosRef = useRef(false);
+
   useEffect(() => {
     checkAuth();
   }, []);
+
+  /*
+   * Lock-screen emergency entry point.
+   *
+   * Listener handles warm/background launches.
+   * getLastNotificationResponseAsync handles a cold process start.
+   *
+   * Neither path activates an incident directly. They route into /sos so
+   * there remains exactly one activation implementation.
+   */
+  useEffect(() => {
+    let alive = true;
+
+    const rememberResponse = (
+      response: Notifications.NotificationResponse | null,
+    ): void => {
+      if (
+        alive &&
+        response !== null &&
+        isLockScreenSosResponse(response)
+      ) {
+        pendingLockScreenSosRef.current = true;
+      }
+    };
+
+    const subscription =
+      Notifications.addNotificationResponseReceivedListener(
+        rememberResponse,
+      );
+
+    void Notifications.getLastNotificationResponseAsync()
+      .then((response) => {
+        rememberResponse(response);
+      })
+      .catch((error: unknown) => {
+        console.log(
+          '[lock-screen-sos] could not read last notification response',
+          error,
+        );
+      });
+
+    return () => {
+      alive = false;
+      subscription.remove();
+    };
+  }, []);
+
+  /*
+   * Auth hydration is load-bearing here. Never route an emergency action
+   * through an unauthenticated/cold-start state.
+   */
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+
+    if (!isAuthenticated) {
+      pendingLockScreenSosRef.current = false;
+      void dismissProtectionReadyNotification();
+      return;
+    }
+
+    void ensureProtectionReadyNotification();
+
+    if (pendingLockScreenSosRef.current) {
+      pendingLockScreenSosRef.current = false;
+
+      if (segments[0] !== 'sos') {
+        router.push('/sos');
+      }
+    }
+  }, [isAuthenticated, isLoading, router, segments]);
 
   useEffect(() => {
     if (isLoading) return;

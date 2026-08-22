@@ -46,7 +46,14 @@ function createDatabaseMock() {
 
   const database = {
     execAsync: jest.fn(),
-    runAsync: jest.fn(),
+    /*
+     * Default resolution. Without it, a mutation that changes the NUMBER of
+     * runAsync calls exhausts the per-test Once chain and throws on
+     * result.changes BEFORE the assertion runs - the mutation looks caught
+     * when the assertion was never exercised. Measured 19 Aug: all four
+     * enqueueBatch tests failed that way under INSERT_CHUNK_SIZE=1.
+     */
+    runAsync: jest.fn().mockResolvedValue({ lastInsertRowId: 0, changes: 1 }),
     getAllAsync: jest.fn(),
     getFirstAsync: jest.fn(),
     withExclusiveTransactionAsync: jest.fn(
@@ -128,7 +135,7 @@ describe('JourneyQueueStore', () => {
 
     expect(databaseMock.runAsync).toHaveBeenCalledWith(
       expect.stringContaining('INSERT INTO journey_queue_meta'),
-      ['schema_version', 1],
+      ['schema_version', 2],
     );
   });
 
@@ -170,9 +177,17 @@ describe('JourneyQueueStore', () => {
 
     await expect(store.isBootstrapped()).rejects.toBe(failure);
   });
-  it('reports a bootstrapped database when the marker is current', async () => {
+  it('rejects an older schema marker until foreground bootstrap upgrades it', async () => {
     const { database, databaseMock } = createDatabaseMock();
     databaseMock.getFirstAsync.mockResolvedValue({ value: 1 });
+
+    const store = new JourneyQueueStore(database);
+
+    await expect(store.isBootstrapped()).resolves.toBe(false);
+  });
+  it('reports a bootstrapped database when the marker is current', async () => {
+    const { database, databaseMock } = createDatabaseMock();
+    databaseMock.getFirstAsync.mockResolvedValue({ value: 2 });
 
     const store = new JourneyQueueStore(database);
 
@@ -253,17 +268,16 @@ describe('JourneyQueueStore', () => {
       };
     }
 
-    it('stores a native batch inside one exclusive transaction', async () => {
-      const { database, databaseMock, transaction } = createDatabaseMock();
+    it('stores a native batch through the primary database handle without an exclusive transaction', async () => {
+      const { database, databaseMock } = createDatabaseMock();
 
-      transaction.getFirstAsync
+      databaseMock.getFirstAsync
         .mockResolvedValueOnce({ value: 40 })
         .mockResolvedValueOnce({ count: 2 });
 
-      transaction.runAsync
+      databaseMock.runAsync
         .mockResolvedValueOnce(runResult(1))
-        .mockResolvedValueOnce(runResult(1))
-        .mockResolvedValueOnce(runResult(1));
+        .mockResolvedValueOnce(runResult(2));
 
       const store = new JourneyQueueStore(database);
 
@@ -279,28 +293,29 @@ describe('JourneyQueueStore', () => {
         },
       );
 
-      expect(
-        databaseMock.withExclusiveTransactionAsync,
-      ).toHaveBeenCalledTimes(1);
+      expect(databaseMock.withExclusiveTransactionAsync).not.toHaveBeenCalled();
 
-      const insertCalls = transaction.runAsync.mock.calls.filter(([sql]) =>
+      const insertCalls = databaseMock.runAsync.mock.calls.filter(([sql]) =>
         String(sql).includes('INSERT OR IGNORE INTO journey_queue'),
       );
 
-      expect(insertCalls).toHaveLength(2);
+      /*
+       * One multi-row statement per chunk, NOT one per position. This is the
+       * assertion that fails if the loop regresses to per-position runAsync.
+       */
+      expect(insertCalls).toHaveLength(1);
     });
 
-    it('allocates sequence and idempotency key from persisted state inside the transaction', async () => {
-      const { database, transaction } = createDatabaseMock();
+    it('persists the sequence marker before inserting the batch', async () => {
+      const { database, databaseMock } = createDatabaseMock();
 
-      transaction.getFirstAsync
+      databaseMock.getFirstAsync
         .mockResolvedValueOnce({ value: 40 })
         .mockResolvedValueOnce({ count: 2 });
 
-      transaction.runAsync
+      databaseMock.runAsync
         .mockResolvedValueOnce(runResult(1))
-        .mockResolvedValueOnce(runResult(1))
-        .mockResolvedValueOnce(runResult(1));
+        .mockResolvedValueOnce(runResult(2));
 
       const store = new JourneyQueueStore(database);
 
@@ -318,30 +333,50 @@ describe('JourneyQueueStore', () => {
 
       expect(result.captureSequences).toEqual([41, 42]);
 
-      const insertCalls = transaction.runAsync.mock.calls.filter(([sql]) =>
-        String(sql).includes('INSERT OR IGNORE INTO journey_queue'),
-      );
-
-      expect(insertCalls[0]?.[1]?.[1]).toBe('session-1:1000:41');
-      expect(insertCalls[1]?.[1]?.[1]).toBe('session-1:2000:42');
-
-      const metadataCall = transaction.runAsync.mock.calls.find(([sql]) =>
+      const metadataIndex = databaseMock.runAsync.mock.calls.findIndex(([sql]) =>
         String(sql).includes('MAX(journey_queue_meta.value, excluded.value)'),
       );
 
+      const insertIndex = databaseMock.runAsync.mock.calls.findIndex(([sql]) =>
+        String(sql).includes('INSERT OR IGNORE INTO journey_queue'),
+      );
+
+      /*
+       * RESERVE-BEFORE-INSERT.
+       *
+       * Without a transaction this ordering is the only thing preventing a
+       * restarted process from reusing sequence numbers and colliding on the
+       * sessionId:capturedAtMs:sequence unique constraint. Burned numbers are
+       * recoverable; collisions wedge the queue.
+       */
+      expect(metadataIndex).toBeGreaterThanOrEqual(0);
+      expect(insertIndex).toBeGreaterThan(metadataIndex);
+
+      const metadataCall = databaseMock.runAsync.mock.calls[metadataIndex];
+
       expect(metadataCall?.[1]).toEqual(['capture_sequence', 42]);
+
+      const insertCall = databaseMock.runAsync.mock.calls[insertIndex];
+      const params = insertCall?.[1] ?? [];
+
+      expect(params).toContain('session-1:1000:41');
+      expect(params).toContain('session-1:2000:42');
     });
 
     it('counts duplicate inserts without reusing an allocated sequence', async () => {
-      const { database, transaction } = createDatabaseMock();
+      const { database, databaseMock } = createDatabaseMock();
 
-      transaction.getFirstAsync
+      databaseMock.getFirstAsync
         .mockResolvedValueOnce({ value: 40 })
         .mockResolvedValueOnce({ count: 1 });
 
-      transaction.runAsync
+      /*
+       * First queued result is consumed by the metadata write; the second is
+       * the single batched insert. `inserted` therefore reflects the insert
+       * statement's changes, not a per-position sum.
+       */
+      databaseMock.runAsync
         .mockResolvedValueOnce(runResult(1))
-        .mockResolvedValueOnce(runResult(0))
         .mockResolvedValueOnce(runResult(1));
 
       const store = new JourneyQueueStore(database);
@@ -365,16 +400,21 @@ describe('JourneyQueueStore', () => {
     });
 
     it('enforces the depth bound once after the whole batch', async () => {
-      const { database, transaction } = createDatabaseMock();
+      const { database, databaseMock } = createDatabaseMock();
 
-      transaction.getFirstAsync
+      /*
+       * Three getFirstAsync calls now: the sequence read, enqueueBatch's own
+       * count(), and trimToDepth's count. The transactional version only made
+       * two.
+       */
+      databaseMock.getFirstAsync
         .mockResolvedValueOnce({ value: 40 })
+        .mockResolvedValueOnce({ count: 602 })
         .mockResolvedValueOnce({ count: 602 });
 
-      transaction.runAsync
+      databaseMock.runAsync
         .mockResolvedValueOnce(runResult(1))
-        .mockResolvedValueOnce(runResult(1))
-        .mockResolvedValueOnce(runResult(1))
+        .mockResolvedValueOnce(runResult(2))
         .mockResolvedValueOnce(runResult(2));
 
       const store = new JourneyQueueStore(database);
@@ -396,7 +436,7 @@ describe('JourneyQueueStore', () => {
         durableDepth: 600,
       });
 
-      const evictionCalls = transaction.runAsync.mock.calls.filter(([sql]) =>
+      const evictionCalls = databaseMock.runAsync.mock.calls.filter(([sql]) =>
         String(sql).includes('ORDER BY queue_id ASC'),
       );
 
@@ -549,10 +589,10 @@ describe('JourneyQueueStore', () => {
   });
 
   it('trims oldest excess rows after replay completes', async () => {
-    const { database, transaction } = createDatabaseMock();
+    const { database, databaseMock } = createDatabaseMock();
 
-    transaction.getFirstAsync.mockResolvedValue({ count: 603 });
-    transaction.runAsync.mockResolvedValue(runResult(3));
+    databaseMock.getFirstAsync.mockResolvedValue({ count: 603 });
+    databaseMock.runAsync.mockResolvedValue(runResult(3));
 
     const store = new JourneyQueueStore(database);
 
@@ -561,14 +601,14 @@ describe('JourneyQueueStore', () => {
       durableDepth: 600,
     });
 
-    expect(transaction.runAsync).toHaveBeenCalledTimes(1);
-    expect(transaction.runAsync.mock.calls[0]?.[1]).toEqual([3]);
+    expect(databaseMock.runAsync).toHaveBeenCalledTimes(1);
+    expect(databaseMock.runAsync.mock.calls[0]?.[1]).toEqual([3]);
   });
 
   it('does not write when trim is already within the depth bound', async () => {
-    const { database, transaction } = createDatabaseMock();
+    const { database, databaseMock } = createDatabaseMock();
 
-    transaction.getFirstAsync.mockResolvedValue({ count: 600 });
+    databaseMock.getFirstAsync.mockResolvedValue({ count: 600 });
 
     const store = new JourneyQueueStore(database);
 
@@ -577,7 +617,7 @@ describe('JourneyQueueStore', () => {
       durableDepth: 600,
     });
 
-    expect(transaction.runAsync).not.toHaveBeenCalled();
+    expect(databaseMock.runAsync).not.toHaveBeenCalled();
   });
 
   it('rejects an invalid depth bound before opening a transaction', async () => {
@@ -700,38 +740,94 @@ describe('JourneyQueueStore', () => {
     );
   });
 
-  it('returns sqlite changes when deleting acknowledged keys', async () => {
-    const { database, transaction } = createDatabaseMock();
+  describe('replay lease', () => {
+    it('acquires an absent or expired lease with one primary-handle statement', async () => {
+      const { database, databaseMock } = createDatabaseMock();
+      databaseMock.runAsync.mockResolvedValue(runResult(1));
 
-    transaction.runAsync.mockResolvedValue(runResult(2));
+      const store = new JourneyQueueStore(database);
 
-    const store = new JourneyQueueStore(database);
+      await expect(
+        store.tryAcquireReplayLease('owner-a', 1000, 45000),
+      ).resolves.toBe(true);
 
-    await expect(
-      store.deleteAcknowledged(['key-1', 'key-2']),
-    ).resolves.toBe(2);
+      expect(databaseMock.runAsync).toHaveBeenCalledTimes(1);
 
-    expect(transaction.runAsync.mock.calls[0]?.[0]).toContain(
-      'DELETE FROM journey_queue',
-    );
+      const [sql, params] = databaseMock.runAsync.mock.calls[0] ?? [];
 
-    expect(transaction.runAsync.mock.calls[0]?.[1]).toEqual([
-      'key-1',
-      'key-2',
-    ]);
+      expect(sql).toContain('INSERT INTO journey_replay_lease');
+      expect(sql).toContain(
+        'WHERE journey_replay_lease.expires_at_ms <= ?',
+      );
+      expect(params).toEqual(['owner-a', 46000, 1000]);
+
+      expect(
+        databaseMock.withExclusiveTransactionAsync,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('reports lease contention when the atomic statement changes no row', async () => {
+      const { database, databaseMock } = createDatabaseMock();
+      databaseMock.runAsync.mockResolvedValue(runResult(0));
+
+      const store = new JourneyQueueStore(database);
+
+      await expect(
+        store.tryAcquireReplayLease('owner-b', 2000, 45000),
+      ).resolves.toBe(false);
+    });
+
+    it('releases only the matching owner token', async () => {
+      const { database, databaseMock } = createDatabaseMock();
+      databaseMock.runAsync.mockResolvedValue(runResult(1));
+
+      const store = new JourneyQueueStore(database);
+
+      await expect(
+        store.releaseReplayLease('owner-a'),
+      ).resolves.toBe(true);
+
+      const [sql, params] = databaseMock.runAsync.mock.calls[0] ?? [];
+
+      expect(sql).toContain('DELETE FROM journey_replay_lease');
+      expect(sql).toContain('AND owner_token = ?');
+      expect(params).toEqual(['owner-a']);
+    });
+
+    it('cannot release a lease now owned by another context', async () => {
+      const { database, databaseMock } = createDatabaseMock();
+      databaseMock.runAsync.mockResolvedValue(runResult(0));
+
+      const store = new JourneyQueueStore(database);
+
+      await expect(
+        store.releaseReplayLease('stale-owner'),
+      ).resolves.toBe(false);
+    });
+
+    it('rejects invalid lease arguments before touching SQLite', async () => {
+      const { database, databaseMock } = createDatabaseMock();
+      const store = new JourneyQueueStore(database);
+
+      await expect(
+        store.tryAcquireReplayLease('', 1000, 45000),
+      ).rejects.toThrow('ownerToken must not be empty.');
+
+      await expect(
+        store.tryAcquireReplayLease('owner-a', -1, 45000),
+      ).rejects.toThrow('nowMs must be a non-negative safe integer.');
+
+      await expect(
+        store.tryAcquireReplayLease('owner-a', 1000, 0),
+      ).rejects.toThrow('leaseMs must be a positive safe integer.');
+
+      await expect(
+        store.releaseReplayLease(''),
+      ).rejects.toThrow('ownerToken must not be empty.');
+
+      expect(databaseMock.runAsync).not.toHaveBeenCalled();
+    });
   });
-
-  it('does not open a transaction for an empty acknowledgement', async () => {
-    const { database, databaseMock } = createDatabaseMock();
-    const store = new JourneyQueueStore(database);
-
-    await expect(store.deleteAcknowledged([])).resolves.toBe(0);
-
-    expect(
-      databaseMock.withExclusiveTransactionAsync,
-    ).not.toHaveBeenCalled();
-  });
-
   it('returns queue count and persisted capture sequence', async () => {
     const { database, databaseMock } = createDatabaseMock();
 
@@ -1041,8 +1137,8 @@ describe('session-scoped replay contracts', () => {
 
   describe('deleteAcknowledgedForSession', () => {
     it('constrains the delete to one session in SQL', async () => {
-      const { database, transaction } = createDatabaseMock();
-      transaction.runAsync.mockResolvedValue({ changes: 2, lastInsertRowId: 0 });
+      const { database, databaseMock } = createDatabaseMock();
+      databaseMock.runAsync.mockResolvedValue({ changes: 2, lastInsertRowId: 0 });
 
       const store = new JourneyQueueStore(database);
 
@@ -1053,19 +1149,22 @@ describe('session-scoped replay contracts', () => {
       // Without the session predicate this delete could reach another
       // session's evidence, and the shortfall count would stop meaning what
       // ADR-014 section 11 assumes it means.
-      const sql = transaction.runAsync.mock.calls[0]?.[0] as string;
+      //
+      // GAP-01A: this runs on the primary database handle now, not a
+      // withExclusiveTransactionAsync connection.
+      const sql = databaseMock.runAsync.mock.calls[0]?.[0] as string;
       expect(sql).toContain('WHERE session_id = ?');
       expect(sql).toContain('AND idempotency_key IN (?, ?)');
     });
 
     it('binds the session ahead of the key list', async () => {
-      const { database, transaction } = createDatabaseMock();
-      transaction.runAsync.mockResolvedValue({ changes: 2, lastInsertRowId: 0 });
+      const { database, databaseMock } = createDatabaseMock();
+      databaseMock.runAsync.mockResolvedValue({ changes: 2, lastInsertRowId: 0 });
 
       const store = new JourneyQueueStore(database);
       await store.deleteAcknowledgedForSession('session-live', ['k-1', 'k-2']);
 
-      expect(transaction.runAsync.mock.calls[0]?.[1]).toEqual([
+      expect(databaseMock.runAsync.mock.calls[0]?.[1]).toEqual([
         'session-live',
         'k-1',
         'k-2',
@@ -1073,10 +1172,10 @@ describe('session-scoped replay contracts', () => {
     });
 
     it('reports a shortfall within the session rather than throwing', async () => {
-      const { database, transaction } = createDatabaseMock();
+      const { database, databaseMock } = createDatabaseMock();
       // Two keys sent, one row removed: the caller must be able to SEE the
       // disagreement and classify it. The store reports, it does not decide.
-      transaction.runAsync.mockResolvedValue({ changes: 1, lastInsertRowId: 0 });
+      databaseMock.runAsync.mockResolvedValue({ changes: 1, lastInsertRowId: 0 });
 
       const store = new JourneyQueueStore(database);
 

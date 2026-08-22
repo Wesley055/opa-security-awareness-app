@@ -38,6 +38,10 @@ import * as SecureStore from 'expo-secure-store';
 import * as TaskManager from 'expo-task-manager';
 import { api } from './api';
 import {
+  createJourneyReplayOwnerToken,
+  JOURNEY_REPLAY_LEASE_MS,
+} from './journey-replay';
+import {
   BACKGROUND_LOCATION_TASK,
   BACKGROUND_SESSION_KEY,
 } from './journey-background-task';
@@ -473,6 +477,36 @@ async function flush(forSession: string): Promise<void> {
   if (flushing || store === null) {
     return;
   }
+
+  /*
+   * GAP-01B / VC6-B.
+   *
+   * `flushing` is process-local and cannot arbitrate against TaskManager's
+   * headless JS context. Both contexts therefore use the durable SQLite lease.
+   *
+   * LEASE ACQUISITION IS OUTSIDE THE EXISTING try/finally ON PURPOSE.
+   * A lease-busy cycle did no replay work and must not fall through the
+   * existing deferred-trim cleanup.
+   *
+   * The foreground replay implementation below remains otherwise unchanged:
+   * its 400/404/409/401 classification, session selection, delete-shortfall
+   * handling and ADR-014 trim policy stay exactly where they already are.
+   */
+  const replayOwnerToken =
+    createJourneyReplayOwnerToken('foreground');
+
+  const replayLeaseAcquired =
+    await store.tryAcquireReplayLease(
+      replayOwnerToken,
+      Date.now(),
+      JOURNEY_REPLAY_LEASE_MS,
+    );
+
+  if (!replayLeaseAcquired) {
+    log('REPLAY LEASE BUSY - another context owns this cycle');
+    return;
+  }
+
   flushing = true;
 
   // The session this tick is allowed to drain. May be the active session, an
@@ -480,9 +514,16 @@ async function flush(forSession: string): Promise<void> {
   let replaySession: string | null = null;
 
   try {
+    console.log('[FLUSHSQL A] before nextReplaySession');
+
     replaySession = await store.nextReplaySession(
       forSession,
       skippedReplaySessions,
+    );
+
+    console.log(
+      '[FLUSHSQL B] after nextReplaySession session=' +
+        String(replaySession),
     );
 
     if (replaySession === null) {
@@ -492,7 +533,17 @@ async function flush(forSession: string): Promise<void> {
     // HOMOGENEOUS BY CONSTRUCTION. The wire carries one sessionId for the
     // whole request, so a batch spanning two sessions has to mislabel one of
     // them. That mislabelling is the entire defect this slice removes.
+    console.log(
+      '[FLUSHSQL C] before listOldestForSession session=' + replaySession,
+    );
+
     const rows = await store.listOldestForSession(replaySession, MAX_BATCH);
+
+    console.log(
+      '[FLUSHSQL D] after listOldestForSession count=' +
+        String(rows.length),
+    );
+
     if (rows.length === 0) {
       return;
     }
@@ -523,9 +574,20 @@ async function flush(forSession: string): Promise<void> {
     }
 
     const keys = rows.map((row) => row.idempotencyKey);
+
+    console.log(
+      '[FLUSHSQL E] before deleteAcknowledgedForSession count=' +
+        String(keys.length),
+    );
+
     const removed = await store.deleteAcknowledgedForSession(
       replaySession,
       keys,
+    );
+
+    console.log(
+      '[FLUSHSQL F] after deleteAcknowledgedForSession removed=' +
+        String(removed),
     );
 
     if (removed !== keys.length) {
@@ -642,6 +704,16 @@ async function flush(forSession: string): Promise<void> {
         log('deferred trim failed', error);
       }
     }
+
+    try {
+      await store.releaseReplayLease(replayOwnerToken);
+    } catch (error: unknown) {
+      /*
+       * Do not replace the actual replay outcome with lease-cleanup failure.
+       * The durable expiry is the bounded recovery mechanism.
+       */
+      log('foreground replay lease release failed', error);
+    }
   }
 }
 
@@ -736,7 +808,21 @@ export async function startTracking(): Promise<void> {
     return;
   }
 
+  console.log(
+    '[FLUSHTIMER ARM] intervalMs=' +
+      String(FLUSH_INTERVAL_MS) +
+      ' session=' +
+      String(sessionId),
+  );
+
   flushTimer = setInterval(() => {
+    console.log(
+      '[FLUSHTIMER TICK] session=' +
+        String(sessionId) +
+        ' running=' +
+        String(running),
+    );
+
     if (sessionId) {
       void flush(sessionId);
     }

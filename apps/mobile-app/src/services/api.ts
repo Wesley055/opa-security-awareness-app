@@ -19,6 +19,34 @@ export const api = axios.create({
   timeout: 10000,
 });
 
+/**
+ * Headless-safe API client for emergency background work.
+ *
+ * It deliberately has the SAME request-side token attachment as `api`, but
+ * NO response interceptor.
+ *
+ * The foreground `api` client may refresh a 401 and, if refresh fails, delete
+ * both SecureStore tokens and notify the foreground auth store. That policy is
+ * appropriate for an interactive foreground session. It is NOT appropriate
+ * for a TaskManager headless callback: SecureStore is shared across contexts,
+ * while the foreground auth-store listener is not.
+ *
+ * Therefore background replay gets one authenticated attempt. A 401 is
+ * returned to the caller and the durable Journey rows remain queued.
+ */
+export const backgroundApi = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 10000,
+});
+
+backgroundApi.interceptors.request.use(async (config) => {
+  const token = await SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
 api.interceptors.request.use(async (config) => {
   const token = await SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
   if (token) {

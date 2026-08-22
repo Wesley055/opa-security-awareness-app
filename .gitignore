@@ -22,3 +22,6 @@ apps/mobile-app/device-*.txt
 apps/mobile-app/soak-*.txt
 apps/mobile-app/gap01*.txt
 apps/mobile-app/collapse-window-raw.txt
+
+# VC6 frozen raw device evidence - local only
+apps/mobile-app/GAP-01B-vc6-LOCKED-BACKGROUND-REPLAY-PRODUCTION-EVIDENCE.txt

@@ -68,6 +68,8 @@ function storeMock(captureSequence = 0, queued = 0) {
     // empty listOldestForSession it makes flush() a no-op, so tests that do
     // not care about replay are unaffected by the selector existing.
     nextReplaySession: jest.fn().mockResolvedValue('session-1'),
+    tryAcquireReplayLease: jest.fn().mockResolvedValue(true),
+    releaseReplayLease: jest.fn().mockResolvedValue(true),
     listOldest: jest.fn().mockResolvedValue([]),
     listOldestForSession: jest.fn().mockResolvedValue([]),
     deleteAcknowledged: jest.fn().mockResolvedValue(0),
@@ -491,6 +493,45 @@ describe('journey-tracker lifecycle', () => {
     stopTracking();
   });
 
+  it('does not replay or trim when another context owns the durable replay lease', async () => {
+    const store = replayingStore();
+
+    store.tryAcquireReplayLease.mockResolvedValue(false);
+
+    grantAndAcquire();
+    mockedOpenStore.mockResolvedValue(store);
+
+    await startTracking();
+
+    /*
+     * startTracking has completed. Clear calls that are unrelated to this
+     * explicit replay cycle so this assertion measures only flushForTests().
+     */
+    store.nextReplaySession.mockClear();
+    store.listOldestForSession.mockClear();
+    store.trimToDepth.mockClear();
+    store.releaseReplayLease.mockClear();
+
+    await flushForTests();
+
+    expect(store.tryAcquireReplayLease).toHaveBeenCalledTimes(1);
+
+    expect(store.nextReplaySession).not.toHaveBeenCalled();
+    expect(store.listOldestForSession).not.toHaveBeenCalled();
+
+    /*
+     * Load-bearing VC6-B assertion:
+     * losing cross-context ownership must NEVER run the existing finally trim.
+     */
+    expect(store.trimToDepth).not.toHaveBeenCalled();
+
+    /*
+     * This context never owned the lease, so it must never release it.
+     */
+    expect(store.releaseReplayLease).not.toHaveBeenCalled();
+
+    stopTracking();
+  });
   it('a second flush exits while the first is still pending', async () => {
     const store = replayingStore();
 
@@ -733,6 +774,8 @@ describe('journey-tracker module reset', () => {
           durableDepth: 1,
         }),
         nextReplaySession: jest.fn().mockResolvedValue('session-9'),
+        tryAcquireReplayLease: jest.fn().mockResolvedValue(true),
+        releaseReplayLease: jest.fn().mockResolvedValue(true),
         listOldest: jest.fn().mockResolvedValue([]),
         listOldestForSession: jest.fn().mockResolvedValue([]),
         deleteAcknowledged: jest.fn().mockResolvedValue(0),

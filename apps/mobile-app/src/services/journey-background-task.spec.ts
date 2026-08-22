@@ -2,6 +2,12 @@ import * as Location from 'expo-location';
 import * as SecureStore from 'expo-secure-store';
 import { openJourneyQueueStoreForBackground } from './journey-queue-store';
 
+jest.mock('./journey-replay', () => ({
+  createJourneyReplayOwnerToken: jest.fn(
+    () => 'background:test-owner',
+  ),
+  replayJourneySessionWithLease: jest.fn(),
+}));
 jest.mock('expo-secure-store', () => ({
   getItemAsync: jest.fn(),
   setItemAsync: jest.fn(),
@@ -20,6 +26,7 @@ jest.mock('./journey-queue-store', () => ({
 
 jest.mock('./api', () => ({
   api: { post: jest.fn() },
+  backgroundApi: { post: jest.fn() },
 }));
 
 const mockedSecureStore = SecureStore as jest.Mocked<typeof SecureStore>;

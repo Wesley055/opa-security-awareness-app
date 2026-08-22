@@ -11,6 +11,29 @@ import type {
 const DATABASE_NAME = 'opa-journey-queue.db';
 
 /**
+ * GAP-01A / vc4 discriminator.
+ *
+ * The headless TaskManager path owns one store promise per JS context instead
+ * of calling openDatabaseAsync() for every native location delivery.
+ *
+ * expo-sqlite 16.0.10 caches NativeDatabase objects by path/options when
+ * useNewConnection is false. Repeated openDatabaseAsync() calls therefore add
+ * JS/native references to the same cached native database rather than
+ * necessarily opening a distinct sqlite3 connection.
+ *
+ * vc3 proved the native layer can enter a persistent prepare/run failure state.
+ * vc4 asks one narrow question: does removing repeated background acquisition
+ * of that cached NativeDatabase prevent the collapse?
+ *
+ * A failed creation is NOT cached permanently. The catch below clears this
+ * promise so a later TaskManager invocation may attempt a clean acquisition.
+ *
+ * No close is performed here. Ownership lasts for the lifetime of this JS
+ * context; expo-sqlite/module teardown owns native destruction.
+ */
+let backgroundStorePromise: Promise<JourneyQueueStore> | null = null;
+
+/**
  * WAL IS INTENDED AND IS NOT CURRENTLY ENABLED. Read this before adding it.
  *
  * Both runtime ways of setting it were measured failing on a real Samsung
@@ -66,6 +89,12 @@ CREATE TABLE IF NOT EXISTS journey_queue_meta (
   key TEXT PRIMARY KEY NOT NULL,
   value INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS journey_replay_lease (
+  lease_key TEXT PRIMARY KEY NOT NULL,
+  owner_token TEXT NOT NULL,
+  expires_at_ms INTEGER NOT NULL
+);
 `;
 
 const CAPTURE_SEQUENCE_KEY = 'capture_sequence';
@@ -80,7 +109,7 @@ const CAPTURE_SEQUENCE_KEY = 'capture_sequence';
 const SCHEMA_VERSION_KEY = 'schema_version';
 
 /** Bump when CREATE_SCHEMA_SQL changes in a way a live database must follow. */
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const COUNT_SQL = 'SELECT COUNT(*) AS count FROM journey_queue';
 
@@ -215,9 +244,15 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value
    */
   async isBootstrapped(): Promise<boolean> {
     try {
+      console.log('[BOOTSQL A] before metadata read');
+
       const row = await this.database.getFirstAsync<MetadataRow>(
         'SELECT value FROM journey_queue_meta WHERE key = ?',
         [SCHEMA_VERSION_KEY],
+      );
+
+      console.log(
+        '[BOOTSQL B] after metadata read value=' + String(row?.value ?? 0),
       );
 
       return (row?.value ?? 0) >= SCHEMA_VERSION;
@@ -331,15 +366,31 @@ ON CONFLICT(key) DO UPDATE SET
   }
 
   /**
-   * Atomically stores one native background delivery using ONE exclusive
-   * transaction connection.
+   * GAP-01A / 20.7 diagnostic variant.
    *
-   * Sequence ownership lives here rather than in the headless caller. The
-   * starting persisted sequence is read inside the same transaction that
-   * inserts every row, advances metadata and applies the queue bound.
+   * Uses only the SQLiteDatabase handle returned by openDatabaseAsync().
+   * No withExclusiveTransactionAsync(), no Transaction.createAsync(), and no
+   * useNewConnection=true lifecycle exists in this path.
    *
-   * One OS delivery therefore pays for one Transaction.createAsync() /
-   * useNewConnection=true lifecycle instead of one per captured position.
+   * INTERRUPTION SEMANTICS ARE DELIBERATELY DIFFERENT FROM THE TRANSACTIONAL
+   * VERSION:
+   *
+   *   1. Read the persisted sequence.
+   *   2. Reserve the complete sequence range FIRST.
+   *   3. Persist that high-water mark BEFORE writing queue rows.
+   *   4. Insert rows in bounded multi-row statements.
+   *   5. Apply queue-depth enforcement afterward.
+   *
+   * If the process dies after step 3, sequence numbers are burned. Gaps are
+   * permitted by ADR-014 and are recoverable.
+   *
+   * The opposite ordering is unsafe: inserting rows before advancing metadata
+   * can allow a restarted caller to reuse sequence numbers and collide with
+   * sessionId:capturedAtMs:sequence idempotency keys.
+   *
+   * This diagnostic deliberately gives up all-or-nothing transaction atomicity
+   * in order to determine whether expo-sqlite's exclusive transaction /
+   * useNewConnection lifecycle is the trigger for GAP-01A.
    */
   async enqueueBatch(
     sessionId: string,
@@ -379,28 +430,135 @@ ON CONFLICT(key) DO UPDATE SET
       };
     }
 
-    let inserted = 0;
-    let dropped = 0;
-    let durableDepth = 0;
-    const captureSequences: number[] = [];
+    const qsqlId =
+      String(Date.now()) +
+      '-' +
+      Math.random().toString(36).slice(2, 8);
 
-    await this.database.withExclusiveTransactionAsync(async (transaction) => {
-      const sequenceRow = await transaction.getFirstAsync<MetadataRow>(
-        'SELECT value FROM journey_queue_meta WHERE key = ?',
-        [CAPTURE_SEQUENCE_KEY],
+    console.log(
+      '[QSQL ' + qsqlId + ' Q1] before sequence metadata read',
+    );
+
+    const sequenceRow = await this.database.getFirstAsync<MetadataRow>(
+      'SELECT value FROM journey_queue_meta WHERE key = ?',
+      [CAPTURE_SEQUENCE_KEY],
+    );
+
+    console.log(
+      '[QSQL ' +
+        qsqlId +
+        ' Q2] after sequence metadata read value=' +
+        String(sequenceRow?.value ?? 0),
+    );
+
+    /*
+     * Coerce explicitly. If the metadata column is ever TEXT-affine, a raw
+     * `value + items.length` becomes string concatenation and every derived
+     * idempotency key is silently wrong while the write still succeeds.
+     */
+    const startingSequence = Number(sequenceRow?.value ?? 0);
+
+    if (!Number.isSafeInteger(startingSequence) || startingSequence < 0) {
+      throw new Error('persisted capture sequence is not a valid integer.');
+    }
+
+    const endingSequence = startingSequence + items.length;
+
+    if (!Number.isSafeInteger(endingSequence)) {
+      throw new Error('capture sequence exhausted safe integer range.');
+    }
+
+    const captureSequences = items.map(
+      (_, index) => startingSequence + index + 1,
+    );
+
+    /*
+     * RESERVE FIRST.
+     *
+     * A crash after this write burns numbers. That is safe.
+     * A crash before this write has written no queue rows.
+     */
+    console.log(
+      '[QSQL ' +
+        qsqlId +
+        ' R1] before sequence reservation ending=' +
+        String(endingSequence),
+    );
+
+    await this.database.runAsync(
+      `
+INSERT INTO journey_queue_meta (key, value)
+VALUES (?, ?)
+ON CONFLICT(key) DO UPDATE SET
+  value = MAX(journey_queue_meta.value, excluded.value)
+`,
+      [CAPTURE_SEQUENCE_KEY, endingSequence],
+    );
+
+    console.log(
+      '[QSQL ' + qsqlId + ' R2] after sequence reservation',
+    );
+
+    /*
+     * 8 bind variables per row.
+     *
+     * Keep the statement bounded and avoid the old one-runAsync-per-position
+     * native-call pattern. 100 rows = 800 bound values, under the 999 floor
+     * on older SQLite builds.
+     */
+    const INSERT_CHUNK_SIZE = 100;
+    let inserted = 0;
+
+    for (
+      let chunkStart = 0;
+      chunkStart < items.length;
+      chunkStart += INSERT_CHUNK_SIZE
+    ) {
+      const chunk = items.slice(
+        chunkStart,
+        chunkStart + INSERT_CHUNK_SIZE,
       );
 
-      let sequence = sequenceRow?.value ?? 0;
+      const placeholders = chunk
+        .map(() => '(?, ?, ?, ?, ?, ?, ?, ?)')
+        .join(', ');
 
-      for (const item of items) {
-        sequence += 1;
-        captureSequences.push(sequence);
+      const params: (string | number | null)[] = [];
+
+      chunk.forEach((item, chunkIndex) => {
+        const globalIndex = chunkStart + chunkIndex;
+        const sequence = captureSequences[globalIndex];
 
         const idempotencyKey =
-          sessionId + ':' + String(item.capturedAtMs) + ':' + String(sequence);
+          sessionId +
+          ':' +
+          String(item.capturedAtMs) +
+          ':' +
+          String(sequence);
 
-        const insertResult = await transaction.runAsync(
-          `
+        params.push(
+          sessionId,
+          idempotencyKey,
+          item.fix.source,
+          item.fix.latitude,
+          item.fix.longitude,
+          item.fix.accuracy ?? null,
+          item.fix.speed ?? null,
+          item.fix.recordedAt,
+        );
+      });
+
+      console.log(
+        '[QSQL ' +
+          qsqlId +
+          ' I1] before queue insert chunkStart=' +
+          String(chunkStart) +
+          ' count=' +
+          String(chunk.length),
+      );
+
+      const result = await this.database.runAsync(
+        `
 INSERT OR IGNORE INTO journey_queue (
   session_id,
   idempotency_key,
@@ -410,53 +568,68 @@ INSERT OR IGNORE INTO journey_queue (
   accuracy,
   speed,
   recorded_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES ${placeholders}
 `,
-          [
-            sessionId,
-            idempotencyKey,
-            item.fix.source,
-            item.fix.latitude,
-            item.fix.longitude,
-            item.fix.accuracy ?? null,
-            item.fix.speed ?? null,
-            item.fix.recordedAt,
-          ],
-        );
-
-        if (insertResult.changes === 1) {
-          inserted += 1;
-        }
-      }
-
-      await transaction.runAsync(
-        `
-INSERT INTO journey_queue_meta (key, value)
-VALUES (?, ?)
-ON CONFLICT(key) DO UPDATE SET
-  value = MAX(journey_queue_meta.value, excluded.value)
-`,
-        [CAPTURE_SEQUENCE_KEY, sequence],
+        params,
       );
 
-      const countRow = await transaction.getFirstAsync<CountRow>(COUNT_SQL, []);
-      durableDepth = countRow?.count ?? 0;
+      console.log(
+        '[QSQL ' +
+          qsqlId +
+          ' I2] after queue insert changes=' +
+          String(result.changes),
+      );
 
-      if (
-        !options.deferOverflowEviction &&
-        durableDepth > options.maxQueuedFixes
-      ) {
-        const excess = durableDepth - options.maxQueuedFixes;
+      inserted += result.changes;
+    }
 
-        const deleteResult = await transaction.runAsync(
-          EVICT_OLDEST_SQL,
-          [excess],
-        );
+    /*
+     * Eviction is deliberately outside the former transaction boundary.
+     *
+     * During this diagnostic build interruption may temporarily leave the
+     * queue above its configured depth. The next trim/capture cycle repairs
+     * that state.
+     */
+    let dropped = 0;
 
-        dropped = deleteResult.changes;
-        durableDepth -= dropped;
-      }
-    });
+    console.log(
+      '[QSQL ' + qsqlId + ' C1] before durable count',
+    );
+
+    let durableDepth = await this.count();
+
+    console.log(
+      '[QSQL ' +
+        qsqlId +
+        ' C2] after durable count depth=' +
+        String(durableDepth),
+    );
+
+    if (
+      !options.deferOverflowEviction &&
+      durableDepth > options.maxQueuedFixes
+    ) {
+      console.log(
+        '[QSQL ' +
+          qsqlId +
+          ' T1] before trim max=' +
+          String(options.maxQueuedFixes),
+      );
+
+      const trimResult = await this.trimToDepth(options.maxQueuedFixes);
+
+      console.log(
+        '[QSQL ' +
+          qsqlId +
+          ' T2] after trim dropped=' +
+          String(trimResult.dropped) +
+          ' depth=' +
+          String(trimResult.durableDepth),
+      );
+
+      dropped = trimResult.dropped;
+      durableDepth = trimResult.durableDepth;
+    }
 
     return {
       inserted,
@@ -472,31 +645,44 @@ ON CONFLICT(key) DO UPDATE SET
   async trimToDepth(maxQueuedFixes: number): Promise<JourneyQueueTrimResult> {
     assertPositiveSafeInteger(maxQueuedFixes, 'maxQueuedFixes');
 
-    let dropped = 0;
-    let durableDepth = 0;
+    /*
+     * GAP-01A / 20.7:
+     * same openDatabaseAsync() handle, no exclusive/new transaction connection.
+     *
+     * Count and delete are intentionally not atomic in this diagnostic variant.
+     * A concurrent change can make the trim conservative or temporarily leave
+     * excess rows; it must never cause a live row to be silently attributed to
+     * another session.
+     */
+    const countRow = await this.database.getFirstAsync<CountRow>(
+      COUNT_SQL,
+      [],
+    );
 
-    await this.database.withExclusiveTransactionAsync(async (transaction) => {
-      const countRow = await transaction.getFirstAsync<CountRow>(COUNT_SQL, []);
-      durableDepth = countRow?.count ?? 0;
+    let durableDepth = countRow?.count ?? 0;
 
-      if (durableDepth <= maxQueuedFixes) {
-        return;
-      }
+    if (durableDepth <= maxQueuedFixes) {
+      return {
+        dropped: 0,
+        durableDepth,
+      };
+    }
 
-      const excess = durableDepth - maxQueuedFixes;
+    const excess = durableDepth - maxQueuedFixes;
 
-      const deleteResult = await transaction.runAsync(
-        EVICT_OLDEST_SQL,
-        [excess],
-      );
+    const deleteResult = await this.database.runAsync(
+      EVICT_OLDEST_SQL,
+      [excess],
+    );
 
-      dropped = deleteResult.changes;
-      durableDepth -= dropped;
-    });
+    const dropped = deleteResult.changes;
+    durableDepth -= dropped;
 
-    return { dropped, durableDepth };
+    return {
+      dropped,
+      durableDepth,
+    };
   }
-
   /**
    * Returns the oldest durable rows first.
    */
@@ -525,35 +711,6 @@ LIMIT ?
     );
 
     return rows.map((row) => this.mapRow(row));
-  }
-
-  /**
-   * Deletes only explicitly acknowledged idempotency keys.
-   *
-   * The returned count is sqlite3_changes() for the DELETE statement.
-   */
-  async deleteAcknowledged(
-    idempotencyKeys: readonly string[],
-  ): Promise<number> {
-    if (idempotencyKeys.length === 0) {
-      return 0;
-    }
-
-    let changes = 0;
-
-    await this.database.withExclusiveTransactionAsync(async (transaction) => {
-      const placeholders = idempotencyKeys.map(() => '?').join(', ');
-
-      const result = await transaction.runAsync(
-        `DELETE FROM journey_queue
-WHERE idempotency_key IN (${placeholders})`,
-        Array.from(idempotencyKeys),
-      );
-
-      changes = result.changes;
-    });
-
-    return changes;
   }
 
   /**
@@ -709,24 +866,96 @@ LIMIT ?
       return 0;
     }
 
-    let changes = 0;
+    /*
+     * GAP-01A: this is one SQLite DELETE statement and therefore does not need
+     * an explicit exclusive transaction. Keep it on the database handle that
+     * openDatabaseAsync() returned; do not create the useNewConnection=true
+     * transaction lifecycle for replay acknowledgement.
+     *
+     * sqlite3_changes() still belongs to this exact DELETE statement, so the
+     * caller's DELETE_SHORTFALL integrity check is preserved.
+     */
+    const placeholders = idempotencyKeys.map(() => '?').join(', ');
 
-    await this.database.withExclusiveTransactionAsync(async (transaction) => {
-      const placeholders = idempotencyKeys.map(() => '?').join(', ');
-
-      const result = await transaction.runAsync(
-        `DELETE FROM journey_queue
+    const result = await this.database.runAsync(
+      `DELETE FROM journey_queue
 WHERE session_id = ?
   AND idempotency_key IN (${placeholders})`,
-        [sessionId, ...idempotencyKeys],
-      );
+      [sessionId, ...idempotencyKeys],
+    );
 
-      changes = result.changes;
-    });
-
-    return changes;
+    return result.changes;
   }
 
+  /**
+   * Cross-context replay ownership for GAP-01B.
+   *
+   * One SQLite UPSERT is the arbitration boundary. Foreground and headless
+   * TaskManager contexts may both reach this method, but only an expired or
+   * absent lease may be claimed.
+   *
+   * No explicit transaction is needed: this is one SQLite statement.
+   */
+  async tryAcquireReplayLease(
+    ownerToken: string,
+    nowMs: number,
+    leaseMs: number,
+  ): Promise<boolean> {
+    if (ownerToken.length === 0) {
+      throw new Error('ownerToken must not be empty.');
+    }
+
+    if (!Number.isSafeInteger(nowMs) || nowMs < 0) {
+      throw new Error('nowMs must be a non-negative safe integer.');
+    }
+
+    assertPositiveSafeInteger(leaseMs, 'leaseMs');
+
+    const expiresAtMs = nowMs + leaseMs;
+
+    if (!Number.isSafeInteger(expiresAtMs)) {
+      throw new Error('replay lease expiry exceeds safe integer range.');
+    }
+
+    const result = await this.database.runAsync(
+      `
+INSERT INTO journey_replay_lease (
+  lease_key,
+  owner_token,
+  expires_at_ms
+)
+VALUES ('journey-replay', ?, ?)
+ON CONFLICT(lease_key) DO UPDATE SET
+  owner_token = excluded.owner_token,
+  expires_at_ms = excluded.expires_at_ms
+WHERE journey_replay_lease.expires_at_ms <= ?
+`,
+      [ownerToken, expiresAtMs, nowMs],
+    );
+
+    return result.changes === 1;
+  }
+
+  /**
+   * Releases only this owner's lease.
+   *
+   * The owner predicate prevents a late-finishing expired owner from deleting
+   * a lease subsequently acquired by another JS context.
+   */
+  async releaseReplayLease(ownerToken: string): Promise<boolean> {
+    if (ownerToken.length === 0) {
+      throw new Error('ownerToken must not be empty.');
+    }
+
+    const result = await this.database.runAsync(
+      `DELETE FROM journey_replay_lease
+WHERE lease_key = 'journey-replay'
+  AND owner_token = ?`,
+      [ownerToken],
+    );
+
+    return result.changes === 1;
+  }
   async count(): Promise<number> {
     const row = await this.database.getFirstAsync<CountRow>(
       'SELECT COUNT(*) AS count FROM journey_queue',
@@ -838,16 +1067,51 @@ export async function bootstrapJourneyQueueStore(): Promise<JourneyQueueStore> {
 export async function openJourneyQueueStoreForBackground(): Promise<JourneyQueueStore> {
   assertSupportedPlatform();
 
-  const database = await openDatabaseAsync(DATABASE_NAME);
-  const store = new JourneyQueueStore(database);
-
-  const ready = await store.isBootstrapped();
-
-  if (!ready) {
-    throw new Error(
-      'Journey queue is not bootstrapped - the background task will not create it.',
-    );
+  if (backgroundStorePromise !== null) {
+    console.log('[BGOWNER HIT] reusing background store');
+    return backgroundStorePromise;
   }
 
-  return store;
+  console.log('[BGOWNER MISS] creating background store');
+
+  const pending = (async (): Promise<JourneyQueueStore> => {
+    console.log('[BGSQL 3] before openDatabaseAsync');
+
+    const database = await openDatabaseAsync(DATABASE_NAME);
+
+    console.log('[BGSQL 4] after openDatabaseAsync');
+
+    const store = new JourneyQueueStore(database);
+
+    console.log('[BGSQL 5] before isBootstrapped');
+
+    const ready = await store.isBootstrapped();
+
+    console.log('[BGSQL 6] after isBootstrapped ready=' + String(ready));
+
+    if (!ready) {
+      throw new Error(
+        'Journey queue is not bootstrapped - the background task will not create it.',
+      );
+    }
+
+    return store;
+  })();
+
+  backgroundStorePromise = pending;
+
+  try {
+    return await pending;
+  } catch (error: unknown) {
+    /*
+     * Clear only if this is still the promise that failed. That preserves the
+     * ownership contract if this function is ever extended to replace the
+     * owner while another caller is awaiting an older promise.
+     */
+    if (backgroundStorePromise === pending) {
+      backgroundStorePromise = null;
+    }
+
+    throw error;
+  }
 }

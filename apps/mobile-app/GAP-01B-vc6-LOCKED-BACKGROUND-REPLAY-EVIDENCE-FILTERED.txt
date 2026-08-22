@@ -1,0 +1,197 @@
+OPA VC6 LOCKED-SCREEN BACKGROUND REPLAY - FILTERED DEVICE EVIDENCE
+Date: 2026-08-21
+
+RAW ARTIFACT
+File: soak-vc6-bg-replay.txt
+Bytes: 37490968
+SHA256: 7309AAA68B49498E9643DEC6E15EEB84486C8957C3BA339E65E3C0E886ABB4A3
+Raw artifact is local-only and gitignored.
+
+DEVICE BUILD
+package: com.opasafety.app
+versionName: 1.0.0
+versionCode: 6
+
+SESSION
+122b8cf2-0452-4d7d-8ba8-5bbae70023a3
+
+FINAL FULL-RAW COUNTS
+background_enqueue_success=81
+background_replay_sent=78
+lease_busy=3
+background_http_error=0
+delete_shortfall=0
+
+ACCEPTANCE
+- Locked/dozing TaskManager capture observed.
+- Background replay transmitted while screen remained locked.
+- Lease contention was observed and arbitrated.
+- Production JourneyLocationFix rows with source='background' were confirmed separately for this session.
+- Raw evidence is intentionally excluded from Git.
+
+===== DECISIVE DEVICE EVENTS =====
+08-21 02:40:31.048 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:40:32.852 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:40:33.431 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:40:33.989 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:40:42.489 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:40:42.886 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:40:52.475 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:40:52.868 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:41:02.453 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:41:02.931 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:41:12.457 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:41:12.910 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:41:22.458 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:41:22.849 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:41:32.453 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:41:32.816 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:41:42.502 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:41:42.887 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:41:52.499 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:41:52.952 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:42:02.465 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:42:02.981 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:42:12.494 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:42:13.057 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:42:21.917 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:42:22.338 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:42:31.919 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:42:32.413 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:42:43.502 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:42:43.930 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:43:01.330 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:43:01.838 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:43:13.511 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:43:14.174 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:43:23.518 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:43:24.202 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:43:32.680 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:43:33.107 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:43:41.624 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:43:42.101 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:43:51.647 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:43:52.177 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:44:00.784 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:44:01.203 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:44:12.553 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:44:13.041 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:44:22.531 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:44:23.046 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:44:32.520 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:44:33.113 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:44:42.537 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:44:43.007 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:44:53.515 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:44:53.953 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:45:12.535 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:45:13.097 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:45:22.523 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:45:22.980 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:45:32.548 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:45:33.034 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:45:41.646 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:45:42.103 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:45:51.970 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:45:52.454 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:46:02.470 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:46:02.969 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:46:12.476 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:46:12.926 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:46:21.768 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:46:22.217 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:46:32.508 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:46:33.088 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:46:42.539 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:46:43.016 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:46:52.536 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:46:53.048 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:47:01.636 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:47:02.088 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:47:12.516 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:47:12.548 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=2 dropped=0
+08-21 02:47:12.553 I/ReactNativeJS(23061): [journey-background] BGREPLAY LEASE_BUSY session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3
+08-21 02:47:13.278 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=3 removed=3 durableDepth=0
+08-21 02:47:22.501 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:47:22.960 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:47:32.546 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:47:32.995 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:47:41.671 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:47:42.131 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:47:52.532 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:47:52.993 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:48:02.538 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:48:03.091 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:48:12.541 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:48:13.057 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:48:21.793 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:48:22.262 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:48:32.565 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:48:32.566 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=2 dropped=0
+08-21 02:48:32.583 I/ReactNativeJS(23061): [journey-background] BGREPLAY LEASE_BUSY session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3
+08-21 02:48:33.095 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=3 removed=3 durableDepth=0
+08-21 02:48:42.504 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:48:42.943 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:48:52.478 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:48:53.035 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:49:01.869 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:49:02.256 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:49:12.489 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:49:12.929 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:49:22.503 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:49:22.908 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:49:32.481 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:49:33.040 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:49:41.943 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:49:42.403 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:49:52.506 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:49:52.987 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:49:53.499 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:49:54.000 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:50:08.822 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:50:09.291 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:50:22.186 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:50:22.677 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:50:32.486 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:50:32.956 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:50:42.496 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:50:42.926 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:50:52.488 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:50:52.919 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:51:02.120 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:51:02.546 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:51:12.480 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:51:12.982 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:51:22.479 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:51:22.909 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:51:32.496 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:51:32.920 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:51:42.063 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:51:42.494 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:51:52.473 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:51:52.968 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:52:02.504 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:52:03.064 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:52:12.504 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:52:13.076 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:52:22.331 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:52:22.797 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:52:32.529 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:52:33.153 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:52:42.527 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:52:42.968 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:52:52.566 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:52:53.002 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:53:02.371 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:53:02.807 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:53:12.553 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:53:12.582 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=2 dropped=0
+08-21 02:53:12.586 I/ReactNativeJS(23061): [journey-background] BGREPLAY LEASE_BUSY session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3
+08-21 02:53:13.062 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=3 removed=3 durableDepth=0
+08-21 02:53:22.507 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:53:22.976 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+08-21 02:53:32.555 I/ReactNativeJS(23061): [BGSQL 9] after enqueueBatch inserted=1 dropped=0
+08-21 02:53:32.981 I/ReactNativeJS(23061): [journey-background] BGREPLAY SENT session=122b8cf2-0452-4d7d-8ba8-5bbae70023a3 sent=1 removed=1 durableDepth=0
+
+===== OPA / SQLITE FAILURE SCAN =====
+NO MATCHES

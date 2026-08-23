@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getSessionState } from '@/lib/operator-session';
 import { fetchIncidentDetail } from '@/lib/operator-incident';
+import { fetchOperatorTracking } from '@/lib/operator-tracking';
 import {
   fetchIncidentTimeline,
   fetchTimelineVerification,
@@ -66,12 +67,17 @@ export default async function IncidentDetailPage({
   // timeline that fills in after hydration. Neither failing
   // blocks the page: the timeline renders empty and integrity
   // reads UNKNOWN, which is honest.
-  const [timeline, verified] = await Promise.all([
+  const [timeline, verified, tracking] = await Promise.all([
     fetchIncidentTimeline(incidentId),
     fetchTimelineVerification(incidentId),
+    fetchOperatorTracking(incidentId),
   ]);
 
   if (result.state === 'REJECTED') {
+    redirect('/api/operator/refresh');
+  }
+
+  if (tracking.state === 'REJECTED') {
     redirect('/api/operator/refresh');
   }
 
@@ -129,6 +135,9 @@ export default async function IncidentDetailPage({
         key={result.incident.id}
         initialIncident={result.incident}
         initialServerTime={result.serverTime}
+        initialTracking={
+          tracking.state === 'READY' ? tracking.tracking : null
+        }
         initialTimeline={timeline.state === 'READY' ? timeline.events : []}
         initialVerification={
           verified.state === 'READY' ? verified.verification : null

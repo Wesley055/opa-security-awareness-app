@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { IncidentDetail } from '@/lib/operator-incident';
+import type { OperatorTrackingSnapshot } from '@/lib/operator-tracking-types';
 import type {
   TimelineEvent,
   TimelineVerification,
@@ -36,7 +37,14 @@ type DetailResponse = {
   error?: string;
 };
 
+type TrackingResponse = {
+  ok?: boolean;
+  tracking?: OperatorTrackingSnapshot;
+  error?: string;
+};
+
 type Status = 'live' | 'stale' | 'stopped';
+type TrackingHealth = 'live' | 'stale' | 'stopped';
 
 function formatEnum(value: string): string {
   return value
@@ -54,6 +62,14 @@ function formatCoords(lat: string | null, lng: string | null): string | null {
   const b = Number(lng);
   if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
   return `${a.toFixed(5)}, ${b.toFixed(5)}`;
+}
+
+function formatTrackingCoords(
+  latitude: number,
+  longitude: number,
+): string | null {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  return `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
 }
 
 function formatAge(from: string, serverTime: string): string {
@@ -119,11 +135,13 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 export function IncidentDetailView({
   initialIncident,
   initialServerTime,
+  initialTracking,
   initialTimeline,
   initialVerification,
 }: {
   initialIncident: IncidentDetail;
   initialServerTime: string;
+  initialTracking: OperatorTrackingSnapshot | null;
   initialTimeline: TimelineEvent[];
   /** null means OPA could not check - NOT that the chain is broken. */
   initialVerification: TimelineVerification | null;
@@ -135,6 +153,21 @@ export function IncidentDetailView({
 
   const [timeline, setTimeline] = useState(initialTimeline);
   const [verification, setVerification] = useState(initialVerification);
+
+  /*
+   * Tracking has its OWN freshness state. A temporary journey-read failure
+   * must not falsely turn the entire incident header into "Not updating"
+   * when incident detail itself is still healthy.
+   */
+  const [tracking, setTracking] =
+    useState<OperatorTrackingSnapshot | null>(initialTracking);
+
+  const [trackingHealth, setTrackingHealth] =
+    useState<TrackingHealth>(initialTracking ? 'live' : 'stale');
+
+  const [trackingNotice, setTrackingNotice] = useState<string | null>(
+    initialTracking ? null : 'Live tracking is temporarily unavailable.',
+  );
 
   /**
    * The last sequence this component has seen. sequence is monotonic
@@ -161,6 +194,11 @@ export function IncidentDetailView({
 
   const inFlight = useRef(false);
   const stopped = useRef(false);
+
+  // 403/404 on tracking stop further tracking reads without stopping the
+  // authoritative incident-detail poll. If access itself was revoked, the
+  // detail endpoint will independently return 403 on its next read.
+  const trackingStopped = useRef(false);
 
   /**
    * Refetch the timeline, and verification ONLY if it grew.
@@ -208,6 +246,83 @@ export function IncidentDetailView({
       }
     } catch {
       // Keep what is on screen.
+    }
+  }, [initialIncident.id]);
+
+  /**
+   * Refresh tracking inside the SAME lifecycle tick as incident detail.
+   *
+   * There is deliberately no second interval. That prevents two independent
+   * clocks from racing token rotation, visibility changes and access
+   * revocation.
+   *
+   * false means the operator session ended and the caller must stop work.
+   */
+  const refreshTracking = useCallback(async (): Promise<boolean> => {
+    if (trackingStopped.current) return true;
+
+    const url = `/api/operator/incidents/${encodeURIComponent(
+      initialIncident.id,
+    )}/tracking`;
+
+    try {
+      let response = await fetch(url, { cache: 'no-store' });
+
+      if (response.status === 401) {
+        const rotated = await fetch('/api/operator/refresh', {
+          method: 'POST',
+        });
+
+        if (rotated.status === 401) {
+          stopped.current = true;
+          window.location.href = '/operator/login?reason=session-ended';
+          return false;
+        }
+
+        if (!rotated.ok) {
+          setTrackingHealth('stale');
+          setTrackingNotice('Live tracking is temporarily unavailable.');
+          return true;
+        }
+
+        response = await fetch(url, { cache: 'no-store' });
+      }
+
+      if (response.status === 403 || response.status === 404) {
+        const body = (await response.json().catch(() => ({}))) as TrackingResponse;
+
+        trackingStopped.current = true;
+        setTrackingHealth('stopped');
+        setTrackingNotice(
+          body.error ?? 'Live tracking is no longer available for this incident.',
+        );
+        return true;
+      }
+
+      if (!response.ok) {
+        setTrackingHealth('stale');
+        setTrackingNotice('Live tracking is temporarily unavailable.');
+        return true;
+      }
+
+      const body = (await response.json()) as TrackingResponse;
+
+      if (!body.tracking) {
+        setTrackingHealth('stale');
+        setTrackingNotice('Live tracking is temporarily unavailable.');
+        return true;
+      }
+
+      setTracking(body.tracking);
+      setTrackingHealth('live');
+      setTrackingNotice(null);
+
+      return true;
+    } catch {
+      // Preserve the last known position. Unknown is not empty.
+      setTrackingHealth('stale');
+      setTrackingNotice('Live tracking is temporarily unavailable.');
+      return true;
     }
   }, [initialIncident.id]);
 
@@ -268,6 +383,9 @@ export function IncidentDetailView({
       setStatus('live');
       setNotice(null);
 
+      const trackingCanContinue = await refreshTracking();
+      if (!trackingCanContinue) return;
+
       // Same tick, same lifecycle state. A failed timeline fetch leaves
       // what is on screen alone - only a 200 replaces it.
       if (!timelineSettled.current) {
@@ -284,7 +402,7 @@ export function IncidentDetailView({
     } finally {
       inFlight.current = false;
     }
-  }, [initialIncident.id, refreshTimeline]);
+  }, [initialIncident.id, refreshTimeline, refreshTracking]);
 
   useEffect(() => {
     if (status === 'stopped') return;
@@ -322,6 +440,19 @@ export function IncidentDetailView({
     ? `${incident.user.firstName} ${incident.user.lastName}`.trim()
     : 'Unknown resident';
   const coords = formatCoords(incident.latitude, incident.longitude);
+
+  const trackedCoords = tracking
+    ? formatTrackingCoords(
+        tracking.latest.latitude,
+        tracking.latest.longitude,
+      )
+    : null;
+
+  const trackedAge =
+    tracking?.lastFixReceivedAt
+      ? formatAge(tracking.lastFixReceivedAt, tracking.serverTime)
+      : null;
+
   const phrase = displayVoicePhrase(incident.voicePhrase);
   const isClosed =
     incident.status === 'RESOLVED' || incident.status === 'CANCELLED';
@@ -416,16 +547,74 @@ export function IncidentDetailView({
         {phrase ? <Row label="Voice phrase">{phrase}</Row> : null}
 
         {/*
-          PRESENCE, NOT LIVENESS. The detail projection returns the session
-          id and NOT its state, and close() ends the session when an
-          incident resolves - so a linked id on a closed incident belongs to
-          a stream that has stopped. Saying "live" here would be untrue.
-          14A-8 reads the state and may then say more.
+          14A-8b. The tracking projection carries session STATE, so this row
+          may now say what the stream is doing. Freshness of a POSITION
+          remains a separate judgement made against serverTime, which is why
+          the tracked coordinate lives in its own row below.
         */}
         <Row label="Location tracking">
-          {incident.journeySessionId
-            ? 'A location tracking session is linked to this incident.'
-            : 'No location tracking session is linked to this incident.'}
+          {trackingHealth === 'stale' && trackingNotice ? (
+            <>
+              <span>{trackingNotice}</span>
+
+              {tracking ? (
+                <span className="ml-2 text-muted">
+                  Last known state: {formatEnum(tracking.state)}.
+                </span>
+              ) : null}
+            </>
+          ) : trackingHealth === 'stopped' ? (
+            <span>{trackingNotice ?? 'Location tracking has stopped.'}</span>
+          ) : tracking ? (
+            <>
+              <span>
+                {tracking.state === 'RECEIVING'
+                  ? 'Receiving location updates.'
+                  : tracking.state === 'SILENT'
+                    ? 'Location stream is silent.'
+                    : tracking.state === 'ENDED'
+                      ? 'Location tracking has ended.'
+                      : tracking.state === 'AWAITING_FIRST_FIX'
+                        ? 'Waiting for the first tracked location.'
+                        : 'No location tracking session is linked to this incident.'}
+              </span>
+
+              {trackedAge ? (
+                <span className="ml-2 text-muted">
+                  Last fix {trackedAge}.
+                </span>
+              ) : null}
+            </>
+          ) : (
+            'Live tracking is temporarily unavailable.'
+          )}
+        </Row>
+
+        {/*
+          ACTIVATION IS NOT A FIX. When the phone has sent nothing, the API
+          falls back to the immutable activation coordinate - and this says
+          so rather than presenting it as a current position.
+        */}
+        <Row label="Tracked location">
+          {tracking && trackedCoords ? (
+            <>
+              <span className="font-mono">{trackedCoords}</span>
+
+              <span className="ml-2 text-muted">
+                {tracking.latest.origin === 'TRACKED'
+                  ? `Latest ${formatEnum(tracking.latest.source)} fix`
+                  : 'Activation position fallback'}
+
+                {tracking.latest.sequence !== undefined
+                  ? ` · sequence ${tracking.latest.sequence}`
+                  : ''}
+              </span>
+            </>
+          ) : (
+            <span className="text-muted">
+              No usable tracked position is currently available.
+            </span>
+          )}
         </Row>
 
         {incident.status === 'RESOLVED' ? (

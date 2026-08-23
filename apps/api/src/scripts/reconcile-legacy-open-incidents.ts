@@ -4,6 +4,7 @@ import { IncidentsModule } from '../modules/incidents/incidents.module';
 import { IncidentsService } from '../modules/incidents/incidents.service';
 import { IncidentTimelineService } from '../modules/incident-timeline/incident-timeline.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { reconcilePlanItem } from './reconcile-legacy-open-incidents.logic';
 
 type RepairPlanItem = {
   incidentId: string;
@@ -161,26 +162,26 @@ async function main(): Promise<void> {
 
     for (const item of plan) {
       try {
-        const result =
-          await incidentsService.reconcileLegacyDuplicate(
-            item.incidentId,
-            item.userId,
-            item.evidenceIncidentId,
-            item.lastTriggeredAt,
-          );
-
-        const chain = await timeline.verifyChain(item.incidentId);
-
-        if (!chain.valid) {
-          throw new Error(
-            `Timeline verification failed for ${item.incidentId} at sequence ${chain.brokenAtSequence ?? 'unknown'}.`,
-          );
-        }
+        // Safety order:
+        //
+        //   structural verification
+        //     -> lifecycle mutation
+        //       -> current-tail verification
+        //
+        // Historical hashes are not rewritten or falsely treated as
+        // current-canonical hashes.
+        const result = await reconcilePlanItem(
+          item,
+          {
+            incidentsService,
+            timeline,
+          },
+        );
 
         repaired += 1;
 
         console.log(
-          `reconciled=${item.incidentId} status=${result.status} evidence=${item.evidenceIncidentId} chain=VALID`,
+          `reconciled=${item.incidentId} status=${result.status} evidence=${item.evidenceIncidentId} structure=VALID tail=VALID`,
         );
       } catch (error) {
         const message =

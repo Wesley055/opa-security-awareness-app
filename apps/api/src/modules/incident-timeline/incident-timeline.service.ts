@@ -213,6 +213,110 @@ export class IncidentTimelineService {
    * Both recordEvent and verifyChain hash through here, so write-time and
    * verify-time canonicalisation cannot drift apart.
    */
+  /**
+   * Verifies only the STORED STRUCTURE of a timeline.
+   *
+   * Historical payloads written before canonicalisation may not have a
+   * reproducible content hash because PostgreSQL jsonb did not preserve the
+   * JavaScript key insertion order used by the old writer.
+   *
+   * This method therefore proves the structural property that remains
+   * recoverable: sequence numbers are contiguous and each event points to the
+   * stored hash of its immediate predecessor.
+   */
+  async verifyStructuralChain(
+    incidentId: string,
+  ): Promise<{ valid: boolean; brokenAtSequence?: number }> {
+    const events = await this.getTimeline(incidentId);
+
+    let expectedSequence = 1;
+    let expectedPreviousHash: string | null = null;
+
+    for (const event of events) {
+      if (event.sequence !== expectedSequence) {
+        return {
+          valid: false,
+          brokenAtSequence: event.sequence,
+        };
+      }
+
+      if (event.previousHash !== expectedPreviousHash) {
+        return {
+          valid: false,
+          brokenAtSequence: event.sequence,
+        };
+      }
+
+      expectedSequence += 1;
+      expectedPreviousHash = event.hash;
+    }
+
+    return { valid: true };
+  }
+
+  /**
+   * Verifies the current tail using today's canonical hash algorithm and
+   * confirms that it links to its immediate predecessor.
+   *
+   * Unlike verifyChain(), this does not attempt to recompute older legacy
+   * payload hashes. It is intended for verifying a newly appended event on a
+   * structurally intact historical chain.
+   */
+  async verifyTailEvent(
+    incidentId: string,
+  ): Promise<{ valid: boolean; brokenAtSequence?: number }> {
+    const events = await this.getTimeline(incidentId);
+
+    if (events.length === 0) {
+      return { valid: true };
+    }
+
+    const tail = events[events.length - 1];
+
+    if (tail === undefined) {
+      return { valid: true };
+    }
+
+    const predecessor =
+      events.length > 1 ? events[events.length - 2] : undefined;
+
+    const expectedPreviousHash = predecessor?.hash ?? null;
+
+    if (tail.previousHash !== expectedPreviousHash) {
+      return {
+        valid: false,
+        brokenAtSequence: tail.sequence,
+      };
+    }
+
+    const expectedSequence =
+      predecessor === undefined ? 1 : predecessor.sequence + 1;
+
+    if (tail.sequence !== expectedSequence) {
+      return {
+        valid: false,
+        brokenAtSequence: tail.sequence,
+      };
+    }
+
+    const recomputedHash = this.computeHash({
+      incidentId: tail.incidentId,
+      sequence: tail.sequence,
+      type: tail.type,
+      payload: (tail.payload as Record<string, unknown>) ?? {},
+      occurredAt: tail.occurredAt,
+      previousHash: tail.previousHash,
+    });
+
+    if (recomputedHash !== tail.hash) {
+      return {
+        valid: false,
+        brokenAtSequence: tail.sequence,
+      };
+    }
+
+    return { valid: true };
+  }
   private computeHash(input: HashInput): string {
     const canonical = JSON.stringify({
       incidentId: input.incidentId,

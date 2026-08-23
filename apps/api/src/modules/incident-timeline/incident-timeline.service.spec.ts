@@ -229,4 +229,213 @@ describe('IncidentTimelineService', () => {
       valid: true,
     });
   });
+
+  describe('legacy structural verification', () => {
+    it('accepts an intact stored chain without recomputing historical content hashes', async () => {
+      const { fake, service } = build();
+
+      fake.rows.push(
+        {
+          id: 'evt-legacy-1',
+          incidentId: INCIDENT,
+          sequence: 1,
+          type: 'INCIDENT_CREATED',
+          payload: { historical: 'jsonb-order-not-recoverable' },
+          source: 'SPEC',
+          occurredAt: new Date('2026-08-06T13:00:00.000Z'),
+          previousHash: null,
+          hash: 'historical-hash-1',
+        },
+        {
+          id: 'evt-legacy-2',
+          incidentId: INCIDENT,
+          sequence: 2,
+          type: 'LOCATION_ATTACHED',
+          payload: {},
+          source: 'SPEC',
+          occurredAt: new Date('2026-08-06T13:01:00.000Z'),
+          previousHash: 'historical-hash-1',
+          hash: 'historical-hash-2',
+        },
+      );
+
+      await expect(
+        service.verifyStructuralChain(INCIDENT),
+      ).resolves.toEqual({ valid: true });
+    });
+
+    it('rejects a broken predecessor link at the correct sequence', async () => {
+      const { fake, service } = build();
+
+      fake.rows.push(
+        {
+          id: 'evt-legacy-1',
+          incidentId: INCIDENT,
+          sequence: 1,
+          type: 'INCIDENT_CREATED',
+          payload: {},
+          source: 'SPEC',
+          occurredAt: new Date('2026-08-06T13:00:00.000Z'),
+          previousHash: null,
+          hash: 'historical-hash-1',
+        },
+        {
+          id: 'evt-legacy-2',
+          incidentId: INCIDENT,
+          sequence: 2,
+          type: 'LOCATION_ATTACHED',
+          payload: {},
+          source: 'SPEC',
+          occurredAt: new Date('2026-08-06T13:01:00.000Z'),
+          previousHash: 'WRONG',
+          hash: 'historical-hash-2',
+        },
+      );
+
+      await expect(
+        service.verifyStructuralChain(INCIDENT),
+      ).resolves.toEqual({
+        valid: false,
+        brokenAtSequence: 2,
+      });
+    });
+
+    it('rejects a sequence gap', async () => {
+      const { fake, service } = build();
+
+      fake.rows.push(
+        {
+          id: 'evt-legacy-1',
+          incidentId: INCIDENT,
+          sequence: 1,
+          type: 'INCIDENT_CREATED',
+          payload: {},
+          source: 'SPEC',
+          occurredAt: new Date('2026-08-06T13:00:00.000Z'),
+          previousHash: null,
+          hash: 'historical-hash-1',
+        },
+        {
+          id: 'evt-legacy-3',
+          incidentId: INCIDENT,
+          sequence: 3,
+          type: 'LOCATION_ATTACHED',
+          payload: {},
+          source: 'SPEC',
+          occurredAt: new Date('2026-08-06T13:01:00.000Z'),
+          previousHash: 'historical-hash-1',
+          hash: 'historical-hash-3',
+        },
+      );
+
+      await expect(
+        service.verifyStructuralChain(INCIDENT),
+      ).resolves.toEqual({
+        valid: false,
+        brokenAtSequence: 3,
+      });
+    });
+
+    it('accepts a newly written canonical tail on a structurally intact legacy chain', async () => {
+      const { fake, service } = build();
+
+      fake.rows.push({
+        id: 'evt-legacy-1',
+        incidentId: INCIDENT,
+        sequence: 1,
+        type: 'INCIDENT_CREATED',
+        payload: { historical: true },
+        source: 'SPEC',
+        occurredAt: new Date('2026-08-06T13:00:00.000Z'),
+        previousHash: null,
+        hash: 'historical-hash-1',
+      });
+
+      await append(
+        service,
+        INCIDENT,
+        'INCIDENT_CANCELLED',
+        {
+          reason: 'LEGACY_DUPLICATE_RECONCILIATION',
+          previousStatus: 'OPEN',
+          newStatus: 'CANCELLED',
+        },
+        23,
+      );
+
+      await expect(
+        service.verifyTailEvent(INCIDENT),
+      ).resolves.toEqual({ valid: true });
+    });
+
+    it('rejects an altered current tail hash', async () => {
+      const { fake, service } = build();
+
+      fake.rows.push({
+        id: 'evt-legacy-1',
+        incidentId: INCIDENT,
+        sequence: 1,
+        type: 'INCIDENT_CREATED',
+        payload: { historical: true },
+        source: 'SPEC',
+        occurredAt: new Date('2026-08-06T13:00:00.000Z'),
+        previousHash: null,
+        hash: 'historical-hash-1',
+      });
+
+      await append(
+        service,
+        INCIDENT,
+        'INCIDENT_CANCELLED',
+        {
+          reason: 'LEGACY_DUPLICATE_RECONCILIATION',
+        },
+        23,
+      );
+
+      rowAt(fake.rows, 1).hash = 'ALTERED';
+
+      await expect(
+        service.verifyTailEvent(INCIDENT),
+      ).resolves.toEqual({
+        valid: false,
+        brokenAtSequence: 2,
+      });
+    });
+
+    it('rejects a newly appended tail whose predecessor link was altered', async () => {
+      const { fake, service } = build();
+
+      fake.rows.push({
+        id: 'evt-legacy-1',
+        incidentId: INCIDENT,
+        sequence: 1,
+        type: 'INCIDENT_CREATED',
+        payload: {},
+        source: 'SPEC',
+        occurredAt: new Date('2026-08-06T13:00:00.000Z'),
+        previousHash: null,
+        hash: 'historical-hash-1',
+      });
+
+      await append(
+        service,
+        INCIDENT,
+        'INCIDENT_CANCELLED',
+        {
+          reason: 'LEGACY_DUPLICATE_RECONCILIATION',
+        },
+        23,
+      );
+
+      rowAt(fake.rows, 1).previousHash = 'WRONG';
+
+      await expect(
+        service.verifyTailEvent(INCIDENT),
+      ).resolves.toEqual({
+        valid: false,
+        brokenAtSequence: 2,
+      });
+    });
+  });
 });

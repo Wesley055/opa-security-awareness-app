@@ -30,7 +30,9 @@ export interface TrackingSessionInput {
 /**
  * Silence is measured from receivedAt (decision 12), so this threshold is
  * about the STREAM going quiet, not about the position being old.
- * Follows the SOS_DEDUPE_WINDOW_SECONDS idiom.
+ *
+ * JOURNEY_SILENCE_SECONDS is independent tracking-health policy. It must not
+ * be coupled to incident identity or SOS retrigger semantics.
  */
 export const DEFAULT_SILENCE_SECONDS = 120;
 

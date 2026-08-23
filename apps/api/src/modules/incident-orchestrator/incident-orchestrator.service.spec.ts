@@ -589,14 +589,13 @@ describe('IncidentOrchestratorService', () => {
           latitude: 7.1234,
           longitude: 4.5678,
           retriggerCount: 1,
-          dedupeWindowSeconds: 60,
           retriggeredAt: expect.any(String),
           secondsSinceInitialTrigger: expect.any(Number),
         }),
       );
     });
 
-    it('scopes the duplicate lookup to the triggering user and OPEN incidents', async () => {
+    it('scopes the active-incident lookup to the triggering user and OPEN incidents', async () => {
       primeActivation();
       prisma.incident.findFirst.mockResolvedValue(null);
     accessTokenService.issue.mockResolvedValue({
@@ -612,24 +611,34 @@ describe('IncidentOrchestratorService', () => {
       await service.createCoordinatedIncident('user-123', activationDto);
 
       const findArgs = prisma.incident.findFirst.mock.calls[0][0];
-      expect(findArgs.where.userId).toBe('user-123');
-      expect(findArgs.where.status).toBe('OPEN');
-      expect(findArgs.where.lastTriggeredAt.gte).toBeInstanceOf(Date);
+      expect(findArgs.where).toEqual({
+        userId: 'user-123',
+        status: 'OPEN',
+      });
+      expect(findArgs.orderBy).toEqual([
+        { lastTriggeredAt: 'desc' },
+        { createdAt: 'desc' },
+        { id: 'desc' },
+      ]);
     });
 
-    it('creates a new incident when the previous trigger is outside the window', async () => {
+    it('reuses an OPEN incident regardless of how long ago it was triggered', async () => {
       primeActivation();
-      // findFirst applies the cutoff, so an out-of-window incident simply is
-      // not returned.
-      prisma.incident.findFirst.mockResolvedValue(null);
-    accessTokenService.issue.mockResolvedValue({
-      token: 'test-token-value',
-      record: { id: 'token-row-1' },
-    });
-      incidentsService.create.mockResolvedValue({
-        id: 'incident-second',
-        createdAt: new Date(),
+
+      const existing = {
+        id: 'incident-existing',
+        userId: 'user-123',
+        journeySessionId: 'journey-session-1',
+        createdAt: new Date(Date.now() - 86_400_000),
+        lastTriggeredAt: new Date(Date.now() - 86_400_000),
         retriggerCount: 0,
+      };
+
+      prisma.incident.findFirst.mockResolvedValue(existing);
+      prisma.incident.update.mockResolvedValue({
+        ...existing,
+        lastTriggeredAt: new Date(),
+        retriggerCount: 1,
       });
 
       const result = await service.createCoordinatedIncident(
@@ -637,8 +646,11 @@ describe('IncidentOrchestratorService', () => {
         activationDto,
       );
 
-      expect(result.status).toBe('INCIDENT_ACTIVATED');
-      expect(incidentsService.create).toHaveBeenCalledTimes(1);
+      expect(result.status).toBe('INCIDENT_RETRIGGERED');
+      expect(result.incident?.id).toBe('incident-existing');
+      expect(result.deduplicated).toBe(true);
+      expect(incidentsService.create).not.toHaveBeenCalled();
+      expect(prisma.incidentNotification.createMany).not.toHaveBeenCalled();
     });
   });
 });

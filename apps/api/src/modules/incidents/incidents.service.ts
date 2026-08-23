@@ -88,7 +88,10 @@ export class IncidentsService {
           longitude: dto.longitude,
           address: dto.address,
           voicePhrase: dto.voicePhrase,
-          // Initialised so the SOS dedupe window can find this incident.
+          // Initialised for retrigger ordering and audit. Under the
+          // lifecycle-based identity invariant the orchestrator retriggers an
+          // OPEN incident regardless of elapsed time; this path still applies
+          // the legacy time-window filter and has not been converged.
           lastTriggeredAt: new Date(),
           metadata: {
             redisDispatchPrepared: true,
@@ -144,6 +147,176 @@ export class IncidentsService {
    * transaction and ONE timestamp, so the transition is atomic and
    * temporally coherent.
    */
+  /**
+   * INTERNAL LEGACY RECONCILIATION.
+   *
+   * This is NOT an operator close and NOT a resident "I'm Safe" action.
+   * It corrects an OPEN row created by the former time-based incident
+   * identity rule, but only when a later genuinely RESOLVED incident for the
+   * same user proves that the older row cannot still represent the current
+   * emergency.
+   *
+   * The duplicate is CANCELLED rather than RESOLVED. RESOLVED means an
+   * emergency occurred and was explicitly brought to a resolved terminal
+   * state; these rows are duplicate lifecycle records.
+   *
+   * The repair is auditable rather than backdated:
+   *   - Incident.resolvedAt remains NULL because the row is CANCELLED.
+   *   - the evidence incident/resolution timestamp is preserved in payload.
+   *   - token revokedAt is the actual repair time.
+   *   - timeline occurredAt is the actual repair time.
+   *   - actorUserId is deliberately absent.
+   */
+  async reconcileLegacyDuplicate(
+    incidentId: string,
+    userId: string,
+    evidenceIncidentId: string,
+    expectedLastTriggeredAt: Date,
+  ) {
+    const reconciledAt = new Date();
+
+    return this.prisma.$transaction(async (tx) => {
+      // Same global lock order as ordinary lifecycle operations:
+      // user -> incident timeline/lifecycle.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(3, hashtext(${incidentId}))`;
+
+      const incident = await tx.incident.findUnique({
+        where: { id: incidentId },
+        select: {
+          id: true,
+          userId: true,
+          status: true,
+          createdAt: true,
+          lastTriggeredAt: true,
+          journeySessionId: true,
+        },
+      });
+
+      if (!incident || incident.userId !== userId) {
+        throw new NotFoundException('Incident not found.');
+      }
+
+      if (incident.status !== IncidentStatus.OPEN) {
+        throw new ConflictException(
+          `Incident is already ${incident.status} and cannot be reconciled.`,
+        );
+      }
+
+      // OPTIMISTIC SAFETY PIN.
+      //
+      // The reconciliation plan is a snapshot. The per-user advisory lock
+      // prevents an SOS from racing THIS transaction, but an SOS may have
+      // retriggered this OPEN incident after the plan was computed and before
+      // this transaction acquired the lock.
+      //
+      // Every retrigger advances lastTriggeredAt. If it changed, the row may
+      // now represent a live emergency and MUST NOT be cancelled.
+      if (
+        incident.lastTriggeredAt === null ||
+        incident.lastTriggeredAt.getTime() !==
+          expectedLastTriggeredAt.getTime()
+      ) {
+        throw new ConflictException(
+          'Incident was retriggered after the reconciliation plan was computed.',
+        );
+      }
+
+      const evidence = await tx.incident.findUnique({
+        where: { id: evidenceIncidentId },
+        select: {
+          id: true,
+          userId: true,
+          status: true,
+          createdAt: true,
+          resolvedAt: true,
+        },
+      });
+
+      if (
+        !evidence ||
+        evidence.userId !== userId ||
+        evidence.status !== IncidentStatus.RESOLVED ||
+        evidence.resolvedAt === null ||
+        evidence.createdAt <= incident.createdAt
+      ) {
+        throw new BadRequestException(
+          'A later RESOLVED incident for the same user is required as reconciliation evidence.',
+        );
+      }
+
+      const updated = await tx.incident.update({
+        where: { id: incidentId },
+        data: {
+          status: IncidentStatus.CANCELLED,
+          resolvedAt: null,
+        },
+      });
+
+      let endedSessionId: string | null = null;
+
+      if (incident.journeySessionId !== null) {
+        const otherOpenIncident = await tx.incident.findFirst({
+          where: {
+            journeySessionId: incident.journeySessionId,
+            status: IncidentStatus.OPEN,
+            id: { not: incident.id },
+          },
+          select: { id: true },
+        });
+
+        // During reconciliation many duplicate rows may share one session.
+        // Leave telemetry alone until the LAST OPEN row using it is gone.
+        if (otherOpenIncident === null) {
+          const result = await this.journeySessions.endSession(
+            tx,
+            userId,
+            incident.journeySessionId,
+            JourneySessionEndReason.ADMIN_ENDED,
+          );
+
+          if (result !== null && !result.alreadyEnded) {
+            endedSessionId = incident.journeySessionId;
+          }
+        }
+      }
+
+      const revokedTokens = await this.accessTokens.revokeAllForIncident(
+        incidentId,
+        tx,
+      );
+
+      await this.timeline.recordEvent(
+        {
+          incidentId,
+          type: 'INCIDENT_CANCELLED',
+          payload: {
+            previousStatus: IncidentStatus.OPEN,
+            newStatus: IncidentStatus.CANCELLED,
+            reason: 'LEGACY_DUPLICATE_RECONCILIATION',
+            evidenceIncidentId: evidence.id,
+            evidenceResolvedAt: evidence.resolvedAt.toISOString(),
+            revokedTokens,
+            endedJourneySessionId: endedSessionId,
+          },
+          source: 'SYSTEM_RECONCILIATION',
+          occurredAt: reconciledAt,
+        },
+        tx,
+      );
+
+      return {
+        id: updated.id,
+        status: updated.status,
+        resolvedAt: updated.resolvedAt,
+        evidenceIncidentId: evidence.id,
+        evidenceResolvedAt: evidence.resolvedAt,
+        revokedTokens,
+        endedJourneySessionId: endedSessionId,
+      };
+    });
+  }
+
   private async close(
     incidentId: string,
     userId: string,
@@ -205,11 +378,10 @@ export class IncidentsService {
       // END THE LINKED JOURNEY SESSION - BUT ONLY IF NO OTHER OPEN INCIDENT
       // IS STILL USING IT.
       //
-      // resolveForActivation returns ANY started or active session for the
-      // user, so one session can legitimately serve several incidents: open
-      // incident A, wait past the 60-second dedupe window, raise a genuinely
-      // new incident B, and B reuses A's session. Ending it on A's close
-      // would stop telemetry for B, which is still open.
+      // A session should normally belong to only one OPEN incident under the
+      // lifecycle-based identity invariant. The other-OPEN check remains
+      // necessary during legacy reconciliation and as defensive protection
+      // while pre-invariant production data still exists.
       //
       // Without this, a resolved incident's session stays ACTIVE and the
       // tracker RESUMES CAPTURE ON THE NEXT APP START - measured on a device

@@ -72,8 +72,8 @@ const DISPLAY_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
     'retriggerCount',
     // The operationally interesting one: re-triggered after 45 seconds
     // reads very differently from after 20 minutes, and repeated taps may
-    // signal rising distress. dedupeWindowSeconds is tuning, and
-    // retriggeredAt duplicates occurredAt.
+    // signal rising distress. Elapsed time is audit context only; it no
+    // longer determines whether a second OPEN incident is created.
     'secondsSinceInitialTrigger',
   ],
   EVIDENCE_ADDED: ['evidenceType', 'sizeBytes'],

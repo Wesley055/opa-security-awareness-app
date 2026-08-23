@@ -164,14 +164,20 @@ export class IncidentOrchestratorService {
     // dispatch worker can deliver it without re-querying incident or user
     // data.
     //
-    // DEDUPLICATION: a panicking user may tap SOS several times. Without a
-    // guard that creates several incidents and several full sets of alerts
-    // for ONE emergency. A per-user advisory lock serialises concurrent
-    // activations so two simultaneous taps cannot both pass the "is there a
-    // recent incident" check.
-    const dedupeWindowSeconds = Number(
-      process.env.SOS_DEDUPE_WINDOW_SECONDS ?? 60,
-    );
+    // INCIDENT IDENTITY IS LIFECYCLE-BASED, NOT TIME-BASED.
+    //
+    // A user may have at most one OPEN emergency. While that incident remains
+    // OPEN, every later SOS activation belongs to it and is a retrigger,
+    // regardless of elapsed time. Only a terminal transition allows the next
+    // SOS to create a new incident.
+    //
+    // This reverses the earlier 60-second identity rule. That window was
+    // useful for absorbing repeated activation calls, but production evidence
+    // showed that using elapsed time to define incident identity left older
+    // OPEN incidents orphaned when later emergencies were created.
+    //
+    // The per-user advisory lock below remains the concurrency authority: two
+    // simultaneous SOS requests cannot both observe "no OPEN incident".
 
     const activation = await this.prisma.$transaction(async (tx) => {
       // Serialise activations for THIS user only. Different users never
@@ -189,20 +195,25 @@ export class IncidentOrchestratorService {
           ? parsedRecordedAt
           : new Date();
 
-      const cutoff = new Date(Date.now() - dedupeWindowSeconds * 1000);
       const recent = await tx.incident.findFirst({
         where: {
           userId,
           status: IncidentStatus.OPEN,
-          lastTriggeredAt: { gte: cutoff },
         },
-        orderBy: { lastTriggeredAt: 'desc' },
+        // Deterministic while legacy data is being reconciled. Once the
+        // database invariant is installed, at most one row can match.
+        orderBy: [
+          { lastTriggeredAt: 'desc' },
+          { createdAt: 'desc' },
+          { id: 'desc' },
+        ],
       });
 
       if (recent) {
-        // Re-trigger of an emergency already in flight. Do NOT create a
-        // second incident and do NOT queue duplicate notifications, but do
-        // record that it happened - repeated taps may signal rising distress.
+        // Re-trigger of an emergency that is still OPEN. OPEN now defines
+        // continuity; elapsed time does not. Do NOT create a second incident
+        // and do NOT queue duplicate notifications, but record the retrigger
+        // because repeated SOS actions may signal rising distress.
         //
         // The incident's own latitude/longitude are deliberately NOT
         // overwritten: they are the immutable origin of the emergency (where
@@ -348,7 +359,6 @@ export class IncidentOrchestratorService {
           longitude: dto.longitude,
           retriggerCount: incident.retriggerCount,
           secondsSinceInitialTrigger,
-          dedupeWindowSeconds,
           retriggeredAt: retriggeredAt.toISOString(),
         },
       });

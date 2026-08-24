@@ -47,6 +47,86 @@ backgroundApi.interceptors.request.use(async (config) => {
   return config;
 });
 
+let backgroundRefreshInFlight: Promise<string> | null = null;
+
+async function refreshBackgroundAccessToken(): Promise<string> {
+  if (backgroundRefreshInFlight) {
+    return backgroundRefreshInFlight;
+  }
+
+  backgroundRefreshInFlight = (async () => {
+    const refreshToken =
+      await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+
+    if (!refreshToken) {
+      throw new Error('No refresh token available');
+    }
+
+    const { data } = await axios.post(
+      `${API_BASE_URL}/auth/refresh`,
+      { refreshToken },
+    );
+
+    if (!data?.accessToken) {
+      throw new Error('Refresh response missing access token');
+    }
+
+    await SecureStore.setItemAsync(
+      ACCESS_TOKEN_KEY,
+      data.accessToken,
+    );
+
+    if (data.refreshToken) {
+      await SecureStore.setItemAsync(
+        REFRESH_TOKEN_KEY,
+        data.refreshToken,
+      );
+    }
+
+    return data.accessToken as string;
+  })();
+
+  try {
+    return await backgroundRefreshInFlight;
+  } finally {
+    backgroundRefreshInFlight = null;
+  }
+}
+
+backgroundApi.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+
+    if (
+      error.response?.status !== 401 ||
+      !originalRequest ||
+      originalRequest._opaBackgroundRetry
+    ) {
+      return Promise.reject(error);
+    }
+
+    originalRequest._opaBackgroundRetry = true;
+
+    try {
+      const accessToken =
+        await refreshBackgroundAccessToken();
+
+      originalRequest.headers.Authorization =
+        `Bearer ${accessToken}`;
+
+      // IMPORTANT: retry with the headless-safe client,
+      // never the foreground api client.
+      return backgroundApi(originalRequest);
+    } catch (refreshError) {
+      // HEADLESS SAFETY:
+      // no deleteItemAsync
+      // no notifyForceLogout
+      // Journey replay keeps the durable rows.
+      return Promise.reject(refreshError);
+    }
+  },
+);
 api.interceptors.request.use(async (config) => {
   const token = await SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
   if (token) {

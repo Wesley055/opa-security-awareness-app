@@ -26,7 +26,7 @@ export function LifecycleSection() {
 
           <p className="max-w-2xl text-muted">
             OPA is being built as the system of record for physical safety
-            incidentsâ€”from proactive journey protection through emergency
+            incidents, from proactive journey protection through emergency
             activation, live tracking, controlled closure, audit, and
             structured post-incident reporting.
           </p>

@@ -16,7 +16,7 @@ export function Hero() {
         <div>
           <div className="inline-flex items-center gap-2 rounded-full border border-emergency/30 bg-emergency/10 px-3 py-1.5 font-mono text-[11px] uppercase tracking-[0.18em] text-emergency">
             <Radio size={13} />
-            Nigeria first Â· Africa ready Â· globally extensible
+            Nigeria first / Africa ready / globally extensible
           </div>
 
           <h1 className="mt-7 max-w-4xl font-display text-4xl font-extrabold leading-[1.04] tracking-tight text-ink sm:text-6xl">

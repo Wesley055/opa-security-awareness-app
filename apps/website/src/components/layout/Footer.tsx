@@ -2,40 +2,53 @@ import Link from "next/link";
 
 export function Footer() {
   return (
-    <footer className="border-t border-line py-10">
-      <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 sm:flex-row">
-        <div className="flex items-center gap-2 font-display text-base font-extrabold text-ink">
-          <span className="h-2 w-2 rounded-full bg-signal" />
-          OPA
+    <footer className="border-t border-line bg-panel/30 py-12">
+      <div className="mx-auto grid max-w-6xl gap-8 px-6 md:grid-cols-[1.2fr_0.8fr_1fr]">
+        <div>
+          <div className="flex items-center gap-2 font-display text-base font-extrabold text-ink">
+            <span className="h-2 w-2 rounded-full bg-signal" />
+            OPA
+          </div>
+
+          <p className="mt-3 max-w-md text-sm text-muted">
+            Physical Incident Management Operating System for high-risk
+            environments. Nigeria first, Africa ready, globally extensible.
+          </p>
         </div>
-        <div className="flex items-center gap-6">
-          <Link href="/privacy" className="font-mono text-xs text-muted-2 hover:text-ink">
-            Privacy
+
+        <div className="flex flex-col gap-2">
+          <p className="mb-1 font-mono text-[10px] uppercase tracking-widest text-muted-2">
+            Legal &amp; privacy
+          </p>
+
+          <Link href="/privacy" className="text-sm text-muted hover:text-ink">
+            Privacy policy
           </Link>
-          <Link href="/terms" className="font-mono text-xs text-muted-2 hover:text-ink">
-            Terms
+          <Link href="/terms" className="text-sm text-muted hover:text-ink">
+            Terms of service
           </Link>
-          {/*
-            The only route into the operator console from the public site.
-            Deliberately here and not in the Navbar: a prospect who clicks
-            it reaches a login wall, but a guard who has lost a bookmark
-            can find it by typing opasafety.com and scrolling. robots.ts
-            still disallows /operator/, so this does not make it
-            crawlable - only findable by someone who knows it exists.
-          */}
+          <Link href="/delete-account" className="text-sm text-muted hover:text-ink">
+            Delete account
+          </Link>
+        </div>
+
+        <div className="md:text-right">
+          <p className="font-mono text-[10px] uppercase tracking-widest text-muted-2">
+            Operations
+          </p>
+
           <Link
             href="/operator/login"
-            className="font-mono text-xs text-muted-2 hover:text-ink"
+            className="mt-3 inline-block text-sm text-muted hover:text-ink"
           >
             Operator sign in
           </Link>
-        </div>
-        <div className="flex flex-col items-center gap-1 sm:items-end">
-          <p className="font-mono text-xs text-muted-2">
-            Personal Safety &amp; Live Incident Awareness. Nigeria first, global by design.
+
+          <p className="mt-5 font-mono text-xs text-muted-2">
+            &copy; 2026 OPA Technologies Limited
           </p>
-          <p className="font-mono text-xs text-muted-2">
-            &copy; 2026 OPA Technologies Limited &middot; RC 9697630
+          <p className="mt-1 font-mono text-xs text-muted-2">
+            RC 9697630
           </p>
         </div>
       </div>

@@ -15,7 +15,7 @@ export default function PrivacyPage() {
         Your privacy.
       </h1>
       <p className="mt-4 font-mono text-xs text-muted-2">
-        Last updated: August 3, 2026
+        Last updated: August 25, 2026
       </p>
 
       <div className="mt-12 space-y-10">
@@ -60,11 +60,14 @@ export default function PrivacyPage() {
             Incident and location information
           </h3>
           <p className="mt-2 text-muted">
-            When you activate an emergency, we collect your GPS location
-            (latitude, longitude, and accuracy), the type of trigger used,
-            and, where available, a resolved street address. This data is
-            tied to the specific incident you activated, not collected
-            continuously in the background.
+            When you activate an emergency or intentionally start a protected
+            journey, OPA may collect GPS location data such as latitude,
+            longitude, accuracy, speed, heading, timestamps, and the type of
+            location source used. During an active emergency or protected
+            journey, location may continue to be collected while the app is
+            in the background so that authorized recipients and security
+            operators can maintain situational awareness. OPA does not
+            represent stale or unavailable location information as current.
           </p>
 
           <h3 className="mt-6 font-display text-base font-semibold text-ink">
@@ -199,12 +202,16 @@ export default function PrivacyPage() {
             Depending on where you are located, you may have rights to
             access, correct, or request deletion of your personal data.
             OPA is built for Nigeria first and intends to align with the
-            Nigeria Data Protection Act. We do not yet offer a
-            self-service tool for these requests; in the meantime, email{" "}
+            Nigeria Data Protection Act. Account deletion requests can be
+            initiated through our{" "}
+            <a href="/delete-account" className="text-signal hover:brightness-110">
+              account deletion page
+            </a>
+            {" "}or by contacting{" "}
             <a href="mailto:privacy@opasafety.com" className="text-signal hover:brightness-110">
               privacy@opasafety.com
-            </a>{" "}
-            and we will respond directly.
+            </a>
+            .
           </p>
         </section>
 

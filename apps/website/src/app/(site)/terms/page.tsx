@@ -34,11 +34,13 @@ export default function TermsPage() {
             2. About the service
           </h2>
           <p className="mt-3 text-muted">
-            OPA is an emergency coordination platform operated by OPA
-            Technology Limited. OPA is currently preparing its first
-            hospital pilot in Nigeria. Some features described elsewhere
-            on this site are in active development and are not yet
-            available to all users.
+            OPA is a physical incident management and emergency coordination
+            platform operated by OPA Technologies Limited. OPA provides
+            safety software for individual users and organization-managed
+            deployments, including private security, gated communities,
+            corporate security, executive protection, and lone-worker
+            operations. Some capabilities described on this site are in
+            active development and are clearly identified as such.
           </p>
         </section>
 

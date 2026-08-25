@@ -25,15 +25,15 @@ const plexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL("https://opasafety.com"),
   title: {
-    default: "OPA - Emergency Intelligence & Coordination",
+    default: "OPA - Physical Incident Management Operating System",
     template: "%s | OPA",
   },
   description:
-    "OPA connects victims, families, hospitals, and responders in real time - coordinating emergencies, not just sending alerts. Built for Nigeria first.",
+    "OPA protects people before, during, and after emergencies with SOS, journey protection, live incident intelligence, and institutional Command Center coordination.",
   openGraph: {
-    title: "OPA - Emergency Intelligence & Coordination",
+    title: "OPA - Physical Incident Management Operating System",
     description:
-      "OPA connects victims, families, hospitals, and responders in real time - coordinating emergencies, not just sending alerts.",
+      "Physical incident management for private security, gated estates, corporate security, executive protection, and lone-worker operations.",
     url: "https://opasafety.com",
     siteName: "OPA",
     locale: "en_NG",

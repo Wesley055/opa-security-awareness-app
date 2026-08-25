@@ -18,6 +18,7 @@ interface TokenUser {
   role: string;
   firstName: string;
   lastName: string;
+  credentialVersion?: number;
 }
 
 @Injectable()
@@ -38,11 +39,6 @@ export class AuthService {
       );
     }
 
-    // Canonical BEFORE the uniqueness check, and the same value is stored
-    // below. Mirrors the email treatment three lines up: normalise once,
-    // compare and persist the normalised form. Without this the same
-    // person registers twice as 08024662124 and +2348024662124, because
-    // User.phoneNumber is @unique on the exact string.
     const phoneNumber = toE164(dto.phoneNumber);
 
     const existingPhone = await this.usersService.findByPhone(phoneNumber);
@@ -56,6 +52,7 @@ export class AuthService {
       dto.password,
       this.config.getOrThrow<number>('BCRYPT_ROUNDS'),
     );
+
     const user = await this.usersService.create({
       email: normalizedEmail,
       phoneNumber,
@@ -63,6 +60,7 @@ export class AuthService {
       firstName: dto.firstName.trim(),
       lastName: dto.lastName.trim(),
     });
+
     return this.issueTokens(user);
   }
 
@@ -70,15 +68,7 @@ export class AuthService {
     const user = await this.usersService.findByEmail(
       dto.email.toLowerCase(),
     );
-    // Authentication requires BOTH lifecycle activation and administrative
-    // enablement, and they are separate questions: a suspended operator and
-    // one who never claimed their seat are different facts, and support
-    // will be asked to tell them apart.
-    //
-    // The passwordHash check is not belt-and-braces. A pending seat has NO
-    // hash, and bcrypt.compare against null throws rather than returning
-    // false - so this narrows the type and keeps the failure a clean 401
-    // instead of a 500 that leaks the account's existence.
+
     if (
       !user ||
       !user.isActive ||
@@ -92,25 +82,33 @@ export class AuthService {
       dto.password,
       user.passwordHash,
     );
+
     if (!isValid) {
       throw new UnauthorizedException('Invalid credentials.');
     }
+
     return this.issueTokens(user);
   }
 
   private async issueTokens(user: TokenUser) {
+    const credentialVersion = user.credentialVersion ?? 0;
+
     const accessPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
+      credentialVersion,
       tokenType: 'access',
     };
+
     const refreshPayload = {
       sub: user.id,
       email: user.email,
       role: user.role,
+      credentialVersion,
       tokenType: 'refresh',
     };
+
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(accessPayload, {
         secret: this.config.getOrThrow<string>('JWT_ACCESS_SECRET'),
@@ -121,6 +119,7 @@ export class AuthService {
         expiresIn: this.config.getOrThrow<string>('JWT_REFRESH_EXPIRES_IN'),
       }),
     ]);
+
     return {
       accessToken,
       refreshToken,

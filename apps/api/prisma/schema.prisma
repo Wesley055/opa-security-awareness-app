@@ -96,8 +96,9 @@ model User {
   // isActive        -> administrative suspension. May it be used now?
   // accountStatus   -> activation lifecycle. Has the seat been claimed?
   // Both are checked at login; neither subsumes the other.
-  isActive      Boolean       @default(true)
-  accountStatus AccountStatus @default(ACTIVE)
+  isActive          Boolean       @default(true)
+  accountStatus     AccountStatus @default(ACTIVE)
+  credentialVersion Int           @default(0)
 
   // Only the HASH is stored, as with IncidentAccessToken. The raw token
   // exists once, in the activation URL handed to the operator, and is not
@@ -112,9 +113,10 @@ model User {
 
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
-  incidents         Incident[]
-  emergencyContacts EmergencyContact[]
-  journeySessions   JourneySession[]
+  incidents           Incident[]
+  emergencyContacts   EmergencyContact[]
+  journeySessions     JourneySession[]
+  passwordResetTokens PasswordResetToken[]
 
   facilityId String?   @db.Uuid
   facility   Facility? @relation("FacilityStaff", fields: [facilityId], references: [id])
@@ -123,6 +125,19 @@ model User {
   @@index([facilityId])
   @@index([invitedByUserId])
   @@index([accountStatus])
+}
+
+model PasswordResetToken {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String   @unique @db.VarChar(64)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, consumedAt])
+  @@index([expiresAt])
 }
 
 model Incident {

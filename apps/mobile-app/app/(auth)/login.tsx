@@ -58,6 +58,7 @@ export default function LoginScreen() {
       <Text style={styles.logo}>OPA</Text>
       <Text style={styles.subtitle}>Sign in to continue</Text>
       {error ? <Text style={styles.error}>{error}</Text> : null}
+
       <TextInput
         style={styles.input}
         placeholder="Email"
@@ -70,6 +71,7 @@ export default function LoginScreen() {
         textContentType="emailAddress"
         editable={!isSubmitting}
       />
+
       <View style={styles.passwordWrapper}>
         <TextInput
           style={styles.passwordInput}
@@ -93,6 +95,14 @@ export default function LoginScreen() {
           </Text>
         </TouchableOpacity>
       </View>
+
+      <TouchableOpacity
+        onPress={() => router.push('/(auth)/forgot-password')}
+        disabled={isSubmitting}
+      >
+        <Text style={styles.forgotLink}>Forgot password?</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity
         style={[styles.button, isSubmitting && styles.buttonDisabled]}
         onPress={handleLogin}
@@ -105,6 +115,7 @@ export default function LoginScreen() {
           <Text style={styles.buttonText}>Sign In</Text>
         )}
       </TouchableOpacity>
+
       <TouchableOpacity
         onPress={() => router.push('/(auth)/register')}
         disabled={isSubmitting}
@@ -157,7 +168,7 @@ const styles = StyleSheet.create({
   passwordWrapper: {
     position: 'relative',
     justifyContent: 'center',
-    marginBottom: 12,
+    marginBottom: 8,
   },
   passwordInput: {
     backgroundColor: '#151D24',
@@ -175,6 +186,13 @@ const styles = StyleSheet.create({
   },
   showToggleText: {
     color: '#17C964',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  forgotLink: {
+    color: '#8B949E',
+    textAlign: 'right',
+    marginBottom: 8,
     fontSize: 13,
     fontWeight: '600',
   },

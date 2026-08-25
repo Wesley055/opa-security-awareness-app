@@ -36,6 +36,7 @@ describe('RefreshTokenService', () => {
     role: UserRole.USER,
     isActive: true,
     accountStatus: AccountStatus.ACTIVE,
+    credentialVersion: 0,
   };
 
   beforeEach(() => {
@@ -44,6 +45,7 @@ describe('RefreshTokenService', () => {
       sub: 'user-1',
       email: 'ada@example.com',
       role: UserRole.USER,
+      credentialVersion: 0,
       tokenType: 'refresh',
     });
     jwtService.sign
@@ -70,6 +72,7 @@ describe('RefreshTokenService', () => {
         role: true,
         isActive: true,
         accountStatus: true,
+        credentialVersion: true,
       },
     });
   });
@@ -77,6 +80,26 @@ describe('RefreshTokenService', () => {
   // THE ONE THAT DEFINES THE FIX. Before this, suspension stopped login()
   // and nothing else: the holder kept rotating for 30 days, and each
   // rotation extended the window.
+  it('refuses to rotate a refresh token issued before the credential version changed', async () => {
+    jwtService.verify.mockReturnValue({
+      sub: 'user-1',
+      email: 'ada@example.com',
+      role: UserRole.USER,
+      credentialVersion: 0,
+      tokenType: 'refresh',
+    });
+
+    prisma.user.findUnique.mockResolvedValue({
+      ...activeRow,
+      credentialVersion: 1,
+    });
+
+    await expect(
+      service.rotate('a-refresh-token'),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(jwtService.sign).not.toHaveBeenCalled();
+  });
   it('refuses to rotate for a suspended account', async () => {
     prisma.user.findUnique.mockResolvedValue({
       ...activeRow,

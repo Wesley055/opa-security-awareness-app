@@ -8,9 +8,9 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  View,
 } from 'react-native';
 import { router } from 'expo-router';
-
 import { useAuthStore } from '../../src/store/authStore';
 
 export default function RegisterScreen() {
@@ -19,6 +19,7 @@ export default function RegisterScreen() {
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -67,7 +68,6 @@ export default function RegisterScreen() {
         phoneNumber: normalizedPhone,
         password,
       });
-
       router.replace('/');
     } catch (error: unknown) {
       const responseMessage =
@@ -103,62 +103,51 @@ export default function RegisterScreen() {
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
-        <TextInput
-          style={styles.input}
-          placeholder="First name"
-          placeholderTextColor="#8B949E"
-          value={firstName}
-          onChangeText={setFirstName}
-          autoCapitalize="words"
-          editable={!isSubmitting}
-        />
+        <TextInput style={styles.input} placeholder="First name"
+          placeholderTextColor="#8B949E" value={firstName}
+          onChangeText={setFirstName} autoCapitalize="words"
+          editable={!isSubmitting} />
 
-        <TextInput
-          style={styles.input}
-          placeholder="Last name"
-          placeholderTextColor="#8B949E"
-          value={lastName}
-          onChangeText={setLastName}
-          autoCapitalize="words"
-          editable={!isSubmitting}
-        />
+        <TextInput style={styles.input} placeholder="Last name"
+          placeholderTextColor="#8B949E" value={lastName}
+          onChangeText={setLastName} autoCapitalize="words"
+          editable={!isSubmitting} />
 
-        <TextInput
-          style={styles.input}
-          placeholder="Email"
-          placeholderTextColor="#8B949E"
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="email-address"
-          textContentType="emailAddress"
-          editable={!isSubmitting}
-        />
+        <TextInput style={styles.input} placeholder="Email"
+          placeholderTextColor="#8B949E" value={email}
+          onChangeText={setEmail} autoCapitalize="none" autoCorrect={false}
+          keyboardType="email-address" textContentType="emailAddress"
+          editable={!isSubmitting} />
 
-        <TextInput
-          style={styles.input}
+        <TextInput style={styles.input}
           placeholder="Phone number, e.g. 08012345678"
-          placeholderTextColor="#8B949E"
-          value={phoneNumber}
-          onChangeText={setPhoneNumber}
-          keyboardType="phone-pad"
-          textContentType="telephoneNumber"
-          editable={!isSubmitting}
-        />
+          placeholderTextColor="#8B949E" value={phoneNumber}
+          onChangeText={setPhoneNumber} keyboardType="phone-pad"
+          textContentType="telephoneNumber" editable={!isSubmitting} />
 
-        <TextInput
-          style={styles.input}
-          placeholder="Password, minimum 12 characters"
-          placeholderTextColor="#8B949E"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          textContentType="newPassword"
-          editable={!isSubmitting}
-          returnKeyType="done"
-          onSubmitEditing={handleRegister}
-        />
+        <View style={styles.passwordWrapper}>
+          <TextInput
+            style={styles.passwordInput}
+            placeholder="Password, minimum 12 characters"
+            placeholderTextColor="#8B949E"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry={!showPassword}
+            textContentType="newPassword"
+            editable={!isSubmitting}
+            returnKeyType="done"
+            onSubmitEditing={handleRegister}
+          />
+          <TouchableOpacity
+            style={styles.showToggle}
+            onPress={() => setShowPassword((prev) => !prev)}
+            disabled={isSubmitting}
+          >
+            <Text style={styles.showToggleText}>
+              {showPassword ? 'Hide' : 'Show'}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         <TouchableOpacity
           style={[styles.button, isSubmitting && styles.buttonDisabled]}
@@ -188,10 +177,7 @@ export default function RegisterScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#08111A',
-  },
+  container: { flex: 1, backgroundColor: '#08111A' },
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'center',
@@ -227,6 +213,27 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     fontSize: 15,
   },
+  passwordWrapper: {
+    position: 'relative',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  passwordInput: {
+    backgroundColor: '#151D24',
+    borderWidth: 1,
+    borderColor: '#232E36',
+    borderRadius: 8,
+    padding: 14,
+    paddingRight: 60,
+    color: '#FFFFFF',
+    fontSize: 15,
+  },
+  showToggle: { position: 'absolute', right: 14 },
+  showToggleText: {
+    color: '#17C964',
+    fontSize: 13,
+    fontWeight: '600',
+  },
   button: {
     backgroundColor: '#17C964',
     borderRadius: 8,
@@ -234,9 +241,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 8,
   },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
+  buttonDisabled: { opacity: 0.6 },
   buttonText: {
     color: '#08111A',
     fontWeight: '700',
@@ -248,7 +253,5 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 14,
   },
-  linkDisabled: {
-    opacity: 0.5,
-  },
+  linkDisabled: { opacity: 0.5 },
 });

@@ -19,6 +19,6 @@ import { NotificationDispatchWorker } from './notification-dispatch.worker';
     VoiceProvider,
     NotificationDispatchWorker,
   ],
-  exports: [NotificationService],
+  exports: [NotificationService, EmailProvider],
 })
 export class NotificationModule {}

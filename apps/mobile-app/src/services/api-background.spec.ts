@@ -213,4 +213,47 @@ describe('backgroundApi', () => {
     expect(refreshPost).toHaveBeenCalledTimes(1);
     expect(mockedSecureStore.deleteItemAsync).not.toHaveBeenCalled();
   });
+
+  it('stops calling /auth/refresh once the server has rejected the token', async () => {
+    const vault = installVault({
+      [ACCESS_TOKEN_KEY]: 'expired-access',
+      [REFRESH_TOKEN_KEY]: 'refresh-revoked',
+    });
+
+    const refreshPost = jest.spyOn(axios, 'post').mockRejectedValue({
+      name: 'AxiosError',
+      isAxiosError: true,
+      message: 'Request failed with status code 401',
+      response: {
+        data: {},
+        status: 401,
+        statusText: 'Unauthorized',
+      },
+    });
+
+    const adapter: AxiosAdapter = async (config) =>
+      Promise.reject(unauthorized(config));
+
+    await expect(
+      backgroundApi.get('/journey/fixes', { adapter }),
+    ).rejects.toMatchObject({ response: { status: 401 } });
+
+    await expect(
+      backgroundApi.get('/journey/fixes', { adapter }),
+    ).rejects.toThrow('Background refresh token was previously rejected');
+
+    /*
+     * BATTERY, NOT CORRECTNESS. Durable rows are retained either way. But a
+     * dead refresh token must not mean two network calls per TaskManager
+     * delivery, every ~10 seconds, for the length of an emergency.
+     *
+     * Delete the rejectedBackgroundRefreshToken guard in api.ts and this
+     * goes red at 2.
+     */
+    expect(refreshPost).toHaveBeenCalledTimes(1);
+
+    expect(vault[ACCESS_TOKEN_KEY]).toBe('expired-access');
+    expect(vault[REFRESH_TOKEN_KEY]).toBe('refresh-revoked');
+    expect(mockedSecureStore.deleteItemAsync).not.toHaveBeenCalled();
+  });
 });

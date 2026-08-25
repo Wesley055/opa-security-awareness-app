@@ -49,6 +49,21 @@ backgroundApi.interceptors.request.use(async (config) => {
 
 let backgroundRefreshInFlight: Promise<string> | null = null;
 
+/**
+ * The refresh token value /auth/refresh has already rejected with a 401 in
+ * this process.
+ *
+ * Battery, not correctness - durable rows are retained either way. But a
+ * permanently dead refresh token (suspended account, or 30 days elapsed)
+ * would otherwise cost two network calls per TaskManager delivery, every
+ * ~10 seconds, for the length of an emergency.
+ *
+ * Keyed on the token VALUE, not a boolean: a fresh login writes a different
+ * refresh token, which no longer matches, so recovery needs no process
+ * restart. A boolean would stay latched against the new user.
+ */
+let rejectedBackgroundRefreshToken: string | null = null;
+
 async function refreshBackgroundAccessToken(): Promise<string> {
   if (backgroundRefreshInFlight) {
     return backgroundRefreshInFlight;
@@ -62,14 +77,37 @@ async function refreshBackgroundAccessToken(): Promise<string> {
       throw new Error('No refresh token available');
     }
 
-    const { data } = await axios.post(
-      `${API_BASE_URL}/auth/refresh`,
-      { refreshToken },
-    );
+    if (refreshToken === rejectedBackgroundRefreshToken) {
+      throw new Error(
+        'Background refresh token was previously rejected',
+      );
+    }
+
+    let data: { accessToken?: string; refreshToken?: string } | undefined;
+
+    try {
+      ({ data } = await axios.post(
+        `${API_BASE_URL}/auth/refresh`,
+        { refreshToken },
+      ));
+    } catch (error) {
+      /*
+       * ONLY a 401 from /auth/refresh itself marks this token dead.
+       * Timeouts, network errors and 5xx are transient - a phone in a
+       * tunnel is not a revoked account and must keep retrying.
+       */
+      if (axios.isAxiosError(error) && error.response?.status === 401) {
+        rejectedBackgroundRefreshToken = refreshToken;
+      }
+
+      throw error;
+    }
 
     if (!data?.accessToken) {
       throw new Error('Refresh response missing access token');
     }
+
+    rejectedBackgroundRefreshToken = null;
 
     await SecureStore.setItemAsync(
       ACCESS_TOKEN_KEY,

@@ -191,28 +191,12 @@ export async function captureBackgroundBatch(
   }
 
   const sessionId = await SecureStore.getItemAsync(BACKGROUND_SESSION_KEY);
-
-  console.log(
-    '[BGSQL 1] session-read active=' +
-      String(sessionId !== null && sessionId.length > 0),
-  );
-
   if (sessionId === null || sessionId.length === 0) {
     log('no active session - discarding background batch');
     return;
   }
-
-  console.log('[BGSQL 2] before background store open');
-
   const store = await openJourneyQueueStoreForBackground();
-
-  console.log('[BGSQL 7] after background store open');
-
   try {
-    console.log(
-      '[BGSQL 8] before enqueueBatch count=' + String(locations.length),
-    );
-
     const result = await store.enqueueBatch(
       sessionId,
       locations.map(toBackgroundBatchItem),
@@ -221,14 +205,6 @@ export async function captureBackgroundBatch(
         deferOverflowEviction: false,
       },
     );
-
-    console.log(
-      '[BGSQL 9] after enqueueBatch inserted=' +
-        String(result.inserted) +
-        ' dropped=' +
-        String(result.dropped),
-    );
-
     if (result.dropped > 0) {
       log(
         'background queue overflow - dropped ' + String(result.dropped) +
@@ -261,14 +237,7 @@ export async function captureBackgroundBatch(
         backgroundApi,
       );
 
-      if (replay.kind === 'SENT') {
-        log(
-          'BGREPLAY SENT session=' + sessionId +
-            ' sent=' + String(replay.sent) +
-            ' removed=' + String(replay.removed) +
-            ' durableDepth=' + String(replay.durableDepth),
-        );
-      } else if (replay.kind === 'DELETE_SHORTFALL') {
+      if (replay.kind === 'DELETE_SHORTFALL') {
         log(
           'BGREPLAY DELETE_SHORTFALL session=' + sessionId +
             ' expected=' + String(replay.expected) +

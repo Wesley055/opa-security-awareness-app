@@ -244,17 +244,10 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value
    */
   async isBootstrapped(): Promise<boolean> {
     try {
-      console.log('[BOOTSQL A] before metadata read');
-
       const row = await this.database.getFirstAsync<MetadataRow>(
         'SELECT value FROM journey_queue_meta WHERE key = ?',
         [SCHEMA_VERSION_KEY],
       );
-
-      console.log(
-        '[BOOTSQL B] after metadata read value=' + String(row?.value ?? 0),
-      );
-
       return (row?.value ?? 0) >= SCHEMA_VERSION;
     } catch (error: unknown) {
       const message =
@@ -429,28 +422,10 @@ ON CONFLICT(key) DO UPDATE SET
         captureSequences: [],
       };
     }
-
-    const qsqlId =
-      String(Date.now()) +
-      '-' +
-      Math.random().toString(36).slice(2, 8);
-
-    console.log(
-      '[QSQL ' + qsqlId + ' Q1] before sequence metadata read',
-    );
-
     const sequenceRow = await this.database.getFirstAsync<MetadataRow>(
       'SELECT value FROM journey_queue_meta WHERE key = ?',
       [CAPTURE_SEQUENCE_KEY],
     );
-
-    console.log(
-      '[QSQL ' +
-        qsqlId +
-        ' Q2] after sequence metadata read value=' +
-        String(sequenceRow?.value ?? 0),
-    );
-
     /*
      * Coerce explicitly. If the metadata column is ever TEXT-affine, a raw
      * `value + items.length` becomes string concatenation and every derived
@@ -478,13 +453,6 @@ ON CONFLICT(key) DO UPDATE SET
      * A crash after this write burns numbers. That is safe.
      * A crash before this write has written no queue rows.
      */
-    console.log(
-      '[QSQL ' +
-        qsqlId +
-        ' R1] before sequence reservation ending=' +
-        String(endingSequence),
-    );
-
     await this.database.runAsync(
       `
 INSERT INTO journey_queue_meta (key, value)
@@ -494,11 +462,6 @@ ON CONFLICT(key) DO UPDATE SET
 `,
       [CAPTURE_SEQUENCE_KEY, endingSequence],
     );
-
-    console.log(
-      '[QSQL ' + qsqlId + ' R2] after sequence reservation',
-    );
-
     /*
      * 8 bind variables per row.
      *
@@ -547,16 +510,6 @@ ON CONFLICT(key) DO UPDATE SET
           item.fix.recordedAt,
         );
       });
-
-      console.log(
-        '[QSQL ' +
-          qsqlId +
-          ' I1] before queue insert chunkStart=' +
-          String(chunkStart) +
-          ' count=' +
-          String(chunk.length),
-      );
-
       const result = await this.database.runAsync(
         `
 INSERT OR IGNORE INTO journey_queue (
@@ -572,14 +525,6 @@ INSERT OR IGNORE INTO journey_queue (
 `,
         params,
       );
-
-      console.log(
-        '[QSQL ' +
-          qsqlId +
-          ' I2] after queue insert changes=' +
-          String(result.changes),
-      );
-
       inserted += result.changes;
     }
 
@@ -591,42 +536,12 @@ INSERT OR IGNORE INTO journey_queue (
      * that state.
      */
     let dropped = 0;
-
-    console.log(
-      '[QSQL ' + qsqlId + ' C1] before durable count',
-    );
-
     let durableDepth = await this.count();
-
-    console.log(
-      '[QSQL ' +
-        qsqlId +
-        ' C2] after durable count depth=' +
-        String(durableDepth),
-    );
-
     if (
       !options.deferOverflowEviction &&
       durableDepth > options.maxQueuedFixes
     ) {
-      console.log(
-        '[QSQL ' +
-          qsqlId +
-          ' T1] before trim max=' +
-          String(options.maxQueuedFixes),
-      );
-
       const trimResult = await this.trimToDepth(options.maxQueuedFixes);
-
-      console.log(
-        '[QSQL ' +
-          qsqlId +
-          ' T2] after trim dropped=' +
-          String(trimResult.dropped) +
-          ' depth=' +
-          String(trimResult.durableDepth),
-      );
-
       dropped = trimResult.dropped;
       durableDepth = trimResult.durableDepth;
     }
@@ -1068,26 +983,16 @@ export async function openJourneyQueueStoreForBackground(): Promise<JourneyQueue
   assertSupportedPlatform();
 
   if (backgroundStorePromise !== null) {
-    console.log('[BGOWNER HIT] reusing background store');
     return backgroundStorePromise;
   }
 
-  console.log('[BGOWNER MISS] creating background store');
-
   const pending = (async (): Promise<JourneyQueueStore> => {
-    console.log('[BGSQL 3] before openDatabaseAsync');
 
     const database = await openDatabaseAsync(DATABASE_NAME);
 
-    console.log('[BGSQL 4] after openDatabaseAsync');
-
     const store = new JourneyQueueStore(database);
 
-    console.log('[BGSQL 5] before isBootstrapped');
-
     const ready = await store.isBootstrapped();
-
-    console.log('[BGSQL 6] after isBootstrapped ready=' + String(ready));
 
     if (!ready) {
       throw new Error(

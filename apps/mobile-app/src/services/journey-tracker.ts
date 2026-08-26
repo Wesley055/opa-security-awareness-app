@@ -514,18 +514,10 @@ async function flush(forSession: string): Promise<void> {
   let replaySession: string | null = null;
 
   try {
-    console.log('[FLUSHSQL A] before nextReplaySession');
-
     replaySession = await store.nextReplaySession(
       forSession,
       skippedReplaySessions,
     );
-
-    console.log(
-      '[FLUSHSQL B] after nextReplaySession session=' +
-        String(replaySession),
-    );
-
     if (replaySession === null) {
       return;
     }
@@ -533,17 +525,7 @@ async function flush(forSession: string): Promise<void> {
     // HOMOGENEOUS BY CONSTRUCTION. The wire carries one sessionId for the
     // whole request, so a batch spanning two sessions has to mislabel one of
     // them. That mislabelling is the entire defect this slice removes.
-    console.log(
-      '[FLUSHSQL C] before listOldestForSession session=' + replaySession,
-    );
-
     const rows = await store.listOldestForSession(replaySession, MAX_BATCH);
-
-    console.log(
-      '[FLUSHSQL D] after listOldestForSession count=' +
-        String(rows.length),
-    );
-
     if (rows.length === 0) {
       return;
     }
@@ -574,22 +556,10 @@ async function flush(forSession: string): Promise<void> {
     }
 
     const keys = rows.map((row) => row.idempotencyKey);
-
-    console.log(
-      '[FLUSHSQL E] before deleteAcknowledgedForSession count=' +
-        String(keys.length),
-    );
-
     const removed = await store.deleteAcknowledgedForSession(
       replaySession,
       keys,
     );
-
-    console.log(
-      '[FLUSHSQL F] after deleteAcknowledgedForSession removed=' +
-        String(removed),
-    );
-
     if (removed !== keys.length) {
       // ADR-014 section 11 integrity fault. Rows whose keys matched are
       // already deleted; the remainder stay durable. Stop the cycle rather
@@ -807,22 +777,7 @@ export async function startTracking(): Promise<void> {
     subscription = null;
     return;
   }
-
-  console.log(
-    '[FLUSHTIMER ARM] intervalMs=' +
-      String(FLUSH_INTERVAL_MS) +
-      ' session=' +
-      String(sessionId),
-  );
-
   flushTimer = setInterval(() => {
-    console.log(
-      '[FLUSHTIMER TICK] session=' +
-        String(sessionId) +
-        ' running=' +
-        String(running),
-    );
-
     if (sessionId) {
       void flush(sessionId);
     }

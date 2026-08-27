@@ -133,3 +133,49 @@ is deferred until the tester is available.
 SMS non-delivery remains a separate open investigation. Facility assignment
 must not be declared its root cause without notification/outbox/provider
 evidence.
+
+## Follow-up: SMS non-delivery root cause confirmed
+
+Production inspection of Sam's incident showed:
+
+Incident:
+- createdAt: 2026-08-26T21:25:27.100Z
+- status: OPEN
+- facilityId at creation: null
+- IncidentNotification rows: 0
+
+Production inspection of Sam's emergency contacts showed one active contact:
+
+Eyis Benita
+- relationship: Daughter
+- phoneNumber: +2348169744147
+- isActive: true
+- createdAt: 2026-08-26T21:57:38.168Z
+
+The emergency contact was therefore created approximately 32 minutes AFTER
+the SOS incident.
+
+Confirmed conclusion:
+
+At SOS activation time Sam had no configured emergency contact. OPA therefore
+created no IncidentNotification rows and did not submit an SMS to Africa's
+Talking.
+
+This was not an Africa's Talking or Nigerian carrier delivery failure.
+
+Two independent causes were established for the Nigeria vc8 test:
+
+1. Command Center visibility
+   Sam had facilityId=null when the incident was created.
+
+2. SMS notification
+   Sam had no emergency contact when the incident was created.
+
+Current remediation state:
+- Sam remains role USER.
+- Sam is now assigned to facility:
+  a0ede9e9-9771-477a-a36e-777454f6e31e
+- Sam now has an active Nigerian emergency contact.
+- A fresh controlled SOS is required to validate both remediations.
+
+No mobile rebuild is justified by these findings.

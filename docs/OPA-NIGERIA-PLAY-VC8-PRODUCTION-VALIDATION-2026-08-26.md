@@ -96,3 +96,40 @@ Command Center incident visibility: INVESTIGATING FACILITY SCOPE
 SMS delivery: INVESTIGATION REQUIRED
 
 No mobile rebuild is justified by the evidence currently available.
+
+## Follow-up: facility-scope root cause confirmed
+
+Production read-only inspection confirmed:
+
+operator@opasafety.com
+- role: FACILITY_OPERATOR
+- facilityId: a0ede9e9-9771-477a-a36e-777454f6e31e
+- isActive: true
+
+sambest086@gmail.com before remediation
+- role: USER
+- facilityId: null
+- isActive: true
+
+This confirms why Sam's already-created incident could not appear in the
+operator@opasafety.com facility queue: the incident was created while Sam
+had no facility membership, and incident creation snapshots User.facilityId.
+
+Remediation was performed through the existing protected ADMIN provisioning
+API, not by direct database modification:
+
+PATCH /admin/residents/:userId/facility
+
+Result:
+- sambest086@gmail.com remains role USER
+- facilityId is now a0ede9e9-9771-477a-a36e-777454f6e31e
+
+No role promotion was performed.
+
+A fresh SOS is required to validate the remediation because previously
+created incidents retain their facility snapshot. Fresh Nigeria validation
+is deferred until the tester is available.
+
+SMS non-delivery remains a separate open investigation. Facility assignment
+must not be declared its root cause without notification/outbox/provider
+evidence.

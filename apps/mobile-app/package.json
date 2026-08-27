@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "main": "expo-router/entry",
   "dependencies": {
+    "@picovoice/porcupine-react-native": "^4.0.0",
+    "@picovoice/react-native-voice-processor": "^1.2.3",
     "@react-navigation/native": "^7.3.8",
     "axios": "^1.18.1",
     "expo": "^54.0.8",

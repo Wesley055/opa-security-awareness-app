@@ -1,0 +1,98 @@
+﻿OPA END-TO-END DEMO VERIFICATION & TODO
+=======================================
+
+Status: ACTIVE
+
+Purpose:
+Track remaining end-to-end verification and explicitly deferred non-blocking
+work required before pilot/demo readiness.
+
+
+1. END-TO-END DEMO VERIFICATION
+===============================
+
+Status: TODO
+
+Verify complete production path:
+
+SOS / protection activation
+-> location capture
+-> durable device queue
+-> production API
+-> incident creation
+-> facility routing
+-> Command Center visibility
+-> emergency-contact notification
+-> live tracking
+-> incident acknowledgement / coordination
+-> controlled incident closure
+
+Acceptance:
+
+[ ] SOS activation succeeds on physical device
+[ ] Production incident is created
+[ ] Correct facility receives the incident
+[ ] Command Center displays the incident
+[ ] Emergency contacts receive expected notification
+[ ] Live location updates reach production
+[ ] Offline/reconnect behavior remains operational
+[ ] Operator acknowledgement works
+[ ] Incident closure behavior works as designed
+[ ] Final incident/timeline data is auditable
+
+
+2. RESIDUAL HISTORICAL JOURNEY QUEUE - 72 ROWS
+===============================================
+
+Status: TODO - NON-BLOCKING
+
+Observed during production Milestone 9c validation:
+
+- Residual durableDepth = 72.
+- Active-session replay continued normally.
+- Offline fixes from the active session successfully replayed after reconnect.
+- The 72 rows therefore do not invalidate Milestone 9c.
+- Exact historical session ownership of the 72 rows has not yet been measured.
+
+SAFETY DECISION:
+
+DO NOT DELETE THE 72 ROWS.
+
+They are retained historical/test evidence until the required evidence-retention
+and reconciliation decisions are made.
+
+Already Completed:
+
+[x] Read-only journey queue session enumeration implemented
+[x] Journey queue store verification: 51/51 tests PASS
+[x] No queue schema change
+[x] No replay behavior change
+[x] No evidence deletion
+[x] Milestone 9c remains CLOSED/PASS
+
+Deferred Work:
+
+[ ] Run read-only enumeration against the physical-device queue
+[ ] Identify session ID(s) owning the 72 rows
+[ ] Classify retained historical rows
+[ ] Define/approve evidence-retention policy
+[ ] Resolve ADR-014 section 4 reacquire semantics
+[ ] Resolve coupled client/server Phase C contract
+[ ] Decide permanent reconciliation/quarantine behavior
+[ ] Add production implementation and tests only after those decisions
+
+Release Impact:
+
+Current release/demo blocker: NO
+Priority: Pre-pilot hardening
+
+Do not reopen GAP-01A, GAP-01B, or Milestone 9c because of these retained rows.
+
+
+RULE
+====
+
+Items in this file may be deferred from the current engineering path only when
+they are explicitly recorded here with their verification/acceptance criteria.
+
+A TODO item is not considered complete until its acceptance evidence is recorded.

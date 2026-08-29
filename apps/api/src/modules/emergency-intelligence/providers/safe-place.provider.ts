@@ -1,5 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import type { DataConfidence } from '../data-confidence';
+import { GoogleLocationClient } from '../google-location.client';
+import {
+  buildNearbySearchBody,
+  distanceMetersBetween,
+  GOOGLE_NEARBY_FIELD_MASK,
+  GOOGLE_NEARBY_SEARCH_URL,
+  type GoogleNearbySearchResponse,
+  hasUsableGooglePlaceLocation,
+} from '../google-places';
 
 export type SafePlaceType =
   | 'POLICE_STATION'
@@ -20,59 +29,107 @@ export interface SafePlace {
   longitude: number;
   distanceMeters: number;
   isVerified: boolean;
-  twentyFourHours: boolean;
+  twentyFourHours: boolean | null;
   phoneNumber?: string;
   provider: string;
 }
 
+const SAFE_PLACE_TYPES = [
+  'police',
+  'hospital',
+  'fire_station',
+  'shopping_mall',
+];
+
+function mapSafePlaceType(
+  primaryType?: string,
+  types: string[] = [],
+): SafePlaceType {
+  const allTypes = new Set([
+    ...(primaryType ? [primaryType] : []),
+    ...types,
+  ]);
+
+  if (allTypes.has('police')) {
+    return 'POLICE_STATION';
+  }
+
+  if (allTypes.has('hospital')) {
+    return 'HOSPITAL';
+  }
+
+  if (allTypes.has('fire_station')) {
+    return 'FIRE_STATION';
+  }
+
+  if (allTypes.has('shopping_mall')) {
+    return 'SHOPPING_CENTER';
+  }
+
+  return 'OTHER';
+}
+
 @Injectable()
 export class SafePlaceProvider {
-  readonly providerName = 'MockSafePlaceProvider';
-  readonly dataConfidence: DataConfidence = 'MOCK';
+  readonly providerName = 'GoogleSafePlaceProvider';
+
+  constructor(
+    private readonly googleClient: GoogleLocationClient,
+  ) {}
+
+  get dataConfidence(): DataConfidence {
+    return this.googleClient.isConfigured()
+      ? 'PRODUCTION'
+      : 'MOCK';
+  }
 
   async findNearbySafePlaces(
     latitude: number,
     longitude: number,
   ): Promise<SafePlace[]> {
-    return [
-      {
-        id: 'safe-001',
-        name: 'Area F Police Command',
-        type: 'POLICE_STATION',
-        address: 'Ikeja, Lagos',
-        latitude,
-        longitude: longitude - 0.014,
-        distanceMeters: 2100,
-        isVerified: true,
-        twentyFourHours: true,
-        phoneNumber: '+2348000002001',
+    const response =
+      await this.googleClient.postJson<GoogleNearbySearchResponse>(
+        GOOGLE_NEARBY_SEARCH_URL,
+        buildNearbySearchBody(
+          latitude,
+          longitude,
+          SAFE_PLACE_TYPES,
+        ),
+        GOOGLE_NEARBY_FIELD_MASK,
+      );
+
+    return (response.places ?? [])
+      .filter(hasUsableGooglePlaceLocation)
+      .map((place) => ({
+        id: place.id,
+        name: place.displayName.text,
+        type: mapSafePlaceType(
+          place.primaryType,
+          place.types,
+        ),
+        address: place.formattedAddress ?? '',
+        latitude: place.location.latitude,
+        longitude: place.location.longitude,
+        distanceMeters: distanceMetersBetween(
+          latitude,
+          longitude,
+          place.location.latitude,
+          place.location.longitude,
+        ),
+
+        // Google listing presence does not prove that a location
+        // is currently safe, staffed, open, or suitable for an
+        // emergency response.
+        isVerified: false,
+        twentyFourHours: null,
+        ...(place.nationalPhoneNumber
+          ? { phoneNumber: place.nationalPhoneNumber }
+          : {}),
         provider: this.providerName,
-      },
-      {
-        id: 'safe-002',
-        name: 'Genesis Specialist Hospital',
-        type: 'HOSPITAL',
-        address: 'Allen Avenue, Ikeja',
-        latitude: latitude + 0.006,
-        longitude: longitude + 0.002,
-        distanceMeters: 950,
-        isVerified: true,
-        twentyFourHours: true,
-        phoneNumber: '+2348000001002',
-        provider: this.providerName,
-      },
-      {
-        id: 'safe-003',
-        name: 'Ikeja City Mall',
-        type: 'SHOPPING_CENTER',
-        address: 'Obafemi Awolowo Way, Ikeja',
-        latitude: latitude - 0.004,
-        longitude: longitude + 0.009,
-        distanceMeters: 1400,
-        isVerified: true,
-        twentyFourHours: false,
-        provider: this.providerName,
-      },
-    ];
+      }))
+      .sort(
+        (left, right) =>
+          left.distanceMeters - right.distanceMeters,
+      );
   }
 }

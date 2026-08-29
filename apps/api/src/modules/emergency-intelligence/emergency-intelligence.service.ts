@@ -5,7 +5,7 @@ import { GeocodingProvider } from './providers/geocoding.provider';
 import { HospitalProvider } from './providers/hospital.provider';
 import { PlacesProvider } from './providers/places.provider';
 import { PoliceProvider } from './providers/police.provider';
-import { RoutingProvider } from './providers/routing.provider';
+import { RoutingProvider, type RoutingDestination } from './providers/routing.provider';
 import { SafePlaceProvider } from './providers/safe-place.provider';
 import { isDisplayableToUsers } from './data-confidence';
 import type { IntelligenceProvider } from './data-confidence';
@@ -62,7 +62,6 @@ export class EmergencyIntelligenceService {
       hospitals,
       policeStations,
       safePlaces,
-      routes,
     ] = await Promise.all([
       settle(this.geocodingProvider.providerName, () =>
         this.geocodingProvider.reverseGeocode(dto.latitude, dto.longitude),
@@ -85,10 +84,63 @@ export class EmergencyIntelligenceService {
           dto.longitude,
         ),
       ),
-      settle(this.routingProvider.providerName, () =>
-        this.routingProvider.buildSafeRoutes(),
-      ),
     ]);
+
+    const routingDestinations: RoutingDestination[] = [];
+
+    if (
+      isDisplayableToUsers(this.hospitalProvider.dataConfidence) &&
+      hospitals?.[0]
+    ) {
+      routingDestinations.push({
+        id: hospitals[0].id,
+        name: hospitals[0].name,
+        type: 'HOSPITAL' as const,
+        latitude: hospitals[0].latitude,
+        longitude: hospitals[0].longitude,
+      });
+    }
+
+    if (
+      isDisplayableToUsers(this.policeProvider.dataConfidence) &&
+      policeStations?.[0]
+    ) {
+      routingDestinations.push({
+        id: policeStations[0].id,
+        name: policeStations[0].name,
+        type: 'POLICE_STATION' as const,
+        latitude: policeStations[0].latitude,
+        longitude: policeStations[0].longitude,
+      });
+    }
+
+    if (
+      isDisplayableToUsers(this.safePlaceProvider.dataConfidence) &&
+      safePlaces?.[0]
+    ) {
+      routingDestinations.push({
+        id: safePlaces[0].id,
+        name: safePlaces[0].name,
+        type:
+          safePlaces[0].type === 'FIRE_STATION'
+            ? ('FIRE_STATION' as const)
+            : ('SAFE_PLACE' as const),
+        latitude: safePlaces[0].latitude,
+        longitude: safePlaces[0].longitude,
+      });
+    }
+
+    const routes = await settle(
+      this.routingProvider.providerName,
+      () =>
+        this.routingProvider.buildSafeRoutes({
+          origin: {
+            latitude: dto.latitude,
+            longitude: dto.longitude,
+          },
+          destinations: routingDestinations,
+        }),
+    );
 
     const device = this.deviceProvider.buildDeviceIntelligence({
       batteryLevel: dto.batteryLevel,

@@ -19,11 +19,9 @@ import type { IntelligenceProvider } from './data-confidence';
  * Production therefore DOES reach this branch with mocks in place. This is
  * no longer a local-development-only path.
  *
- * That makes this layer load-bearing rather than defense in depth: it is
- * what keeps fabricated data out of a real response now that the validator
- * has been deliberately relaxed. Its behaviour is pinned per provider by
- * emergency-intelligence.service.spec.ts. Do not remove it, and do not
- * change what it nulls without changing those tests deliberately.
+ * This layer also isolates runtime provider failures. A geocoder, places,
+ * hospital, police, safe-place, or routing outage must not prevent OPA from
+ * returning raw GPS and any other intelligence that remains available.
  */
 @Injectable()
 export class EmergencyIntelligenceService {
@@ -40,6 +38,24 @@ export class EmergencyIntelligenceService {
   ) {}
 
   async buildLocationIntelligence(dto: LocationRequestDto) {
+    const settle = async <T>(
+      providerName: string,
+      operation: () => Promise<T>,
+    ): Promise<T | null> => {
+      try {
+        return await operation();
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : 'Unknown provider failure';
+
+        this.logger.warn(
+          `${providerName} failed while building location intelligence: ${message}`,
+        );
+
+        return null;
+      }
+    };
+
     const [
       geocoding,
       nearbyPlaces,
@@ -48,12 +64,30 @@ export class EmergencyIntelligenceService {
       safePlaces,
       routes,
     ] = await Promise.all([
-      this.geocodingProvider.reverseGeocode(dto.latitude, dto.longitude),
-      this.placesProvider.findNearbyPlaces(dto.latitude, dto.longitude),
-      this.hospitalProvider.findNearbyHospitals(dto.latitude, dto.longitude),
-      this.policeProvider.findNearbyPoliceStations(dto.latitude, dto.longitude),
-      this.safePlaceProvider.findNearbySafePlaces(dto.latitude, dto.longitude),
-      this.routingProvider.buildSafeRoutes(),
+      settle(this.geocodingProvider.providerName, () =>
+        this.geocodingProvider.reverseGeocode(dto.latitude, dto.longitude),
+      ),
+      settle(this.placesProvider.providerName, () =>
+        this.placesProvider.findNearbyPlaces(dto.latitude, dto.longitude),
+      ),
+      settle(this.hospitalProvider.providerName, () =>
+        this.hospitalProvider.findNearbyHospitals(dto.latitude, dto.longitude),
+      ),
+      settle(this.policeProvider.providerName, () =>
+        this.policeProvider.findNearbyPoliceStations(
+          dto.latitude,
+          dto.longitude,
+        ),
+      ),
+      settle(this.safePlaceProvider.providerName, () =>
+        this.safePlaceProvider.findNearbySafePlaces(
+          dto.latitude,
+          dto.longitude,
+        ),
+      ),
+      settle(this.routingProvider.providerName, () =>
+        this.routingProvider.buildSafeRoutes(),
+      ),
     ]);
 
     const device = this.deviceProvider.buildDeviceIntelligence({
@@ -69,78 +103,158 @@ export class EmergencyIntelligenceService {
     });
 
     const omitted: string[] = [];
+    const unavailable: string[] = [];
 
-    // isDisplayableToUsers, not isMockConfidence: this file decides what
-    // reaches a response, which is the presentation question.
-    //
-    // The parameter type was { dataConfidence: string }, which discarded the
-    // compile-time guarantee that a confidence value is a real
-    // DataConfidence. Under that signature a misspelled confidence would
-    // compile, return false here, and ship the data. IntelligenceProvider
-    // restores the check.
-    //
-    // The name isMock and all six call sites below are unchanged.
     const isMock = (provider: IntelligenceProvider) =>
       !isDisplayableToUsers(provider.dataConfidence);
 
     // --- Geocoding-derived address fields ---
     const geocodingIsMock = isMock(this.geocodingProvider);
-    if (geocodingIsMock) omitted.push('address');
+    const geocodingUnavailable = geocoding === null;
+
+    if (geocodingIsMock) {
+      omitted.push('address');
+    } else if (geocodingUnavailable) {
+      unavailable.push('address');
+    }
 
     const location = {
       latitude: dto.latitude,
       longitude: dto.longitude,
       accuracy: dto.accuracy,
-      address: geocodingIsMock ? null : geocoding.formattedAddress,
-      street: geocodingIsMock ? null : geocoding.street,
-      crossStreet: geocodingIsMock ? null : geocoding.crossStreet,
-      landmark: geocodingIsMock ? null : geocoding.landmark,
-      community: geocodingIsMock ? null : geocoding.community,
-      city: geocodingIsMock ? null : geocoding.city,
-      state: geocodingIsMock ? null : geocoding.state,
-      country: geocodingIsMock ? null : geocoding.country,
-      postalCode: geocodingIsMock ? null : geocoding.postalCode,
-      provider: geocodingIsMock ? null : geocoding.provider,
+      address:
+        geocodingIsMock || geocodingUnavailable
+          ? null
+          : geocoding.formattedAddress,
+      street:
+        geocodingIsMock || geocodingUnavailable
+          ? null
+          : (geocoding.street ?? null),
+      crossStreet:
+        geocodingIsMock || geocodingUnavailable
+          ? null
+          : (geocoding.crossStreet ?? null),
+      landmark:
+        geocodingIsMock || geocodingUnavailable
+          ? null
+          : (geocoding.landmark ?? null),
+      community:
+        geocodingIsMock || geocodingUnavailable
+          ? null
+          : (geocoding.community ?? null),
+      city:
+        geocodingIsMock || geocodingUnavailable
+          ? null
+          : (geocoding.city ?? null),
+      state:
+        geocodingIsMock || geocodingUnavailable
+          ? null
+          : (geocoding.state ?? null),
+      country:
+        geocodingIsMock || geocodingUnavailable
+          ? null
+          : (geocoding.country ?? null),
+      postalCode:
+        geocodingIsMock || geocodingUnavailable
+          ? null
+          : (geocoding.postalCode ?? null),
+      provider:
+        geocodingIsMock || geocodingUnavailable
+          ? null
+          : geocoding.provider,
     };
 
     // --- Nearby places ---
     const placesIsMock = isMock(this.placesProvider);
-    if (placesIsMock) omitted.push('surroundings');
+    const placesUnavailable = nearbyPlaces === null;
 
-    const surroundings = placesIsMock
-      ? null
-      : {
-          places: nearbyPlaces,
-          byDirection: this.placesProvider.groupByDirection(nearbyPlaces),
-        };
+    if (placesIsMock) {
+      omitted.push('surroundings');
+    } else if (placesUnavailable) {
+      unavailable.push('surroundings');
+    }
 
-    // --- Emergency resources: gated independently per provider ---
+    const surroundings =
+      placesIsMock || placesUnavailable
+        ? null
+        : {
+            places: nearbyPlaces,
+            byDirection:
+              this.placesProvider.groupByDirection(nearbyPlaces),
+          };
+
+    // --- Emergency resources ---
     const hospitalIsMock = isMock(this.hospitalProvider);
     const policeIsMock = isMock(this.policeProvider);
     const safePlaceIsMock = isMock(this.safePlaceProvider);
-    if (hospitalIsMock) omitted.push('hospitals');
-    if (policeIsMock) omitted.push('policeStations');
-    if (safePlaceIsMock) omitted.push('safePlaces');
+
+    const hospitalUnavailable = hospitals === null;
+    const policeUnavailable = policeStations === null;
+    const safePlaceUnavailable = safePlaces === null;
+
+    if (hospitalIsMock) {
+      omitted.push('hospitals');
+    } else if (hospitalUnavailable) {
+      unavailable.push('hospitals');
+    }
+
+    if (policeIsMock) {
+      omitted.push('policeStations');
+    } else if (policeUnavailable) {
+      unavailable.push('policeStations');
+    }
+
+    if (safePlaceIsMock) {
+      omitted.push('safePlaces');
+    } else if (safePlaceUnavailable) {
+      unavailable.push('safePlaces');
+    }
 
     const emergencyResources = {
-      nearestHospital: hospitalIsMock ? null : (hospitals[0] ?? null),
-      hospitals: hospitalIsMock ? null : hospitals,
-      nearestPoliceStation: policeIsMock ? null : (policeStations[0] ?? null),
-      policeStations: policeIsMock ? null : policeStations,
-      nearestSafePlace: safePlaceIsMock ? null : (safePlaces[0] ?? null),
-      safePlaces: safePlaceIsMock ? null : safePlaces,
+      nearestHospital:
+        hospitalIsMock || hospitalUnavailable
+          ? null
+          : (hospitals[0] ?? null),
+      hospitals:
+        hospitalIsMock || hospitalUnavailable ? null : hospitals,
+
+      nearestPoliceStation:
+        policeIsMock || policeUnavailable
+          ? null
+          : (policeStations[0] ?? null),
+      policeStations:
+        policeIsMock || policeUnavailable ? null : policeStations,
+
+      nearestSafePlace:
+        safePlaceIsMock || safePlaceUnavailable
+          ? null
+          : (safePlaces[0] ?? null),
+      safePlaces:
+        safePlaceIsMock || safePlaceUnavailable ? null : safePlaces,
     };
 
     // --- Routes ---
     const routingIsMock = isMock(this.routingProvider);
-    if (routingIsMock) omitted.push('routes');
+    const routingUnavailable = routes === null;
+
+    if (routingIsMock) {
+      omitted.push('routes');
+    } else if (routingUnavailable) {
+      unavailable.push('routes');
+    }
 
     if (omitted.length > 0) {
       this.logger.debug(
         `Omitted from response due to mock providers: ${omitted.join(', ')}. ` +
-          'Raw device GPS still returned. This occurs whenever mock ' +
-          'providers are registered, including in production under ' +
-          'OPA_BOOT_WITH_SUPPRESSED_MOCKS=true.',
+          'Raw device GPS still returned.',
+      );
+    }
+
+    if (unavailable.length > 0) {
+      this.logger.warn(
+        `Location intelligence unavailable from providers: ${unavailable.join(
+          ', ',
+        )}. Raw device GPS and remaining provider results still returned.`,
       );
     }
 
@@ -154,7 +268,8 @@ export class EmergencyIntelligenceService {
       },
       surroundings,
       emergencyResources,
-      routes: routingIsMock ? null : routes,
+      routes:
+        routingIsMock || routingUnavailable ? null : routes,
       device,
     };
   }

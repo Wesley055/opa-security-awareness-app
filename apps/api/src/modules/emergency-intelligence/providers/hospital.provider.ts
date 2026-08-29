@@ -1,5 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import type { DataConfidence } from '../data-confidence';
+import { GoogleLocationClient } from '../google-location.client';
+import {
+  buildNearbySearchBody,
+  distanceMetersBetween,
+  GOOGLE_NEARBY_FIELD_MASK,
+  GOOGLE_NEARBY_SEARCH_URL,
+  type GoogleNearbySearchResponse,
+  hasUsableGooglePlaceLocation,
+} from '../google-places';
 
 export interface Hospital {
   id: string;
@@ -9,48 +18,73 @@ export interface Hospital {
   latitude: number;
   longitude: number;
   distanceMeters: number;
-  emergencyAvailable: boolean;
-  traumaCenter: boolean;
-  twentyFourHours: boolean;
+
+  /**
+   * Google place classification does not prove these capabilities.
+   * null means OPA does not currently have verified evidence.
+   */
+  emergencyAvailable: boolean | null;
+  traumaCenter: boolean | null;
+  twentyFourHours: boolean | null;
+
   provider: string;
 }
 
 @Injectable()
 export class HospitalProvider {
-  readonly providerName = 'MockHospitalProvider';
-  readonly dataConfidence: DataConfidence = 'MOCK';
+  readonly providerName = 'GoogleHospitalProvider';
+
+  constructor(
+    private readonly googleLocationClient: GoogleLocationClient,
+  ) {}
+
+  get dataConfidence(): DataConfidence {
+    return this.googleLocationClient.isConfigured()
+      ? 'PRODUCTION'
+      : 'MOCK';
+  }
 
   async findNearbyHospitals(
     latitude: number,
     longitude: number,
   ): Promise<Hospital[]> {
-    return [
-      {
-        id: 'hospital-001',
-        name: 'Lagos State University Teaching Hospital',
-        address: 'Ikeja, Lagos',
-        phoneNumber: '+2348000001001',
-        latitude: latitude + 0.018,
-        longitude,
-        distanceMeters: 2800,
-        emergencyAvailable: true,
-        traumaCenter: true,
-        twentyFourHours: true,
-        provider: this.providerName,
-      },
-      {
-        id: 'hospital-002',
-        name: 'Genesis Specialist Hospital',
-        address: 'Allen Avenue, Ikeja',
-        phoneNumber: '+2348000001002',
-        latitude: latitude + 0.006,
-        longitude: longitude + 0.002,
-        distanceMeters: 950,
-        emergencyAvailable: true,
-        traumaCenter: false,
-        twentyFourHours: true,
-        provider: this.providerName,
-      },
-    ];
+    const response =
+      await this.googleLocationClient.postJson<GoogleNearbySearchResponse>(
+        GOOGLE_NEARBY_SEARCH_URL,
+        buildNearbySearchBody(latitude, longitude, ['hospital']),
+        GOOGLE_NEARBY_FIELD_MASK,
+      );
+
+    return (response.places ?? [])
+      .filter(hasUsableGooglePlaceLocation)
+      .map((place) => {
+        const hospital: Hospital = {
+          id: place.id,
+          name: place.displayName.text,
+          address: place.formattedAddress ?? '',
+          latitude: place.location.latitude,
+          longitude: place.location.longitude,
+          distanceMeters: distanceMetersBetween(
+            latitude,
+            longitude,
+            place.location.latitude,
+            place.location.longitude,
+          ),
+          emergencyAvailable: null,
+          traumaCenter: null,
+          twentyFourHours: null,
+          provider: this.providerName,
+        };
+
+        if (place.nationalPhoneNumber) {
+          hospital.phoneNumber = place.nationalPhoneNumber;
+        }
+
+        return hospital;
+      })
+      .sort(
+        (left, right) =>
+          left.distanceMeters - right.distanceMeters,
+      );
   }
 }

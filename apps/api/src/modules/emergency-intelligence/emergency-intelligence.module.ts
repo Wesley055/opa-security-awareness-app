@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { GoogleLocationClient } from './google-location.client';
 import { EmergencyIntelligenceController } from './emergency-intelligence.controller';
 import { EmergencyIntelligenceService } from './emergency-intelligence.service';
 import { DeviceProvider } from './providers/device.provider';
@@ -14,6 +15,7 @@ import { ProviderConfidenceValidator } from './provider-confidence.validator';
   controllers: [EmergencyIntelligenceController],
   providers: [
     EmergencyIntelligenceService,
+    GoogleLocationClient,
     GeocodingProvider,
     PlacesProvider,
     HospitalProvider,

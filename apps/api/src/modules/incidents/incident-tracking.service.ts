@@ -4,6 +4,7 @@ import {
   deriveFixOrigin,
   deriveTrackingState,
 } from '../incident-access/tracking-state';
+import { deriveMovementIntelligence } from './movement-intelligence';
 
 /**
  * Operator-facing live tracking read for 14A-8b.
@@ -176,12 +177,28 @@ export class IncidentTrackingService {
         receivedAt: fix.receivedAt.toISOString(),
       }));
 
+    const movement = deriveMovementIntelligence(
+      {
+        latitude: activationLocation.latitude,
+        longitude: activationLocation.longitude,
+      },
+      points.map((point) => ({
+        latitude: point.latitude,
+        longitude: point.longitude,
+        accuracy: point.accuracy,
+        speed: point.speed,
+        heading: point.heading,
+        recordedAt: point.recordedAt,
+      })),
+    );
+
     return {
       state: deriveTrackingState(session, serverTime),
       lastFixReceivedAt:
         session.lastFixReceivedAt?.toISOString() ?? null,
       latest,
       points,
+      movement,
       serverTime: serverTime.toISOString(),
     };
   }

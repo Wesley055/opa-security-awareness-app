@@ -17,6 +17,9 @@ describe('IncidentTrackingService.getTracking', () => {
         findFirst: jest.fn(),
         findMany: jest.fn(),
       },
+      emergencyIntelligenceSnapshot: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
     };
   }
 
@@ -199,6 +202,108 @@ describe('IncidentTrackingService.getTracking', () => {
     ]);
   });
 
+  it('exposes the current non-redacted emergency intelligence snapshot', async () => {
+    const prisma = makePrisma();
+
+    prisma.incident.findUnique.mockResolvedValue({
+      latitude: '33.148270',
+      longitude: '-96.810320',
+      createdAt,
+      journeySessionId: 'session-1',
+    });
+
+    prisma.journeySession.findUnique.mockResolvedValue({
+      status: 'ACTIVE',
+      lastFixReceivedAt: new Date('2026-08-29T20:00:01.000Z'),
+    });
+
+    prisma.journeyLocationFix.findFirst.mockResolvedValue(null);
+    prisma.journeyLocationFix.findMany.mockResolvedValue([]);
+
+    prisma.emergencyIntelligenceSnapshot.findUnique.mockResolvedValue({
+      sourceFixSequence: 7,
+      sourceFixReceivedAt: new Date('2026-08-29T20:00:01.000Z'),
+      generatedAt: new Date('2026-08-29T20:00:02.000Z'),
+      refreshedAt: new Date('2026-08-29T20:00:03.000Z'),
+      redactedAt: null,
+      payload: {
+        location: {
+          latitude: 33.14827,
+          longitude: -96.81032,
+        },
+      },
+    });
+
+    const result = await new IncidentTrackingService(
+      prisma as never,
+    ).getTracking('incident-1');
+
+    expect(result.emergencyIntelligence).toEqual({
+      sourceFixSequence: 7,
+      sourceFixReceivedAt: '2026-08-29T20:00:01.000Z',
+      generatedAt: '2026-08-29T20:00:02.000Z',
+      refreshedAt: '2026-08-29T20:00:03.000Z',
+      payload: {
+        location: {
+          latitude: 33.14827,
+          longitude: -96.81032,
+        },
+      },
+    });
+
+    expect(
+      prisma.emergencyIntelligenceSnapshot.findUnique,
+    ).toHaveBeenCalledWith({
+      where: { journeySessionId: 'session-1' },
+      select: {
+        sourceFixSequence: true,
+        sourceFixReceivedAt: true,
+        generatedAt: true,
+        refreshedAt: true,
+        redactedAt: true,
+        payload: true,
+      },
+    });
+  });
+
+  it('suppresses a redacted emergency intelligence snapshot', async () => {
+    const prisma = makePrisma();
+
+    prisma.incident.findUnique.mockResolvedValue({
+      latitude: '33.148270',
+      longitude: '-96.810320',
+      createdAt,
+      journeySessionId: 'session-1',
+    });
+
+    prisma.journeySession.findUnique.mockResolvedValue({
+      status: 'ACTIVE',
+      lastFixReceivedAt: new Date('2026-08-29T20:00:01.000Z'),
+    });
+
+    prisma.journeyLocationFix.findFirst.mockResolvedValue(null);
+    prisma.journeyLocationFix.findMany.mockResolvedValue([]);
+
+    prisma.emergencyIntelligenceSnapshot.findUnique.mockResolvedValue({
+      sourceFixSequence: 7,
+      sourceFixReceivedAt: new Date('2026-08-29T20:00:01.000Z'),
+      generatedAt: new Date('2026-08-29T20:00:02.000Z'),
+      refreshedAt: new Date('2026-08-29T20:00:03.000Z'),
+      redactedAt: new Date('2026-08-29T20:05:00.000Z'),
+      payload: {
+        location: {
+          latitude: 33.14827,
+          longitude: -96.81032,
+        },
+      },
+    });
+
+    const result = await new IncidentTrackingService(
+      prisma as never,
+    ).getTracking('incident-1');
+
+    expect(result.emergencyIntelligence).toBeNull();
+  });
   it('falls back to immutable activation coordinates when no usable fix exists', async () => {
     const prisma = makePrisma();
 

@@ -9,6 +9,7 @@ import {
 import { JourneyPurpose, JourneySessionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JourneySessionService } from './journey-session.service';
+import { EmergencyIntelligenceSnapshotService } from '../emergency-intelligence/emergency-intelligence-snapshot.service';
 import type {
   InsertFixesResult,
   JourneyFixInput,
@@ -137,6 +138,7 @@ export class JourneyIngestionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly journeySessionService: JourneySessionService,
+    private readonly emergencyIntelligenceSnapshotService: EmergencyIntelligenceSnapshotService,
   ) {}
 
   /**
@@ -247,7 +249,7 @@ export class JourneyIngestionService {
   }
 
   async ingest(userId: string, dto: IngestFixesDto): Promise<InsertFixesResult> {
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       // Serialise the state verdict with session ending. Without this the
       // status read below is taken outside any lock, and a concurrent
       // endSession can commit ENDED between this read and insertFixes -
@@ -307,5 +309,23 @@ export class JourneyIngestionService {
         fixes: classified.accepted,
       });
     });
+
+    // Provider work must never run while the journey transaction/advisory
+    // lock is open. Pure replays have inserted=0 and therefore do not
+    // trigger another refresh.
+    if (result.inserted > 0 && result.tailSequence !== null) {
+      try {
+        await this.emergencyIntelligenceSnapshotService.refreshFromCommittedFix(
+          dto.sessionId,
+          result.tailSequence,
+        );
+      } catch {
+        // Tracking ingestion is authoritative. Emergency Intelligence is a
+        // derived projection, so provider/snapshot failure must not turn a
+        // successfully committed location fix into an API failure.
+      }
+    }
+
+    return result;
   }
 }

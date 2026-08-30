@@ -111,8 +111,8 @@ model User {
   invitedBy       User?   @relation("UserInvitations", fields: [invitedByUserId], references: [id], onDelete: SetNull)
   invitedUsers    User[]  @relation("UserInvitations")
 
-  createdAt         DateTime           @default(now())
-  updatedAt         DateTime           @updatedAt
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
   incidents           Incident[]
   emergencyContacts   EmergencyContact[]
   journeySessions     JourneySession[]
@@ -128,13 +128,13 @@ model User {
 }
 
 model PasswordResetToken {
-  id         String   @id @default(uuid()) @db.Uuid
-  userId     String   @db.Uuid
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash  String   @unique @db.VarChar(64)
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique @db.VarChar(64)
   expiresAt  DateTime
   consumedAt DateTime?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime  @default(now())
 
   @@index([userId, consumedAt])
   @@index([expiresAt])
@@ -399,8 +399,9 @@ model JourneySession {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  fixes     JourneyLocationFix[]
-  incidents Incident[]
+  fixes                         JourneyLocationFix[]
+  incidents                     Incident[]
+  emergencyIntelligenceSnapshot EmergencyIntelligenceSnapshot?
 
   @@index([userId, status, startedAt])
   @@index([status, lastFixReceivedAt])
@@ -466,10 +467,45 @@ model JourneyLocationFix {
 
   /// Outside the hash inputs by design: setting this must not invalidate the
   /// chain.
-  redactedAt DateTime?
+  redactedAt                     DateTime?
+  emergencyIntelligenceSnapshots EmergencyIntelligenceSnapshot[]
 
   @@unique([journeySessionId, sequence])
   @@unique([journeySessionId, idempotencyKey])
   @@index([journeySessionId, receivedAt(sort: Desc)])
   @@index([journeySessionId, recordedAt])
+}
+
+/// Replaceable derived state built from one committed canonical location fix.
+///
+/// JourneyLocationFix remains the authoritative telemetry trail. This row is
+/// only the latest Emergency Intelligence projection for a session and may be
+/// rebuilt from source telemetry.
+///
+/// sourceFixSequence is first-class provenance rather than being hidden in the
+/// JSON payload. Snapshot writers must update monotonically so a slow provider
+/// response for an older fix cannot overwrite intelligence derived from a
+/// newer fix.
+///
+/// Redaction clears payload while preserving provenance. A future Journey
+/// redaction path must also prevent an in-flight refresh from recreating
+/// derived location data from a redacted source fix.
+model EmergencyIntelligenceSnapshot {
+  journeySessionId String         @id @db.Uuid
+  journeySession   JourneySession @relation(fields: [journeySessionId], references: [id], onDelete: Restrict)
+
+  sourceFixSequence   Int
+  sourceFixReceivedAt DateTime
+  generatedAt         DateTime
+  refreshedAt         DateTime  @default(now())
+  redactedAt          DateTime?
+
+  /// Provider-derived EmergencyIntelligenceService response. This is
+  /// replaceable derived state, not authoritative incident or location data.
+  /// Null after derived-location redaction; provenance columns remain.
+  payload Json?
+
+  sourceFix JourneyLocationFix @relation(fields: [journeySessionId, sourceFixSequence], references: [journeySessionId, sequence], onDelete: Restrict)
+
+  @@index([sourceFixReceivedAt])
 }

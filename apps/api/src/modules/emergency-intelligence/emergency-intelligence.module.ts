@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { GoogleLocationClient } from './google-location.client';
 import { EmergencyIntelligenceController } from './emergency-intelligence.controller';
 import { EmergencyIntelligenceService } from './emergency-intelligence.service';
+import { EmergencyIntelligenceSnapshotService } from './emergency-intelligence-snapshot.service';
 import { DeviceProvider } from './providers/device.provider';
 import { GeocodingProvider } from './providers/geocoding.provider';
 import { HospitalProvider } from './providers/hospital.provider';
@@ -15,6 +16,7 @@ import { ProviderConfidenceValidator } from './provider-confidence.validator';
   controllers: [EmergencyIntelligenceController],
   providers: [
     EmergencyIntelligenceService,
+    EmergencyIntelligenceSnapshotService,
     GoogleLocationClient,
     GeocodingProvider,
     PlacesProvider,
@@ -25,6 +27,9 @@ import { ProviderConfidenceValidator } from './provider-confidence.validator';
     RoutingProvider,
     ProviderConfidenceValidator,
   ],
-  exports: [EmergencyIntelligenceService],
+  exports: [
+    EmergencyIntelligenceService,
+    EmergencyIntelligenceSnapshotService,
+  ],
 })
 export class EmergencyIntelligenceModule {}

@@ -242,6 +242,9 @@ describe('JourneySessionService concurrency', () => {
     const ingestion = new JourneyIngestionService(
       clientB as unknown as PrismaService,
       service,
+      {
+        refreshFromCommittedFix: async () => true,
+      } as never,
     );
 
     let aEnded = false;

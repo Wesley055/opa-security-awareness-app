@@ -66,13 +66,15 @@ export class IncidentTrackingService {
         lastFixReceivedAt: null,
         latest: activationLocation,
         points: [],
+        emergencyIntelligence: null,
         serverTime: serverTime.toISOString(),
       };
     }
 
     const sessionId = incident.journeySessionId;
 
-    const [session, latestFix, newestRoutePoints] = await Promise.all([
+    const [session, latestFix, newestRoutePoints, emergencyIntelligenceSnapshot] =
+      await Promise.all([
       this.prisma.journeySession.findUnique({
         where: { id: sessionId },
         select: {
@@ -136,6 +138,18 @@ export class IncidentTrackingService {
           receivedAt: true,
         },
       }),
+
+      this.prisma.emergencyIntelligenceSnapshot.findUnique({
+        where: { journeySessionId: sessionId },
+        select: {
+          sourceFixSequence: true,
+          sourceFixReceivedAt: true,
+          generatedAt: true,
+          refreshedAt: true,
+          redactedAt: true,
+          payload: true,
+        },
+      }),
     ]);
 
     // FK integrity should make this impossible while the incident still
@@ -192,6 +206,23 @@ export class IncidentTrackingService {
       })),
     );
 
+    const emergencyIntelligence =
+      emergencyIntelligenceSnapshot === null ||
+      emergencyIntelligenceSnapshot.redactedAt !== null ||
+      emergencyIntelligenceSnapshot.payload === null
+        ? null
+        : {
+            sourceFixSequence:
+              emergencyIntelligenceSnapshot.sourceFixSequence,
+            sourceFixReceivedAt:
+              emergencyIntelligenceSnapshot.sourceFixReceivedAt.toISOString(),
+            generatedAt:
+              emergencyIntelligenceSnapshot.generatedAt.toISOString(),
+            refreshedAt:
+              emergencyIntelligenceSnapshot.refreshedAt.toISOString(),
+            payload: emergencyIntelligenceSnapshot.payload,
+          };
+
     return {
       state: deriveTrackingState(session, serverTime),
       lastFixReceivedAt:
@@ -199,6 +230,7 @@ export class IncidentTrackingService {
       latest,
       points,
       movement,
+      emergencyIntelligence,
       serverTime: serverTime.toISOString(),
     };
   }

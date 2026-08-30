@@ -111,8 +111,9 @@ describe('IncidentTimelineService contention', () => {
    */
   it('does not block a recordEvent for a different incident', async () => {
     const user = await createUser();
+    const otherUser = await createUser();
     const held1 = await createIncident(user.id);
-    const other = await createIncident(user.id);
+    const other = await createIncident(otherUser.id);
 
     let aHasLock = false;
     let release: (() => void) | null = null;

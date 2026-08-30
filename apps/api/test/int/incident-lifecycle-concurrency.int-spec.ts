@@ -113,8 +113,9 @@ describe('IncidentsService lifecycle contention', () => {
    */
   it('does not block a resolve for a different incident', async () => {
     const user = await createUser();
+    const otherUser = await createUser();
     const locked = await createIncident(user.id);
-    const other = await createIncident(user.id);
+    const other = await createIncident(otherUser.id);
 
     let aHasLock = false;
     let release: (() => void) | null = null;
@@ -132,7 +133,7 @@ describe('IncidentsService lifecycle contention', () => {
     await waitFor(() => aHasLock);
 
     const bStart = Date.now();
-    await serviceOn(clientB).resolve(other.id, user.id);
+    await serviceOn(clientB).resolve(other.id, otherUser.id);
 
     expect(Date.now() - bStart).toBeLessThan(10000);
 

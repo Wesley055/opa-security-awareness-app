@@ -295,6 +295,9 @@ describe('JourneySessionService', () => {
     const ingestion = new JourneyIngestionService(
       prismaTest as unknown as PrismaService,
       service,
+      {
+        refreshFromCommittedFix: async () => true,
+      } as never,
     );
 
     await prismaTest.$transaction(

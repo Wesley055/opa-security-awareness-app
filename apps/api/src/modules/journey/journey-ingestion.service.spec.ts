@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JourneySessionService } from './journey-session.service';
+import { EmergencyIntelligenceSnapshotService } from '../emergency-intelligence/emergency-intelligence-snapshot.service';
 import {
   JourneyIngestionService,
   MAX_FUTURE_SKEW_MS,
@@ -111,6 +112,10 @@ describe('JourneyIngestionService', () => {
     resolveForActivation: jest.fn(),
   };
 
+  const emergencyIntelligenceSnapshotService = {
+    refreshFromCommittedFix: jest.fn(),
+  };
+
   const prisma = {
     $transaction: jest.fn(),
     // startSession takes the lifecycle lock before its existence check.
@@ -149,6 +154,7 @@ describe('JourneyIngestionService', () => {
     prisma.journeySession.findUnique.mockResolvedValue(openSession);
     prisma.journeySession.findFirst.mockResolvedValue(null);
     prisma.$executeRaw.mockResolvedValue(1);
+    emergencyIntelligenceSnapshotService.refreshFromCommittedFix.mockResolvedValue(true);
     journeySessionService.recordTrackedFixes.mockResolvedValue({
       inserted: 1,
       skippedDuplicateInBatch: 0,
@@ -163,6 +169,10 @@ describe('JourneyIngestionService', () => {
         JourneyIngestionService,
         { provide: PrismaService, useValue: prisma },
         { provide: JourneySessionService, useValue: journeySessionService },
+        {
+          provide: EmergencyIntelligenceSnapshotService,
+          useValue: emergencyIntelligenceSnapshotService,
+        },
       ],
     }).compile();
 
@@ -301,6 +311,55 @@ describe('JourneyIngestionService', () => {
     expect(lockOrder).toBeLessThan(readOrder);
   });
 
+  it('refreshes Emergency Intelligence from the newest committed fix', async () => {
+    await service.ingest(USER, dto() as never);
+
+    expect(
+      emergencyIntelligenceSnapshotService.refreshFromCommittedFix,
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      emergencyIntelligenceSnapshotService.refreshFromCommittedFix,
+    ).toHaveBeenCalledWith(SESSION, 0);
+  });
+
+  it('does not refresh Emergency Intelligence for a pure replay', async () => {
+    journeySessionService.recordTrackedFixes.mockResolvedValue({
+      inserted: 0,
+      skippedDuplicateInBatch: 0,
+      skippedAlreadyStored: 1,
+      receivedAt: new Date(),
+      tailSequence: null,
+      tailHash: 'a'.repeat(64),
+    });
+
+    await service.ingest(USER, dto() as never);
+
+    expect(
+      emergencyIntelligenceSnapshotService.refreshFromCommittedFix,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('does not refresh Emergency Intelligence when the batch is rejected', async () => {
+    const future = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+    await expect(
+      service.ingest(USER, dto({ recordedAt: future }) as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(
+      emergencyIntelligenceSnapshotService.refreshFromCommittedFix,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('does not fail committed tracking ingestion when Emergency Intelligence refresh fails', async () => {
+    emergencyIntelligenceSnapshotService.refreshFromCommittedFix.mockRejectedValue(
+      new Error('provider failure'),
+    );
+
+    await expect(service.ingest(USER, dto() as never)).resolves.toEqual(
+      expect.objectContaining({ inserted: 1, tailSequence: 0 }),
+    );
+  });
   describe('endSession', () => {
     const endedAt = new Date('2026-08-03T20:00:00.123Z');
 

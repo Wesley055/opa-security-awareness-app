@@ -37,11 +37,12 @@ export class PoliceProvider {
     private readonly googleLocationClient: GoogleLocationClient,
   ) {}
 
-  get dataConfidence(): DataConfidence {
-    return this.googleLocationClient.isConfigured()
-      ? 'PRODUCTION'
-      : 'MOCK';
-  }
+  /**
+   * Intentionally pinned to MOCK pending Nigeria production validation.
+   * Do not expose hospital/police intelligence to responders until the
+   * underlying source quality and operational suitability are verified.
+   */
+  readonly dataConfidence: DataConfidence = 'MOCK';
 
   async findNearbyPoliceStations(
     latitude: number,

@@ -18,10 +18,10 @@ describe('HospitalProvider', () => {
     expect(provider.dataConfidence).toBe('MOCK');
   });
 
-  it('reports PRODUCTION confidence when Google is configured', () => {
+  it('remains MOCK when Google is configured pending Nigeria production validation', () => {
     const provider = new HospitalProvider(buildClient(true));
 
-    expect(provider.dataConfidence).toBe('PRODUCTION');
+    expect(provider.dataConfidence).toBe('MOCK');
   });
 
   it('normalizes hospitals and leaves unverified capabilities unknown', async () => {

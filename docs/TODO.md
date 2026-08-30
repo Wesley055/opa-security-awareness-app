@@ -1,3 +1,39 @@
+## Admin PII disclosure - MEASURED, NOT YET BOUNDED, 30 August 2026
+
+`GET /admin/facilities/:facilityId/members` returns the FULL phone number of
+every member of a facility to any ADMIN, unprompted. Observed in production
+during institutional onboarding acceptance:
+
+  facility a0ede9e9-9771-477a-a36e-777454f6e31e "OPA Demo Estate"
+  1 operator + 3 residents, every phoneNumber returned in E.164, in full
+
+- [ ] **THE RULE IS: DISCLOSURE REQUIRES AN IDENTIFIED SUBJECT.** Not a role
+      check and not a screen-by-screen judgement. An admin who typed an email
+      or a phone number has already demonstrated they know who they are
+      looking for, so `findResident` returning the full number confirms a
+      match they already possessed and discloses nothing new. The same is
+      true of `createResidentSeat`, where the admin SUPPLIED the number.
+      An admin browsing a roster has named nobody, so every number returned
+      is information they did not have and did not ask for.
+      Apply it: findResident full, provisioning full, listFacilityMembers
+      MASKED.
+
+- [ ] **MASKING ALONE IS NOT THE CONTROL, and treating it as one would be
+      worse than doing nothing** because it would look solved. A masked
+      roster still returns ids. If any endpoint resolves an id to a full
+      number, an admin loops it 200 times and has the estate's phone book.
+      The mask bought friction, not protection.
+
+- [ ] **THE CONTROL IS THAT RESOLUTION IS RECORDED.** Not prevented - an
+      admin has legitimate reasons to resolve a number - but attributable.
+      An append-only identity-resolution log: who resolved which subject,
+      when, through which endpoint. Same discipline as the incident
+      timeline; the record is the control. NOTHING LOGS ADMIN READS TODAY,
+      so "restricted and auditable" is currently half true.
+
+- [ ] **DO BEFORE ANY PILOT WITH A REAL ESTATE'S RESIDENTS.** Not during
+      the Sunday surgical verification day - that day is defect work, and
+      this is a design change that would displace it.
 ## Sprint 11A background location - IMPLEMENTED, FAILING ON DEVICE, 11 August 2026
 
 Background capture was implemented, committed at 83ffcfa, built, installed on

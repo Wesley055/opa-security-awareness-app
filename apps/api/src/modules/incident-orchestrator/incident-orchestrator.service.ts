@@ -220,13 +220,74 @@ export class IncidentOrchestratorService {
         // an abduction began). The new coordinates are recorded as a journey
         // location fix on the hash chain and on the timeline (Sprint 10B).
         const retriggeredAt = new Date();
+
+        // Reconcile protection context added after the incident began.
+        // Only null -> current facility. An active incident is never
+        // silently moved between two non-null facilities.
+        const shouldAttachFacility =
+          recent.facilityId == null && user.facilityId != null;
+
         const updated = await tx.incident.update({
           where: { id: recent.id },
           data: {
             lastTriggeredAt: retriggeredAt,
             retriggerCount: { increment: 1 },
+            ...(shouldAttachFacility
+              ? { facilityId: user.facilityId }
+              : {}),
           },
         });
+
+        // Reconcile contacts added after activation. Any existing row -
+        // including FAILED - counts as an existing intent; provider retry
+        // is the dispatch worker's concern, not the orchestrator's.
+        const existingNotifications =
+          await tx.incidentNotification.findMany({
+            where: { incidentId: recent.id, contactId: { not: null } },
+            select: { contactId: true, channel: true },
+          });
+
+        const existingKeys = new Set(
+          existingNotifications.map(
+            (n) => n.contactId + ':' + n.channel,
+          ),
+        );
+
+        const missingNotificationRows = notificationRows.filter(
+          (row) => !existingKeys.has(row.contactId + ':' + row.channel),
+        );
+
+        let retriggerTrackingUrl: string | null = null;
+
+        if (missingNotificationRows.length > 0) {
+          const { token: retriggerToken } =
+            await this.accessTokenService.issue(recent.id, undefined, tx);
+
+          const issuedTrackingUrl = buildTrackingUrl(retriggerToken);
+          retriggerTrackingUrl = issuedTrackingUrl;
+
+          await tx.incidentNotification.createMany({
+            data: missingNotificationRows.map((row) => ({
+              id: row.id,
+              incidentId: recent.id,
+              contactId: row.contactId,
+              contactName: row.contactName,
+              contactType: row.contactType,
+              recipient: row.recipient,
+              channel: row.channel,
+              status: NotificationStatus.QUEUED,
+              attemptCount: 0,
+              payload: buildNotificationPayload({
+                channel: row.channel,
+                recipient: row.recipient,
+                personName,
+                location: locationSummary,
+                trackingUrl: issuedTrackingUrl,
+              }),
+            })),
+            skipDuplicates: true,
+          });
+        }
 
         // Inside the transaction, deliberately: the timeline events are
         // written after commit, so a crash in that window should cost the
@@ -253,7 +314,9 @@ export class IncidentOrchestratorService {
           },
           deduplicated: true as const,
           retriggeredAt,
-          trackingUrl: null,
+          trackingUrl: retriggerTrackingUrl,
+          notificationsQueued: missingNotificationRows.length,
+          facilityReconciled: shouldAttachFacility,
         };
       }
 
@@ -371,7 +434,7 @@ export class IncidentOrchestratorService {
         deduplicated: true,
         retriggerCount: incident.retriggerCount,
         notifications: {
-          queued: 0,
+          queued: activation.notificationsQueued,
           dispatched: false,
         },
         coordination: {

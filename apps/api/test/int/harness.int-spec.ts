@@ -41,6 +41,27 @@ describe('integration harness', () => {
     expect(def).not.toContain('ENDED');
   });
 
+  it('kept the incident notification contact/channel partial unique index with its exact semantics', async () => {
+    const rows = await prismaTest.$queryRawUnsafe<{ indexdef: string }[]>(`
+      SELECT indexdef
+      FROM pg_indexes
+      WHERE schemaname = current_schema()
+        AND tablename = 'IncidentNotification'
+        AND indexname = 'IncidentNotification_incidentId_contactId_channel_key'
+    `);
+
+    expect(rows).toHaveLength(1);
+
+    const def = firstRow(rows).indexdef;
+
+    expect(def).toMatch(/CREATE\s+UNIQUE\s+INDEX/i);
+    expect(def).toContain('"incidentId"');
+    expect(def).toContain('"contactId"');
+    expect(def).toMatch(/\(?["']?channel["']?\)?/i);
+    expect(def).toMatch(/\bWHERE\b/i);
+    expect(def).toMatch(/"contactId"\s+IS\s+NOT\s+NULL/i);
+  });
+
   it('truncates cleanly and preserves _prisma_migrations', async () => {
     await truncateAll();
 

@@ -59,7 +59,10 @@ describe('IncidentOrchestratorService', () => {
       findFirst: jest.fn(),
       update: jest.fn(),
     },
-    incidentNotification: { createMany: jest.fn() },
+    incidentNotification: {
+      findMany: jest.fn(),
+      createMany: jest.fn(),
+    },
   };
 
   beforeEach(async () => {
@@ -68,6 +71,11 @@ describe('IncidentOrchestratorService', () => {
       async (callback: (tx: typeof prisma) => unknown) => callback(prisma),
     );
     prisma.incidentNotification.createMany.mockResolvedValue({ count: 3 });
+    prisma.incidentNotification.findMany.mockResolvedValue([
+      { contactId: 'contact-1', channel: 'SMS' },
+      { contactId: 'contact-1', channel: 'WHATSAPP' },
+      { contactId: 'contact-1', channel: 'EMAIL' },
+    ]);
     prisma.$executeRaw.mockResolvedValue(1);
     // A bare jest.fn() here returns undefined, and the create path then
     // throws a TypeError on journeySession.id in every activation test.
@@ -502,6 +510,151 @@ describe('IncidentOrchestratorService', () => {
       expect(result.notifications).toEqual({ queued: 0, dispatched: false });
     });
 
+    it('attaches the current facility when retriggering an OPEN incident that has no facility', async () => {
+      primeActivation();
+
+      usersService.findById.mockResolvedValue({
+        id: 'user-123',
+        firstName: 'Test',
+        lastName: 'User',
+        facilityId: 'facility-123',
+      });
+
+      const existing = {
+        id: 'incident-existing',
+        userId: 'user-123',
+        facilityId: null,
+        createdAt: new Date(Date.now() - 20_000),
+        retriggerCount: 0,
+      };
+
+      prisma.incident.findFirst.mockResolvedValue(existing);
+      prisma.incidentNotification.findMany.mockResolvedValue([]);
+      prisma.incident.update.mockResolvedValue({
+        ...existing,
+        facilityId: 'facility-123',
+        retriggerCount: 1,
+      });
+
+      await service.createCoordinatedIncident('user-123', activationDto);
+
+      const updateArgs = prisma.incident.update.mock.calls[0][0];
+
+      expect(updateArgs.where).toEqual({ id: 'incident-existing' });
+      expect(updateArgs.data.facilityId).toBe('facility-123');
+    });
+
+    it('queues only newly eligible contact channels when retriggering an OPEN incident', async () => {
+      primeActivation();
+
+      const existing = {
+        id: 'incident-existing',
+        userId: 'user-123',
+        facilityId: 'facility-123',
+        createdAt: new Date(Date.now() - 20_000),
+        retriggerCount: 0,
+      };
+
+      prisma.incident.findFirst.mockResolvedValue(existing);
+      prisma.incidentNotification.findMany.mockResolvedValue([
+        {
+          contactId: 'contact-1',
+          channel: 'SMS',
+        },
+      ]);
+
+      prisma.incident.update.mockResolvedValue({
+        ...existing,
+        retriggerCount: 1,
+      });
+
+      accessTokenService.issue.mockResolvedValue({
+        token: 'retrigger-token-value',
+        record: { id: 'token-row-retrigger-1' },
+      });
+
+      const result = await service.createCoordinatedIncident(
+        'user-123',
+        activationDto,
+      );
+
+      expect(prisma.incidentNotification.createMany).toHaveBeenCalledTimes(1);
+
+      const createArgs =
+        prisma.incidentNotification.createMany.mock.calls[0][0];
+
+      expect(createArgs.data).toHaveLength(2);
+      expect(createArgs.data).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            incidentId: 'incident-existing',
+            contactId: 'contact-1',
+            channel: 'WHATSAPP',
+          }),
+          expect.objectContaining({
+            incidentId: 'incident-existing',
+            contactId: 'contact-1',
+            channel: 'EMAIL',
+          }),
+        ]),
+      );
+
+      expect(
+        createArgs.data.some(
+          (row: { channel: string }) =>
+            row.channel === 'SMS',
+        ),
+      ).toBe(false);
+
+      expect(result.notifications).toEqual({
+        queued: 2,
+        dispatched: false,
+      });
+    });
+
+    it('does not queue duplicate contact channels on retrigger', async () => {
+      primeActivation();
+
+      const existing = {
+        id: 'incident-existing',
+        userId: 'user-123',
+        facilityId: 'facility-123',
+        createdAt: new Date(Date.now() - 20_000),
+        retriggerCount: 0,
+      };
+
+      prisma.incident.findFirst.mockResolvedValue(existing);
+      prisma.incidentNotification.findMany.mockResolvedValue([
+        {
+          contactId: 'contact-1',
+          channel: 'SMS',
+        },
+        {
+          contactId: 'contact-1',
+          channel: 'WHATSAPP',
+        },
+        {
+          contactId: 'contact-1',
+          channel: 'EMAIL',
+        },
+      ]);
+
+      prisma.incident.update.mockResolvedValue({
+        ...existing,
+        retriggerCount: 1,
+      });
+
+      const result = await service.createCoordinatedIncident(
+        'user-123',
+        activationDto,
+      );
+
+      expect(prisma.incidentNotification.createMany).not.toHaveBeenCalled();
+      expect(result.notifications).toEqual({
+        queued: 0,
+        dispatched: false,
+      });
+    });
     it('increments retriggerCount and updates lastTriggeredAt', async () => {
       primeActivation();
       const existing = {

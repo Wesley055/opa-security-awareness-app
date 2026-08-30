@@ -21,6 +21,7 @@ import {
   startTracking,
   stopTracking,
 } from '../src/services/journey-tracker';
+import { getSosActivationMessage } from '../src/services/sos-activation-message';
 
 const COUNTDOWN_SECONDS = 5;
 const LOCATION_TIMEOUT_MS = 15000;
@@ -382,13 +383,20 @@ export default function SosScreen() {
     <View style={styles.container}>
       <Text style={styles.activatedIcon}>OPA</Text>
       <Text style={styles.activatedTitle}>Emergency Activated</Text>
+      {/*
+        Status distinguishes a first activation from a retrigger. The raw
+        notification count is intentionally not presented as an alert count
+        because it represents channel delivery intents, not people reached.
+      */}
       <Text style={styles.activatedDetail}>
-        {result?.notifications?.queued === undefined
-          ? 'Emergency activated'
-          : result.notifications.queued === 0
-            ? 'Your existing emergency alert remains active'
-            : `${result.notifications.queued} alert${result.notifications.queued === 1 ? '' : 's'} queued`}
+        {getSosActivationMessage(result).detail}
       </Text>
+
+      {getSosActivationMessage(result).warning ? (
+        <Text style={styles.deliveryWarning}>
+          {getSosActivationMessage(result).warning}
+        </Text>
+      ) : null}
       {result?.incident?.id ? (
         <Text style={styles.incidentId}>Incident ID: {result.incident.id}</Text>
       ) : null}
@@ -399,7 +407,8 @@ export default function SosScreen() {
         Only rendered when there is an incident to close. A deduplicated
         re-trigger DOES return the incident, so these appear there too -
         which is the case that matters most, since that screen reads
-        "your existing emergency alert remains active".
+        "your existing emergency alert remains active" whenever the API
+        returns INCIDENT_RETRIGGERED.
       */}
       {result?.incident?.id ? (
         <>
@@ -526,6 +535,16 @@ const styles = StyleSheet.create({
     color: '#C9D1D9',
     fontSize: 15,
     marginBottom: 4,
+  },
+  // Same alert colour as closeError, and for the same reason: this says
+  // no emergency-contact alert was queued, which the user must not read past.
+  deliveryWarning: {
+    color: '#FF5A36',
+    fontSize: 15,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 12,
   },
   incidentId: {
     color: '#5B6B76',

@@ -111,6 +111,116 @@ describe('AdminProvisioningService', () => {
     expect(data.activationTokenHash).not.toBe(result.activationToken);
   });
 
+  it('creates a pending resident already attached to the facility', async () => {
+    prisma.facility.findUnique.mockResolvedValue({
+      id: 'facility-1',
+      isActive: true,
+    });
+
+    prisma.user.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null);
+
+    prisma.user.create.mockResolvedValue({
+      id: 'resident-1',
+      email: 'resident@example.com',
+      phoneNumber: '+2348024662124',
+      firstName: 'Ada',
+      lastName: 'Okafor',
+      role: UserRole.USER,
+      facilityId: 'facility-1',
+      accountStatus: AccountStatus.PENDING_ACTIVATION,
+      activationExpiresAt: new Date(),
+      invitedByUserId: 'admin-1',
+    });
+
+    const result = await service.createResidentInvite('admin-1', {
+      email: ' Resident@Example.COM ',
+      phoneNumber: '08024662124',
+      firstName: ' Ada ',
+      lastName: ' Okafor ',
+      facilityId: 'facility-1',
+    });
+
+    const data = prisma.user.create.mock.calls[0][0].data;
+
+    expect(data.email).toBe('resident@example.com');
+    expect(data.phoneNumber).toBe('+2348024662124');
+    expect(data.firstName).toBe('Ada');
+    expect(data.lastName).toBe('Okafor');
+    expect(data.role).toBe(UserRole.USER);
+    expect(data.facilityId).toBe('facility-1');
+    expect(data.accountStatus).toBe(AccountStatus.PENDING_ACTIVATION);
+    expect(data.passwordHash).toBeNull();
+    expect(data.invitedByUserId).toBe('admin-1');
+    expect(data.activationTokenHash).toEqual(expect.any(String));
+    expect(data.activationTokenHash).not.toBe(result.activationToken);
+    expect(result.activationPath).toBe(
+      '/resident/activate/' + result.activationToken,
+    );
+  });
+
+  it('rejects resident provisioning into an inactive or missing facility', async () => {
+    prisma.facility.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.createResidentInvite('admin-1', {
+        email: 'resident@example.com',
+        phoneNumber: '+2348012345678',
+        firstName: 'Ada',
+        lastName: 'Okafor',
+        facilityId: 'facility-missing',
+      }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+
+    expect(prisma.user.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a duplicate resident email', async () => {
+    prisma.facility.findUnique.mockResolvedValue({
+      id: 'facility-1',
+      isActive: true,
+    });
+
+    prisma.user.findUnique
+      .mockResolvedValueOnce({ id: 'existing' })
+      .mockResolvedValueOnce(null);
+
+    await expect(
+      service.createResidentInvite('admin-1', {
+        email: 'resident@example.com',
+        phoneNumber: '+2348012345678',
+        firstName: 'Ada',
+        lastName: 'Okafor',
+        facilityId: 'facility-1',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(prisma.user.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects a duplicate resident phone number', async () => {
+    prisma.facility.findUnique.mockResolvedValue({
+      id: 'facility-1',
+      isActive: true,
+    });
+
+    prisma.user.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'existing' });
+
+    await expect(
+      service.createResidentInvite('admin-1', {
+        email: 'resident@example.com',
+        phoneNumber: '+2348012345678',
+        firstName: 'Ada',
+        lastName: 'Okafor',
+        facilityId: 'facility-1',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    expect(prisma.user.create).not.toHaveBeenCalled();
+  });
   it('rejects operator provisioning into an inactive or missing facility', async () => {
     prisma.facility.findUnique.mockResolvedValue(null);
 

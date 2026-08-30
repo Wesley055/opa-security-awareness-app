@@ -1,7 +1,7 @@
 import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
 import { ActivationService } from './activation.service';
 import { AuthService } from './auth.service';
-import { ActivateOperatorDto } from './dto/activate-operator.dto';
+import { ActivateProvisionedUserDto } from './dto/activate-provisioned-user.dto';
 import { ConfirmPasswordResetDto } from './dto/confirm-password-reset.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -41,7 +41,7 @@ export class AuthController {
 
   @HttpCode(HttpStatus.OK)
   @Post('activate')
-  activate(@Body() dto: ActivateOperatorDto) {
+  activate(@Body() dto: ActivateProvisionedUserDto) {
     return this.activationService.activate(dto);
   }
 }

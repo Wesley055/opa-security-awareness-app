@@ -1,6 +1,6 @@
 import { IsNotEmpty, IsString, MinLength } from 'class-validator';
 
-export class ActivateOperatorDto {
+export class ActivateProvisionedUserDto {
   /**
    * The RAW activation token, in the body rather than the URL.
    *
@@ -13,8 +13,8 @@ export class ActivateOperatorDto {
   @IsNotEmpty()
   token!: string;
 
-  // Same minimum as RegisterDto. An operator's password protects a facility's
-  // entire incident queue, so it must not be held to a weaker rule than a
+  // Same minimum as RegisterDto. A provisioned account password protects
+  // access to safety workflows, so it must not be held to a weaker rule than a
   // consumer account.
   @IsString()
   @MinLength(12)

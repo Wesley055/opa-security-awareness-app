@@ -4,7 +4,7 @@ import { AccountStatus, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
-import type { ActivateOperatorDto } from './dto/activate-operator.dto';
+import type { ActivateProvisionedUserDto } from './dto/activate-provisioned-user.dto';
 
 /**
  * ONE MESSAGE FOR EVERY FAILURE.
@@ -22,10 +22,10 @@ import type { ActivateOperatorDto } from './dto/activate-operator.dto';
 const ACTIVATION_FAILED = 'This activation link is not valid.';
 
 /**
- * Claims a provisioned operator seat.
+ * Claims a provisioned operator or resident account.
  *
  * The only unauthenticated write path into User apart from registration. An
- * administrator creates the seat in AdminProvisioningService with a random
+ * administrator creates the account in AdminProvisioningService with a random
  * 32-byte token; only its SHA-256 digest is stored. This exchanges the raw
  * token, once, for a password of the operator's choosing.
  */
@@ -48,7 +48,7 @@ export class ActivationService {
     return createHash('sha256').update(token).digest('hex');
   }
 
-  async activate(dto: ActivateOperatorDto) {
+  async activate(dto: ActivateProvisionedUserDto) {
     const tokenHash = this.hashActivationToken(dto.token);
 
     // Pre-lock lookup, and it decides NOTHING. Its only job is to resolve
@@ -103,12 +103,12 @@ export class ActivationService {
         !user ||
         !user.isActive ||
         user.accountStatus !== AccountStatus.PENDING_ACTIVATION ||
-        // Activation claims an OPERATOR SEAT. Only AdminProvisioningService
-        // mints these tokens and it only ever attaches them to a
-        // FACILITY_OPERATOR row - but this endpoint is unauthenticated, so
-        // it verifies rather than assumes. If a token ever reached any
-        // other kind of account, this refuses to set a password on it.
-        user.role !== UserRole.FACILITY_OPERATOR ||
+        // Only institution-provisioned operators and residents may claim
+        // activation tokens. Publicly registered USER accounts are already
+        // ACTIVE and carry no activation token, so allowing USER here does
+        // not create a second registration path.
+        (user.role !== UserRole.FACILITY_OPERATOR &&
+          user.role !== UserRole.USER) ||
         user.activationTokenHash !== tokenHash ||
         !user.activationExpiresAt ||
         user.activationExpiresAt <= now

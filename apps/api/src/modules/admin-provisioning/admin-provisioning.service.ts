@@ -14,9 +14,17 @@ import { toE164 } from '../../shared/phone/normalize-phone-number';
 import type { FindResidentDto } from './dto/find-resident.dto';
 import type { CreateFacilityDto } from './dto/create-facility.dto';
 import type { CreateOperatorDto } from './dto/create-operator.dto';
+import type { CreateResidentDto } from './dto/create-resident.dto';
 
 const ACTIVATION_TOKEN_BYTES = 32;
 const ACTIVATION_VALIDITY_MS = 24 * 60 * 60 * 1000;
+type ProvisionedAccountDto = {
+  email: string;
+  phoneNumber: string;
+  firstName: string;
+  lastName: string;
+  facilityId: string;
+};
 
 @Injectable()
 export class AdminProvisioningService {
@@ -44,6 +52,42 @@ export class AdminProvisioningService {
   }
 
   async createOperatorSeat(adminUserId: string, dto: CreateOperatorDto) {
+    return this.createProvisionedAccount(
+      adminUserId,
+      dto,
+      UserRole.FACILITY_OPERATOR,
+      '/operator/activate/',
+    );
+  }
+
+  async createResidentInvite(adminUserId: string, dto: CreateResidentDto) {
+    return this.createProvisionedAccount(
+      adminUserId,
+      dto,
+      UserRole.USER,
+      '/resident/activate/',
+    );
+  }
+
+  /**
+   * Shared provisioning boundary for institution-created accounts.
+   *
+   * Both operators and residents enter the same token lifecycle:
+   * - active facility must already exist;
+   * - email and phone are canonicalised and globally unique;
+   * - only a SHA-256 token digest is stored;
+   * - the raw token is returned once;
+   * - the account starts PENDING_ACTIVATION with no password.
+   *
+   * Keeping this in one path prevents resident and operator invitation
+   * security semantics from drifting apart.
+   */
+  private async createProvisionedAccount(
+    adminUserId: string,
+    dto: ProvisionedAccountDto,
+    role: UserRole,
+    activationPathPrefix: string,
+  ) {
     const email = dto.email.trim().toLowerCase();
     const phoneNumber = toE164(dto.phoneNumber);
 
@@ -57,13 +101,8 @@ export class AdminProvisioningService {
         throw new NotFoundException('Active facility not found.');
       }
 
-      // SEQUENTIAL, NOT Promise.all. An interactive transaction client is a
-      // SINGLE connection, and Prisma does not reliably support concurrent
-      // queries on one - they can deadlock or error rather than run in
-      // parallel. Two indexed lookups cost nothing to await in turn.
-      //
-      // It also makes the order real: email is checked first, so the
-      // conflict a caller sees is deterministic rather than a race.
+      // Sequential by design: deterministic conflict reporting and no
+      // concurrent queries on the interactive transaction connection.
       const existingEmail = await tx.user.findUnique({
         where: { email },
         select: { id: true },
@@ -101,7 +140,7 @@ export class AdminProvisioningService {
           passwordHash: null,
           firstName: dto.firstName.trim(),
           lastName: dto.lastName.trim(),
-          role: UserRole.FACILITY_OPERATOR,
+          role,
           facilityId: dto.facilityId,
           isActive: true,
           accountStatus: AccountStatus.PENDING_ACTIVATION,
@@ -127,7 +166,7 @@ export class AdminProvisioningService {
       return {
         user,
         activationToken: rawToken,
-        activationPath: '/operator/activate/' + rawToken,
+        activationPath: activationPathPrefix + rawToken,
         activationExpiresAt,
       };
     });

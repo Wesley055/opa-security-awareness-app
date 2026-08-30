@@ -18,6 +18,7 @@ import { AdminProvisioningService } from './admin-provisioning.service';
 import { AssignResidentFacilityDto } from './dto/assign-resident-facility.dto';
 import { CreateFacilityDto } from './dto/create-facility.dto';
 import { CreateOperatorDto } from './dto/create-operator.dto';
+import { CreateResidentDto } from './dto/create-resident.dto';
 import { FindResidentDto } from './dto/find-resident.dto';
 
 type AuthenticatedRequest = Request & { user: JwtPayload };
@@ -40,6 +41,23 @@ export class AdminProvisioningController {
     @Body() dto: CreateOperatorDto,
   ) {
     return this.provisioning.createOperatorSeat(
+      request.user.sub,
+      dto,
+    );
+  }
+  /**
+   * Provision a resident directly into an active facility.
+   *
+   * Unlike public self-registration, this creates the institutional
+   * membership before the resident can activate the account, eliminating
+   * the window where an SOS can exist without its estate/facility context.
+   */
+  @Post('residents')
+  createResident(
+    @Req() request: AuthenticatedRequest,
+    @Body() dto: CreateResidentDto,
+  ) {
+    return this.provisioning.createResidentInvite(
       request.user.sub,
       dto,
     );

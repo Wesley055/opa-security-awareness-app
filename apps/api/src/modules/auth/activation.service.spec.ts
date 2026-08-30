@@ -164,14 +164,64 @@ describe('ActivationService', () => {
     expect(prisma.user.update).not.toHaveBeenCalled();
   });
 
-  it('refuses to activate a row that is not an operator seat', async () => {
+  it('activates a pending provisioned resident', async () => {
+    prisma.user.findUnique
+      .mockResolvedValueOnce({ id: 'resident-1' })
+      .mockResolvedValueOnce({
+        ...pendingSeat(),
+        id: 'resident-1',
+        email: 'resident@example.com',
+        role: UserRole.USER,
+      });
+
+    prisma.user.update.mockResolvedValueOnce({
+      id: 'resident-1',
+      email: 'resident@example.com',
+      role: UserRole.USER,
+      accountStatus: AccountStatus.ACTIVE,
+    });
+
+    const result = await service.activate({
+      token: RAW_TOKEN,
+      password: 'AResidentPassword1!',
+    });
+
+    expect(result.role).toBe(UserRole.USER);
+
+    const data = prisma.user.update.mock.calls[0][0].data;
+    expect(data.accountStatus).toBe(AccountStatus.ACTIVE);
+    expect(data.activationTokenHash).toBeNull();
+    expect(data.activationExpiresAt).toBeNull();
+    expect(data.activatedAt).toBeInstanceOf(Date);
+  });
+
+  it('refuses to activate a role outside the provisioned account set', async () => {
+    prisma.user.findUnique
+      .mockResolvedValueOnce({ id: 'admin-1' })
+      .mockResolvedValueOnce({
+        ...pendingSeat(),
+        id: 'admin-1',
+        role: UserRole.ADMIN,
+      });
+
+    await expect(
+      service.activate({
+        token: RAW_TOKEN,
+        password: 'AnAdminPassword1!',
+      }),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects when the token changed before the deciding locked read', async () => {
     prisma.user.findUnique
       .mockResolvedValueOnce({ id: 'operator-1' })
-      .mockResolvedValueOnce({ ...pendingSeat(), role: UserRole.USER });
+      .mockResolvedValueOnce({
+        ...pendingSeat(),
+        activationTokenHash: 'different-token-hash',
+      });
 
-    // No code path attaches an activation token to a resident today. This
-    // pins that an unauthenticated caller cannot set a password on one if
-    // some future path ever does.
     await expect(
       service.activate({
         token: RAW_TOKEN,

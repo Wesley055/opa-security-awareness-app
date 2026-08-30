@@ -4,10 +4,11 @@ import { JourneyIngestionService } from './journey-ingestion.service';
 import { JourneyController } from './journey.controller';
 import { EmergencyIntelligenceModule } from '../emergency-intelligence/emergency-intelligence.module';
 
-// No imports: JourneySessionService injects nothing. Every method takes an
-// explicit Prisma.TransactionClient from its caller, because the advisory
-// locks it relies on are transaction-scoped.
+// JourneySessionService still receives its transaction client explicitly.
+// EmergencyIntelligenceModule supplies the snapshot service used by
+// JourneyIngestionService after a successful committed ingestion.
 @Module({
+  imports: [EmergencyIntelligenceModule],
   controllers: [JourneyController],
   providers: [JourneySessionService, JourneyIngestionService],
   exports: [JourneySessionService],

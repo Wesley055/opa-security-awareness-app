@@ -114,19 +114,22 @@ export class EmergencyIntelligenceService {
       });
     }
 
+    const nearestVerifiedSafePlace =
+      safePlaces?.find((place) => place.isVerified) ?? null;
+
     if (
       isDisplayableToUsers(this.safePlaceProvider.dataConfidence) &&
-      safePlaces?.[0]
+      nearestVerifiedSafePlace
     ) {
       routingDestinations.push({
-        id: safePlaces[0].id,
-        name: safePlaces[0].name,
+        id: nearestVerifiedSafePlace.id,
+        name: nearestVerifiedSafePlace.name,
         type:
-          safePlaces[0].type === 'FIRE_STATION'
+          nearestVerifiedSafePlace.type === 'FIRE_STATION'
             ? ('FIRE_STATION' as const)
             : ('SAFE_PLACE' as const),
-        latitude: safePlaces[0].latitude,
-        longitude: safePlaces[0].longitude,
+        latitude: nearestVerifiedSafePlace.latitude,
+        longitude: nearestVerifiedSafePlace.longitude,
       });
     }
 

@@ -300,7 +300,13 @@ function build(confidences: Confidences = {}) {
     )
     .mockImplementation(() => undefined);
 
-  return { service, debug, placesProvider, routingProvider };
+  return {
+    service,
+    debug,
+    placesProvider,
+    safePlaceProvider,
+    routingProvider,
+  };
 }
 
 /**
@@ -407,6 +413,78 @@ describe('EmergencyIntelligenceService - suppression contract (ADR-012)', () => 
       expect(result.location.address).toBe(GEO.formattedAddress);
       expect(result.emergencyResources.hospitals).toEqual(HOSPITALS);
       expect(debug).not.toHaveBeenCalled();
+    });
+
+    it('does not route to an unverified safe place and selects the nearest verified destination instead', async () => {
+      const unverifiedHospital: SafePlace = {
+        id: 'unverified-hospital',
+        name: 'Unverified Google Hospital',
+        type: 'HOSPITAL',
+        address: 'Nearby Road, Testville',
+        latitude: LAT - 0.0001,
+        longitude: LNG,
+        distanceMeters: 25,
+        isVerified: false,
+        twentyFourHours: null,
+        provider: 'spec-safe-place',
+      };
+
+      const verifiedCommunityCenter: SafePlace = {
+        id: 'verified-community-center',
+        name: 'Verified Community Safe Place',
+        type: 'COMMUNITY_CENTER',
+        address: 'Trusted Road, Testville',
+        latitude: LAT - 0.002,
+        longitude: LNG,
+        distanceMeters: 350,
+        isVerified: true,
+        twentyFourHours: true,
+        provider: 'spec-safe-place',
+      };
+
+      const {
+        service,
+        safePlaceProvider,
+        routingProvider,
+      } = build();
+
+      safePlaceProvider.findNearbySafePlaces.mockResolvedValue([
+        unverifiedHospital,
+        verifiedCommunityCenter,
+      ]);
+
+      const result = await service.buildLocationIntelligence(DTO);
+
+      expect(result.emergencyResources.safePlaces).toEqual([
+        unverifiedHospital,
+        verifiedCommunityCenter,
+      ]);
+
+      expect(result.emergencyResources.nearestSafePlace).toBe(
+        unverifiedHospital,
+      );
+
+      expect(routingProvider.buildSafeRoutes).toHaveBeenCalledWith(
+        expect.objectContaining({
+          destinations: expect.arrayContaining([
+            expect.objectContaining({
+              id: 'verified-community-center',
+              type: 'SAFE_PLACE',
+            }),
+          ]),
+        }),
+      );
+
+      const routingInput =
+        routingProvider.buildSafeRoutes.mock.calls[0][0];
+
+      expect(routingInput.destinations).not.toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: 'unverified-hospital',
+          }),
+        ]),
+      );
     });
   });
 

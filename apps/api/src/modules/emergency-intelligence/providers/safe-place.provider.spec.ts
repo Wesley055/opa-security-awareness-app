@@ -20,12 +20,12 @@ describe('SafePlaceProvider', () => {
     expect(provider.dataConfidence).toBe('MOCK');
   });
 
-  it('reports PRODUCTION confidence when Google is configured', () => {
+  it('remains MOCK when Google is configured pending Nigeria validation', () => {
     const provider = new SafePlaceProvider(
       buildClient(true),
     );
 
-    expect(provider.dataConfidence).toBe('PRODUCTION');
+    expect(provider.dataConfidence).toBe('MOCK');
   });
 
   it('normalizes candidate safe places without claiming operational verification', async () => {

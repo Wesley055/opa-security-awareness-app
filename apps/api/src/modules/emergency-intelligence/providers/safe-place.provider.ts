@@ -77,11 +77,14 @@ export class SafePlaceProvider {
     private readonly googleClient: GoogleLocationClient,
   ) {}
 
-  get dataConfidence(): DataConfidence {
-    return this.googleClient.isConfigured()
-      ? 'PRODUCTION'
-      : 'MOCK';
-  }
+  /**
+   * Intentionally pinned to MOCK pending Nigeria production validation.
+   * SAFE_PLACE_TYPES queries 'police' and 'hospital', so this provider
+   * returns the same records HospitalProvider and PoliceProvider are
+   * suppressed for. Presence in a map listing does not establish that a
+   * location is open, staffed, or safe to send a person in danger to.
+   */
+  readonly dataConfidence: DataConfidence = 'MOCK';
 
   async findNearbySafePlaces(
     latitude: number,

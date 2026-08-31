@@ -11,6 +11,11 @@ import { GlobalExceptionFilter } from './shared/filters/global-exception.filter'
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule);
 
+  // Azure App Service terminates traffic at its reverse proxy before the
+  // Node process. Trust only that immediate hop so req.ip resolves to the
+  // originating client for endpoint-level throttling.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
   const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? '')
     .split(',')
     .map((o) => o.trim())

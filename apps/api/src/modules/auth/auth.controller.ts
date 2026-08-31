@@ -1,4 +1,12 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  HttpStatus,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { ActivationService } from './activation.service';
 import { AuthService } from './auth.service';
 import { ActivateProvisionedUserDto } from './dto/activate-provisioned-user.dto';
@@ -39,6 +47,8 @@ export class AuthController {
     return this.passwordResetService.confirmReset(dto);
   }
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   @Post('activate')
   activate(@Body() dto: ActivateProvisionedUserDto) {

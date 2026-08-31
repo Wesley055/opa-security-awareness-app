@@ -4,6 +4,7 @@ import { AccountStatus, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { normalizeActivationCredential } from '../../shared/security/activation-code';
 import { AuthService } from './auth.service';
 import type { ActivateProvisionedUserDto } from './dto/activate-provisioned-user.dto';
 
@@ -47,7 +48,9 @@ export class ActivationService {
    * not activate.
    */
   private hashActivationToken(token: string): string {
-    return createHash('sha256').update(token).digest('hex');
+    return createHash('sha256')
+      .update(normalizeActivationCredential(token))
+      .digest('hex');
   }
 
   async activate(dto: ActivateProvisionedUserDto) {

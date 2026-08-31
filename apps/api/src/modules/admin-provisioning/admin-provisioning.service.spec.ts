@@ -142,6 +142,11 @@ describe('AdminProvisioningService', () => {
       facilityId: 'facility-1',
     });
 
+    expect(result.activationToken).toHaveLength(8);
+    expect(result.activationToken).toMatch(
+      /^[0-9A-HJKMNP-TV-Z]{8}$/,
+    );
+
     const data = prisma.user.create.mock.calls[0][0].data;
 
     expect(data.email).toBe('resident@example.com');

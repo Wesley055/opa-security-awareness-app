@@ -120,6 +120,39 @@ describe('ActivationService', () => {
     expect(JSON.stringify(where)).not.toContain(RAW_TOKEN);
   });
 
+  it('normalises a human-entered resident code before hash lookup', async () => {
+    const canonicalCode = '01AB1C1D';
+    const codeHash = createHash('sha256')
+      .update(canonicalCode)
+      .digest('hex');
+
+    prisma.user.findUnique
+      .mockResolvedValueOnce({ id: 'resident-1' })
+      .mockResolvedValueOnce({
+        ...pendingSeat(),
+        id: 'resident-1',
+        email: 'resident@example.com',
+        role: UserRole.USER,
+        activationTokenHash: codeHash,
+      });
+
+    prisma.user.update.mockResolvedValueOnce({
+      id: 'resident-1',
+      email: 'resident@example.com',
+      role: UserRole.USER,
+      accountStatus: AccountStatus.ACTIVE,
+    });
+
+    await service.activate({
+      token: ' o1ab-lcid ',
+      password: 'AResidentPassword1!',
+    });
+
+    const where = prisma.user.findUnique.mock.calls[0][0].where;
+    expect(where.activationTokenHash).toBe(codeHash);
+    expect(JSON.stringify(where)).not.toContain('o1ab-lcid');
+  });
+
   it('rejects an unknown token without opening a transaction', async () => {
     prisma.user.findUnique.mockResolvedValueOnce(null);
 

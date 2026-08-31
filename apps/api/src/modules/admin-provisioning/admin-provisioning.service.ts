@@ -10,6 +10,7 @@ import {
 } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { generateActivationCode } from '../../shared/security/activation-code';
 import { toE164 } from '../../shared/phone/normalize-phone-number';
 import type { FindResidentDto } from './dto/find-resident.dto';
 import type { CreateFacilityDto } from './dto/create-facility.dto';
@@ -18,6 +19,7 @@ import type { CreateResidentDto } from './dto/create-resident.dto';
 
 const ACTIVATION_TOKEN_BYTES = 32;
 const ACTIVATION_VALIDITY_MS = 24 * 60 * 60 * 1000;
+type ActivationCredentialKind = 'CODE' | 'TOKEN';
 type ProvisionedAccountDto = {
   email: string;
   phoneNumber: string;
@@ -57,6 +59,7 @@ export class AdminProvisioningService {
       dto,
       UserRole.FACILITY_OPERATOR,
       '/operator/activate/',
+      'TOKEN',
     );
   }
 
@@ -66,6 +69,7 @@ export class AdminProvisioningService {
       dto,
       UserRole.USER,
       '/resident/activate/',
+      'CODE',
     );
   }
 
@@ -87,6 +91,7 @@ export class AdminProvisioningService {
     dto: ProvisionedAccountDto,
     role: UserRole,
     activationPathPrefix: string,
+    credential: ActivationCredentialKind,
   ) {
     const email = dto.email.trim().toLowerCase();
     const phoneNumber = toE164(dto.phoneNumber);
@@ -125,9 +130,10 @@ export class AdminProvisioningService {
         );
       }
 
-      const rawToken = randomBytes(ACTIVATION_TOKEN_BYTES).toString(
-        'base64url',
-      );
+      const rawToken =
+        credential === 'CODE'
+          ? generateActivationCode()
+          : randomBytes(ACTIVATION_TOKEN_BYTES).toString('base64url');
       const activationTokenHash = this.hashActivationToken(rawToken);
       const activationExpiresAt = new Date(
         Date.now() + ACTIVATION_VALIDITY_MS,

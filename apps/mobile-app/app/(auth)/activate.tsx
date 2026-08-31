@@ -32,7 +32,7 @@ export default function ActivateScreen() {
     const normalizedToken = token.trim();
 
     if (!normalizedToken || !password || !confirmPassword) {
-      setError('Enter your activation token and create a password.');
+      setError('Enter your invitation code and create a password.');
       return;
     }
 
@@ -84,7 +84,7 @@ export default function ActivateScreen() {
         <Text style={styles.subtitle}>Activate your OPA account</Text>
 
         <Text style={styles.helper}>
-          Enter the activation token sent by your estate or organization, then
+          Enter the invitation code sent by your estate or organization, then
           create your password.
         </Text>
 
@@ -92,11 +92,11 @@ export default function ActivateScreen() {
 
         <TextInput
           style={styles.input}
-          placeholder="Activation token"
+          placeholder="Invitation code"
           placeholderTextColor="#8B949E"
           value={token}
           onChangeText={setToken}
-          autoCapitalize="none"
+          autoCapitalize="characters"
           autoCorrect={false}
           editable={!isSubmitting}
         />

@@ -116,6 +116,21 @@ export default function LoginScreen() {
         )}
       </TouchableOpacity>
 
+      <Text style={styles.orText}>OR</Text>
+
+      <Text style={styles.invitationText}>
+        Have an invitation from your estate or organization?
+      </Text>
+
+      <TouchableOpacity
+        style={styles.secondaryButton}
+        onPress={() => router.push('/(auth)/activate')}
+        disabled={isSubmitting}
+        activeOpacity={0.85}
+      >
+        <Text style={styles.secondaryButtonText}>Activate my OPA account</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity
         onPress={() => router.push('/(auth)/register')}
         disabled={isSubmitting}
@@ -210,6 +225,32 @@ const styles = StyleSheet.create({
     color: '#08111A',
     fontWeight: '700',
     fontSize: 16,
+  },
+  orText: {
+    color: '#8B949E',
+    textAlign: 'center',
+    marginTop: 18,
+    marginBottom: 12,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  invitationText: {
+    color: '#8B949E',
+    textAlign: 'center',
+    fontSize: 13,
+    marginBottom: 10,
+  },
+  secondaryButton: {
+    borderWidth: 1,
+    borderColor: '#17C964',
+    borderRadius: 8,
+    padding: 14,
+    alignItems: 'center',
+  },
+  secondaryButtonText: {
+    color: '#17C964',
+    fontWeight: '700',
+    fontSize: 14,
   },
   link: {
     color: '#17C964',

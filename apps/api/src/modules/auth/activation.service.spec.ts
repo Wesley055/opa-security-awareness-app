@@ -18,7 +18,25 @@ describe('ActivationService', () => {
     getOrThrow: jest.fn(() => 10),
   };
 
-  const service = new ActivationService(prisma as never, config as never);
+  const authService = {
+    issueTokens: jest.fn().mockImplementation(async (user) => ({
+      accessToken: 'test-access-token',
+      refreshToken: 'test-refresh-token',
+      user: {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        role: user.role,
+      },
+    })),
+  };
+
+  const service = new ActivationService(
+    prisma as never,
+    config as never,
+    authService as never,
+  );
 
   const RAW_TOKEN = 'a-raw-activation-token';
   const TOKEN_HASH = createHash('sha256').update(RAW_TOKEN).digest('hex');
@@ -186,7 +204,9 @@ describe('ActivationService', () => {
       password: 'AResidentPassword1!',
     });
 
-    expect(result.role).toBe(UserRole.USER);
+    expect(result.user.role).toBe(UserRole.USER);
+    expect(result.accessToken).toBe('test-access-token');
+    expect(result.refreshToken).toBe('test-refresh-token');
 
     const data = prisma.user.update.mock.calls[0][0].data;
     expect(data.accountStatus).toBe(AccountStatus.ACTIVE);

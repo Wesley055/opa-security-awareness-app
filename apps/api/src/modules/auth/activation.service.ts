@@ -4,6 +4,7 @@ import { AccountStatus, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
+import { AuthService } from './auth.service';
 import type { ActivateProvisionedUserDto } from './dto/activate-provisioned-user.dto';
 
 /**
@@ -34,6 +35,7 @@ export class ActivationService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly authService: AuthService,
   ) {}
 
   /**
@@ -73,7 +75,7 @@ export class ActivationService {
       this.config.getOrThrow<number>('BCRYPT_ROUNDS'),
     );
 
-    return this.prisma.$transaction(async (tx) => {
+    const activated = await this.prisma.$transaction(async (tx) => {
       // The same one-argument per-user lock taken by incident activation,
       // lifecycle transitions, journey sessions and resident assignment.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${candidate.id}))`;
@@ -134,11 +136,18 @@ export class ActivationService {
           firstName: true,
           lastName: true,
           role: true,
+          credentialVersion: true,
           facilityId: true,
           accountStatus: true,
           activatedAt: true,
         },
       });
     });
+
+    // Activation is an authentication ceremony. Once the single-use claim
+    // transaction has committed, issue the same session envelope used by
+    // registration and login. Token signing deliberately stays outside the
+    // transaction and advisory-lock lifetime.
+    return this.authService.issueTokens(activated);
   }
 }

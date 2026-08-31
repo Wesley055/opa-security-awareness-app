@@ -90,7 +90,7 @@ export class AuthService {
     return this.issueTokens(user);
   }
 
-  private async issueTokens(user: TokenUser) {
+  async issueTokens(user: TokenUser) {
     const credentialVersion = user.credentialVersion ?? 0;
 
     const accessPayload = {

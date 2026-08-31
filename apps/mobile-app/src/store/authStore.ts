@@ -18,15 +18,27 @@ interface RegisterPayload {
   password: string;
 }
 
+interface AuthSession {
+  accessToken: string;
+  refreshToken: string;
+  user: User;
+}
+
 interface AuthState {
   user: User | null;
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (payload: RegisterPayload) => Promise<void>;
+  activate: (token: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
   forceLogout: () => void;
+}
+
+async function persistSession(data: AuthSession): Promise<void> {
+  await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, data.accessToken);
+  await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, data.refreshToken);
 }
 
 export const useAuthStore = create<AuthState>((set) => {
@@ -38,20 +50,26 @@ export const useAuthStore = create<AuthState>((set) => {
     isAuthenticated: false,
 
     login: async (email: string, password: string) => {
-      // Matches the real, verified /auth/login response shape:
-      // { accessToken, refreshToken, user }
-      const { data } = await api.post('/auth/login', { email, password });
-      await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, data.accessToken);
-      await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, data.refreshToken);
+      const { data } = await api.post<AuthSession>('/auth/login', {
+        email,
+        password,
+      });
+      await persistSession(data);
       set({ user: data.user, isAuthenticated: true, isLoading: false });
     },
 
     register: async (payload: RegisterPayload) => {
-      // Matches the real, verified /auth/register response shape:
-      // { accessToken, refreshToken, user } — identical to login.
-      const { data } = await api.post('/auth/register', payload);
-      await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, data.accessToken);
-      await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, data.refreshToken);
+      const { data } = await api.post<AuthSession>('/auth/register', payload);
+      await persistSession(data);
+      set({ user: data.user, isAuthenticated: true, isLoading: false });
+    },
+
+    activate: async (token: string, password: string) => {
+      const { data } = await api.post<AuthSession>('/auth/activate', {
+        token,
+        password,
+      });
+      await persistSession(data);
       set({ user: data.user, isAuthenticated: true, isLoading: false });
     },
 
@@ -63,12 +81,8 @@ export const useAuthStore = create<AuthState>((set) => {
 
     checkAuth: async () => {
       const token = await SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
-      // Note: this only checks whether a token exists locally, not
-      // whether it's still valid — an expired-but-present token will
-      // still pass this check, and get caught by api.ts's 401 handler
-      // on the first real request instead. Good enough for now; a real
-      // token-validity check would need a dedicated endpoint like
-      // GET /auth/me, which doesn't exist in the backend yet.
+      // This intentionally checks local session presence only. api.ts owns
+      // access-token expiry handling through silent refresh on real requests.
       set({ isAuthenticated: !!token, isLoading: false });
     },
 
@@ -76,14 +90,14 @@ export const useAuthStore = create<AuthState>((set) => {
   };
 });
 
-// A small side-channel so api.ts (which can't import the store
-// directly without a circular import) can still notify it when a
-// refresh attempt fails, keeping isAuthenticated in sync with what's
-// actually left in SecureStore.
+// api.ts cannot import the Zustand store directly without creating a circular
+// dependency, so it uses this small callback to synchronize forced logout.
 let registerForceLogoutFn: (() => void) | null = null;
+
 function registerForceLogout(fn: () => void) {
   registerForceLogoutFn = fn;
 }
+
 export function notifyForceLogout() {
   registerForceLogoutFn?.();
 }

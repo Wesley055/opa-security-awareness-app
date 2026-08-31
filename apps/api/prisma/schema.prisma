@@ -111,6 +111,9 @@ model User {
   invitedBy       User?   @relation("UserInvitations", fields: [invitedByUserId], references: [id], onDelete: SetNull)
   invitedUsers    User[]  @relation("UserInvitations")
 
+  invitationDeliveriesReceived AccountInvitationDelivery[] @relation("InvitationDeliveryRecipient")
+  invitationDeliveriesSent     AccountInvitationDelivery[] @relation("InvitationDeliveryInviter")
+
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   incidents           Incident[]
@@ -255,7 +258,70 @@ model IncidentNotification {
   @@index([providerMessageId])
 }
 
+/// Durable outbox for one attempt to deliver an account invitation.
+///
+/// WORKER-ONLY, AND THAT IS THE POINT. Provisioning commits the account and
+/// this row in one transaction and returns immediately, so a provider
+/// outage can never roll back or silently lose a resident seat.
+///
+/// NO PAYLOAD COLUMN. The activation credential lives in exactly one place -
+/// User.activationTokenHash - and the message is built in memory at send
+/// time and discarded. A retry cannot recover the plaintext, so the worker
+/// ISSUES A FRESH CODE when it claims a row, storing the new hash and
+/// expiry and holding the plaintext only for the immediate provider call.
+/// An abandoned SENDING row is therefore safe to requeue: the next claim
+/// mints another code and invalidates the one that never arrived. Expiry
+/// restarts with each issued code, so a resident whose first attempt failed
+/// still gets a full window from the message she actually receives.
+///
+/// NO deliveredAt. Africa's Talking returning success proves the provider
+/// accepted the message, nothing more. SENT is the strongest state OPA can
+/// honestly assert until a delivery-receipt webhook exists.
+model AccountInvitationDelivery {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// The invited account. Restrict, not Cascade: this is an audit record of
+  /// what OPA sent on whose behalf, and it outlives convenience.
+  userId String @db.Uuid
+  user   User   @relation("InvitationDeliveryRecipient", fields: [userId], references: [id], onDelete: Restrict)
+
+  facilityId String   @db.Uuid
+  facility   Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+
+  /// NULLABLE, unlike the recipient. An administrator's own lifecycle must
+  /// not be blocked by the invitations they once sent, so the actor may
+  /// disappear while the record of what OPA sent survives.
+  invitedByUserId String? @db.Uuid
+  invitedBy       User?   @relation("InvitationDeliveryInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+
+  channel NotificationChannel
+  status  NotificationStatus
+
+  /// E.164 at the moment of provisioning, snapshotted deliberately. If the
+  /// resident later corrects her number, this still records where OPA
+  /// actually sent the invitation.
+  recipient String
+
+  provider          String?
+  providerMessageId String?
+  attemptCount      Int     @default(0)
+  lastError         String?
+
+  queuedAt  DateTime  @default(now())
+  nextAttemptAt DateTime @default(now())
+  lastAttemptAt DateTime?
+  sentAt    DateTime?
+  failedAt  DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([userId])
+  /// The worker's claim query: due QUEUED rows, oldest original queue time first.
+  @@index([status, nextAttemptAt, queuedAt])
+}
+
 model Facility {
+
   id          String       @id @default(uuid()) @db.Uuid
   name        String
   type        FacilityType
@@ -270,6 +336,8 @@ model Facility {
 
   staff     User[]     @relation("FacilityStaff")
   incidents Incident[]
+
+  invitationDeliveries AccountInvitationDelivery[]
 
   @@index([type, isActive])
   @@index([latitude, longitude])

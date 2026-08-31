@@ -8,9 +8,11 @@ import {
   AccountStatus,
   UserRole,
 } from '@prisma/client';
-import { createHash, randomBytes } from 'crypto';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
-import { generateActivationCode } from '../../shared/security/activation-code';
+import {
+  hashActivationCredential,
+} from '../../shared/security/activation-code';
 import { toE164 } from '../../shared/phone/normalize-phone-number';
 import type { FindResidentDto } from './dto/find-resident.dto';
 import type { CreateFacilityDto } from './dto/create-facility.dto';
@@ -19,7 +21,6 @@ import type { CreateResidentDto } from './dto/create-resident.dto';
 
 const ACTIVATION_TOKEN_BYTES = 32;
 const ACTIVATION_VALIDITY_MS = 24 * 60 * 60 * 1000;
-type ActivationCredentialKind = 'CODE' | 'TOKEN';
 type ProvisionedAccountDto = {
   email: string;
   phoneNumber: string;
@@ -32,11 +33,7 @@ type ProvisionedAccountDto = {
 export class AdminProvisioningService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private hashActivationToken(token: string): string {
-    return createHash('sha256').update(token).digest('hex');
-  }
-
-  async createFacility(dto: CreateFacilityDto) {
+async createFacility(dto: CreateFacilityDto) {
     const phoneNumber = dto.phoneNumber
       ? toE164(dto.phoneNumber)
       : undefined;
@@ -59,18 +56,110 @@ export class AdminProvisioningService {
       dto,
       UserRole.FACILITY_OPERATOR,
       '/operator/activate/',
-      'TOKEN',
     );
   }
 
   async createResidentInvite(adminUserId: string, dto: CreateResidentDto) {
-    return this.createProvisionedAccount(
-      adminUserId,
-      dto,
-      UserRole.USER,
-      '/resident/activate/',
-      'CODE',
-    );
+    return this.createResidentWithQueuedInvitation(adminUserId, dto);
+  }
+
+  /**
+   * Resident provisioning is durable and worker-delivered.
+   *
+   * No activation credential is minted here. The USER and its QUEUED SMS
+   * delivery commit atomically; the delivery worker mints a fresh code only
+   * after it owns the delivery attempt.
+   */
+  private async createResidentWithQueuedInvitation(
+    adminUserId: string,
+    dto: CreateResidentDto,
+  ) {
+    const email = dto.email.trim().toLowerCase();
+    const phoneNumber = toE164(dto.phoneNumber);
+
+    return this.prisma.$transaction(async (tx) => {
+      const facility = await tx.facility.findUnique({
+        where: { id: dto.facilityId },
+        select: { id: true, isActive: true },
+      });
+
+      if (!facility || !facility.isActive) {
+        throw new NotFoundException('Active facility not found.');
+      }
+
+      const existingEmail = await tx.user.findUnique({
+        where: { email },
+        select: { id: true },
+      });
+
+      const existingPhone = await tx.user.findUnique({
+        where: { phoneNumber },
+        select: { id: true },
+      });
+
+      if (existingEmail) {
+        throw new ConflictException(
+          'An account already exists for this email.',
+        );
+      }
+
+      if (existingPhone) {
+        throw new ConflictException(
+          'An account already exists for this phone number.',
+        );
+      }
+
+      const user = await tx.user.create({
+        data: {
+          email,
+          phoneNumber,
+          passwordHash: null,
+          firstName: dto.firstName.trim(),
+          lastName: dto.lastName.trim(),
+          role: UserRole.USER,
+          facilityId: dto.facilityId,
+          isActive: true,
+          accountStatus: AccountStatus.PENDING_ACTIVATION,
+          activationTokenHash: null,
+          activationExpiresAt: null,
+          activatedAt: null,
+          invitedByUserId: adminUserId,
+        },
+        select: {
+          id: true,
+          email: true,
+          phoneNumber: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          facilityId: true,
+          accountStatus: true,
+          activationExpiresAt: true,
+          invitedByUserId: true,
+        },
+      });
+
+      const delivery = await tx.accountInvitationDelivery.create({
+        data: {
+          userId: user.id,
+          facilityId: dto.facilityId,
+          invitedByUserId: adminUserId,
+          channel: 'SMS',
+          status: 'QUEUED',
+          recipient: phoneNumber,
+        },
+        select: {
+          id: true,
+          channel: true,
+          status: true,
+          recipient: true,
+          queuedAt: true,
+          nextAttemptAt: true,
+        },
+      });
+
+      return { user, delivery };
+    });
   }
 
   /**
@@ -91,7 +180,6 @@ export class AdminProvisioningService {
     dto: ProvisionedAccountDto,
     role: UserRole,
     activationPathPrefix: string,
-    credential: ActivationCredentialKind,
   ) {
     const email = dto.email.trim().toLowerCase();
     const phoneNumber = toE164(dto.phoneNumber);
@@ -130,11 +218,8 @@ export class AdminProvisioningService {
         );
       }
 
-      const rawToken =
-        credential === 'CODE'
-          ? generateActivationCode()
-          : randomBytes(ACTIVATION_TOKEN_BYTES).toString('base64url');
-      const activationTokenHash = this.hashActivationToken(rawToken);
+      const rawToken = randomBytes(ACTIVATION_TOKEN_BYTES).toString('base64url');
+      const activationTokenHash = hashActivationCredential(rawToken);
       const activationExpiresAt = new Date(
         Date.now() + ACTIVATION_VALIDITY_MS,
       );

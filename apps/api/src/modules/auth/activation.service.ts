@@ -2,9 +2,11 @@ import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AccountStatus, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { createHash } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
-import { normalizeActivationCredential } from '../../shared/security/activation-code';
+import {
+  hashActivationCredential,
+  normalizeActivationCredential,
+} from '../../shared/security/activation-code';
 import { AuthService } from './auth.service';
 import type { ActivateProvisionedUserDto } from './dto/activate-provisioned-user.dto';
 
@@ -48,9 +50,9 @@ export class ActivationService {
    * not activate.
    */
   private hashActivationToken(token: string): string {
-    return createHash('sha256')
-      .update(normalizeActivationCredential(token))
-      .digest('hex');
+    // NORMALISE, THEN HASH, IN THAT ORDER. A resident types what she
+    // reads off an SMS; the stored digest covers the canonical form.
+    return hashActivationCredential(normalizeActivationCredential(token));
   }
 
   async activate(dto: ActivateProvisionedUserDto) {

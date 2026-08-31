@@ -19,6 +19,10 @@ import { NotificationDispatchWorker } from './notification-dispatch.worker';
     VoiceProvider,
     NotificationDispatchWorker,
   ],
-  exports: [NotificationService, EmailProvider],
+  // SmsProvider is exported as TRANSPORT, not as notification policy. The
+  // invitation worker in AdminProvisioningModule sends account invitations
+  // over SMS; that is not incident notification, and the provider stays
+  // here because this is where transport infrastructure belongs.
+  exports: [NotificationService, EmailProvider, SmsProvider],
 })
 export class NotificationModule {}

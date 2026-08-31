@@ -24,6 +24,9 @@ describe('AdminProvisioningService', () => {
       create: jest.fn(),
       update: jest.fn(),
     },
+    accountInvitationDelivery: {
+      create: jest.fn(),
+    },
   };
 
   const service = new AdminProvisioningService(prisma as never);
@@ -111,7 +114,7 @@ describe('AdminProvisioningService', () => {
     expect(data.activationTokenHash).not.toBe(result.activationToken);
   });
 
-  it('creates a pending resident already attached to the facility', async () => {
+  it('creates a pending resident and queues SMS without minting a credential', async () => {
     prisma.facility.findUnique.mockResolvedValue({
       id: 'facility-1',
       isActive: true,
@@ -130,8 +133,17 @@ describe('AdminProvisioningService', () => {
       role: UserRole.USER,
       facilityId: 'facility-1',
       accountStatus: AccountStatus.PENDING_ACTIVATION,
-      activationExpiresAt: new Date(),
+      activationExpiresAt: null,
       invitedByUserId: 'admin-1',
+    });
+
+    prisma.accountInvitationDelivery.create.mockResolvedValue({
+      id: 'delivery-1',
+      channel: 'SMS',
+      status: 'QUEUED',
+      recipient: '+2348024662124',
+      queuedAt: new Date(),
+      nextAttemptAt: new Date(),
     });
 
     const result = await service.createResidentInvite('admin-1', {
@@ -142,29 +154,45 @@ describe('AdminProvisioningService', () => {
       facilityId: 'facility-1',
     });
 
-    expect(result.activationToken).toHaveLength(8);
-    expect(result.activationToken).toMatch(
-      /^[0-9A-HJKMNP-TV-Z]{8}$/,
-    );
+    const userData = prisma.user.create.mock.calls[0][0].data;
 
-    const data = prisma.user.create.mock.calls[0][0].data;
+    expect(userData.email).toBe('resident@example.com');
+    expect(userData.phoneNumber).toBe('+2348024662124');
+    expect(userData.firstName).toBe('Ada');
+    expect(userData.lastName).toBe('Okafor');
+    expect(userData.role).toBe(UserRole.USER);
+    expect(userData.facilityId).toBe('facility-1');
+    expect(userData.accountStatus).toBe(AccountStatus.PENDING_ACTIVATION);
+    expect(userData.passwordHash).toBeNull();
+    expect(userData.invitedByUserId).toBe('admin-1');
+    expect(userData.activationTokenHash).toBeNull();
+    expect(userData.activationExpiresAt).toBeNull();
 
-    expect(data.email).toBe('resident@example.com');
-    expect(data.phoneNumber).toBe('+2348024662124');
-    expect(data.firstName).toBe('Ada');
-    expect(data.lastName).toBe('Okafor');
-    expect(data.role).toBe(UserRole.USER);
-    expect(data.facilityId).toBe('facility-1');
-    expect(data.accountStatus).toBe(AccountStatus.PENDING_ACTIVATION);
-    expect(data.passwordHash).toBeNull();
-    expect(data.invitedByUserId).toBe('admin-1');
-    expect(data.activationTokenHash).toEqual(expect.any(String));
-    expect(data.activationTokenHash).not.toBe(result.activationToken);
-    expect(result.activationPath).toBe(
-      '/resident/activate/' + result.activationToken,
-    );
+    expect(prisma.accountInvitationDelivery.create).toHaveBeenCalledWith({
+      data: {
+        userId: 'resident-1',
+        facilityId: 'facility-1',
+        invitedByUserId: 'admin-1',
+        channel: 'SMS',
+        status: 'QUEUED',
+        recipient: '+2348024662124',
+      },
+      select: {
+        id: true,
+        channel: true,
+        status: true,
+        recipient: true,
+        queuedAt: true,
+        nextAttemptAt: true,
+      },
+    });
+
+    expect(result.user.id).toBe('resident-1');
+    expect(result.delivery.id).toBe('delivery-1');
+    expect(result.delivery.status).toBe('QUEUED');
+    expect(result).not.toHaveProperty('activationToken');
+    expect(result).not.toHaveProperty('activationPath');
   });
-
   it('rejects resident provisioning into an inactive or missing facility', async () => {
     prisma.facility.findUnique.mockResolvedValue(null);
 

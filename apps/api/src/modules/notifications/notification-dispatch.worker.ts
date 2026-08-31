@@ -5,10 +5,12 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { NotificationService } from './notification.service';
 
 /**
- * Background worker that will consume durable QUEUED IncidentNotification
- * rows (the outbox). Phase 2a: scaffolding only - it proves the scheduler
- * fires and the worker can reach the DB. It does NOT send anything yet; the
- * orchestrator's synchronous send remains the dispatch path until Phase 2c.
+ * Background worker for durable QUEUED IncidentNotification rows.
+ *
+ * Emergency delivery is intentionally synchronous-first for minimum SOS
+ * latency, while this worker owns durable fallback dispatch for rows that
+ * remain QUEUED. The optimistic claim prevents the synchronous path and
+ * worker from dispatching the same queued row concurrently.
  */
 @Injectable()
 export class NotificationDispatchWorker {
@@ -64,9 +66,8 @@ export class NotificationDispatchWorker {
    * This is the primitive that makes single- and multi-consumer dispatch
    * safe against double-send.
    *
-   * NOTE (Phase 2b): defined and unit-tested but NOT yet called by tick().
-   * Wiring claim + send + finalize together happens in Phase 2c, so we never
-   * strand a row in SENDING with no delivery.
+   * tick() uses this claim before dispatch. A successful claim transfers
+   * dispatch ownership to this worker by changing QUEUED -> SENDING.
    *
    * The returned row reflects its PRE-claim state (stale status/attemptCount);
    * it is returned only as the identity of the successfully claimed row.

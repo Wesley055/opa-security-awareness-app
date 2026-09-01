@@ -18,6 +18,7 @@ import { AdminProvisioningService } from './admin-provisioning.service';
 import { AssignResidentFacilityDto } from './dto/assign-resident-facility.dto';
 import { CreateFacilityDto } from './dto/create-facility.dto';
 import { CreateOperatorDto } from './dto/create-operator.dto';
+import { CreateBulkResidentsDto } from './dto/create-bulk-residents.dto';
 import { CreateResidentDto } from './dto/create-resident.dto';
 import { FindResidentDto } from './dto/find-resident.dto';
 
@@ -52,6 +53,16 @@ export class AdminProvisioningController {
    * membership before the resident can activate the account, eliminating
    * the window where an SOS can exist without its estate/facility context.
    */
+  @Post('residents/bulk')
+  createBulkResidents(
+    @Req() request: AuthenticatedRequest,
+    @Body() dto: CreateBulkResidentsDto,
+  ) {
+    return this.provisioning.createBulkResidentInvites(
+      request.user.sub,
+      dto.residents,
+    );
+  }
   @Post('residents')
   createResident(
     @Req() request: AuthenticatedRequest,

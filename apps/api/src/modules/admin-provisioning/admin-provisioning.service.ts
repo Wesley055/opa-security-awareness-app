@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  HttpException,
   Injectable,
   NotFoundException,
   BadRequestException,
@@ -59,6 +60,81 @@ async createFacility(dto: CreateFacilityDto) {
     );
   }
 
+  async createBulkResidentInvites(
+    adminUserId: string,
+    residents: CreateResidentDto[],
+  ) {
+    const results: Array<
+      | {
+          index: number;
+          status: 'QUEUED';
+          user: Awaited<ReturnType<AdminProvisioningService['createResidentInvite']>>['user'];
+          delivery: Awaited<ReturnType<AdminProvisioningService['createResidentInvite']>>['delivery'];
+        }
+      | {
+          index: number;
+          status: 'FAILED';
+          error: {
+            statusCode: number;
+            message: string;
+          };
+        }
+    > = [];
+
+    for (const [index, dto] of residents.entries()) {
+      try {
+        const created = await this.createResidentInvite(adminUserId, dto);
+        results.push({
+          index,
+          status: 'QUEUED',
+          user: created.user,
+          delivery: created.delivery,
+        });
+      } catch (error: unknown) {
+        if (error instanceof HttpException) {
+          const response = error.getResponse();
+          const responseMessage =
+            typeof response === 'string'
+              ? response
+              : Array.isArray((response as { message?: unknown })?.message)
+                ? (response as { message: unknown[] }).message.join('; ')
+                : typeof (response as { message?: unknown })?.message === 'string'
+                  ? (response as { message: string }).message
+                  : error.message;
+
+          results.push({
+            index,
+            status: 'FAILED',
+            error: {
+              statusCode: error.getStatus(),
+              message: responseMessage,
+            },
+          });
+          continue;
+        }
+
+        // Do not leak unexpected internal/provider details through a bulk row.
+        results.push({
+          index,
+          status: 'FAILED',
+          error: {
+            statusCode: 500,
+            message: 'Resident provisioning failed.',
+          },
+        });
+      }
+    }
+
+    const queued = results.filter((result) => result.status === 'QUEUED').length;
+    const failed = results.length - queued;
+
+    return {
+      total: results.length,
+      queued,
+      failed,
+      results,
+    };
+  }
   async createResidentInvite(adminUserId: string, dto: CreateResidentDto) {
     return this.createResidentWithQueuedInvitation(adminUserId, dto);
   }

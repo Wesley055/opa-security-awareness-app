@@ -2,43 +2,6 @@ import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getOperatorContext } from '@/lib/operator-context';
 
-/**
- * THE COMMAND CENTER SHELL. 14A-4, given real context in 14A-5.
- *
- * The permanent operational frame every protected operator screen hangs
- * from: 14A-6's queue, 14A-7's detail view.
- *
- * IT STILL DOES NOT GUARD, DELIBERATELY. Each protected page keeps its own
- * getSessionState() check. A layout guard looks like centralisation but has
- * the same weakness the operator page's comment rejects middleware for: it
- * only covers what it happens to wrap, and a route added outside it is
- * silently unprotected. Visual containment here, authorization in the page.
- *
- * THE ONE REDIRECT IT DOES MAKE IS RECOVERY, NOT AUTHORIZATION. A REJECTED
- * context means the access token was refused while the cookie was still
- * present - the page's own guard saw a cookie and let the render proceed,
- * and the token turned out to be dead. That is exactly what the refresh
- * route exists for. It cannot loop: rotation re-reads the user row and only
- * succeeds for a live, active account, and /users/me asks nothing stricter,
- * so a successful rotation cannot be followed by another rejection. If
- * rotation fails, the refresh route clears the cookies and sends the
- * operator to login with a reason - which suppresses further rotation.
- *
- * IT SHOWS WHAT IT KNOWS AND NOTHING MORE. The facility name and type are
- * read from the API on every render. isVerified is available and NOT shown:
- * the header answers "which facility am I monitoring", not "what is this
- * facility's standing", and OPA Demo Estate is unverified in production.
- * NO_FACILITY and UNAVAILABLE each say plainly what happened rather than
- * rendering an empty slot that reads as data.
- *
- * SIGN OUT IS A PLAIN POST FORM, no client JavaScript. It redirects to the
- * login page rather than returning JSON. Remember what it can honestly
- * claim: the API has no revocation endpoint, so this clears the cookies and
- * the access token stays valid for up to 15 minutes. It is not "signing out
- * everywhere".
- */
-
-/** SECURITY_PROVIDER -> Security Provider. Display only. */
 function formatFacilityType(type: string): string {
   return type
     .split('_')
@@ -59,9 +22,12 @@ export default async function OperatorShellLayout({
   }
 
   const context = result.state === 'READY' ? result.context : null;
-  const operatorName = context
+  const viewerName = context
     ? `${context.firstName} ${context.lastName}`.trim()
     : null;
+  const role = context?.role ?? (result.state === 'NO_FACILITY' ? result.role : null);
+  const isFacilityAdmin = role === 'FACILITY_ADMIN';
+  const isFacilityOperator = role === 'FACILITY_OPERATOR';
 
   const notice =
     result.state === 'NO_FACILITY'
@@ -76,11 +42,9 @@ export default async function OperatorShellLayout({
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:items-start lg:justify-between lg:gap-8 lg:px-8">
           <div>
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <span className="font-display text-lg font-bold text-ink">
-                OPA
-              </span>
+              <span className="font-display text-lg font-bold text-ink">OPA</span>
               <span className="font-mono text-xs uppercase tracking-widest text-protection">
-                Command Center
+                Viewer
               </span>
             </div>
 
@@ -97,27 +61,41 @@ export default async function OperatorShellLayout({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 sm:gap-3 lg:justify-end">
-            <nav
-              aria-label="Operator"
-              className="order-first flex w-full items-center gap-1 rounded-lg border border-line bg-panel p-1 sm:order-none sm:w-auto"
-            >
-              <Link
-                href="/operator"
-                className="min-h-10 rounded-md px-3 py-2 text-sm text-muted transition hover:bg-panel-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-protection"
+            {(isFacilityAdmin || isFacilityOperator) ? (
+              <nav
+                aria-label="Facility Viewer"
+                className="order-first flex w-full items-center gap-1 rounded-lg border border-line bg-panel p-1 sm:order-none sm:w-auto"
               >
-                Incidents
-              </Link>
+                {isFacilityOperator ? (
+                  <>
+                    <Link
+                      href="/operator"
+                      className="min-h-10 rounded-md px-3 py-2 text-sm text-muted transition hover:bg-panel-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-protection"
+                    >
+                      Incidents
+                    </Link>
+                    <Link
+                      href="/operator/members"
+                      className="min-h-10 rounded-md px-3 py-2 text-sm text-muted transition hover:bg-panel-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-protection"
+                    >
+                      Members
+                    </Link>
+                  </>
+                ) : null}
 
-              <Link
-                href="/operator/members"
-                className="min-h-10 rounded-md px-3 py-2 text-sm text-muted transition hover:bg-panel-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-protection"
-              >
-                Members
-              </Link>
-            </nav>
+                {isFacilityAdmin ? (
+                  <Link
+                    href="/operator/residents"
+                    className="min-h-10 rounded-md px-3 py-2 text-sm text-muted transition hover:bg-panel-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-protection"
+                  >
+                    Residents
+                  </Link>
+                ) : null}
+              </nav>
+            ) : null}
 
-            {operatorName ? (
-              <span className="hidden text-sm text-muted md:inline">{operatorName}</span>
+            {viewerName ? (
+              <span className="hidden text-sm text-muted md:inline">{viewerName}</span>
             ) : null}
 
             <form action="/api/operator/logout" method="post">

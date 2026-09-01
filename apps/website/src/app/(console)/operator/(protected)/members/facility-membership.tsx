@@ -114,7 +114,7 @@ export function FacilityMembership({
 
         <p className="mt-2 text-sm text-muted">
           {residentCount} {residentLabel}
-          {' · '}
+          <span aria-hidden="true"> &middot; </span>
           {operatorCount} {operatorLabel}
         </p>
       </header>

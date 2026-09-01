@@ -83,15 +83,18 @@ export async function POST(request: Request) {
       );
     }
 
-    // ROLE IS CHECKED HERE ONLY TO KEEP RESIDENTS OUT OF THE OPERATOR
-    // CONSOLE, NOT AS AUTHORIZATION. The API re-reads role from the
-    // database on every guarded request and that is what actually decides;
-    // this claim could be stale. A resident who signed in here would see an
-    // empty shell and 403s, which is a confusing way to be told no.
+    // This bridge admits only facility-scoped Viewer roles.
+    // It is not the authorization boundary: every protected API request
+    // re-reads role and facility membership from Postgres through its guard.
+    //
+    // FACILITY_OPERATOR uses the operational Viewer.
+    // FACILITY_ADMIN uses facility resident administration.
+    // USER belongs in the mobile app.
+    // ADMIN belongs in OPA platform administration, not facility operations.
     const role = result.user?.role;
-    if (role !== 'FACILITY_OPERATOR' && role !== 'ADMIN') {
+    if (role !== 'FACILITY_OPERATOR' && role !== 'FACILITY_ADMIN') {
       return NextResponse.json(
-        { ok: false, error: 'This account is not an operator account.' },
+        { ok: false, error: 'This account cannot use the facility Viewer.' },
         { status: 403 },
       );
     }

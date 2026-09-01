@@ -1,6 +1,7 @@
-import type { Metadata } from 'next';
+﻿import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { getSessionState } from '@/lib/operator-session';
+import { getOperatorContext } from '@/lib/operator-context';
 import { fetchOperatorQueue } from '@/lib/operator-queue';
 import { IncidentQueue } from './incident-queue';
 
@@ -38,6 +39,19 @@ export default async function OperatorHomePage() {
 
   if (state === 'none') {
     redirect('/operator/login');
+  }
+
+  const context = await getOperatorContext();
+
+  if (context.state === 'REJECTED') {
+    redirect('/api/operator/refresh');
+  }
+
+  if (
+    context.state === 'READY' &&
+    context.context.role === 'FACILITY_ADMIN'
+  ) {
+    redirect('/operator/residents');
   }
 
   const queue = await fetchOperatorQueue();

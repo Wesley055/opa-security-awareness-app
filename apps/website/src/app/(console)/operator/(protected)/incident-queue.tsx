@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { QueueIncident } from '@/lib/operator-queue';
+import { viewerSessionFetch } from '@/lib/viewer-session-fetch';
 
 /**
  * The live incident queue. 14A-6.
@@ -299,10 +300,24 @@ export function IncidentQueue({
     setLoadingMore(true);
 
     try {
-      const response = await fetch(
+      const response = await viewerSessionFetch(
         `/api/operator/incidents?cursor=${encodeURIComponent(nextCursor)}`,
         { cache: 'no-store' },
       );
+
+      if (response.status === 401) {
+        stopped.current = true;
+        window.location.href = '/operator/login?reason=session-ended';
+        return;
+      }
+
+      if (response.status === 403) {
+        const body = (await response.json().catch(() => ({}))) as QueueResponse;
+        stopped.current = true;
+        setStatus('stopped');
+        setNotice(body.error ?? 'This account can no longer read this queue.');
+        return;
+      }
 
       if (!response.ok) {
         setNotice('Could not load more incidents.');

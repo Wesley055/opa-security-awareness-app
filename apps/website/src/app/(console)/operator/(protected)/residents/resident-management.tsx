@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useMemo, useState } from 'react';
+import { viewerSessionFetch } from '@/lib/viewer-session-fetch';
 import type {
   FacilityAdminResident,
   FacilityAdminResidents,
@@ -81,7 +82,7 @@ export function ResidentManagement({ initialResult }: { initialResult: InitialRe
     setNotice(null);
 
     try {
-      const response = await fetch('/api/operator/residents', {
+      const response = await viewerSessionFetch('/api/operator/residents', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
@@ -126,7 +127,7 @@ export function ResidentManagement({ initialResult }: { initialResult: InitialRe
     setNotice(null);
 
     try {
-      const response = await fetch('/api/operator/residents/bulk', {
+      const response = await viewerSessionFetch('/api/operator/residents/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ residents: parsedBulk }),
@@ -159,7 +160,7 @@ export function ResidentManagement({ initialResult }: { initialResult: InitialRe
     setError(null);
 
     try {
-      const response = await fetch(
+      const response = await viewerSessionFetch(
         `/api/operator/residents/${encodeURIComponent(userId)}/invitation`,
         { cache: 'no-store' },
       );
@@ -184,7 +185,7 @@ export function ResidentManagement({ initialResult }: { initialResult: InitialRe
     setNotice(null);
 
     try {
-      const response = await fetch(
+      const response = await viewerSessionFetch(
         `/api/operator/residents/${encodeURIComponent(userId)}/invitation/resend`,
         { method: 'POST' },
       );

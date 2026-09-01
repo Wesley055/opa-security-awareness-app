@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getSessionState } from '@/lib/operator-session';
+import { getOperatorContext } from '@/lib/operator-context';
 import { fetchIncidentDetail } from '@/lib/operator-incident';
 import { fetchOperatorTracking } from '@/lib/operator-tracking';
 import {
@@ -57,6 +58,19 @@ export default async function IncidentDetailPage({
 
   if (state === 'none') {
     redirect('/operator/login');
+  }
+
+  const context = await getOperatorContext();
+
+  if (context.state === 'REJECTED') {
+    redirect('/api/operator/refresh');
+  }
+
+  if (
+    context.state === 'READY' &&
+    context.context.role === 'FACILITY_ADMIN'
+  ) {
+    redirect('/operator/residents');
   }
 
   const { incidentId } = await params;

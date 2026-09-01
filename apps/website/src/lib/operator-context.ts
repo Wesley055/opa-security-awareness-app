@@ -3,7 +3,7 @@ import { cache } from 'react';
 import { apiUrl, getAccessToken } from '@/lib/operator-session';
 
 /**
- * Who is signed in, and which facility are they watching. 14A-5.
+ * Who is signed in, their facility-scoped Viewer role, and their facility. 14A-5.
  *
  * `server-only` for the same reason lib/tracking.ts is: if this reached a
  * client component the API base URL would ship to the browser and the
@@ -13,10 +13,11 @@ import { apiUrl, getAccessToken } from '@/lib/operator-session';
  * THE FACILITY ID IS SERVER-AUTHORITATIVE AND STAYS THAT WAY. It is
  * deliberately not cached in a cookie or localStorage for 14A-6 to read: a
  * browser-held facility id is a second authority that can drift from the
- * one the API enforces, and the console would then be asserting membership
+ * one the API enforces, and the Viewer would then be asserting membership
  * rather than reading it. FacilityOperatorGuard would reject a tampered id,
  * but "the guard catches it" is a worse design than "the browser never had
- * it". 14A-6 gets facility.id from here, in the same request.
+ * it". Facility-scoped Viewer pages get authoritative facility context here
+ * in the same server request.
  *
  * WRAPPED IN React cache(). The shell reads the facility name for its
  * header and the queue page will read facility.id - two calls to /users/me
@@ -140,13 +141,13 @@ export const getOperatorContext = cache(
 
     const facility = me.facility;
 
-    // NO ROLE GATE HERE, and that is a departure worth stating. The role is
-    // checked at login to keep residents out, and the API's three guards
-    // re-read it from the database on every guarded request - that is what
-    // decides. Gating a third time would add a rule the API does not have:
-    // FacilityOperatorGuard deliberately admits ADMINs to a facility's
-    // queue, so an admin who ever gains a facility should not be refused
-    // here. The operational requirement is a FACILITY, not a role.
+    // NO UNIVERSAL ROLE GATE HERE. Login admits only facility-scoped Viewer
+    // roles, while each protected page applies the role appropriate to that
+    // capability before calling its guarded API. The API remains the
+    // authorization boundary and re-reads role and facility membership from
+    // Postgres. FACILITY_OPERATOR uses incident operations; FACILITY_ADMIN
+    // uses facility administration. Platform ADMIN belongs to OPA platform
+    // administration and is not facility operational authority.
     if (!me.facilityId || !facility?.id || !facility.name) {
       return { state: 'NO_FACILITY', role: me.role ?? null };
     }

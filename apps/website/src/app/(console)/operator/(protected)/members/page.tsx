@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
+import { getOperatorContext } from '@/lib/operator-context';
 import { fetchOperatorMembership } from '@/lib/operator-membership';
 import { getSessionState } from '@/lib/operator-session';
 import { FacilityMembership } from './facility-membership';
@@ -33,6 +34,19 @@ export default async function OperatorMembersPage() {
 
   if (state === 'none') {
     redirect('/operator/login');
+  }
+
+  const context = await getOperatorContext();
+
+  if (context.state === 'REJECTED') {
+    redirect('/api/operator/refresh');
+  }
+
+  if (
+    context.state === 'READY' &&
+    context.context.role === 'FACILITY_ADMIN'
+  ) {
+    redirect('/operator/residents');
   }
 
   const membership = await fetchOperatorMembership();

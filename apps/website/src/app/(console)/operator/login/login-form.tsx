@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 /**
- * The only client component in the operator sign-in path.
+ * The only client component in the facility Viewer sign-in path.
  *
  * It holds an email and a password in React state for as long as the form is
  * open, and posts them to the same-origin bridge. It never receives, stores

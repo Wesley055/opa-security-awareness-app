@@ -4,7 +4,7 @@ import { getSessionState } from '@/lib/operator-session';
 import { LoginForm } from './login-form';
 
 /**
- * Operator sign-in.
+ * Facility Viewer sign-in.
  *
  * Server-rendered so nothing about the API reaches client code. The form
  * itself is a client component because it needs state; it posts to the
@@ -19,7 +19,7 @@ import { LoginForm } from './login-form';
  * The notice text comes from a fixed map. The parameter selects a message;
  * it is never rendered. It is also not a redirect target, so it adds no
  * open-redirect surface - but it IS forgeable, in that anyone can link an
- * operator here and show them a session-ended notice. That is tolerable only
+ * Viewer user here and show them a session-ended notice. That is tolerable only
  * because the message is advisory and the page behind it is a login form.
  * Nothing that matters may ever be decided by this parameter.
  */
@@ -31,8 +31,8 @@ const NOTICES: Record<string, string> = {
 };
 
 export const metadata: Metadata = {
-  title: 'Operator sign in',
-  // An operator console must not be indexed. It is not secret - the login
+  title: 'Facility sign in | OPA Viewer',
+  // The facility Viewer must not be indexed. It is not secret - the login
   // page reveals nothing - but there is no reason for it in search results.
   robots: { index: false, follow: false, nocache: true },
 };
@@ -50,7 +50,7 @@ export default async function OperatorLoginPage({
 
   // Only when we did not arrive here FROM the refresh route. See above.
   if (!notice) {
-    // A cookie present only means a session can be ATTEMPTED. The console
+    // A cookie present only means a session can be ATTEMPTED. The Viewer
     // itself will find out from the API whether it is still valid.
     const state = await getSessionState();
 
@@ -67,13 +67,13 @@ export default async function OperatorLoginPage({
     <div className="min-h-[70vh] flex items-center justify-center px-6 py-16">
       <div className="w-full max-w-sm">
         <p className="font-mono text-xs uppercase tracking-widest text-protection">
-          Command Center
+          OPA Viewer
         </p>
         <h1 className="mt-2 font-display text-3xl font-bold text-ink">
-          Operator sign in
+          Facility sign in
         </h1>
         <p className="mt-2 text-sm text-muted">
-          For facility operators. Residents use the OPA app.
+          For facility administrators and operators. Residents use the OPA app.
         </p>
 
         {notice ? (

@@ -645,8 +645,8 @@ export function IncidentDetailView({
 
         {isClosed ? (
           <p className="mt-6 max-w-prose rounded-lg border border-line bg-panel-2 px-4 py-3 text-sm text-muted">
-            This incident is closed. Only the resident can close an incident;
-            the Command Center does not.
+            This incident is closed. Closure details are preserved in the
+            incident timeline.
           </p>
         ) : null}
       </section>

@@ -7,7 +7,7 @@ import type { QueueIncident } from '@/lib/operator-queue';
 /**
  * The live incident queue. 14A-6.
  *
- * THE ONLY CLIENT COMPONENT IN THE CONSOLE. It holds incidents and polls the
+ * THE ONLY CLIENT COMPONENT IN THE VIEWER. It holds incidents and polls the
  * same-origin bridge. It never sees a token, an API hostname, or a facility
  * id - the bridge resolves all three server-side.
  *

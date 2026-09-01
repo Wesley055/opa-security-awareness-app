@@ -90,6 +90,19 @@ export class AdminProvisioningController {
     return this.provisioning.listFacilityMembers(facilityId);
   }
 
+  @Get('residents/:userId/invitation')
+  getResidentInvitation(@Param('userId') userId: string) {
+    return this.provisioning.getResidentInvitation(userId);
+  }
+
+  @Post('residents/:userId/invitation/resend')
+  resendResidentInvitation(
+    @Req() request: AuthenticatedRequest,
+    @Param('userId') userId: string,
+  ) {
+    return this.provisioning.resendResidentInvitation(request.user.sub, userId);
+  }
+
   @Patch('residents/:userId/facility')
   assignResident(
     @Param('userId') userId: string,

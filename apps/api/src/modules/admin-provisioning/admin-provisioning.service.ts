@@ -374,6 +374,190 @@ async createFacility(dto: CreateFacilityDto) {
     };
   }
 
+  async getResidentInvitation(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        role: true,
+        facilityId: true,
+        isActive: true,
+        accountStatus: true,
+        activatedAt: true,
+      },
+    });
+
+    if (!user || user.role !== UserRole.USER) {
+      throw new NotFoundException('Resident not found.');
+    }
+
+    const deliveries = await this.prisma.accountInvitationDelivery.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        channel: true,
+        status: true,
+        attemptCount: true,
+        lastError: true,
+        queuedAt: true,
+        nextAttemptAt: true,
+        lastAttemptAt: true,
+        sentAt: true,
+        failedAt: true,
+        createdAt: true,
+      },
+      orderBy: [{ queuedAt: 'desc' }, { createdAt: 'desc' }],
+      take: 20,
+    });
+
+    const history = deliveries.map((delivery) => ({
+      id: delivery.id,
+      channel: delivery.channel,
+      status: delivery.status,
+      attemptCount: delivery.attemptCount,
+      lastError: delivery.lastError?.slice(0, 300) ?? null,
+      queuedAt: delivery.queuedAt,
+      nextAttemptAt: delivery.nextAttemptAt,
+      lastAttemptAt: delivery.lastAttemptAt,
+      sentAt: delivery.sentAt,
+      failedAt: delivery.failedAt,
+      createdAt: delivery.createdAt,
+    }));
+    const latest = history[0] ?? null;
+
+    const inFlight = await this.prisma.accountInvitationDelivery.findFirst({
+      where: {
+        userId,
+        status: { in: ['QUEUED', 'SENDING'] },
+      },
+      select: { id: true },
+    });
+    const hasInFlight = inFlight !== null;
+
+    const cooldownFrom = latest?.lastAttemptAt ?? latest?.queuedAt ?? null;
+    const cooldownUntil = cooldownFrom
+      ? new Date(cooldownFrom.getTime() + 5 * 60 * 1000)
+      : null;
+    const cooldownActive =
+      cooldownUntil !== null && cooldownUntil.getTime() > Date.now();
+
+    const eligibleAccount =
+      user.isActive &&
+      user.accountStatus === AccountStatus.PENDING_ACTIVATION;
+
+    const canResend =
+      user.facilityId !== null &&
+      eligibleAccount &&
+      !hasInFlight &&
+      !cooldownActive;
+
+    return {
+      resident: {
+        id: user.id,
+        facilityId: user.facilityId,
+        isActive: user.isActive,
+        accountStatus: user.accountStatus,
+        activatedAt: user.activatedAt,
+      },
+      latest,
+      history,
+      canResend,
+      resendAvailableAt: canResend ? null : cooldownActive ? cooldownUntil : null,
+    };
+  }
+
+  async resendResidentInvitation(adminUserId: string, userId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtext(${userId}))
+      `;
+
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          role: true,
+          facilityId: true,
+          phoneNumber: true,
+          isActive: true,
+          accountStatus: true,
+        },
+      });
+
+      if (!user || user.role !== UserRole.USER || !user.facilityId) {
+        throw new NotFoundException('Resident not found.');
+      }
+
+      if (
+        !user.isActive ||
+        user.accountStatus !== AccountStatus.PENDING_ACTIVATION
+      ) {
+        throw new ConflictException(
+          'Resident is not eligible for activation.',
+        );
+      }
+
+      if (!user.phoneNumber) {
+        throw new ConflictException(
+          'Resident has no SMS-capable phone number.',
+        );
+      }
+
+      const inFlight = await tx.accountInvitationDelivery.findFirst({
+        where: {
+          userId,
+          status: { in: ['QUEUED', 'SENDING'] },
+        },
+        select: { id: true, status: true },
+      });
+
+      if (inFlight) {
+        throw new ConflictException(
+          'An invitation delivery is already queued or sending.',
+        );
+      }
+
+      const latest = await tx.accountInvitationDelivery.findFirst({
+        where: { userId },
+        select: {
+          lastAttemptAt: true,
+          queuedAt: true,
+          createdAt: true,
+        },
+        orderBy: [{ queuedAt: 'desc' }, { createdAt: 'desc' }],
+      });
+
+      const cooldownFrom = latest?.lastAttemptAt ?? latest?.queuedAt;
+      if (
+        cooldownFrom &&
+        Date.now() - cooldownFrom.getTime() < 5 * 60 * 1000
+      ) {
+        throw new ConflictException(
+          'Please wait five minutes before resending this invitation.',
+        );
+      }
+
+      const delivery = await tx.accountInvitationDelivery.create({
+        data: {
+          userId,
+          facilityId: user.facilityId,
+          invitedByUserId: adminUserId,
+          channel: 'SMS',
+          status: 'QUEUED',
+          recipient: user.phoneNumber,
+        },
+        select: {
+          id: true,
+          channel: true,
+          status: true,
+          queuedAt: true,
+          nextAttemptAt: true,
+        },
+      });
+
+      return { delivery };
+    });
+  }
   async assignResidentToFacility(userId: string, facilityId: string) {
     return this.prisma.$transaction(async (tx) => {
       // Same user serialization domain used by incident routing. A facility

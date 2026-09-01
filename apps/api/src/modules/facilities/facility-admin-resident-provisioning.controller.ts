@@ -22,6 +22,18 @@ import {
 export class FacilityAdminResidentProvisioningController {
   constructor(private readonly provisioning: AdminProvisioningService) {}
 
+  @Get()
+  async listResidents(@Req() request: FacilityAdminRequest) {
+    const membership = await this.provisioning.listFacilityMembers(
+      request.facilityAdminFacilityId,
+    );
+
+    return {
+      facility: membership.facility,
+      residents: membership.residents,
+    };
+  }
+
   @Post()
   createResident(
     @Req() request: FacilityAdminRequest,

@@ -45,7 +45,7 @@ function statusLabel(status: string) {
 function invitationSummary(invitation: ResidentInvitation | undefined) {
   if (!invitation) return null;
   if (!invitation.latest) return 'No invitation delivery recorded.';
-  return `${invitation.latest.channel} Â· ${statusLabel(invitation.latest.status)}`;
+  return `${invitation.latest.channel} - ${statusLabel(invitation.latest.status)}`;
 }
 
 export function ResidentManagement({ initialResult }: { initialResult: InitialResult }) {
@@ -287,7 +287,7 @@ export function ResidentManagement({ initialResult }: { initialResult: InitialRe
           </div>
           <div className="mt-4 flex justify-end">
             <button disabled={busy} className="min-h-10 rounded-md bg-protection px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
-              {busy ? 'Addingâ€¦' : 'Add and send invitation'}
+              {busy ? 'Adding...' : 'Add and send invitation'}
             </button>
           </div>
         </form>
@@ -310,7 +310,7 @@ export function ResidentManagement({ initialResult }: { initialResult: InitialRe
           <div className="mt-3 flex items-center justify-between gap-4">
             <span className="text-xs text-muted">{parsedBulk.length} row(s)</span>
             <button disabled={busy} className="min-h-10 rounded-md bg-protection px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
-              {busy ? 'Addingâ€¦' : 'Add residents'}
+              {busy ? 'Adding...' : 'Add residents'}
             </button>
           </div>
         </form>
@@ -370,7 +370,7 @@ export function ResidentManagement({ initialResult }: { initialResult: InitialRe
                             onClick={() => resend(resident.id)}
                             className="mt-2 min-h-10 rounded-md border border-line bg-panel-2 px-3 py-2 text-sm text-ink disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            {loading ? 'Workingâ€¦' : 'Resend invitation'}
+                            {loading ? 'Working...' : 'Resend invitation'}
                           </button>
                         </>
                       ) : (
@@ -380,7 +380,7 @@ export function ResidentManagement({ initialResult }: { initialResult: InitialRe
                           onClick={() => loadInvitation(resident.id)}
                           className="min-h-10 rounded-md border border-line bg-panel-2 px-3 py-2 text-sm text-ink disabled:opacity-50"
                         >
-                          {loading ? 'Loadingâ€¦' : 'Check invitation'}
+                          {loading ? 'Loading...' : 'Check invitation'}
                         </button>
                       )}
                     </div>

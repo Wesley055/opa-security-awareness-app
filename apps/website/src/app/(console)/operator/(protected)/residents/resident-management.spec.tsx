@@ -146,7 +146,7 @@ describe('ResidentManagement', () => {
       ),
     );
 
-    expect(await screen.findByText('SMS Â· Queued')).toBeTruthy();
+    expect(await screen.findByText('SMS - Queued')).toBeTruthy();
 
     const resendButton = screen.getByRole('button', { name: 'Resend invitation' });
     expect((resendButton as HTMLButtonElement).disabled).toBe(true);
@@ -213,7 +213,7 @@ describe('ResidentManagement', () => {
     render(<ResidentManagement initialResult={initialResult} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Check invitation' }));
-    await screen.findByText('SMS Â· Failed');
+    await screen.findByText('SMS - Failed');
 
     fireEvent.click(screen.getByRole('button', { name: 'Resend invitation' }));
 

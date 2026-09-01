@@ -60,6 +60,15 @@ async createFacility(dto: CreateFacilityDto) {
     );
   }
 
+  async createFacilityAdminSeat(adminUserId: string, dto: CreateOperatorDto) {
+    return this.createProvisionedAccount(
+      adminUserId,
+      dto,
+      UserRole.FACILITY_ADMIN,
+      '/operator/activate/',
+    );
+  }
+
   async createBulkResidentInvites(
     adminUserId: string,
     residents: CreateResidentDto[],
@@ -450,7 +459,7 @@ async createFacility(dto: CreateFacilityDto) {
     };
   }
 
-  async getResidentInvitation(userId: string) {
+  async getResidentInvitation(userId: string, expectedFacilityId?: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -464,6 +473,10 @@ async createFacility(dto: CreateFacilityDto) {
     });
 
     if (!user || user.role !== UserRole.USER) {
+      throw new NotFoundException('Resident not found.');
+    }
+
+    if (expectedFacilityId && user.facilityId !== expectedFacilityId) {
       throw new NotFoundException('Resident not found.');
     }
 
@@ -542,7 +555,11 @@ async createFacility(dto: CreateFacilityDto) {
     };
   }
 
-  async resendResidentInvitation(adminUserId: string, userId: string) {
+  async resendResidentInvitation(
+    adminUserId: string,
+    userId: string,
+    expectedFacilityId?: string,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`
         SELECT pg_advisory_xact_lock(hashtext(${userId}))
@@ -561,6 +578,10 @@ async createFacility(dto: CreateFacilityDto) {
       });
 
       if (!user || user.role !== UserRole.USER || !user.facilityId) {
+        throw new NotFoundException('Resident not found.');
+      }
+
+      if (expectedFacilityId && user.facilityId !== expectedFacilityId) {
         throw new NotFoundException('Resident not found.');
       }
 

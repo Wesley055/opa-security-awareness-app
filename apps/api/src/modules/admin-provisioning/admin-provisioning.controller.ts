@@ -36,6 +36,17 @@ export class AdminProvisioningController {
     return this.provisioning.createFacility(dto);
   }
 
+  @Post('facility-admins')
+  createFacilityAdmin(
+    @Req() request: AuthenticatedRequest,
+    @Body() dto: CreateOperatorDto,
+  ) {
+    return this.provisioning.createFacilityAdminSeat(
+      request.user.sub,
+      dto,
+    );
+  }
+
   @Post('operators')
   createOperator(
     @Req() request: AuthenticatedRequest,

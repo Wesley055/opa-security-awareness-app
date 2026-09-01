@@ -10,5 +10,6 @@ import { InvitationDeliveryWorker } from './invitation-delivery.worker';
   imports: [PrismaModule, NotificationModule],
   controllers: [AdminProvisioningController],
   providers: [AdminProvisioningService, AdminGuard, InvitationDeliveryWorker],
+  exports: [AdminProvisioningService],
 })
 export class AdminProvisioningModule {}

@@ -114,7 +114,8 @@ export class ActivationService {
         // activation tokens. Publicly registered USER accounts are already
         // ACTIVE and carry no activation token, so allowing USER here does
         // not create a second registration path.
-        (user.role !== UserRole.FACILITY_OPERATOR &&
+        (user.role !== UserRole.FACILITY_ADMIN &&
+          user.role !== UserRole.FACILITY_OPERATOR &&
           user.role !== UserRole.USER) ||
         user.activationTokenHash !== tokenHash ||
         !user.activationExpiresAt ||

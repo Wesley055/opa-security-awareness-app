@@ -1,9 +1,24 @@
+import { useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { router } from 'expo-router';
 import { useAuthStore } from '../src/store/authStore';
+import { useActiveIncidentStore } from '../src/store/activeIncidentStore';
+import { homeEmergencyAction } from '../src/services/active-incident-ui-policy';
 
 export default function HomeScreen() {
-  const { user, isLoading, logout } = useAuthStore();
+  const { user, isLoading, isAuthenticated, logout } = useAuthStore();
+  const activeIncident = useActiveIncidentStore((state) => state.activeIncident);
+  const reconcileActiveIncident = useActiveIncidentStore(
+    (state) => state.reconcileActiveIncident,
+  );
+  const emergencyAction = homeEmergencyAction(activeIncident);
+
+  useEffect(() => {
+    if (isLoading || !isAuthenticated) return;
+    void reconcileActiveIncident().catch((error: unknown) => {
+      console.log('[active-incident] reconciliation failed', error);
+    });
+  }, [isAuthenticated, isLoading, reconcileActiveIncident]);
 
   if (isLoading) {
     return (
@@ -19,15 +34,32 @@ export default function HomeScreen() {
       <Text style={styles.welcome}>
         Welcome, {user?.firstName ?? 'there'}
       </Text>
-
-      <TouchableOpacity
-        style={styles.sosButton}
-        onPress={() => router.push('/sos')}
-        activeOpacity={0.85}
-      >
-        <Text style={styles.sosButtonText}>SOS</Text>
-      </TouchableOpacity>
-      <Text style={styles.sosHint}>Tap to activate an emergency</Text>
+      {emergencyAction === 'OPEN_ACTIVE_INCIDENT' ? (
+        <>
+          <TouchableOpacity
+            style={styles.activeIncidentButton}
+            onPress={() => router.push('/sos')}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.activeIncidentButtonTitle}>Emergency Active</Text>
+            <Text style={styles.activeIncidentButtonText}>Open emergency details</Text>
+          </TouchableOpacity>
+          <Text style={styles.sosHint}>
+            Your location may still be shared until the emergency is ended.
+          </Text>
+        </>
+      ) : (
+        <>
+          <TouchableOpacity
+            style={styles.sosButton}
+            onPress={() => router.push('/sos')}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.sosButtonText}>SOS</Text>
+          </TouchableOpacity>
+          <Text style={styles.sosHint}>Tap to activate an emergency</Text>
+        </>
+      )}
 
       <View style={styles.secondaryActions}>
         <TouchableOpacity
@@ -81,6 +113,25 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 0 },
     elevation: 10,
   },
+  activeIncidentButton: {
+    width: '100%',
+    backgroundColor: '#FF5A36',
+    borderRadius: 12,
+    paddingVertical: 20,
+    paddingHorizontal: 18,
+    alignItems: 'center',
+  },
+  activeIncidentButtonTitle: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '900',
+  },
+  activeIncidentButtonText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    marginTop: 6,
+  },
+
   sosButtonText: {
     color: '#FFFFFF',
     fontSize: 36,

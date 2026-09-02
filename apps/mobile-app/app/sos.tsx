@@ -22,6 +22,8 @@ import {
   stopTracking,
 } from '../src/services/journey-tracker';
 import { getSosActivationMessage } from '../src/services/sos-activation-message';
+import { useActiveIncidentStore } from '../src/store/activeIncidentStore';
+import { sosInitialMode } from '../src/services/active-incident-ui-policy';
 
 const COUNTDOWN_SECONDS = 5;
 const LOCATION_TIMEOUT_MS = 15000;
@@ -43,10 +45,23 @@ interface FixedLocation {
 }
 
 export default function SosScreen() {
-  const [screenState, setScreenState] = useState<ScreenState>('countdown');
+  const activeIncident = useActiveIncidentStore((state) => state.activeIncident);
+  const setActiveIncident = useActiveIncidentStore((state) => state.setActiveIncident);
+  const clearActiveIncident = useActiveIncidentStore((state) => state.clearActiveIncident);
+  const [screenState, setScreenState] = useState<ScreenState>(
+    sosInitialMode(activeIncident),
+  );
   const [secondsLeft, setSecondsLeft] = useState(COUNTDOWN_SECONDS);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [result, setResult] = useState<ActivationResult | null>(null);
+  const [result, setResult] = useState<ActivationResult | null>(
+    activeIncident
+      ? {
+          status: 'INCIDENT_ACTIVATED',
+          incident: { id: activeIncident.id },
+          notifications: activeIncident.notifications,
+        }
+      : null,
+  );
   // True when the OS will no longer show the permission dialog (Android
   // "don't ask again" after repeated denials). In this state "Try Again"
   // cannot recover - the user must enable location in Settings.
@@ -123,8 +138,9 @@ export default function SosScreen() {
   // Start fetching location immediately, in parallel with the countdown,
   // so it's already available the moment the countdown completes.
   useEffect(() => {
+    if (screenState !== 'countdown') return;
     locationPromiseRef.current = acquireLocation();
-  }, [acquireLocation]);
+  }, [acquireLocation, screenState]);
 
   // Prevent the hardware back button from silently leaving this screen
   // mid-countdown without an explicit cancel.
@@ -197,6 +213,13 @@ export default function SosScreen() {
       });
       if (!mountedRef.current) return;
       setResult(data);
+      if (data?.incident?.id) {
+        setActiveIncident({
+          id: data.incident.id,
+          status: 'OPEN',
+          notifications: data.notifications,
+        });
+      }
       setScreenState('activated');
       void startTracking();
     } catch (err: unknown) {
@@ -253,6 +276,7 @@ export default function SosScreen() {
           reason: action === 'resolve' ? 'USER_SAFE' : 'FALSE_ALARM',
         });
         await stopTracking();
+        clearActiveIncident();
         if (!mountedRef.current) return;
         router.replace('/');
       } catch (err: unknown) {
@@ -266,6 +290,7 @@ export default function SosScreen() {
         // state that exists, so stop tracking and leave as normal.
         if (status === 409) {
           await stopTracking();
+          clearActiveIncident();
           if (!mountedRef.current) return;
           Alert.alert('Already ended', 'This emergency has already ended.', [
             { text: 'OK', onPress: () => router.replace('/') },
@@ -283,7 +308,7 @@ export default function SosScreen() {
         }
       }
     },
-    [result, closing],
+    [result, closing, clearActiveIncident],
   );
 
   const confirmClose = (action: 'resolve' | 'cancel') => {

@@ -3,6 +3,7 @@ import { PicovoicePorcupineProvider } from './picovoice-porcupine-provider';
 import { activateFromVoiceTrigger } from './voice-activation-coordinator';
 import { getVoiceProtectionConfig, isVoiceProtectionReady } from './voice-protection-config';
 import type { VoiceTriggerProvider } from './voice-trigger-provider';
+import { useActiveIncidentStore } from '../store/activeIncidentStore';
 
 let provider: VoiceTriggerProvider | null = null;
 let startPromise: Promise<void> | null = null;
@@ -47,6 +48,13 @@ export async function startVoiceProtection(): Promise<void> {
     await current.start(async (event) => {
       try {
         const result = await activateFromVoiceTrigger(event);
+        if (result.status === 'INCIDENT_ACTIVATED' && result.incidentId) {
+          useActiveIncidentStore.getState().setActiveIncident({
+            id: result.incidentId,
+            status: 'OPEN',
+            notifications: result.notifications,
+          });
+        }
         console.log(`[voice-protection] activation result: ${result.status}`);
       } catch (error: unknown) {
         console.log('[voice-protection] incident activation failed', error);

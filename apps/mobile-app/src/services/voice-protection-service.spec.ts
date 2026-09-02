@@ -23,7 +23,9 @@ describe('voice-protection-service', () => {
     const activate = jest.fn().mockResolvedValue({
       status: 'INCIDENT_ACTIVATED',
       incidentId: 'incident-1',
+      notifications: { queued: 6, dispatched: true },
     });
+    const setActiveIncident = jest.fn();
     const Provider = jest.fn().mockImplementation(() => ({
       id: 'picovoice_porcupine',
       start,
@@ -54,12 +56,27 @@ describe('voice-protection-service', () => {
       getVoiceProtectionConfig: jest.fn(() => readyConfig),
       isVoiceProtectionReady: jest.fn(() => options?.ready !== false),
     }));
+    jest.doMock('../store/activeIncidentStore', () => ({
+      useActiveIncidentStore: {
+        getState: () => ({ setActiveIncident }),
+      },
+    }));
 
     const service =
       require('./voice-protection-service') as
         typeof import('./voice-protection-service');
 
-    return { service, Provider, start, stop, activate, check, request, getTrigger: () => trigger };
+    return {
+      service,
+      Provider,
+      start,
+      stop,
+      activate,
+      setActiveIncident,
+      check,
+      request,
+      getTrigger: () => trigger,
+    };
   }
 
   afterEach(() => {
@@ -105,8 +122,8 @@ describe('voice-protection-service', () => {
     expect(start).toHaveBeenCalledTimes(1);
   });
 
-  it('delegates a detected keyword to the existing activation boundary', async () => {
-    const { service, activate, getTrigger } = loadService();
+  it('delegates a detected keyword and publishes the active incident', async () => {
+    const { service, activate, setActiveIncident, getTrigger } = loadService();
     await service.startVoiceProtection();
     const trigger = getTrigger();
     expect(trigger).toBeDefined();
@@ -118,6 +135,11 @@ describe('voice-protection-service', () => {
     };
     await trigger?.(event);
     expect(activate).toHaveBeenCalledWith(event);
+    expect(setActiveIncident).toHaveBeenCalledWith({
+      id: 'incident-1',
+      status: 'OPEN',
+      notifications: { queued: 6, dispatched: true },
+    });
   });
 
   it('stops and releases the active provider idempotently', async () => {

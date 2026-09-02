@@ -16,6 +16,7 @@ export type VoiceActivationStatus =
 export interface VoiceActivationResult {
   status: VoiceActivationStatus;
   incidentId?: string;
+  notifications?: { queued: number; dispatched: boolean };
   locationFailure?: EmergencyLocationFailure;
 }
 
@@ -63,6 +64,7 @@ export async function activateFromVoiceTrigger(
     return {
       status: 'INCIDENT_ACTIVATED',
       incidentId: data.incident?.id,
+      notifications: data.notifications,
     };
   }
 

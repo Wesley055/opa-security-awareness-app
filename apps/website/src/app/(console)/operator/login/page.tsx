@@ -26,6 +26,7 @@ import { LoginForm } from './login-form';
 
 const NOTICES: Record<string, string> = {
   'session-ended': 'Your session ended. Sign in again.',
+  'password-reset': 'Your password was reset. Sign in with your new password.',
   unavailable:
     'Sign-in is temporarily unavailable. Please try again in a moment.',
 };

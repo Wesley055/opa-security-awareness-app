@@ -74,20 +74,37 @@ export class PasswordResetService {
       });
     });
 
+    const configuredWebUrl = this.config.get<string>('OPA_WEB_URL')?.trim();
+    const resetUrl = configuredWebUrl
+      ? new URL(
+          `/operator/reset-password?token=${encodeURIComponent(rawToken)}`,
+          configuredWebUrl,
+        ).toString()
+      : null;
+
+    const message = [
+      'A password reset was requested for your OPA account.',
+      '',
+      ...(resetUrl
+        ? [
+            'Reset your password in the OPA web experience:',
+            resetUrl,
+            '',
+          ]
+        : []),
+      'You can also open the OPA app, choose "Forgot password?",',
+      'then choose "I have a reset token" and paste the secure token below.',
+      '',
+      rawToken,
+      '',
+      'This token expires in 30 minutes and can be used only once.',
+      'If you did not request this reset, ignore this email.',
+    ].join('\n');
+
     const result = await this.emailProvider.send({
       recipient: user.email,
       subject: 'Reset your OPA password',
-      message: [
-        'A password reset was requested for your OPA account.',
-        '',
-        'Open the OPA app and choose "Forgot password?".',
-        'Then choose "I have a reset token" and paste the secure token below.',
-        '',
-        rawToken,
-        '',
-        'This token expires in 30 minutes and can be used only once.',
-        'If you did not request this reset, ignore this email.',
-      ].join('\n'),
+      message,
     });
 
     if (!result.success) {

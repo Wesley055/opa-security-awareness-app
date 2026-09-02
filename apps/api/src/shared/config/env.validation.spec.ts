@@ -57,4 +57,22 @@ describe('validateEnv', () => {
     expect(parsed.API_PORT).toBe(3000);
     expect(parsed.BCRYPT_ROUNDS).toBe(12);
   });
-});
+
+  it('validates with OPA_WEB_URL ABSENT - reset links are optional', () => {
+    const parsed = validateEnv({ ...required });
+    expect(parsed.OPA_WEB_URL).toBeUndefined();
+  });
+
+  it('validates a supplied OPA_WEB_URL', () => {
+    const parsed = validateEnv({
+      ...required,
+      OPA_WEB_URL: 'https://opasafety.com',
+    });
+    expect(parsed.OPA_WEB_URL).toBe('https://opasafety.com');
+  });
+
+  it('rejects a malformed supplied OPA_WEB_URL', () => {
+    expect(() =>
+      validateEnv({ ...required, OPA_WEB_URL: 'not-a-url' }),
+    ).toThrow();
+  });});

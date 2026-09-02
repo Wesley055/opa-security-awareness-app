@@ -35,12 +35,16 @@ export class AuthController {
     return this.authService.login(dto);
   }
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   @Post('password-reset/request')
   requestPasswordReset(@Body() dto: RequestPasswordResetDto) {
     return this.passwordResetService.requestReset(dto);
   }
 
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @HttpCode(HttpStatus.OK)
   @Post('password-reset/confirm')
   confirmPasswordReset(@Body() dto: ConfirmPasswordResetDto) {

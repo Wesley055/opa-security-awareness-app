@@ -13,6 +13,7 @@ describe('PasswordResetService', () => {
   };
 
   const config = {
+    get: jest.fn<string | undefined, [string]>(() => undefined),
     getOrThrow: jest.fn((key: string) => {
       if (key === 'BCRYPT_ROUNDS') {
         return 4;
@@ -147,6 +148,23 @@ describe('PasswordResetService', () => {
     expect(
       createHash('sha256').update(rawToken as string).digest('hex'),
     ).toBe(createdData?.tokenHash);
+
+    config.get.mockReturnValueOnce('https://opasafety.com');
+
+    await service.requestReset({
+      email: 'ada@example.com',
+    });
+
+    const webRequest = emailProvider.send.mock.calls[1][0];
+    const webRawToken = webRequest.message
+      .split('\n')
+      .find((line: string) => /^[a-f0-9]{64}$/.test(line));
+
+    expect(webRawToken).toBeDefined();
+    expect(webRequest.message).toContain(
+      `https://opasafety.com/operator/reset-password?token=${webRawToken}`,
+    );
+    expect(webRequest.message).toContain(webRawToken);
   });
 
   it('invalidates the newly created token when email delivery fails', async () => {

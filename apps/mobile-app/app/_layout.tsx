@@ -4,6 +4,10 @@ import { useEffect, useRef } from 'react';
 import { useAuthStore } from '../src/store/authStore';
 import { stopTracking } from '../src/services/journey-tracker';
 import {
+  startVoiceProtection,
+  stopVoiceProtection,
+} from '../src/services/voice-protection-service';
+import {
   dismissProtectionReadyNotification,
   ensureProtectionReadyNotification,
   isLockScreenSosResponse,
@@ -138,6 +142,31 @@ export default function RootLayout() {
     }
   }, [isAuthenticated, isLoading]);
 
+  /*
+   * Voice protection is owned by the authenticated app lifecycle.
+   * Provider/native details remain isolated behind the service boundary.
+   */
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+
+    if (!isAuthenticated) {
+      void stopVoiceProtection();
+      return;
+    }
+
+    void startVoiceProtection().catch((error: unknown) => {
+      console.log(
+        '[voice-protection] authenticated startup failed',
+        error,
+      );
+    });
+
+    return () => {
+      void stopVoiceProtection();
+    };
+  }, [isAuthenticated, isLoading]);
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(auth)/login" />

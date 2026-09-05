@@ -118,24 +118,29 @@ export class IncidentOrchestratorService {
     const notificationRows: QueuedNotification[] = activeContacts.flatMap(
       (contact) => {
         const contactName = `${contact.firstName} ${contact.lastName}`.trim();
-        const rows: QueuedNotification[] = [
-          {
+        const rows: QueuedNotification[] = [];
+
+        // SMS recipient selection is independent of contact activation and
+        // other channels. No SMS row means nothing can be dispatched or billed.
+        if (contact.receivesEmergencySms) {
+          rows.push({
             id: randomUUID(),
             contactId: contact.id,
             contactName,
             contactType: contact.relationship,
             recipient: contact.phoneNumber,
             channel: NotificationChannel.SMS,
-          },
-          {
-            id: randomUUID(),
-            contactId: contact.id,
-            contactName,
-            contactType: contact.relationship,
-            recipient: contact.phoneNumber,
-            channel: NotificationChannel.WHATSAPP,
-          },
-        ];
+          });
+        }
+
+        rows.push({
+          id: randomUUID(),
+          contactId: contact.id,
+          contactName,
+          contactType: contact.relationship,
+          recipient: contact.phoneNumber,
+          channel: NotificationChannel.WHATSAPP,
+        });
         if (contact.email) {
           rows.push({
             id: randomUUID(),

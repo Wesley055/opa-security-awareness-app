@@ -15,6 +15,7 @@ import {
 import { router } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { api } from '../src/services/api';
+import { setEmergencySmsPreference } from '../src/services/emergency-contact-preferences';
 
 interface EmergencyContact {
   id: string;
@@ -25,6 +26,7 @@ interface EmergencyContact {
   email?: string;
   isPrimary: boolean;
   isActive: boolean;
+  receivesEmergencySms: boolean;
 }
 
 function normalizePhoneNumber(raw: string): string {
@@ -48,6 +50,7 @@ export default function ContactsScreen() {
   const [email, setEmail] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [smsPreferenceUpdatingId, setSmsPreferenceUpdatingId] = useState<string | null>(null);
 
   const loadContacts = useCallback(async () => {
     try {
@@ -135,6 +138,31 @@ export default function ContactsScreen() {
     );
   };
 
+  const handleSmsPreferenceToggle = async (contact: EmergencyContact) => {
+    if (smsPreferenceUpdatingId !== null) return;
+
+    setSmsPreferenceUpdatingId(contact.id);
+
+    try {
+      const nextValue = !contact.receivesEmergencySms;
+      await setEmergencySmsPreference(contact.id, nextValue);
+
+      setContacts((current) =>
+        current.map((item) =>
+          item.id === contact.id
+            ? { ...item, receivesEmergencySms: nextValue }
+            : item,
+        ),
+      );
+    } catch {
+      Alert.alert(
+        'Could not update SMS alerts',
+        'Your emergency SMS recipient selection was not changed.',
+      );
+    } finally {
+      setSmsPreferenceUpdatingId(null);
+    }
+  };
   const handleSetPrimary = async (contact: EmergencyContact) => {
     try {
       await api.post(`/emergency-contacts/${contact.id}/set-primary`);
@@ -190,6 +218,29 @@ export default function ContactsScreen() {
                   <Text style={styles.cardDetail}>{item.email}</Text>
                 ) : null}
               </View>
+              <TouchableOpacity
+                style={styles.smsPreference}
+                onPress={() => handleSmsPreferenceToggle(item)}
+                disabled={smsPreferenceUpdatingId !== null}
+                accessibilityRole="checkbox"
+                accessibilityState={{
+                  checked: item.receivesEmergencySms,
+                  disabled: smsPreferenceUpdatingId !== null,
+                }}
+                accessibilityLabel={`Emergency SMS for ${item.firstName} ${item.lastName}`}
+              >
+                <View
+                  style={[
+                    styles.smsCheckbox,
+                    item.receivesEmergencySms && styles.smsCheckboxSelected,
+                  ]}
+                >
+                  {item.receivesEmergencySms ? (
+                    <Text style={styles.smsCheckmark}>{'\u2713'}</Text>
+                  ) : null}
+                </View>
+                <Text style={styles.smsPreferenceText}>SMS alerts</Text>
+              </TouchableOpacity>
               <View style={styles.cardActions}>
                 {!item.isPrimary && (
                   <TouchableOpacity onPress={() => handleSetPrimary(item)}>
@@ -336,6 +387,35 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   cardDetail: { color: '#8B949E', fontSize: 13, marginBottom: 2 },
+  smsPreference: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginLeft: 12,
+    marginBottom: 10,
+  },
+  smsCheckbox: {
+    width: 20,
+    height: 20,
+    borderWidth: 1,
+    borderColor: '#8B949E',
+    borderRadius: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 7,
+  },
+  smsCheckboxSelected: {
+    backgroundColor: '#17C964',
+    borderColor: '#17C964',
+  },
+  smsCheckmark: {
+    color: '#08111A',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  smsPreferenceText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+  },
   cardActions: { justifyContent: 'space-between', alignItems: 'flex-end' },
   actionLink: { color: '#17C964', fontSize: 12, marginBottom: 8 },
   deleteLink: { color: '#FF5A36', fontSize: 12 },

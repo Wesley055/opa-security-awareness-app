@@ -39,6 +39,7 @@ export class EmergencyContactsService {
           email: dto.email,
           isPrimary: dto.isPrimary ?? false,
           isActive: dto.isActive ?? true,
+          receivesEmergencySms: dto.receivesEmergencySms,
         },
       });
     });
@@ -117,6 +118,7 @@ export class EmergencyContactsService {
           email: dto.email,
           isPrimary: dto.isPrimary,
           isActive: dto.isActive,
+          receivesEmergencySms: dto.receivesEmergencySms,
         },
       });
     });

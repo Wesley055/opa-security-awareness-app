@@ -200,6 +200,7 @@ describe('IncidentOrchestratorService', () => {
         phoneNumber: '+2348012345678',
         email: 'grace@example.com',
         isActive: true,
+        receivesEmergencySms: true,
       },
       {
         id: 'contact-2',
@@ -263,6 +264,74 @@ describe('IncidentOrchestratorService', () => {
     expect(timelineService.recordEvent).toHaveBeenCalled();
   });
 
+  it('does not queue SMS for an active contact opted out of emergency SMS', async () => {
+    emergencyDetectionService.evaluate.mockReturnValue({
+      outcome: {
+        shouldActivate: true,
+        requiresConfirmation: false,
+        isSilent: false,
+        confidenceScore: 90,
+        confidenceLevel: 'HIGH',
+      },
+    });
+
+    usersService.findById.mockResolvedValue({
+      id: 'user-123',
+      firstName: 'Test',
+      lastName: 'User',
+    });
+
+    emergencyIntelligenceService.buildLocationIntelligence.mockResolvedValue({
+      location: { address: '12 Allen Avenue, Ikeja, Lagos' },
+    });
+
+    incidentsService.create.mockResolvedValue({
+      id: 'incident-sms-opt-out',
+      userId: 'user-123',
+      status: 'OPEN',
+    });
+
+    timelineService.recordEvent.mockResolvedValue({});
+
+    emergencyContactsService.listForUser.mockResolvedValue([
+      {
+        id: 'contact-opt-out',
+        firstName: 'Test',
+        lastName: 'Contact',
+        relationship: 'FAMILY',
+        phoneNumber: '+2348012345678',
+        email: 'contact@example.com',
+        isActive: true,
+        receivesEmergencySms: false,
+      },
+    ]);
+
+    const result = await service.createCoordinatedIncident('user-123', {
+      triggerType: 'SOS_BUTTON' as never,
+      mode: 'IMMEDIATE' as never,
+      latitude: 6.6018,
+      longitude: 3.3515,
+      userConfirmed: true,
+    });
+
+    const createArgs =
+      prisma.incidentNotification.createMany.mock.calls[0][0];
+
+    expect(createArgs.data).toHaveLength(2);
+    expect(
+      createArgs.data.some(
+        (row: { channel: string }) => row.channel === 'SMS',
+      ),
+    ).toBe(false);
+    expect(
+      createArgs.data.map((row: { channel: string }) => row.channel),
+    ).toEqual(expect.arrayContaining(['WHATSAPP', 'EMAIL']));
+
+    expect(result.notifications).toEqual({
+      queued: 2,
+      dispatched: false,
+    });
+  });
   it('should not create an incident when detection does not activate', async () => {
     emergencyDetectionService.evaluate.mockReturnValue({
       outcome: {
@@ -349,6 +418,7 @@ describe('IncidentOrchestratorService', () => {
           phoneNumber: '+2348012345678',
           email: 'grace@example.com',
           isActive: true,
+        receivesEmergencySms: true,
         },
       ]);
     };
@@ -612,6 +682,64 @@ describe('IncidentOrchestratorService', () => {
       });
     });
 
+    it('does not recreate SMS on retrigger for a contact opted out of emergency SMS', async () => {
+      primeActivation();
+
+      emergencyContactsService.listForUser.mockResolvedValue([
+        {
+          id: 'contact-1',
+          firstName: 'Grace',
+          lastName: 'Wesley',
+          relationship: 'FAMILY',
+          phoneNumber: '+2348012345678',
+          email: 'grace@example.com',
+          isActive: true,
+          receivesEmergencySms: false,
+        },
+      ]);
+
+      const existing = {
+        id: 'incident-existing',
+        userId: 'user-123',
+        facilityId: 'facility-123',
+        createdAt: new Date(Date.now() - 20_000),
+        retriggerCount: 0,
+      };
+
+      prisma.incident.findFirst.mockResolvedValue(existing);
+      prisma.incidentNotification.findMany.mockResolvedValue([]);
+      prisma.incident.update.mockResolvedValue({
+        ...existing,
+        retriggerCount: 1,
+      });
+
+      const result = await service.createCoordinatedIncident(
+        'user-123',
+        activationDto,
+      );
+
+      expect(prisma.incidentNotification.createMany).toHaveBeenCalledTimes(1);
+
+      const createArgs =
+        prisma.incidentNotification.createMany.mock.calls[0][0];
+
+      expect(createArgs.data).toHaveLength(2);
+
+      expect(
+        createArgs.data.some(
+          (row: { channel: string }) => row.channel === 'SMS',
+        ),
+      ).toBe(false);
+
+      expect(
+        createArgs.data.map((row: { channel: string }) => row.channel),
+      ).toEqual(expect.arrayContaining(['WHATSAPP', 'EMAIL']));
+
+      expect(result.notifications).toEqual({
+        queued: 2,
+        dispatched: false,
+      });
+    });
     it('does not queue duplicate contact channels on retrigger', async () => {
       primeActivation();
 

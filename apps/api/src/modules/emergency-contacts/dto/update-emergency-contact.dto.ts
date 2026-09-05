@@ -44,4 +44,8 @@ export class UpdateEmergencyContactDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  receivesEmergencySms?: boolean;
 }

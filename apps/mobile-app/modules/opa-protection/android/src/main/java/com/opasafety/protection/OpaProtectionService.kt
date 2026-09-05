@@ -264,7 +264,7 @@ internal object ProtectionRuntime {
 
                 val microphoneCapture =
                     ProtectionMicrophoneCapture(
-                        onFrame = { frame ->
+                        onFrameCallback = { frame ->
                             handleAudioFrame(
                                 context,
                                 voiceProvider,
@@ -272,7 +272,7 @@ internal object ProtectionRuntime {
                                 frame,
                             )
                         },
-                        onError = { error ->
+                        onErrorCallback = { error ->
                             android.util.Log.e(
                                 LOG_TAG,
                                 "Native microphone capture failed.",

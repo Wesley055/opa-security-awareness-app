@@ -17,8 +17,8 @@ import ai.picovoice.android.voiceprocessor.VoiceProcessorFrameListener
  * native path is switched over deliberately.
  */
 internal class ProtectionMicrophoneCapture(
-    private val onFrame: (ShortArray) -> Unit,
-    private val onError: (VoiceProcessorException) -> Unit,
+    private val onFrameCallback: (ShortArray) -> Unit,
+    private val onErrorCallback: (VoiceProcessorException) -> Unit,
 ) {
 
     private val voiceProcessor =
@@ -26,17 +26,23 @@ internal class ProtectionMicrophoneCapture(
 
     private var running = false
 
+    /*
+     * The callbacks are named onFrameCallback/onErrorCallback deliberately.
+     * Calling onFrame(frame) inside override fun onFrame resolves to the
+     * override itself, not the constructor parameter, and recurses until the
+     * stack overflows on the first captured audio frame.
+     */
     private val frameListener =
         object : VoiceProcessorFrameListener {
             override fun onFrame(frame: ShortArray) {
-                onFrame(frame)
+                onFrameCallback(frame)
             }
         }
 
     private val errorListener =
         object : VoiceProcessorErrorListener {
             override fun onError(error: VoiceProcessorException) {
-                onError(error)
+                onErrorCallback(error)
             }
         }
 

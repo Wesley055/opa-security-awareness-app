@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <application>
+    <service
+      android:name="com.opasafety.protection.OpaProtectionService"
+      android:enabled="true"
+      android:exported="false"
+      android:foregroundServiceType="microphone" />
+  </application>
+</manifest>

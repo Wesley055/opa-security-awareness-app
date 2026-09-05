@@ -1,0 +1,26 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.opasafety'
+version = '1.0.0'
+
+android {
+  namespace "com.opasafety.protection"
+
+  defaultConfig {
+    versionCode 1
+    versionName "1.0.0"
+  }
+}
+
+/*
+ * Picovoice is an optional voice-trigger provider behind OPA's provider-neutral
+ * protection runtime. These versions intentionally match the native artifacts
+ * already used by the installed React Native Picovoice packages.
+ */
+dependencies {
+  implementation 'ai.picovoice:porcupine-android:4.0.0'
+  implementation 'ai.picovoice:android-voice-processor:1.0.2'
+}

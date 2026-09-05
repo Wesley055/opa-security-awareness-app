@@ -1,15 +1,29 @@
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as Notifications from 'expo-notifications';
+import { Platform } from 'react-native';
 import { useEffect, useRef } from 'react';
 import { useAuthStore } from '../src/store/authStore';
 import { stopTracking } from '../src/services/journey-tracker';
 import {
+  ensureVoiceProtectionMicrophonePermission,
+  processVoiceTrigger,
   startVoiceProtection,
   stopVoiceProtection,
 } from '../src/services/voice-protection-service';
 import {
-  dismissProtectionReadyNotification,
-  ensureProtectionReadyNotification,
+  getVoiceProtectionConfig,
+  isVoiceProtectionReady,
+} from '../src/services/voice-protection-config';
+import {
+  acknowledgePendingOpaVoiceTrigger,
+  addOpaVoiceTriggerListener,
+  configureOpaVoiceProvider,
+  peekPendingOpaVoiceTrigger,
+  startOpaProtectionService,
+  stopOpaProtectionService,
+} from '../modules/opa-protection';
+import {
+  ensureProtectionNotificationPermission,
   isLockScreenSosResponse,
 } from '../src/services/lock-screen-sos';
 
@@ -86,11 +100,8 @@ export default function RootLayout() {
 
     if (!isAuthenticated) {
       pendingLockScreenSosRef.current = false;
-      void dismissProtectionReadyNotification();
       return;
     }
-
-    void ensureProtectionReadyNotification();
 
     if (pendingLockScreenSosRef.current) {
       pendingLockScreenSosRef.current = false;
@@ -143,11 +154,347 @@ export default function RootLayout() {
   }, [isAuthenticated, isLoading]);
 
   /*
+   * OPA's native protection service is owned by the authenticated OPA
+   * lifecycle. It is provider-neutral: Picovoice remains a separate voice
+   * provider and does not own this Android foreground-service boundary.
+   *
+   * Deliberately no React cleanup callback: component/activity teardown must
+   * not stop native protection. The service stops when authenticated OPA
+   * protection state ends, not merely because the React lifecycle changes.
+   */
+  useEffect(() => {
+    if (isLoading || Platform.OS !== 'android') {
+      return;
+    }
+
+    if (!isAuthenticated) {
+      void (async () => {
+        /*
+         * Clean both ownership boundaries on logout. The JS stop also handles
+         * a legacy owner that survived an upgrade or development reload.
+         */
+        await stopVoiceProtection();
+        await stopOpaProtectionService();
+      })().catch((error: unknown) => {
+        console.log(
+          '[opa-protection] authenticated shutdown failed',
+          error,
+        );
+      });
+
+      return;
+    }
+
+    const config = getVoiceProtectionConfig();
+
+    void (async () => {
+      /*
+       * Android microphone ownership order is load-bearing:
+       *
+       * 1. release legacy JS VoiceProcessor ownership
+       * 2. obtain RECORD_AUDIO while the app is eligible
+       * 3. persist native provider configuration
+       * 4. start OPA Protection Service
+       *
+       * Never start native capture before step 1 completes.
+       */
+      await stopVoiceProtection();
+
+      if (
+        !isVoiceProtectionReady(config) ||
+        config.accessKey === null
+      ) {
+        console.log(
+          '[opa-protection] native voice configuration incomplete',
+        );
+        return;
+      }
+
+      const microphoneGranted =
+        await ensureVoiceProtectionMicrophonePermission();
+
+      if (!microphoneGranted) {
+        console.log(
+          '[opa-protection] microphone permission not granted',
+        );
+        return;
+      }
+
+      /*
+       * Denial degrades notification visibility only. Protection continues.
+       */
+      await ensureProtectionNotificationPermission();
+
+      await configureOpaVoiceProvider({
+        enabled: true,
+        provider: config.provider,
+        accessKey: config.accessKey,
+        keywordAssetName:
+          'help-help_en_android_v4_0_0.ppn',
+        phrase: config.phrase,
+        sensitivity: config.sensitivity,
+      });
+
+      await startOpaProtectionService();
+    })().catch((error: unknown) => {
+      console.log(
+        '[opa-protection] authenticated startup failed',
+        error,
+      );
+    });
+  }, [isAuthenticated, isLoading]);
+  /*
+   * Native voice detections use one durable provider-neutral consumer.
+   *
+   * Live native events and startup recovery share the same processing path.
+   * A trigger is acknowledged only after a terminal application result.
+   * RETRY leaves the durable native record intact.
+   *
+   * Removing this listener does not stop the Android protection service.
+   */
+  useEffect(() => {
+    if (isLoading || !isAuthenticated) {
+      return;
+    }
+
+    let active = true;
+
+    /*
+     * Native events are queue-change signals only.
+     *
+     * The native layer persists each trigger before emitting an event. JavaScript
+     * therefore always consumes the durable FIFO head rather than processing the
+     * event envelope directly. This prevents a newer trigger from overtaking an
+     * older unacknowledged trigger.
+     */
+    let drainPromise: Promise<void> | null = null;
+
+    const processPendingVoiceTrigger = async (
+      event: {
+        id: string;
+        phrase: string;
+        provider: string;
+        timestamp: number;
+      },
+    ): Promise<'ACK' | 'RETRY'> => {
+      const triggerId = event.id.trim();
+
+      /*
+       * Invalid records should normally have been filtered by the native store.
+       * If one crosses the bridge, preserve it rather than acknowledging an
+       * unknown/blank identity.
+       */
+      if (triggerId.length === 0) {
+        console.log(
+          '[opa-protection] invalid native voice trigger id',
+        );
+        return 'RETRY';
+      }
+
+      try {
+        /*
+         * Unsupported or malformed records are terminal poison records.
+         * Acknowledge only their exact durable ID so they cannot permanently
+         * block all newer emergency triggers behind them.
+         */
+        if (event.provider !== 'picovoice_porcupine') {
+          console.log(
+            '[opa-protection] unsupported native voice provider',
+            event.provider,
+          );
+
+          const acknowledged =
+            await acknowledgePendingOpaVoiceTrigger(
+              triggerId,
+            );
+
+          return acknowledged ? 'ACK' : 'RETRY';
+        }
+
+        if (
+          !Number.isFinite(event.timestamp) ||
+          event.timestamp <= 0
+        ) {
+          console.log(
+            '[opa-protection] invalid native voice trigger timestamp',
+          );
+
+          const acknowledged =
+            await acknowledgePendingOpaVoiceTrigger(
+              triggerId,
+            );
+
+          return acknowledged ? 'ACK' : 'RETRY';
+        }
+
+        if (event.phrase.trim().length === 0) {
+          console.log(
+            '[opa-protection] invalid native voice trigger phrase',
+          );
+
+          const acknowledged =
+            await acknowledgePendingOpaVoiceTrigger(
+              triggerId,
+            );
+
+          return acknowledged ? 'ACK' : 'RETRY';
+        }
+
+        const disposition =
+          await processVoiceTrigger({
+            phrase: event.phrase,
+            confidence: null,
+            timestamp: event.timestamp,
+            provider: 'picovoice_porcupine',
+          });
+
+        if (disposition === 'RETRY') {
+          return 'RETRY';
+        }
+
+        const acknowledged =
+          await acknowledgePendingOpaVoiceTrigger(
+            triggerId,
+          );
+
+        if (!acknowledged) {
+          console.log(
+            '[opa-protection] native trigger acknowledgement skipped',
+            triggerId,
+          );
+
+          return 'RETRY';
+        }
+
+        return 'ACK';
+      } catch (error: unknown) {
+        /*
+         * Preserve native durability on unexpected processing or bridge
+         * failures.
+         */
+        console.log(
+          '[opa-protection] native voice trigger processing failed',
+          error,
+        );
+
+        return 'RETRY';
+      }
+    };
+
+    let drainRequested = false;
+    let retryBlocked = false;
+
+    const startPendingVoiceTriggerDrain =
+      (): Promise<void> => {
+        if (drainPromise !== null) {
+          return drainPromise;
+        }
+
+        retryBlocked = false;
+
+        const currentDrain = (async () => {
+          try {
+            while (active) {
+              drainRequested = false;
+
+              while (active) {
+                const pending =
+                  await peekPendingOpaVoiceTrigger();
+
+                if (!active) {
+                  return;
+                }
+
+                if (pending === null) {
+                  break;
+                }
+
+                const disposition =
+                  await processPendingVoiceTrigger(
+                    pending,
+                  );
+
+                if (disposition === 'RETRY') {
+                  retryBlocked = true;
+                  return;
+                }
+              }
+
+              if (!drainRequested) {
+                return;
+              }
+            }
+          } catch (error: unknown) {
+            retryBlocked = true;
+
+            console.log(
+              '[opa-protection] pending native trigger drain failed',
+              error,
+            );
+          }
+        })();
+
+        drainPromise = currentDrain;
+
+        void currentDrain.finally(() => {
+          if (drainPromise !== currentDrain) {
+            return;
+          }
+
+          drainPromise = null;
+
+          if (
+            active &&
+            drainRequested &&
+            !retryBlocked
+          ) {
+            void startPendingVoiceTriggerDrain();
+          }
+        });
+
+        return currentDrain;
+      };
+
+    const requestPendingVoiceTriggerDrain = () => {
+      if (!active) {
+        return;
+      }
+
+      drainRequested = true;
+
+      if (drainPromise === null) {
+        void startPendingVoiceTriggerDrain();
+      }
+    };
+
+    /*
+     * Listener is installed before the initial durable drain. Native events
+     * are wake signals only; the persisted FIFO remains the source of truth.
+     */
+    const subscription =
+      addOpaVoiceTriggerListener(() => {
+        requestPendingVoiceTriggerDrain();
+      });
+
+    requestPendingVoiceTriggerDrain();
+
+    return () => {
+      active = false;
+      subscription.remove();
+    };
+  }, [isAuthenticated, isLoading]);
+
+  /*
    * Voice protection is owned by the authenticated app lifecycle.
    * Provider/native details remain isolated behind the service boundary.
    */
+  /*
+   * Android microphone ownership belongs exclusively to OPA Protection
+   * Service. The JavaScript provider remains available behind the existing
+   * provider boundary for non-Android/future fallback use.
+   */
   useEffect(() => {
-    if (isLoading) {
+    if (isLoading || Platform.OS === 'android') {
       return;
     }
 

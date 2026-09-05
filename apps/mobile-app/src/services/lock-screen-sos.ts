@@ -49,12 +49,12 @@ export async function configureLockScreenSos(): Promise<void> {
 }
 
 /**
- * Ensures at most one OPA Protection Ready notification is presented.
+ * Requests notification permission while the authenticated application is
+ * foreground eligible.
  *
- * Android 13+ requires notification permission. We request it only after the
- * authenticated application has finished hydrating.
+ * Denial affects notification visibility only and must not disable protection.
  */
-export async function ensureProtectionReadyNotification(): Promise<void> {
+export async function ensureProtectionNotificationPermission(): Promise<boolean> {
   const current = await Notifications.getPermissionsAsync();
 
   let granted =
@@ -75,6 +75,16 @@ export async function ensureProtectionReadyNotification(): Promise<void> {
     console.log(
       '[lock-screen-sos] notification permission not granted',
     );
+  }
+
+  return granted;
+}
+
+/**
+ * Legacy pre-SOS notification. Retained for non-native-service paths.
+ */
+export async function ensureProtectionReadyNotification(): Promise<void> {
+  if (!(await ensureProtectionNotificationPermission())) {
     return;
   }
 

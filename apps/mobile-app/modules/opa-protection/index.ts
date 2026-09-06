@@ -12,22 +12,40 @@ export interface OpaVoiceProviderConfig {
   sensitivity: number;
 }
 
+export type OpaNativeProtectionTriggerType =
+  | 'VOICE'
+  | 'SOS_BUTTON';
+
 /**
- * Provider-neutral voice trigger emitted by OPA's native protection layer.
+ * Durable provider-neutral emergency trigger emitted by OPA's native
+ * protection layer.
  *
- * Provider-specific audio frames, keyword indexes, and engine objects must
- * never cross this boundary.
+ * VOICE records carry phrase/provider metadata. SOS_BUTTON records do not
+ * invent voice metadata. Provider-specific audio frames, keyword indexes,
+ * and engine objects must never cross this boundary.
  */
-export interface OpaNativeVoiceTrigger {
+export interface OpaNativeProtectionTrigger {
   id: string;
+  type: OpaNativeProtectionTriggerType;
+  timestamp: number;
+  phrase?: string | null;
+  provider?: string | null;
+}
+
+/**
+ * Compatibility shape for callers that already know they are handling
+ * a VOICE trigger.
+ */
+export interface OpaNativeVoiceTrigger
+  extends OpaNativeProtectionTrigger {
+  type: 'VOICE';
   phrase: string;
   provider: string;
-  timestamp: number;
 }
 
 interface OpaProtectionEvents {
   onVoiceTrigger(
-    event: OpaNativeVoiceTrigger,
+    event: OpaNativeProtectionTrigger,
   ): void;
 }
 
@@ -44,7 +62,7 @@ type OpaProtectionNativeModule = {
   clearVoiceProviderAsync(): Promise<void>;
 
   peekPendingVoiceTriggerAsync():
-    Promise<OpaNativeVoiceTrigger | null>;
+    Promise<OpaNativeProtectionTrigger | null>;
 
   ackPendingVoiceTriggerAsync(
     triggerId: string,
@@ -114,7 +132,7 @@ export async function stopOpaProtectionService(): Promise<void> {
  * Reading a trigger never clears it.
  */
 export async function peekPendingOpaVoiceTrigger():
-Promise<OpaNativeVoiceTrigger | null> {
+Promise<OpaNativeProtectionTrigger | null> {
   return nativeModule.peekPendingVoiceTriggerAsync();
 }
 
@@ -137,7 +155,7 @@ export async function acknowledgePendingOpaVoiceTrigger(
  * This is not the durable process-death delivery mechanism.
  */
 export function addOpaVoiceTriggerListener(
-  listener: (event: OpaNativeVoiceTrigger) => void,
+  listener: (event: OpaNativeProtectionTrigger) => void,
 ): EventSubscription {
   return nativeModule.addListener(
     'onVoiceTrigger',

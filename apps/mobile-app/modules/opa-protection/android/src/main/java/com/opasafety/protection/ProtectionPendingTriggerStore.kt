@@ -1,11 +1,9 @@
 package com.opasafety.protection
 
 import android.content.Context
-import org.json.JSONArray
-import org.json.JSONObject
 
 /**
- * Bounded durable FIFO handoff for native voice triggers.
+ * Bounded durable FIFO handoff for native emergency triggers.
  *
  * The queue contains only provider-neutral trigger envelopes. It does not
  * contain credentials, location, incident data, or user PII.
@@ -25,48 +23,37 @@ internal object ProtectionPendingTriggerStore {
     private const val LEGACY_KEY_PROVIDER = "provider"
     private const val LEGACY_KEY_TIMESTAMP = "timestamp"
 
-    private const val MAX_PENDING_TRIGGERS = 8
-
     @Synchronized
     fun save(
         context: Context,
-        trigger: ProtectionVoiceTrigger,
-    ) {
-        if (!isValid(trigger)) {
-            return
-        }
-
+        trigger: ProtectionEmergencyTrigger,
+    ): ProtectionTriggerQueuePolicy.EnqueueStatus {
         val queue =
-            readQueue(context).toMutableList()
+            readQueue(context)
 
-        /*
-         * A provider must not enqueue the same stable trigger twice.
-         */
-        if (queue.any { it.id == trigger.id }) {
-            return
+        val result =
+            ProtectionTriggerQueuePolicy.enqueue(
+                queue,
+                trigger,
+            )
+
+        if (
+            result.status ==
+            ProtectionTriggerQueuePolicy.EnqueueStatus.APPENDED
+        ) {
+            writeQueue(
+                context,
+                result.queue,
+            )
         }
 
-        queue.add(trigger)
-
-        /*
-         * Bound storage without overwriting the oldest unacknowledged
-         * emergency trigger. If the queue is saturated, reject the newest
-         * trigger and preserve the existing durable records.
-         */
-        if (queue.size > MAX_PENDING_TRIGGERS) {
-            return
-        }
-
-        writeQueue(
-            context,
-            queue,
-        )
+        return result.status
     }
 
     @Synchronized
     fun peek(
         context: Context,
-    ): ProtectionVoiceTrigger? {
+    ): ProtectionEmergencyTrigger? {
         return readQueue(context).firstOrNull()
     }
 
@@ -75,27 +62,22 @@ internal object ProtectionPendingTriggerStore {
         context: Context,
         triggerId: String,
     ): Boolean {
-        if (triggerId.isBlank()) {
-            return false
-        }
-
         val queue =
-            readQueue(context).toMutableList()
+            readQueue(context)
 
-        val index =
-            queue.indexOfFirst {
-                it.id == triggerId
-            }
+        val result =
+            ProtectionTriggerQueuePolicy.acknowledge(
+                queue,
+                triggerId,
+            )
 
-        if (index < 0) {
+        if (!result.removed) {
             return false
         }
-
-        queue.removeAt(index)
 
         writeQueue(
             context,
-            queue,
+            result.queue,
         )
 
         return true
@@ -103,7 +85,7 @@ internal object ProtectionPendingTriggerStore {
 
     private fun readQueue(
         context: Context,
-    ): List<ProtectionVoiceTrigger> {
+    ): List<ProtectionEmergencyTrigger> {
         val preferences =
             context.getSharedPreferences(
                 PREFS_NAME,
@@ -117,13 +99,15 @@ internal object ProtectionPendingTriggerStore {
             )
 
         if (encoded != null) {
-            return decodeQueue(encoded)
+            return ProtectionTriggerPersistenceCodec.decode(
+                encoded,
+            )
         }
 
         /*
          * One-time compatibility migration from the original single-slot
-         * durability contract. This preserves an unacknowledged trigger
-         * across an in-place vc12 upgrade.
+         * durability contract. This preserves an unacknowledged voice trigger
+         * across an in-place upgrade.
          */
         val legacy =
             readLegacyTrigger(preferences)
@@ -144,60 +128,14 @@ internal object ProtectionPendingTriggerStore {
         return emptyList()
     }
 
-    private fun decodeQueue(
-        encoded: String,
-    ): List<ProtectionVoiceTrigger> {
-        return try {
-            val array = JSONArray(encoded)
-            val queue =
-                mutableListOf<ProtectionVoiceTrigger>()
-
-            for (index in 0 until array.length()) {
-                val item =
-                    array.optJSONObject(index)
-                        ?: continue
-
-                val trigger =
-                    ProtectionVoiceTrigger(
-                        id = item.optString("id"),
-                        phrase = item.optString("phrase"),
-                        provider = item.optString("provider"),
-                        timestamp = item.optLong("timestamp"),
-                    )
-
-                if (
-                    isValid(trigger) &&
-                    queue.none { it.id == trigger.id } &&
-                    queue.size < MAX_PENDING_TRIGGERS
-                ) {
-                    queue.add(trigger)
-                }
-            }
-
-            queue
-        } catch (_: Exception) {
-            emptyList()
-        }
-    }
-
     private fun writeQueue(
         context: Context,
-        queue: List<ProtectionVoiceTrigger>,
+        queue: List<ProtectionEmergencyTrigger>,
     ) {
-        val array = JSONArray()
-
-        queue
-            .take(MAX_PENDING_TRIGGERS)
-            .forEach { trigger ->
-                array.put(
-                    JSONObject().apply {
-                        put("id", trigger.id)
-                        put("phrase", trigger.phrase)
-                        put("provider", trigger.provider)
-                        put("timestamp", trigger.timestamp)
-                    },
-                )
-            }
+        val encoded =
+            ProtectionTriggerPersistenceCodec.encode(
+                queue,
+            )
 
         context
             .getSharedPreferences(
@@ -207,14 +145,14 @@ internal object ProtectionPendingTriggerStore {
             .edit()
             .putString(
                 KEY_QUEUE,
-                array.toString(),
+                encoded,
             )
             .apply()
     }
 
     private fun readLegacyTrigger(
         preferences: android.content.SharedPreferences,
-    ): ProtectionVoiceTrigger? {
+    ): ProtectionEmergencyTrigger? {
         val id =
             preferences.getString(
                 LEGACY_KEY_ID,
@@ -240,14 +178,17 @@ internal object ProtectionPendingTriggerStore {
             )
 
         val trigger =
-            ProtectionVoiceTrigger(
+            ProtectionEmergencyTrigger(
                 id = id,
+                type = ProtectionTriggerType.VOICE,
                 phrase = phrase,
                 provider = provider,
                 timestamp = timestamp,
             )
 
-        return trigger.takeIf(::isValid)
+        return trigger.takeIf(
+            ProtectionTriggerQueuePolicy::isValid,
+        )
     }
 
     private fun clearLegacyKeys(
@@ -260,16 +201,5 @@ internal object ProtectionPendingTriggerStore {
             .remove(LEGACY_KEY_PROVIDER)
             .remove(LEGACY_KEY_TIMESTAMP)
             .apply()
-    }
-
-    private fun isValid(
-        trigger: ProtectionVoiceTrigger,
-    ): Boolean {
-        return (
-            trigger.id.isNotBlank() &&
-                trigger.phrase.isNotBlank() &&
-                trigger.provider.isNotBlank() &&
-                trigger.timestamp > 0L
-        )
     }
 }

@@ -9,7 +9,6 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
-import android.net.Uri
 import androidx.core.app.NotificationCompat
 
 /**
@@ -36,6 +35,19 @@ class OpaProtectionService : Service() {
             ACTION_STOP -> {
                 stopProtectionService()
                 return START_NOT_STICKY
+            }
+
+            ACTION_SOS -> {
+                /*
+                 * Keep the existing protection foreground/runtime ownership
+                 * intact, then publish an explicit durable SOS record.
+                 *
+                 * Native code does not activate incidents or acquire location.
+                 * JavaScript consumes this record through the existing durable
+                 * FIFO and existing incident architecture.
+                 */
+                startProtectionForeground()
+                publishNotificationSos()
             }
 
             else -> startProtectionForeground()
@@ -83,6 +95,32 @@ class OpaProtectionService : Service() {
         stopSelf()
     }
 
+    private fun publishNotificationSos() {
+        try {
+            ProtectionTriggerBus.publish(
+                applicationContext,
+                ProtectionSosTriggerFactory.create(
+                    id =
+                        java.util.UUID
+                            .randomUUID()
+                            .toString(),
+                    timestamp =
+                        System.currentTimeMillis(),
+                ),
+            )
+
+            android.util.Log.i(
+                LOG_TAG,
+                "Native notification SOS trigger received.",
+            )
+        } catch (error: Throwable) {
+            android.util.Log.e(
+                LOG_TAG,
+                "Native notification SOS trigger persistence failed.",
+                error,
+            )
+        }
+    }
     private fun buildProtectionNotification(): Notification {
         val launchIntent =
             packageManager.getLaunchIntentForPackage(packageName)?.apply {
@@ -103,26 +141,24 @@ class OpaProtectionService : Service() {
             }
 
         /*
-         * Lock-screen emergency entry point.
+         * Lock-screen emergency action.
          *
-         * This intentionally does not activate an incident in native code.
-         * It routes into OPA's existing /sos flow so location acquisition,
-         * confirmation, incident activation, tracking, auth and audit remain
-         * owned by the existing application boundaries.
+         * The action targets this foreground service directly rather than
+         * launching an Activity. This keeps explicit SOS input outside the
+         * device-unlock/navigation path while preserving OPA's existing
+         * durable trigger, JavaScript incident, location, tracking and audit
+         * boundaries.
          */
         val sosIntent =
             Intent(
-                Intent.ACTION_VIEW,
-                Uri.parse("opa://sos"),
+                this,
+                OpaProtectionService::class.java,
             ).apply {
-                `package` = packageName
-                flags =
-                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                        Intent.FLAG_ACTIVITY_CLEAR_TOP
+                action = ACTION_SOS
             }
 
         val sosPendingIntent =
-            PendingIntent.getActivity(
+            PendingIntent.getService(
                 this,
                 SOS_REQUEST_CODE,
                 sosIntent,
@@ -177,11 +213,17 @@ class OpaProtectionService : Service() {
     }
 
     companion object {
+        private const val LOG_TAG =
+            "OpaProtectionService"
+
         const val ACTION_START =
             "com.opasafety.app.protection.action.START"
 
         const val ACTION_STOP =
             "com.opasafety.app.protection.action.STOP"
+
+        const val ACTION_SOS =
+            "com.opasafety.app.protection.action.SOS"
 
         private const val CHANNEL_ID =
             "opa-protection-service"

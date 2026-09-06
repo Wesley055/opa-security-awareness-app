@@ -11,6 +11,12 @@ import {
   stopVoiceProtection,
 } from '../src/services/voice-protection-service';
 import {
+  processOpaProtectionTrigger,
+} from '../src/services/opa-protection-trigger-processor';
+import {
+  processSosTrigger,
+} from '../src/services/sos-protection-service';
+import {
   getVoiceProtectionConfig,
   isVoiceProtectionReady,
 } from '../src/services/voice-protection-config';
@@ -269,118 +275,34 @@ export default function RootLayout() {
      */
     let drainPromise: Promise<void> | null = null;
 
-    const processPendingVoiceTrigger = async (
-      event: {
-        id: string;
-        phrase: string;
-        provider: string;
-        timestamp: number;
-      },
+    const processPendingProtectionTrigger = async (
+      event: Parameters<
+        typeof processOpaProtectionTrigger
+      >[0],
     ): Promise<'ACK' | 'RETRY'> => {
-      const triggerId = event.id.trim();
-
-      /*
-       * Invalid records should normally have been filtered by the native store.
-       * If one crosses the bridge, preserve it rather than acknowledging an
-       * unknown/blank identity.
-       */
-      if (triggerId.length === 0) {
-        console.log(
-          '[opa-protection] invalid native voice trigger id',
-        );
-        return 'RETRY';
-      }
-
       try {
-        /*
-         * Unsupported or malformed records are terminal poison records.
-         * Acknowledge only their exact durable ID so they cannot permanently
-         * block all newer emergency triggers behind them.
-         */
-        if (event.provider !== 'picovoice_porcupine') {
-          console.log(
-            '[opa-protection] unsupported native voice provider',
-            event.provider,
-          );
-
-          const acknowledged =
-            await acknowledgePendingOpaVoiceTrigger(
-              triggerId,
-            );
-
-          return acknowledged ? 'ACK' : 'RETRY';
-        }
-
-        if (
-          !Number.isFinite(event.timestamp) ||
-          event.timestamp <= 0
-        ) {
-          console.log(
-            '[opa-protection] invalid native voice trigger timestamp',
-          );
-
-          const acknowledged =
-            await acknowledgePendingOpaVoiceTrigger(
-              triggerId,
-            );
-
-          return acknowledged ? 'ACK' : 'RETRY';
-        }
-
-        if (event.phrase.trim().length === 0) {
-          console.log(
-            '[opa-protection] invalid native voice trigger phrase',
-          );
-
-          const acknowledged =
-            await acknowledgePendingOpaVoiceTrigger(
-              triggerId,
-            );
-
-          return acknowledged ? 'ACK' : 'RETRY';
-        }
-
-        const disposition =
-          await processVoiceTrigger({
-            phrase: event.phrase,
-            confidence: null,
-            timestamp: event.timestamp,
-            provider: 'picovoice_porcupine',
-          });
-
-        if (disposition === 'RETRY') {
-          return 'RETRY';
-        }
-
-        const acknowledged =
-          await acknowledgePendingOpaVoiceTrigger(
-            triggerId,
-          );
-
-        if (!acknowledged) {
-          console.log(
-            '[opa-protection] native trigger acknowledgement skipped',
-            triggerId,
-          );
-
-          return 'RETRY';
-        }
-
-        return 'ACK';
+        return await processOpaProtectionTrigger(
+          event,
+          {
+            processVoiceTrigger,
+            processSosTrigger,
+            acknowledge:
+              acknowledgePendingOpaVoiceTrigger,
+          },
+        );
       } catch (error: unknown) {
         /*
          * Preserve native durability on unexpected processing or bridge
          * failures.
          */
         console.log(
-          '[opa-protection] native voice trigger processing failed',
+          '[opa-protection] native trigger processing failed',
           error,
         );
 
         return 'RETRY';
       }
     };
-
     let drainRequested = false;
     let retryBlocked = false;
 
@@ -410,7 +332,7 @@ export default function RootLayout() {
                 }
 
                 const disposition =
-                  await processPendingVoiceTrigger(
+                  await processPendingProtectionTrigger(
                     pending,
                   );
 

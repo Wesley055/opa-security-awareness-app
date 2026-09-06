@@ -18,11 +18,8 @@ class OpaProtectionModule : Module() {
             ProtectionTriggerBus.attach { trigger ->
                 sendEvent(
                     VOICE_TRIGGER_EVENT,
-                    mapOf(
-                        "id" to trigger.id,
-                        "phrase" to trigger.phrase,
-                        "provider" to trigger.provider,
-                        "timestamp" to trigger.timestamp.toDouble(),
+                    ProtectionTriggerBridgePayload.from(
+                        trigger,
                     ),
                 )
             }
@@ -81,11 +78,8 @@ class OpaProtectionModule : Module() {
                 return@AsyncFunction null
             }
 
-            mapOf(
-                "id" to trigger.id,
-                "phrase" to trigger.phrase,
-                "provider" to trigger.provider,
-                "timestamp" to trigger.timestamp.toDouble(),
+            ProtectionTriggerBridgePayload.from(
+                trigger,
             )
         }
 

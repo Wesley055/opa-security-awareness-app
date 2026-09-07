@@ -8,6 +8,7 @@ import { startTracking } from './journey-tracker';
 
 export type SosActivationStatus =
   | 'INCIDENT_ACTIVATED'
+  | 'INCIDENT_RETRIGGERED'
   | 'NOT_ACTIVATED'
   | 'CONFIRMATION_REQUIRED'
   | 'LOCATION_UNAVAILABLE';
@@ -51,11 +52,14 @@ Promise<SosActivationResult> {
       accuracy: cleanNonNegative(location.fix.accuracy),
     });
 
-  if (data.status === 'INCIDENT_ACTIVATED') {
+  if (
+    data.status === 'INCIDENT_ACTIVATED' ||
+    data.status === 'INCIDENT_RETRIGGERED'
+  ) {
     await startTracking();
 
     return {
-      status: 'INCIDENT_ACTIVATED',
+      status: data.status,
       incidentId: data.incident?.id,
       notifications: data.notifications,
     };

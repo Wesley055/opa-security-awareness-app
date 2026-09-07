@@ -161,4 +161,43 @@ describe('voice-activation-coordinator', () => {
       }),
     );
   });
+
+  it('preserves an existing OPEN incident retrigger and ensures tracking remains active', async () => {
+    mockedAcquireEmergencyLocation.mockResolvedValue({
+      ok: true,
+      fix: {
+        latitude: 6.5244,
+        longitude: 3.3792,
+        accuracy: 8,
+        acquiredAt: 1787682337000,
+      },
+    });
+
+    mockedApi.post.mockResolvedValue({
+      data: {
+        status: 'INCIDENT_RETRIGGERED',
+        incident: {
+          id: 'incident-voice-existing',
+        },
+        retriggerCount: 2,
+        notifications: {
+          queued: 0,
+          dispatched: false,
+        },
+      },
+    });
+
+    await expect(
+      activateFromVoiceTrigger(voiceEvent),
+    ).resolves.toEqual({
+      status: 'INCIDENT_RETRIGGERED',
+      incidentId: 'incident-voice-existing',
+      notifications: {
+        queued: 0,
+        dispatched: false,
+      },
+    });
+
+    expect(mockedStartTracking).toHaveBeenCalledTimes(1);
+  });
 });

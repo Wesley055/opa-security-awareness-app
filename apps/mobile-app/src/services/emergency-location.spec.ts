@@ -2,6 +2,7 @@ import * as Location from 'expo-location';
 
 import {
   acquireEmergencyLocation,
+  acquireEmergencyLocationWithoutPermissionRequest,
   isEmergencyLocationFresh,
   MAX_EMERGENCY_LOCATION_AGE_MS,
 } from './emergency-location';
@@ -11,6 +12,7 @@ jest.mock('expo-location', () => ({
     High: 4,
   },
   requestForegroundPermissionsAsync: jest.fn(),
+  getForegroundPermissionsAsync: jest.fn(),
   getCurrentPositionAsync: jest.fn(),
 }));
 
@@ -106,6 +108,65 @@ describe('emergency-location', () => {
     });
   });
 
+  it('headless path reads existing permission without requesting UI permission', async () => {
+    mockedLocation.getForegroundPermissionsAsync.mockResolvedValue({
+      status: 'granted',
+      granted: true,
+      canAskAgain: true,
+      expires: 'never',
+    } as never);
+
+    mockedLocation.getCurrentPositionAsync.mockResolvedValue({
+      coords: {
+        latitude: 6.5244,
+        longitude: 3.3792,
+        accuracy: 9,
+      },
+    } as never);
+
+    await expect(
+      acquireEmergencyLocationWithoutPermissionRequest(),
+    ).resolves.toMatchObject({
+      ok: true,
+      fix: {
+        latitude: 6.5244,
+        longitude: 3.3792,
+        accuracy: 9,
+      },
+    });
+
+    expect(
+      mockedLocation.getForegroundPermissionsAsync,
+    ).toHaveBeenCalledTimes(1);
+
+    expect(
+      mockedLocation.requestForegroundPermissionsAsync,
+    ).not.toHaveBeenCalled();
+  });
+
+  it('headless path fails closed when existing permission is not granted', async () => {
+    mockedLocation.getForegroundPermissionsAsync.mockResolvedValue({
+      status: 'denied',
+      granted: false,
+      canAskAgain: true,
+      expires: 'never',
+    } as never);
+
+    await expect(
+      acquireEmergencyLocationWithoutPermissionRequest(),
+    ).resolves.toEqual({
+      ok: false,
+      reason: 'PERMISSION_DENIED',
+    });
+
+    expect(
+      mockedLocation.requestForegroundPermissionsAsync,
+    ).not.toHaveBeenCalled();
+
+    expect(
+      mockedLocation.getCurrentPositionAsync,
+    ).not.toHaveBeenCalled();
+  });
   it('accepts a fix at the freshness boundary', () => {
     const now = 1_000_000;
 

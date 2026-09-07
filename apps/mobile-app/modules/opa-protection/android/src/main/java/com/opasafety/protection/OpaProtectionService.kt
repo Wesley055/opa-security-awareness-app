@@ -96,27 +96,70 @@ class OpaProtectionService : Service() {
     }
 
     private fun publishNotificationSos() {
+        val trigger =
+            ProtectionSosTriggerFactory.create(
+                id =
+                    java.util.UUID
+                        .randomUUID()
+                        .toString(),
+                timestamp =
+                    System.currentTimeMillis(),
+            )
+
+        val publishStatus =
+            try {
+                ProtectionTriggerBus.publish(
+                    applicationContext,
+                    trigger,
+                )
+            } catch (error: Throwable) {
+                android.util.Log.e(
+                    LOG_TAG,
+                    "Native notification SOS trigger persistence failed.",
+                    error,
+                )
+                return
+            }
+
+        android.util.Log.i(
+            LOG_TAG,
+            "Native notification SOS trigger received.",
+        )
+
+        if (
+            !ProtectionHeadlessWakePolicy.shouldWake(
+                triggerType = trigger.type,
+                publishStatus = publishStatus,
+            )
+        ) {
+            return
+        }
+
         try {
-            ProtectionTriggerBus.publish(
-                applicationContext,
-                ProtectionSosTriggerFactory.create(
-                    id =
-                        java.util.UUID
-                            .randomUUID()
-                            .toString(),
-                    timestamp =
-                        System.currentTimeMillis(),
-                ),
+            startService(
+                Intent(
+                    applicationContext,
+                    OpaProtectionHeadlessService::class.java,
+                ).apply {
+                    action =
+                        OpaProtectionHeadlessService
+                            .ACTION_PROCESS_PENDING_SOS
+                },
             )
 
             android.util.Log.i(
                 LOG_TAG,
-                "Native notification SOS trigger received.",
+                "Headless SOS processing wake requested.",
             )
         } catch (error: Throwable) {
+            /*
+             * Do not remove the durable SOS record if Android refuses the
+             * execution wake. The existing FIFO remains authoritative and can
+             * be retried by a later execution opportunity.
+             */
             android.util.Log.e(
                 LOG_TAG,
-                "Native notification SOS trigger persistence failed.",
+                "Headless SOS processing wake failed; durable trigger retained.",
                 error,
             )
         }

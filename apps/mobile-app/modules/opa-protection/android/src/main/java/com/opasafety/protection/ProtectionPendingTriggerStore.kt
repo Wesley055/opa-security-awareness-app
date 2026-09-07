@@ -13,6 +13,16 @@ import android.content.Context
  */
 internal object ProtectionPendingTriggerStore {
 
+    /*
+     * Process-local ownership for the durable FIFO head.
+     *
+     * The queue itself remains durable in SharedPreferences. If Android kills
+     * the process, this claim disappears while the unacknowledged trigger
+     * remains durable and can be recovered by the next process.
+     */
+    private val claimCoordinator =
+        ProtectionTriggerClaimCoordinator()
+
     private const val PREFS_NAME =
         "opa_protection_pending_trigger"
 
@@ -48,6 +58,74 @@ internal object ProtectionPendingTriggerStore {
         }
 
         return result.status
+    }
+
+    /**
+     * Atomically reads and claims the current durable FIFO head.
+     *
+     * Callers cannot choose an arbitrary trigger to claim.
+     */
+    @Synchronized
+    fun claimHead(
+        context: Context,
+        ownerId: String,
+    ): ProtectionTriggerClaim? {
+        val queue =
+            readQueue(context)
+
+        return ProtectionPendingTriggerClaimPolicy.claimHead(
+            queue = queue,
+            ownerId = ownerId,
+            coordinator = claimCoordinator,
+        )
+    }
+
+    /**
+     * Releases ownership without removing the durable record.
+     *
+     * Used when processing must RETRY.
+     */
+    @Synchronized
+    fun releaseClaim(
+        triggerId: String,
+        claimToken: String,
+    ): Boolean {
+        return claimCoordinator.release(
+            triggerId = triggerId,
+            claimToken = claimToken,
+        )
+    }
+
+    /**
+     * Removes the FIFO head only when the caller owns that exact head.
+     */
+    @Synchronized
+    fun acknowledgeClaimedHead(
+        context: Context,
+        triggerId: String,
+        claimToken: String,
+    ): Boolean {
+        val queue =
+            readQueue(context)
+
+        val result =
+            ProtectionPendingTriggerClaimPolicy.acknowledgeClaimedHead(
+                queue = queue,
+                triggerId = triggerId,
+                claimToken = claimToken,
+                coordinator = claimCoordinator,
+            )
+
+        if (!result.removed) {
+            return false
+        }
+
+        writeQueue(
+            context,
+            result.queue,
+        )
+
+        return true
     }
 
     @Synchronized

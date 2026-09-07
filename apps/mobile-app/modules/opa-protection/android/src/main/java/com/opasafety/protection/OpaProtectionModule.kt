@@ -65,6 +65,68 @@ class OpaProtectionModule : Module() {
             )
         }
 
+        /*
+         * Atomic durable-trigger ownership boundary.
+         *
+         * A consumer receives only the current FIFO head and an opaque claim
+         * token. RETRY releases ownership without deleting the durable record.
+         * ACK requires the exact trigger ID plus matching claim token.
+         */
+        AsyncFunction("claimPendingProtectionTriggerAsync") {
+                ownerId: String ->
+
+            val context =
+                appContext.reactContext
+                    ?.applicationContext
+                    ?: throw Exceptions.ReactContextLost()
+
+            val claim =
+                ProtectionPendingTriggerStore.claimHead(
+                    context = context,
+                    ownerId = ownerId,
+                )
+
+            if (claim == null) {
+                return@AsyncFunction null
+            }
+
+            ProtectionTriggerClaimBridgePayload.from(
+                claim,
+            )
+        }
+
+        AsyncFunction("releasePendingProtectionTriggerAsync") {
+                triggerId: String,
+                claimToken: String ->
+
+            ProtectionPendingTriggerStore.releaseClaim(
+                triggerId = triggerId,
+                claimToken = claimToken,
+            )
+        }
+
+        AsyncFunction("ackClaimedProtectionTriggerAsync") {
+                triggerId: String,
+                claimToken: String ->
+
+            val context =
+                appContext.reactContext
+                    ?.applicationContext
+                    ?: throw Exceptions.ReactContextLost()
+
+            ProtectionPendingTriggerStore.acknowledgeClaimedHead(
+                context = context,
+                triggerId = triggerId,
+                claimToken = claimToken,
+            )
+        }
+
+        /*
+         * Legacy compatibility APIs.
+         *
+         * Keep these until all production JavaScript consumers have migrated
+         * to the atomic claim contract above.
+         */
         AsyncFunction("peekPendingVoiceTriggerAsync") {
             val context =
                 appContext.reactContext

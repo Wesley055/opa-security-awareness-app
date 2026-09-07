@@ -21,6 +21,15 @@ android {
  * already used by the installed React Native Picovoice packages.
  */
 dependencies {
+  /*
+   * Required by OpaProtectionHeadlessService for React Native's
+   * HeadlessJsTaskService/HeadlessJsTaskConfig APIs.
+   *
+   * Do not pin a React Native version here. The React Native Gradle Plugin
+   * resolves the same react-android version used by the application.
+   */
+  implementation("com.facebook.react:react-android")
+
   implementation 'ai.picovoice:porcupine-android:4.0.0'
   implementation 'ai.picovoice:android-voice-processor:1.0.2'
 

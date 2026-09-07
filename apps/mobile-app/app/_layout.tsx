@@ -21,10 +21,11 @@ import {
   isVoiceProtectionReady,
 } from '../src/services/voice-protection-config';
 import {
-  acknowledgePendingOpaVoiceTrigger,
+  acknowledgeClaimedOpaProtectionTrigger,
   addOpaVoiceTriggerListener,
+  claimPendingOpaProtectionTrigger,
   configureOpaVoiceProvider,
-  peekPendingOpaVoiceTrigger,
+  releasePendingOpaProtectionTrigger,
   startOpaProtectionService,
   stopOpaProtectionService,
 } from '../modules/opa-protection';
@@ -279,6 +280,9 @@ export default function RootLayout() {
       event: Parameters<
         typeof processOpaProtectionTrigger
       >[0],
+      acknowledge: (
+        triggerId: string,
+      ) => Promise<boolean>,
     ): Promise<'ACK' | 'RETRY'> => {
       try {
         return await processOpaProtectionTrigger(
@@ -286,8 +290,7 @@ export default function RootLayout() {
           {
             processVoiceTrigger,
             processSosTrigger,
-            acknowledge:
-              acknowledgePendingOpaVoiceTrigger,
+            acknowledge,
           },
         );
       } catch (error: unknown) {
@@ -320,23 +323,49 @@ export default function RootLayout() {
               drainRequested = false;
 
               while (active) {
-                const pending =
-                  await peekPendingOpaVoiceTrigger();
+                const claim =
+                  await claimPendingOpaProtectionTrigger(
+                    'foreground-react',
+                  );
 
                 if (!active) {
+                  if (claim !== null) {
+                    await releasePendingOpaProtectionTrigger(
+                      claim.id,
+                      claim.claimToken,
+                    );
+                  }
+
                   return;
                 }
 
-                if (pending === null) {
+                if (claim === null) {
                   break;
                 }
 
                 const disposition =
                   await processPendingProtectionTrigger(
-                    pending,
+                    claim,
+                    (triggerId) =>
+                      acknowledgeClaimedOpaProtectionTrigger(
+                        triggerId,
+                        claim.claimToken,
+                      ),
                   );
 
                 if (disposition === 'RETRY') {
+                  const released =
+                    await releasePendingOpaProtectionTrigger(
+                      claim.id,
+                      claim.claimToken,
+                    );
+
+                  if (!released) {
+                    console.log(
+                      '[opa-protection] native trigger claim release failed',
+                    );
+                  }
+
                   retryBlocked = true;
                   return;
                 }

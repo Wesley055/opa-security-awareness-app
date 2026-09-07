@@ -131,4 +131,43 @@ describe('sos-activation-coordinator', () => {
 
     expect(mockedStartTracking).not.toHaveBeenCalled();
   });
+
+  it('preserves an existing OPEN incident retrigger and ensures tracking remains active', async () => {
+    mockedAcquireEmergencyLocation.mockResolvedValue({
+      ok: true,
+      fix: {
+        latitude: 6.5244,
+        longitude: 3.3792,
+        accuracy: 8,
+        acquiredAt: 1787682337000,
+      },
+    });
+
+    mockedApi.post.mockResolvedValue({
+      data: {
+        status: 'INCIDENT_RETRIGGERED',
+        incident: {
+          id: 'incident-sos-existing',
+        },
+        retriggerCount: 2,
+        notifications: {
+          queued: 0,
+          dispatched: false,
+        },
+      },
+    });
+
+    await expect(
+      activateFromSosTrigger(),
+    ).resolves.toEqual({
+      status: 'INCIDENT_RETRIGGERED',
+      incidentId: 'incident-sos-existing',
+      notifications: {
+        queued: 0,
+        dispatched: false,
+      },
+    });
+
+    expect(mockedStartTracking).toHaveBeenCalledTimes(1);
+  });
 });

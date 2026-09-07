@@ -25,19 +25,7 @@ export type EmergencyLocationResult =
       reason: EmergencyLocationFailure;
     };
 
-export async function acquireEmergencyLocation(): Promise<EmergencyLocationResult> {
-  const permission =
-    await Location.requestForegroundPermissionsAsync();
-
-  if (permission.status !== 'granted') {
-    return {
-      ok: false,
-      reason: permission.canAskAgain
-        ? 'PERMISSION_DENIED'
-        : 'PERMISSION_BLOCKED',
-    };
-  }
-
+async function acquireCurrentEmergencyFix(): Promise<EmergencyLocationResult> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
   try {
@@ -74,6 +62,51 @@ export async function acquireEmergencyLocation(): Promise<EmergencyLocationResul
       clearTimeout(timeoutId);
     }
   }
+}
+
+/**
+ * Interactive emergency location path.
+ *
+ * Existing foreground/manual/voice callers may request location permission
+ * from the user before acquiring the emergency fix.
+ */
+export async function acquireEmergencyLocation(): Promise<EmergencyLocationResult> {
+  const permission =
+    await Location.requestForegroundPermissionsAsync();
+
+  if (permission.status !== 'granted') {
+    return {
+      ok: false,
+      reason: permission.canAskAgain
+        ? 'PERMISSION_DENIED'
+        : 'PERMISSION_BLOCKED',
+    };
+  }
+
+  return acquireCurrentEmergencyFix();
+}
+
+/**
+ * Headless-safe emergency location path.
+ *
+ * Background emergency execution must never open permission UI. It may only
+ * use permission the user has already granted.
+ */
+export async function acquireEmergencyLocationWithoutPermissionRequest():
+Promise<EmergencyLocationResult> {
+  const permission =
+    await Location.getForegroundPermissionsAsync();
+
+  if (permission.status !== 'granted') {
+    return {
+      ok: false,
+      reason: permission.canAskAgain === false
+        ? 'PERMISSION_BLOCKED'
+        : 'PERMISSION_DENIED',
+    };
+  }
+
+  return acquireCurrentEmergencyFix();
 }
 
 export function isEmergencyLocationFresh(

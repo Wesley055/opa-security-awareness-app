@@ -33,6 +33,17 @@ export interface OpaNativeProtectionTrigger {
 }
 
 /**
+ * Exclusive process-local ownership of the current durable FIFO head.
+ *
+ * claimToken is opaque and must be supplied unchanged when releasing or
+ * acknowledging the trigger. Native owner identity never crosses this bridge.
+ */
+export interface OpaNativeProtectionTriggerClaim
+  extends OpaNativeProtectionTrigger {
+  claimToken: string;
+}
+
+/**
  * Compatibility shape for callers that already know they are handling
  * a VOICE trigger.
  */
@@ -60,6 +71,20 @@ type OpaProtectionNativeModule = {
   ): Promise<void>;
 
   clearVoiceProviderAsync(): Promise<void>;
+
+  claimPendingProtectionTriggerAsync(
+    ownerId: string,
+  ): Promise<OpaNativeProtectionTriggerClaim | null>;
+
+  releasePendingProtectionTriggerAsync(
+    triggerId: string,
+    claimToken: string,
+  ): Promise<boolean>;
+
+  ackClaimedProtectionTriggerAsync(
+    triggerId: string,
+    claimToken: string,
+  ): Promise<boolean>;
 
   peekPendingVoiceTriggerAsync():
     Promise<OpaNativeProtectionTrigger | null>;
@@ -126,6 +151,56 @@ export async function stopOpaProtectionService(): Promise<void> {
   await nativeModule.stopAsync();
 }
 
+/**
+ * Claims the current durable FIFO head for one JavaScript consumer.
+ *
+ * Native code chooses the FIFO head. JavaScript cannot select an arbitrary
+ * queued trigger.
+ */
+export async function claimPendingOpaProtectionTrigger(
+  ownerId: string,
+): Promise<OpaNativeProtectionTriggerClaim | null> {
+  return nativeModule.claimPendingProtectionTriggerAsync(
+    ownerId,
+  );
+}
+
+/**
+ * Releases ownership without deleting the durable trigger.
+ *
+ * RETRY paths must use this operation so another eligible consumer can resume
+ * processing the same FIFO head.
+ */
+export async function releasePendingOpaProtectionTrigger(
+  triggerId: string,
+  claimToken: string,
+): Promise<boolean> {
+  return nativeModule.releasePendingProtectionTriggerAsync(
+    triggerId,
+    claimToken,
+  );
+}
+
+/**
+ * Acknowledges and removes the current FIFO head only when the exact native
+ * claim token still owns that exact trigger.
+ */
+export async function acknowledgeClaimedOpaProtectionTrigger(
+  triggerId: string,
+  claimToken: string,
+): Promise<boolean> {
+  return nativeModule.ackClaimedProtectionTriggerAsync(
+    triggerId,
+    claimToken,
+  );
+}
+
+/**
+ * Legacy compatibility path.
+ *
+ * Keep until every production consumer has migrated to the atomic claim
+ * contract.
+ */
 /**
  * Returns the currently unacknowledged native trigger, if one exists.
  *

@@ -58,7 +58,9 @@ internal typealias ProtectionVoiceTrigger =
  * Every trigger is persisted before process-local delivery. Persistence is
  * cleared only by an explicit acknowledgement for the exact trigger ID.
  *
- * This object does not wake JavaScript and does not own incident activation.
+ * This object does not own incident activation. The returned enqueue status
+ * allows the producer to decide whether an additional execution wake is
+ * required without duplicating persistence.
  */
 internal object ProtectionTriggerBus {
 
@@ -80,7 +82,7 @@ internal object ProtectionTriggerBus {
     fun publish(
         context: Context,
         trigger: ProtectionEmergencyTrigger,
-    ) {
+    ): ProtectionTriggerQueuePolicy.EnqueueStatus {
         val enqueueStatus =
             ProtectionPendingTriggerStore.save(
                 context,
@@ -92,7 +94,7 @@ internal object ProtectionTriggerBus {
                 enqueueStatus,
             )
         ) {
-            return
+            return enqueueStatus
         }
 
         val currentListener =
@@ -101,5 +103,7 @@ internal object ProtectionTriggerBus {
             }
 
         currentListener?.invoke(trigger)
+
+        return enqueueStatus
     }
 }

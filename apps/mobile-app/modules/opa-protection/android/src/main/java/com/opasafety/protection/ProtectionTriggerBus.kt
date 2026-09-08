@@ -91,7 +91,8 @@ internal object ProtectionTriggerBus {
 
         if (
             !ProtectionTriggerPublishPolicy.shouldWakeListener(
-                enqueueStatus,
+                triggerType = trigger.type,
+                status = enqueueStatus,
             )
         ) {
             return enqueueStatus

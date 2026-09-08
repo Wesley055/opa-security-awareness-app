@@ -7,37 +7,67 @@ import org.junit.Test
 class ProtectionTriggerPublishPolicyTest {
 
     @Test
-    fun `appended durable trigger wakes listener`() {
+    fun `appended durable voice trigger wakes listener`() {
         assertTrue(
             ProtectionTriggerPublishPolicy.shouldWakeListener(
-                ProtectionTriggerQueuePolicy.EnqueueStatus.APPENDED,
+                triggerType = ProtectionTriggerType.VOICE,
+                status =
+                    ProtectionTriggerQueuePolicy.EnqueueStatus.APPENDED,
             ),
         )
     }
 
     @Test
-    fun `already present durable trigger wakes listener again`() {
+    fun `already present durable voice trigger wakes listener again`() {
         assertTrue(
             ProtectionTriggerPublishPolicy.shouldWakeListener(
-                ProtectionTriggerQueuePolicy.EnqueueStatus.ALREADY_PRESENT,
+                triggerType = ProtectionTriggerType.VOICE,
+                status =
+                    ProtectionTriggerQueuePolicy.EnqueueStatus.ALREADY_PRESENT,
             ),
         )
     }
 
     @Test
-    fun `saturated rejected trigger does not wake listener`() {
+    fun `appended durable SOS does not wake process local listener`() {
         assertFalse(
             ProtectionTriggerPublishPolicy.shouldWakeListener(
-                ProtectionTriggerQueuePolicy.EnqueueStatus.SATURATED,
+                triggerType = ProtectionTriggerType.SOS_BUTTON,
+                status =
+                    ProtectionTriggerQueuePolicy.EnqueueStatus.APPENDED,
             ),
         )
     }
 
     @Test
-    fun `invalid rejected trigger does not wake listener`() {
+    fun `already present durable SOS does not wake process local listener`() {
         assertFalse(
             ProtectionTriggerPublishPolicy.shouldWakeListener(
-                ProtectionTriggerQueuePolicy.EnqueueStatus.INVALID,
+                triggerType = ProtectionTriggerType.SOS_BUTTON,
+                status =
+                    ProtectionTriggerQueuePolicy.EnqueueStatus.ALREADY_PRESENT,
+            ),
+        )
+    }
+
+    @Test
+    fun `saturated voice trigger does not wake listener`() {
+        assertFalse(
+            ProtectionTriggerPublishPolicy.shouldWakeListener(
+                triggerType = ProtectionTriggerType.VOICE,
+                status =
+                    ProtectionTriggerQueuePolicy.EnqueueStatus.SATURATED,
+            ),
+        )
+    }
+
+    @Test
+    fun `invalid voice trigger does not wake listener`() {
+        assertFalse(
+            ProtectionTriggerPublishPolicy.shouldWakeListener(
+                triggerType = ProtectionTriggerType.VOICE,
+                status =
+                    ProtectionTriggerQueuePolicy.EnqueueStatus.INVALID,
             ),
         )
     }

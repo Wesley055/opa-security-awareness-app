@@ -21,7 +21,7 @@ jest.mock('expo-task-manager', () => ({
 jest.mock('expo-location', () => ({
   Accuracy: { High: 6 },
   getForegroundPermissionsAsync: jest.fn(),
-  requestBackgroundPermissionsAsync: jest.fn().mockResolvedValue({
+  getBackgroundPermissionsAsync: jest.fn().mockResolvedValue({
     granted: false,
     status: 'denied',
     canAskAgain: true,

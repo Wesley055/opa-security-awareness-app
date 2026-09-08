@@ -789,17 +789,21 @@ export async function startTracking(): Promise<void> {
 /**
  * Starts OS-level background capture. Returns true when it OWNS capture.
  *
- * A false return is not a failure state - it means the caller must start
- * the foreground watcher instead. Background permission is requested only
- * AFTER foreground is granted, which is the order Android requires, and a
- * refusal degrades to foreground-only rather than blocking the SOS.
+ * This service NEVER requests background-location permission.
+ * Runtime permission requests belong to a foreground React UI boundary
+ * where the required prominent disclosure can be shown first.
+ *
+ * Headless/locked emergency paths may reach this function, so it only
+ * reads the existing permission state. If background permission has not
+ * already been granted, tracking safely degrades to the foreground watcher
+ * without blocking SOS activation.
  *
  * The session id goes to SecureStore because the task runs in a separate JS
  * context that cannot see this module's variables.
  */
 async function startBackgroundCapture(forSession: string): Promise<boolean> {
   try {
-    const background = await Location.requestBackgroundPermissionsAsync();
+    const background = await Location.getBackgroundPermissionsAsync();
 
     if (!background.granted) {
       log('background location DENIED - foreground capture only');

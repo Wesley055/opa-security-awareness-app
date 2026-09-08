@@ -81,9 +81,28 @@ export const useAuthStore = create<AuthState>((set) => {
 
     checkAuth: async () => {
       const token = await SecureStore.getItemAsync(ACCESS_TOKEN_KEY);
-      // This intentionally checks local session presence only. api.ts owns
-      // access-token expiry handling through silent refresh on real requests.
-      set({ isAuthenticated: !!token, isLoading: false });
+
+      if (!token) {
+        set({ user: null, isAuthenticated: false, isLoading: false });
+        return;
+      }
+
+      try {
+        // Rehydrate identity on cold start instead of treating token presence
+        // as a complete authenticated session. The foreground API client owns
+        // access-token refresh and forced logout when refresh is rejected.
+        const { data: user } = await api.get<User>('/users/me');
+
+        set({
+          user,
+          isAuthenticated: true,
+          isLoading: false,
+        });
+      } catch {
+        // api.ts synchronizes definitive refresh failure through forceLogout.
+        // Transient startup failures must still release the loading state.
+        set({ isLoading: false });
+      }
     },
 
     forceLogout: () => set({ user: null, isAuthenticated: false }),

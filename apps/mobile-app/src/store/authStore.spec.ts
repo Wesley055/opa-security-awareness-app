@@ -16,6 +16,7 @@ jest.mock('../services/api', () => ({
   ACCESS_TOKEN_KEY: 'opa_access_token',
   REFRESH_TOKEN_KEY: 'opa_refresh_token',
   api: {
+    get: jest.fn(),
     post: jest.fn(),
   },
 }));
@@ -82,6 +83,76 @@ describe('authStore activation', () => {
         lastName: 'Resident',
         role: 'USER',
       },
+    });
+  });
+});
+describe('authStore cold-start hydration', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+
+    useAuthStore.setState({
+      user: null,
+      isAuthenticated: false,
+      isLoading: true,
+    });
+  });
+
+  it('rehydrates the authenticated user from /users/me when a stored access token exists', async () => {
+    mockedSecureStore.getItemAsync.mockResolvedValueOnce('stored-access-token');
+
+    mockedApi.get.mockResolvedValueOnce({
+      data: {
+        id: 'resident-1',
+        email: 'resident@example.com',
+        firstName: 'Blessing',
+        lastName: 'Resident',
+        role: 'USER',
+      },
+    });
+
+    await useAuthStore.getState().checkAuth();
+
+    expect(mockedApi.get).toHaveBeenCalledWith('/users/me');
+
+    expect(useAuthStore.getState()).toMatchObject({
+      isAuthenticated: true,
+      isLoading: false,
+      user: {
+        id: 'resident-1',
+        email: 'resident@example.com',
+        firstName: 'Blessing',
+        lastName: 'Resident',
+        role: 'USER',
+      },
+    });
+  });
+
+  it('finishes unauthenticated without calling /users/me when no access token exists', async () => {
+    mockedSecureStore.getItemAsync.mockResolvedValueOnce(null);
+
+    await useAuthStore.getState().checkAuth();
+
+    expect(mockedApi.get).not.toHaveBeenCalled();
+
+    expect(useAuthStore.getState()).toMatchObject({
+      user: null,
+      isAuthenticated: false,
+      isLoading: false,
+    });
+  });
+
+  it('releases the loading state when user hydration fails', async () => {
+    mockedSecureStore.getItemAsync.mockResolvedValueOnce('stored-access-token');
+    mockedApi.get.mockRejectedValueOnce(new Error('network unavailable'));
+
+    await useAuthStore.getState().checkAuth();
+
+    expect(mockedApi.get).toHaveBeenCalledWith('/users/me');
+
+    expect(useAuthStore.getState()).toMatchObject({
+      user: null,
+      isAuthenticated: false,
+      isLoading: false,
     });
   });
 });

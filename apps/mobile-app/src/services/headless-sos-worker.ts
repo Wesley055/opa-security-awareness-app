@@ -7,6 +7,15 @@ import {
 import { activateFromHeadlessSosTrigger } from './headless-sos-activation';
 
 const HEADLESS_SOS_OWNER = 'headless-sos';
+const HEADLESS_LOG = '[OPA-HEADLESS]';
+
+function errorCategory(error: unknown): string {
+  if (error instanceof Error && error.name) {
+    return error.name;
+  }
+
+  return typeof error;
+}
 
 async function releaseClaim(
   claim: OpaNativeProtectionTriggerClaim,
@@ -19,14 +28,11 @@ async function releaseClaim(
       );
 
     if (!released) {
-      console.log(
-        '[opa-protection-headless] native trigger claim release failed',
-      );
+      console.log(`${HEADLESS_LOG} claim release failed`);
     }
   } catch (error: unknown) {
     console.log(
-      '[opa-protection-headless] native trigger claim release threw',
-      error,
+      `${HEADLESS_LOG} claim release exception category=${errorCategory(error)}`,
     );
   }
 }
@@ -43,6 +49,8 @@ async function releaseClaim(
  * a second time.
  */
 export async function runHeadlessSosWorker(): Promise<void> {
+  console.log(`${HEADLESS_LOG} worker entered`);
+
   while (true) {
     let claim: OpaNativeProtectionTriggerClaim | null;
 
@@ -53,20 +61,29 @@ export async function runHeadlessSosWorker(): Promise<void> {
         );
     } catch (error: unknown) {
       console.log(
-        '[opa-protection-headless] native trigger claim failed',
-        error,
+        `${HEADLESS_LOG} claim exception category=${errorCategory(error)}`,
       );
+      console.log(`${HEADLESS_LOG} worker complete`);
       return;
     }
 
+    console.log(`${HEADLESS_LOG} native FIFO claim attempted`);
+
     if (claim === null) {
+      console.log(`${HEADLESS_LOG} claim result=NONE`);
+      console.log(`${HEADLESS_LOG} worker complete`);
       return;
     }
 
     if (claim.type !== 'SOS_BUTTON') {
+      console.log(`${HEADLESS_LOG} claim result=VOICE`);
       await releaseClaim(claim);
+      console.log(`${HEADLESS_LOG} worker complete`);
       return;
     }
+
+    console.log(`${HEADLESS_LOG} claim result=SOS_BUTTON`);
+    console.log(`${HEADLESS_LOG} activation starting`);
 
     let activation;
 
@@ -75,12 +92,25 @@ export async function runHeadlessSosWorker(): Promise<void> {
         await activateFromHeadlessSosTrigger();
     } catch (error: unknown) {
       console.log(
-        '[opa-protection-headless] SOS activation failed',
-        error,
+        `${HEADLESS_LOG} activation exception category=${errorCategory(error)}`,
       );
 
       await releaseClaim(claim);
+      console.log(`${HEADLESS_LOG} activation result=RETRY`);
+      console.log(`${HEADLESS_LOG} worker complete`);
       return;
+    }
+
+    if (activation.status === 'INCIDENT_ACTIVATED') {
+      console.log(`${HEADLESS_LOG} activation result=ACTIVATED`);
+    } else if (activation.status === 'INCIDENT_RETRIGGERED') {
+      console.log(`${HEADLESS_LOG} activation result=RETRIGGERED`);
+    } else if (activation.status === 'LOCATION_UNAVAILABLE') {
+      console.log(`${HEADLESS_LOG} activation result=RETRY`);
+    } else {
+      console.log(
+        `${HEADLESS_LOG} activation result=TERMINAL_NO_ACTIVATION`,
+      );
     }
 
     if (
@@ -88,6 +118,7 @@ export async function runHeadlessSosWorker(): Promise<void> {
       activation.status !== 'INCIDENT_RETRIGGERED'
     ) {
       await releaseClaim(claim);
+      console.log(`${HEADLESS_LOG} worker complete`);
       return;
     }
 
@@ -101,15 +132,18 @@ export async function runHeadlessSosWorker(): Promise<void> {
         );
     } catch (error: unknown) {
       console.log(
-        '[opa-protection-headless] native trigger ACK threw',
-        error,
+        `${HEADLESS_LOG} ACK exception category=${errorCategory(error)}`,
       );
     }
 
     if (!acknowledged) {
+      console.log(`${HEADLESS_LOG} ACK result=FAILED`);
       await releaseClaim(claim);
+      console.log(`${HEADLESS_LOG} worker complete`);
       return;
     }
+
+    console.log(`${HEADLESS_LOG} ACK result=SUCCESS`);
 
     // Exact ACK removed this FIFO head. Continue so multiple locked-screen
     // SOS taps already persisted by native code are consumed in FIFO order.

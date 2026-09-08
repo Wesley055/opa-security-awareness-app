@@ -1,6 +1,7 @@
 package com.opasafety.protection
 
 import android.content.Intent
+import android.util.Log
 import com.facebook.react.HeadlessJsTaskService
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.jstasks.HeadlessJsTaskConfig
@@ -20,9 +21,15 @@ class OpaProtectionHeadlessService : HeadlessJsTaskService() {
     override fun getTaskConfig(
         intent: Intent?,
     ): HeadlessJsTaskConfig? {
+        Log.i(TAG, "[OPA-HEADLESS] getTaskConfig entry")
+
         if (intent?.action != ACTION_PROCESS_PENDING_SOS) {
+            Log.i(TAG, "[OPA-HEADLESS] task action rejected")
             return null
         }
+
+        Log.i(TAG, "[OPA-HEADLESS] PROCESS_PENDING_SOS accepted")
+        Log.i(TAG, "[OPA-HEADLESS] returning HeadlessJsTaskConfig")
 
         return HeadlessJsTaskConfig(
             TASK_KEY,
@@ -33,6 +40,8 @@ class OpaProtectionHeadlessService : HeadlessJsTaskService() {
     }
 
     companion object {
+        private const val TAG = "OpaProtectionHeadless"
+
         const val ACTION_PROCESS_PENDING_SOS =
             "com.opasafety.app.protection.action.PROCESS_PENDING_SOS"
 

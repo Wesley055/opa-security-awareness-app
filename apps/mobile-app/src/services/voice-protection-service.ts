@@ -60,9 +60,12 @@ export type VoiceTriggerProcessingDisposition =
  */
 export async function processVoiceTrigger(
   event: VoiceTriggerEvent,
+  execution?: 'foreground' | 'headless',
 ): Promise<VoiceTriggerProcessingDisposition> {
   try {
-    const result = await activateFromVoiceTrigger(event);
+    const result = await (execution === undefined
+      ? activateFromVoiceTrigger(event)
+      : activateFromVoiceTrigger(event, execution));
 
     if (
       result.status === 'INCIDENT_ACTIVATED' &&

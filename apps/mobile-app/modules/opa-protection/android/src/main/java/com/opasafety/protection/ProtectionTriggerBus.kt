@@ -58,9 +58,8 @@ internal typealias ProtectionVoiceTrigger =
  * Every trigger is persisted before process-local delivery. Persistence is
  * cleared only by an explicit acknowledgement for the exact trigger ID.
  *
- * This object does not own incident activation. The returned enqueue status
- * allows the producer to decide whether an additional execution wake is
- * required without duplicating persistence.
+ * This object requests execution after persistence, but never owns incident
+ * activation or claim ownership. Both execution signals consume the same FIFO.
  */
 internal object ProtectionTriggerBus {
 
@@ -88,6 +87,10 @@ internal object ProtectionTriggerBus {
                 context,
                 trigger,
             )
+
+        // Persistence precedes every execution signal. Wakes never select a record
+        // or grant ownership; foreground and headless consumers claim the same FIFO.
+        OpaProtectionHeadlessService.requestWake(context, trigger.type, enqueueStatus)
 
         if (
             !ProtectionTriggerPublishPolicy.shouldWakeListener(

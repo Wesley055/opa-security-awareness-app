@@ -38,7 +38,7 @@ export type PublicIncidentSnapshotDto = {
      * tracked position. ADR-005 keeps the incident row at the origin.
      */
     origin: FixOrigin;
-  };
+  } | null;
   /**
    * OMITTED, not nulled, when the incident has no journey session - which
    * is every incident created before Sprint 10B Step 4. A null here would

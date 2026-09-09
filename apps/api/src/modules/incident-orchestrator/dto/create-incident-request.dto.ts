@@ -2,7 +2,7 @@ import {
   IsBoolean,
   IsEnum,
   IsInt,
-  IsLatitude,
+  IsLatitude, ValidateIf,
   IsLongitude,
   IsNumber,
   IsOptional,
@@ -80,11 +80,14 @@ export class CreateIncidentRequestDto {
    * Location
    */
 
+  // Omitted as a pair only; null, partial, and invalid pairs still fail.
+  @ValidateIf((dto) => dto.latitude !== undefined || dto.longitude !== undefined)
   @IsLatitude()
-  latitude: number;
+  latitude?: number;
 
+  @ValidateIf((dto) => dto.latitude !== undefined || dto.longitude !== undefined)
   @IsLongitude()
-  longitude: number;
+  longitude?: number;
 
   @IsOptional()
   @IsNumber()

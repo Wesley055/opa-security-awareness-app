@@ -23,7 +23,7 @@ export type OperatorTrackingPoint = {
 export type OperatorTrackingSnapshot = {
   state: OperatorTrackingState;
   lastFixReceivedAt: string | null;
-  latest: OperatorTrackingPoint;
+  latest: OperatorTrackingPoint | null;
   points: OperatorTrackingPoint[];
   serverTime: string;
 };

@@ -32,6 +32,13 @@ describe('PublicTrackingService', () => {
     accessTokens.recordAccess.mockResolvedValue(undefined);
   });
 
+  it('represents an unknown activation location as null, never 0,0', async () => {
+    accessTokens.resolve.mockResolvedValue({ status: 'VALID', token: tokenRecord });
+    prisma.incident.findUnique.mockResolvedValue({ ...openIncident, latitude: null, longitude: null, journeySession: null });
+    const result = await service.getSnapshot('raw');
+    expect(result).toMatchObject({ state: 'VALID', incident: { location: null } });
+  });
+
   describe('state precedence', () => {
     it('reports NOT_FOUND for an unknown token and never touches the database', async () => {
       accessTokens.resolve.mockResolvedValue({ status: 'NOT_FOUND' });

@@ -96,7 +96,7 @@ function isTrackingSnapshot(
   }
 
   if (!isNullableString(snapshot.lastFixReceivedAt)) return false;
-  if (!isTrackingPoint(snapshot.latest)) return false;
+  if (snapshot.latest !== null && !isTrackingPoint(snapshot.latest)) return false;
   if (!Array.isArray(snapshot.points)) return false;
   if (!snapshot.points.every(isTrackingPoint)) return false;
   if (typeof snapshot.serverTime !== 'string') return false;

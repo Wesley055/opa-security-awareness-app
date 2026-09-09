@@ -1,11 +1,13 @@
-import { api } from './api';
+import { api, backgroundApi } from './api';
 import {
   acquireEmergencyLocation,
+  acquireEmergencyLocationWithoutPermissionRequest,
 } from './emergency-location';
 import { startTracking } from './journey-tracker';
 import { activateFromVoiceTrigger } from './voice-activation-coordinator';
 
 jest.mock('./api', () => ({
+  backgroundApi: { post: jest.fn() },
   api: {
     post: jest.fn(),
   },
@@ -13,6 +15,7 @@ jest.mock('./api', () => ({
 
 jest.mock('./emergency-location', () => ({
   acquireEmergencyLocation: jest.fn(),
+  acquireEmergencyLocationWithoutPermissionRequest: jest.fn(),
 }));
 
 jest.mock('./journey-tracker', () => ({
@@ -199,5 +202,41 @@ describe('voice-activation-coordinator', () => {
     });
 
     expect(mockedStartTracking).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe('headless voice activation', () => {
+  beforeEach(() => jest.resetAllMocks());
+
+  it.each(['INCIDENT_ACTIVATED', 'INCIDENT_RETRIGGERED', 'CONFIRMATION_REQUIRED', 'NOT_ACTIVATED'])(
+    'preserves %s VOICE semantics without interactive location or tracking', async (status) => {
+      (acquireEmergencyLocationWithoutPermissionRequest as jest.Mock).mockResolvedValue({
+        ok: true, fix: { latitude: 6.5, longitude: 3.3, accuracy: 8, acquiredAt: Date.now() },
+      });
+      (backgroundApi.post as jest.Mock).mockResolvedValue({ data: { status, incident: { id: 'voice-incident' } } });
+      await expect(activateFromVoiceTrigger(voiceEvent, 'headless')).resolves.toMatchObject({ status });
+      expect(backgroundApi.post).toHaveBeenCalledTimes(1);
+      expect(backgroundApi.post).toHaveBeenCalledWith('/incident-orchestrator/activate', {
+        triggerType: 'VOICE', mode: 'SILENT', detectedPhrase: 'HELP HELP', language: 'en-NG',
+        voiceConfidence: undefined, repetitionCount: 1, userConfirmed: false,
+        latitude: 6.5, longitude: 3.3, accuracy: 8, timestamp: new Date(voiceEvent.timestamp).toISOString(),
+      });
+      expect(acquireEmergencyLocation).not.toHaveBeenCalled();
+      expect(api.post).not.toHaveBeenCalled();
+      expect(startTracking).not.toHaveBeenCalled();
+    },
+  );
+
+  it('activates without coordinates when permission-free location is unavailable', async () => {
+    (acquireEmergencyLocationWithoutPermissionRequest as jest.Mock).mockResolvedValue({ ok: false, reason: 'PERMISSION_DENIED' });
+    (backgroundApi.post as jest.Mock).mockResolvedValue({ data: { status: 'INCIDENT_ACTIVATED', incident: { id: 'locationless' } } });
+    await expect(activateFromVoiceTrigger(voiceEvent, 'headless')).resolves.toMatchObject({ status: 'INCIDENT_ACTIVATED' });
+    expect(acquireEmergencyLocation).not.toHaveBeenCalled();
+    const payload = (backgroundApi.post as jest.Mock).mock.calls[0][1];
+    expect(payload).not.toHaveProperty('latitude');
+    expect(payload).not.toHaveProperty('longitude');
+    expect(payload).not.toHaveProperty('accuracy');
+    expect(startTracking).not.toHaveBeenCalled();
   });
 });

@@ -441,7 +441,7 @@ export function IncidentDetailView({
     : 'Unknown resident';
   const coords = formatCoords(incident.latitude, incident.longitude);
 
-  const trackedCoords = tracking
+  const trackedCoords = tracking?.latest
     ? formatTrackingCoords(
         tracking.latest.latitude,
         tracking.latest.longitude,
@@ -596,7 +596,7 @@ export function IncidentDetailView({
           so rather than presenting it as a current position.
         */}
         <Row label="Tracked location">
-          {tracking && trackedCoords ? (
+          {tracking?.latest && trackedCoords ? (
             <>
               <span className="font-mono">{trackedCoords}</span>
 

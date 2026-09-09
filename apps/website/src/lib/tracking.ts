@@ -26,7 +26,7 @@ export type PublicIncidentSnapshot = {
      * ADR-005 refuses to overwrite. TRACKED means the position moved on.
      */
     origin: 'ACTIVATION' | 'TRACKED';
-  };
+  } | null;
   /**
    * ABSENT, not null, for any incident with no journey session - which is
    * every incident raised before Sprint 10B Step 4. Undefined here means

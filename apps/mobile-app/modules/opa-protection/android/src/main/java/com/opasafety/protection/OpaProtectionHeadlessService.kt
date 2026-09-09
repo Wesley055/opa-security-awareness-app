@@ -1,5 +1,6 @@
 package com.opasafety.protection
 
+import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.facebook.react.HeadlessJsTaskService
@@ -13,8 +14,7 @@ import com.facebook.react.jstasks.HeadlessJsTaskConfig
  * This service owns execution/wake only. Durable FIFO ownership remains in
  * ProtectionPendingTriggerStore and incident business logic remains in JS.
  *
- * VOICE does not use this service. The existing native voice lifecycle remains
- * unchanged.
+ * VOICE and SOS_BUTTON share this wake and retain their own JS semantics.
  */
 class OpaProtectionHeadlessService : HeadlessJsTaskService() {
 
@@ -23,12 +23,12 @@ class OpaProtectionHeadlessService : HeadlessJsTaskService() {
     ): HeadlessJsTaskConfig? {
         Log.i(TAG, "[OPA-HEADLESS] getTaskConfig entry")
 
-        if (intent?.action != ACTION_PROCESS_PENDING_SOS) {
+        if (intent?.action != ACTION_PROCESS_PENDING_TRIGGERS) {
             Log.i(TAG, "[OPA-HEADLESS] task action rejected")
             return null
         }
 
-        Log.i(TAG, "[OPA-HEADLESS] PROCESS_PENDING_SOS accepted")
+        Log.i(TAG, "[OPA-HEADLESS] PROCESS_PENDING_TRIGGERS accepted")
         Log.i(TAG, "[OPA-HEADLESS] returning HeadlessJsTaskConfig")
 
         return HeadlessJsTaskConfig(
@@ -42,8 +42,30 @@ class OpaProtectionHeadlessService : HeadlessJsTaskService() {
     companion object {
         private const val TAG = "OpaProtectionHeadless"
 
-        const val ACTION_PROCESS_PENDING_SOS =
-            "com.opasafety.app.protection.action.PROCESS_PENDING_SOS"
+        const val ACTION_PROCESS_PENDING_TRIGGERS =
+            "com.opasafety.app.protection.action.PROCESS_PENDING_TRIGGERS"
+
+        internal fun requestWake(
+            context: Context,
+            triggerType: ProtectionTriggerType,
+            publishStatus: ProtectionTriggerQueuePolicy.EnqueueStatus,
+        ) {
+            if (!ProtectionHeadlessWakePolicy.shouldWake(triggerType, publishStatus)) {
+                return
+            }
+
+            try {
+                context.startService(
+                    Intent(context, OpaProtectionHeadlessService::class.java).apply {
+                        action = ACTION_PROCESS_PENDING_TRIGGERS
+                    },
+                )
+                Log.i(TAG, "Headless protection trigger wake requested type=$triggerType.")
+            } catch (error: Throwable) {
+                // A refused wake must never remove the durable FIFO record.
+                Log.e(TAG, "Headless protection trigger wake failed; durable trigger retained.", error)
+            }
+        }
 
         const val TASK_KEY =
             "OpaProtectionEmergencyTrigger"

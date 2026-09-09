@@ -9,11 +9,11 @@ AppRegistry.registerHeadlessTask(
   'OpaProtectionEmergencyTrigger',
   () => {
     const {
-      runHeadlessSosWorker,
+      runHeadlessProtectionWorker,
     } = require('./src/services/headless-sos-worker');
 
     return async () => {
-      await runHeadlessSosWorker();
+      await runHeadlessProtectionWorker();
     };
   },
 );

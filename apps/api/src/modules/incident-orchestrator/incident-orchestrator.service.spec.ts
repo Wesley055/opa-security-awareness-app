@@ -159,6 +159,35 @@ describe('IncidentOrchestratorService', () => {
     );
   });
 
+  it.each([false, true])('activates without location or fake enrichment, retrigger=%s', async (retrigger) => {
+    emergencyDetectionService.evaluate.mockReturnValue({ outcome: { shouldActivate: true, isSilent: true } });
+    usersService.findById.mockResolvedValue({ id: 'user-1', firstName: 'Test', lastName: 'User' });
+    emergencyContactsService.listForUser.mockResolvedValue([{ id: 'contact-1', firstName: 'Contact', lastName: 'One', isActive: true, receivesEmergencySms: true, phoneNumber: '+2348012345678' }]);
+    const incident = { id: 'incident-1', createdAt: new Date(), journeySessionId: null, latitude: null, longitude: null, retriggerCount: 1 };
+    incidentsService.create.mockResolvedValue(incident);
+    prisma.incident.findFirst.mockResolvedValue(retrigger ? incident : null);
+    prisma.incident.update.mockResolvedValue(incident);
+    prisma.incidentNotification.findMany.mockResolvedValue([]);
+    const result = await service.createCoordinatedIncident('user-1', { triggerType: 'VOICE' as never, mode: 'SILENT' as never, detectedPhrase: 'HELP HELP' });
+    expect(result.status).toBe(retrigger ? 'INCIDENT_RETRIGGERED' : 'INCIDENT_ACTIVATED');
+    expect(result.intelligence).toBeNull();
+    expect(emergencyIntelligenceService.buildLocationIntelligence).not.toHaveBeenCalled();
+    expect(journeySessionService.recordActivationFix).not.toHaveBeenCalled();
+    expect(journeySessionService.recordRetriggerFix).not.toHaveBeenCalled();
+    expect(journeySessionService.resolveForActivation).not.toHaveBeenCalled();
+    expect(timelineService.recordEvent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'LOCATION_ATTACHED' }));
+    const notifications = prisma.incidentNotification.createMany.mock.calls[0]![0].data;
+    expect(notifications).toHaveLength(2);
+    for (const row of notifications) {
+      expect(row.status).toBe('QUEUED');
+      expect(row.payload.message).toContain('may be in danger');
+      expect(row.payload.message).toContain('Location unavailable');
+      expect(row.payload.message).not.toContain('maps.google');
+      expect(row.payload.message).not.toContain('undefined');
+    }
+    if (!retrigger) expect(incidentsService.create).toHaveBeenCalledWith('user-1', expect.objectContaining({ latitude: undefined, longitude: undefined }), prisma);
+  });
+
   it('should activate a coordinated incident and notify active contacts', async () => {
     emergencyDetectionService.evaluate.mockReturnValue({
       outcome: {

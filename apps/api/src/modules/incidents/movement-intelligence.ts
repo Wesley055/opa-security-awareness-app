@@ -113,7 +113,7 @@ function accuracyEnvelopeMeters(
 }
 
 export function deriveMovementIntelligence(
-  activation: Pick<MovementPoint, 'latitude' | 'longitude'>,
+  activation: Pick<MovementPoint, 'latitude' | 'longitude'> | null,
   points: MovementPoint[],
 ): MovementIntelligence {
   if (points.length === 0) {
@@ -130,7 +130,7 @@ export function deriveMovementIntelligence(
 
   const latest = points[points.length - 1]!;
 
-  const distanceFromActivation = distanceMeters(
+  const distanceFromActivation = activation === null ? null : distanceMeters(
     activation,
     latest,
   );

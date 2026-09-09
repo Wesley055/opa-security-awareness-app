@@ -51,14 +51,14 @@ export class IncidentTrackingService {
 
     const serverTime = new Date();
 
-    const activationLocation = {
+    const activationLocation = incident.latitude !== null && incident.longitude !== null ? {
       latitude: Number(incident.latitude),
       longitude: Number(incident.longitude),
       recordedAt: incident.createdAt.toISOString(),
       receivedAt: null,
       source: 'activation',
       origin: 'ACTIVATION' as const,
-    };
+    } : null;
 
     if (incident.journeySessionId === null) {
       return {
@@ -192,10 +192,7 @@ export class IncidentTrackingService {
       }));
 
     const movement = deriveMovementIntelligence(
-      {
-        latitude: activationLocation.latitude,
-        longitude: activationLocation.longitude,
-      },
+      activationLocation,
       points.map((point) => ({
         latitude: point.latitude,
         longitude: point.longitude,

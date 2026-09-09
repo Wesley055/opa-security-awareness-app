@@ -161,3 +161,9 @@ describe('movement intelligence', () => {
     expect(result.state).toBe('UNKNOWN');
   });
 });
+describe('unknown activation origin', () => {
+  it('does not invent a distance from 0,0', () => {
+    const result = deriveMovementIntelligence(null, [{ latitude: 6.5, longitude: 3.3, accuracy: 5, speed: null, heading: null, recordedAt: new Date().toISOString() }]);
+    expect(result.distanceFromActivationMeters).toBeNull();
+  });
+});

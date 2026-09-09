@@ -156,4 +156,44 @@ class ProtectionPendingTriggerClaimPolicyTest {
         assertFalse(result.removed)
         assertEquals(queue, result.queue)
     }
+
+    @Test
+    fun `mixed FIFO retains voice on retry and rejects stale ACK after reclaim`() {
+        val coordinator = ProtectionTriggerClaimCoordinator()
+        val voice = ProtectionEmergencyTrigger("voice-1", ProtectionTriggerType.VOICE, 1000L, "HELP HELP", "picovoice_porcupine")
+        val queue = listOf(voice, sosTrigger("sos-2", 2000L))
+        val first = ProtectionPendingTriggerClaimPolicy.claimHead(queue, "headless-protection", coordinator)!!
+        assertEquals(voice, first.trigger)
+        assertTrue(coordinator.release(first.trigger.id, first.claimToken))
+        val retry = ProtectionPendingTriggerClaimPolicy.claimHead(queue, "foreground-react", coordinator)!!
+        assertEquals(voice, retry.trigger)
+        val stale = ProtectionPendingTriggerClaimPolicy.acknowledgeClaimedHead(queue, voice.id, first.claimToken, coordinator)
+        assertFalse(stale.removed)
+        assertEquals(queue, stale.queue)
+        val ack = ProtectionPendingTriggerClaimPolicy.acknowledgeClaimedHead(queue, voice.id, retry.claimToken, coordinator)
+        assertTrue(ack.removed)
+        assertEquals("sos-2", ProtectionPendingTriggerClaimPolicy.claimHead(ack.queue, "headless-protection", coordinator)?.trigger?.id)
+    }
+
+    @Test
+    fun `simultaneous foreground and native wakes grant exactly one VOICE owner`() {
+        val coordinator = ProtectionTriggerClaimCoordinator()
+        val queue = listOf(ProtectionEmergencyTrigger("voice-1", ProtectionTriggerType.VOICE, 1000L, "HELP HELP", "picovoice_porcupine"))
+        val ready = java.util.concurrent.CountDownLatch(3)
+        val go = java.util.concurrent.CountDownLatch(1)
+        val claims = java.util.Collections.synchronizedList(mutableListOf<ProtectionTriggerClaim>())
+        val threads = listOf("foreground-react", "headless-protection", "headless-protection").map { owner ->
+            Thread {
+                ready.countDown()
+                go.await()
+                ProtectionPendingTriggerClaimPolicy.claimHead(queue, owner, coordinator)?.let { claims.add(it) }
+            }.apply { start() }
+        }
+        assertTrue(ready.await(5, java.util.concurrent.TimeUnit.SECONDS))
+        go.countDown()
+        threads.forEach { it.join(5000) }
+        assertTrue(threads.none { it.isAlive })
+        assertEquals(1, claims.size)
+        assertEquals("voice-1", claims.single().trigger.id)
+    }
 }

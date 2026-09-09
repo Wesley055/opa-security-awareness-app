@@ -82,10 +82,11 @@ export class IncidentOrchestratorService {
     }
     const personName = `${user.firstName} ${user.lastName}`.trim();
 
-    const intelligence =
-      await this.emergencyIntelligenceService.buildLocationIntelligence({
-        latitude: dto.latitude,
-        longitude: dto.longitude,
+    const hasLocation = dto.latitude !== undefined && dto.longitude !== undefined;
+    const intelligence = hasLocation
+      ? await this.emergencyIntelligenceService.buildLocationIntelligence({
+        latitude: dto.latitude!,
+        longitude: dto.longitude!,
         accuracy: dto.accuracy,
         speed: dto.speed,
         heading: dto.heading,
@@ -95,7 +96,8 @@ export class IncidentOrchestratorService {
         networkType: dto.networkType,
         language: dto.language,
         timestamp: dto.timestamp,
-      });
+      })
+      : null;
 
     // Load and filter contacts BEFORE the transaction so we can build the
     // durable notification rows in memory (no network/IO inside the tx).
@@ -161,7 +163,9 @@ export class IncidentOrchestratorService {
     // docs/architecture/emergency-intelligence-engine.md). Using the
     // real GPS coordinates as a tappable map link instead, until that
     // provider is replaced with a real integration.
-    const locationSummary = `https://maps.google.com/?q=${dto.latitude},${dto.longitude}`;
+    const locationSummary = hasLocation
+      ? `https://maps.google.com/?q=${dto.latitude},${dto.longitude}`
+      : 'Location unavailable';
 
     // Durable-intent write: incident + QUEUED notification rows commit
     // atomically. If this commits, notifications will not be lost even if
@@ -299,23 +303,24 @@ export class IncidentOrchestratorService {
         // audit event, not the position. recordRetriggerFix is
         // self-healing - it resolves and links a session of its own when
         // incident.journeySessionId is null.
-        const retriggerFix =
-          await this.journeySessionService.recordRetriggerFix(tx, {
+        const retriggerFix = hasLocation
+          ? await this.journeySessionService.recordRetriggerFix(tx, {
             incident: updated,
-            latitude: dto.latitude,
-            longitude: dto.longitude,
+            latitude: dto.latitude!,
+            longitude: dto.longitude!,
             accuracy: dto.accuracy,
             speed: dto.speed,
             heading: dto.heading,
             batteryLevel: dto.batteryLevel,
             isCharging: dto.isCharging,
             recordedAt,
-          });
+          })
+          : null;
 
         return {
           incident: {
             ...updated,
-            journeySessionId: retriggerFix.sessionId,
+            journeySessionId: retriggerFix?.sessionId ?? updated.journeySessionId,
           },
           deduplicated: true as const,
           retriggeredAt,
@@ -347,24 +352,26 @@ export class IncidentOrchestratorService {
       // here rather than before the create. The lifecycle lock is already
       // held above and pg_advisory_xact_lock is reentrant within a
       // transaction, so resolveForActivation re-taking it is free (D6).
-      const journeySession =
-        await this.journeySessionService.resolveForActivation(tx, userId);
-      await this.journeySessionService.recordActivationFix(tx, {
-        sessionId: journeySession.id,
-        incidentId: created.id,
-        latitude: dto.latitude,
-        longitude: dto.longitude,
-        accuracy: dto.accuracy,
-        speed: dto.speed,
-        heading: dto.heading,
-        batteryLevel: dto.batteryLevel,
-        isCharging: dto.isCharging,
-        recordedAt,
-      });
-      await tx.incident.update({
-        where: { id: created.id },
-        data: { journeySessionId: journeySession.id },
-      });
+      if (hasLocation) {
+        const journeySession =
+          await this.journeySessionService.resolveForActivation(tx, userId);
+        await this.journeySessionService.recordActivationFix(tx, {
+          sessionId: journeySession.id,
+          incidentId: created.id,
+          latitude: dto.latitude!,
+          longitude: dto.longitude!,
+          accuracy: dto.accuracy,
+          speed: dto.speed,
+          heading: dto.heading,
+          batteryLevel: dto.batteryLevel,
+          isCharging: dto.isCharging,
+          recordedAt,
+        });
+        await tx.incident.update({
+          where: { id: created.id },
+          data: { journeySessionId: journeySession.id },
+        });
+      }
 
       // The tracking URL needs the new incident id, so it is built here.
       // Pure string work - no IO inside the transaction.
@@ -423,8 +430,8 @@ export class IncidentOrchestratorService {
         actorUserId: userId,
         payload: {
           triggerMethod: dto.triggerType,
-          latitude: dto.latitude,
-          longitude: dto.longitude,
+          latitude: dto.latitude!,
+          longitude: dto.longitude!,
           retriggerCount: incident.retriggerCount,
           secondsSinceInitialTrigger,
           retriggeredAt: retriggeredAt.toISOString(),
@@ -467,16 +474,18 @@ export class IncidentOrchestratorService {
         silentMode: detection.outcome.isSilent,
       },
     });
-    await this.timelineService.recordEvent({
-      incidentId: incident.id,
-      type: 'LOCATION_ATTACHED',
-      source: 'INCIDENT_ORCHESTRATOR',
-      actorUserId: userId,
-      payload: {
-        latitude: dto.latitude,
-        longitude: dto.longitude,
-      },
-    });
+    if (hasLocation) {
+      await this.timelineService.recordEvent({
+        incidentId: incident.id,
+        type: 'LOCATION_ATTACHED',
+        source: 'INCIDENT_ORCHESTRATOR',
+        actorUserId: userId,
+        payload: {
+          latitude: dto.latitude!,
+          longitude: dto.longitude!,
+        },
+      });
+    }
 
     // The tracking link built from the token issued inside the transaction.
     // The raw token exists only here and in the outbound message - it cannot

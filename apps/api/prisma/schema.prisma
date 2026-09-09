@@ -150,8 +150,8 @@ model Incident {
   user            User            @relation(fields: [userId], references: [id], onDelete: Restrict)
   trigger         IncidentTrigger
   status          IncidentStatus  @default(OPEN)
-  latitude        Decimal         @db.Decimal(9, 6)
-  longitude       Decimal         @db.Decimal(9, 6)
+  latitude        Decimal?        @db.Decimal(9, 6)
+  longitude       Decimal?        @db.Decimal(9, 6)
   address         String?
   voicePhrase     String?
   trustedContact  Json?

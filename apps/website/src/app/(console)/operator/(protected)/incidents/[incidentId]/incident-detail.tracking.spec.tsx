@@ -97,7 +97,7 @@ describe('IncidentDetailView live tracking', () => {
       ...INITIAL_TRACKING,
       lastFixReceivedAt: '2026-08-22T08:00:10.000Z',
       latest: {
-        ...INITIAL_TRACKING.latest,
+        ...INITIAL_TRACKING.latest!,
         sequence: 11,
         latitude: 33.13059,
         longitude: -96.82338,

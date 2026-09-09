@@ -158,12 +158,14 @@ export class PublicTrackingService {
             capturedAt: usableFix.recordedAt.toISOString(),
             origin: deriveFixOrigin(usableFix.source),
           }
-        : {
+        : details.latitude !== null && details.longitude !== null
+          ? {
             latitude: Number(details.latitude),
             longitude: Number(details.longitude),
             capturedAt: details.createdAt.toISOString(),
             origin: 'ACTIVATION' as const,
-          };
+          }
+          : null;
 
     // Omitted entirely when there is no session. See the DTO comment.
     const tracking =

@@ -84,14 +84,15 @@ function ActiveAlert({
   serverTime: string;
 }) {
   const now = Date.parse(serverTime);
-  const mapsUrl = `https://maps.google.com/?q=${incident.location.latitude},${incident.location.longitude}`;
-  const embedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${
-    incident.location.longitude - 0.008
-  }%2C${incident.location.latitude - 0.006}%2C${
-    incident.location.longitude + 0.008
-  }%2C${incident.location.latitude + 0.006}&layer=mapnik&marker=${
-    incident.location.latitude
-  }%2C${incident.location.longitude}`;
+  const location = incident.location;
+  const mapsUrl = location ? `https://maps.google.com/?q=${location.latitude},${location.longitude}` : null;
+  const embedUrl = location ? `https://www.openstreetmap.org/export/embed.html?bbox=${
+    location.longitude - 0.008
+  }%2C${location.latitude - 0.006}%2C${
+    location.longitude + 0.008
+  }%2C${location.latitude + 0.006}&layer=mapnik&marker=${
+    location.latitude
+  }%2C${location.longitude}` : null;
 
   return (
     <Shell tone="alert">
@@ -116,6 +117,7 @@ function ActiveAlert({
         </p>
       )}
 
+      {embedUrl ? (
       <div className="mt-6 overflow-hidden rounded-md border border-line">
         <iframe
           src={embedUrl}
@@ -127,6 +129,7 @@ function ActiveAlert({
           referrerPolicy="no-referrer"
         />
       </div>
+      ) : <p className="mt-6 text-sm text-muted">Location unavailable. The emergency alert is active.</p>}
 
       <StreamStatus incident={incident} serverTime={serverTime} />
 
@@ -135,12 +138,13 @@ function ActiveAlert({
         still exactly true. Shown ONLY then: once a stream exists this
         sentence would be a reassuring lie.
       */}
-      {incident.tracking === undefined && (
+      {incident.location !== null && incident.tracking === undefined && (
         <p className="mt-3 text-xs text-muted">
           Location captured when the alert was triggered. It does not update.
         </p>
       )}
 
+      {mapsUrl && (
       <a
         href={mapsUrl}
         target="_blank"
@@ -149,6 +153,7 @@ function ActiveAlert({
       >
         Open in Maps
       </a>
+      )}
 
       <div className="mt-6 border-t border-line pt-5">
         <p className="text-sm font-semibold text-ink">What you can do</p>
@@ -287,7 +292,7 @@ function StreamStatus({
   // ABSENT means this incident has no journey session at all - every
   // incident raised before Sprint 10B Step 4. Render nothing: the feature
   // genuinely does not exist for it, and a badge would imply otherwise.
-  if (tracking === undefined) {
+  if (tracking === undefined || incident.location === null) {
     return null;
   }
 

@@ -106,64 +106,23 @@ class OpaProtectionService : Service() {
                     System.currentTimeMillis(),
             )
 
-        val publishStatus =
-            try {
-                ProtectionTriggerBus.publish(
-                    applicationContext,
-                    trigger,
-                )
-            } catch (error: Throwable) {
-                android.util.Log.e(
-                    LOG_TAG,
-                    "Native notification SOS trigger persistence failed.",
-                    error,
-                )
-                return
-            }
+        try {
+            ProtectionTriggerBus.publish(applicationContext, trigger)
+        } catch (error: Throwable) {
+            android.util.Log.e(
+                LOG_TAG,
+                "Native notification SOS trigger persistence failed.",
+                error,
+            )
+            return
+        }
 
         android.util.Log.i(
             LOG_TAG,
             "Native notification SOS trigger received.",
         )
-
-        if (
-            !ProtectionHeadlessWakePolicy.shouldWake(
-                triggerType = trigger.type,
-                publishStatus = publishStatus,
-            )
-        ) {
-            return
-        }
-
-        try {
-            startService(
-                Intent(
-                    applicationContext,
-                    OpaProtectionHeadlessService::class.java,
-                ).apply {
-                    action =
-                        OpaProtectionHeadlessService
-                            .ACTION_PROCESS_PENDING_SOS
-                },
-            )
-
-            android.util.Log.i(
-                LOG_TAG,
-                "Headless SOS processing wake requested.",
-            )
-        } catch (error: Throwable) {
-            /*
-             * Do not remove the durable SOS record if Android refuses the
-             * execution wake. The existing FIFO remains authoritative and can
-             * be retried by a later execution opportunity.
-             */
-            android.util.Log.e(
-                LOG_TAG,
-                "Headless SOS processing wake failed; durable trigger retained.",
-                error,
-            )
-        }
     }
+
     private fun buildProtectionNotification(): Notification {
         val launchIntent =
             packageManager.getLaunchIntentForPackage(packageName)?.apply {

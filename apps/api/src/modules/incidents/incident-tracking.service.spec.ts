@@ -25,6 +25,14 @@ describe('IncidentTrackingService.getTracking', () => {
 
   const createdAt = new Date('2026-08-22T07:30:00.000Z');
 
+  it('returns null latest for an incident without activation coordinates', async () => {
+    const prisma = makePrisma();
+    prisma.incident.findUnique.mockResolvedValue({ latitude: null, longitude: null, createdAt, journeySessionId: null });
+    const result = await new IncidentTrackingService(prisma as never).getTracking('locationless');
+    expect(result.latest).toBeNull();
+    expect(result.points).toEqual([]);
+  });
+
   it('returns activation location and NO_SESSION when no journey is linked', async () => {
     const prisma = makePrisma();
 
@@ -327,8 +335,8 @@ describe('IncidentTrackingService.getTracking', () => {
     ).getTracking('incident-1');
 
     expect(result.state).toBe('AWAITING_FIRST_FIX');
-    expect(result.latest.origin).toBe('ACTIVATION');
-    expect(result.latest.latitude).toBe(33.14827);
-    expect(result.latest.longitude).toBe(-96.81032);
+    expect(result.latest!.origin).toBe('ACTIVATION');
+    expect(result.latest!.latitude).toBe(33.14827);
+    expect(result.latest!.longitude).toBe(-96.81032);
   });
 });

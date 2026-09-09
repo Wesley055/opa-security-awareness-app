@@ -142,6 +142,17 @@ describe('voice-protection-service', () => {
     });
   });
 
+  it('processes headless VOICE without microphone permission or provider startup', async () => {
+    const { service, activate, Provider, request, check, start } = loadService({ permission: 'denied' });
+    const event = { phrase: 'HELP HELP', confidence: null, timestamp: 1000, provider: 'picovoice_porcupine' as const };
+    await expect(service.processVoiceTrigger(event, 'headless')).resolves.toBe('ACK');
+    expect(activate).toHaveBeenCalledWith(event, 'headless');
+    expect(Provider).not.toHaveBeenCalled();
+    expect(request).not.toHaveBeenCalled();
+    expect(check).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+  });
+
   it('stops and releases the active provider idempotently', async () => {
     const { service, stop } = loadService();
     await service.startVoiceProtection();

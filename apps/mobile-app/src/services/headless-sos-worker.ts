@@ -5,8 +5,10 @@ import {
   type OpaNativeProtectionTriggerClaim,
 } from '../../modules/opa-protection';
 import { activateFromHeadlessSosTrigger } from './headless-sos-activation';
+import { processOpaProtectionTrigger } from './opa-protection-trigger-processor';
+import { processVoiceTrigger } from './voice-protection-service';
 
-const HEADLESS_SOS_OWNER = 'headless-sos';
+const HEADLESS_PROTECTION_OWNER = 'headless-protection';
 const HEADLESS_LOG = '[OPA-HEADLESS]';
 
 function errorCategory(error: unknown): string {
@@ -38,17 +40,17 @@ async function releaseClaim(
 }
 
 /**
- * Drains durable SOS_BUTTON records from the native FIFO.
+ * Drains durable emergency trigger records from the native FIFO.
  *
  * Native storage remains the source of truth. This worker never selects or
- * skips records. If VOICE owns the FIFO head, it releases that exact claim and
- * exits so the SOS path cannot overtake an older voice trigger.
+ * skips records. VOICE uses the canonical voice processor in headless mode;
+ * SOS_BUTTON retains its proven headless activation. RETRY releases and stops.
  *
  * Backend activation/retrigger is terminal success. Tracking bootstrap is not
  * part of this transaction and must never cause the emergency to be activated
  * a second time.
  */
-export async function runHeadlessSosWorker(): Promise<void> {
+export async function runHeadlessProtectionWorker(): Promise<void> {
   console.log(`${HEADLESS_LOG} worker entered`);
 
   while (true) {
@@ -57,7 +59,7 @@ export async function runHeadlessSosWorker(): Promise<void> {
     try {
       claim =
         await claimPendingOpaProtectionTrigger(
-          HEADLESS_SOS_OWNER,
+          HEADLESS_PROTECTION_OWNER,
         );
     } catch (error: unknown) {
       console.log(
@@ -75,8 +77,26 @@ export async function runHeadlessSosWorker(): Promise<void> {
       return;
     }
 
-    if (claim.type !== 'SOS_BUTTON') {
+    if (claim.type === 'VOICE') {
       console.log(`${HEADLESS_LOG} claim result=VOICE`);
+      try {
+        const disposition = await processOpaProtectionTrigger(claim, {
+          processVoiceTrigger: (event) => processVoiceTrigger(event, 'headless'),
+          // This branch only receives VOICE. Never synthesize an SOS activation.
+          processSosTrigger: async () => 'RETRY',
+          acknowledge: () => acknowledgeClaimedOpaProtectionTrigger(
+            claim.id,
+            claim.claimToken,
+          ),
+        });
+        console.log(`${HEADLESS_LOG} VOICE processing result=${disposition}`);
+        if (disposition === 'ACK') {
+          console.log(`${HEADLESS_LOG} ACK result=SUCCESS`);
+          continue;
+        }
+      } catch (error: unknown) {
+        console.log(`${HEADLESS_LOG} VOICE exception category=${errorCategory(error)}`);
+      }
       await releaseClaim(claim);
       console.log(`${HEADLESS_LOG} worker complete`);
       return;
@@ -146,6 +166,6 @@ export async function runHeadlessSosWorker(): Promise<void> {
     console.log(`${HEADLESS_LOG} ACK result=SUCCESS`);
 
     // Exact ACK removed this FIFO head. Continue so multiple locked-screen
-    // SOS taps already persisted by native code are consumed in FIFO order.
+    // emergency triggers already persisted by native code are consumed in FIFO order.
   }
 }

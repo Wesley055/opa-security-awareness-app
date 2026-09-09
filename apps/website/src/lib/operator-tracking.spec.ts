@@ -42,6 +42,12 @@ describe('fetchOperatorTracking', () => {
     session.getAccessToken.mockResolvedValue('access-token');
   });
 
+  it('accepts explicit unknown location without substituting 0,0', async () => {
+    const unknown = { ...SNAPSHOT, latest: null, points: [] };
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify(unknown), { status: 200 }));
+    expect(await fetchOperatorTracking('incident-1')).toEqual({ state: 'READY', tracking: unknown });
+  });
+
   it('calls the guarded tracking endpoint without caching', async () => {
     const fetchMock = vi
       .spyOn(globalThis, 'fetch')

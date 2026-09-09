@@ -19,24 +19,12 @@ export default function HomeScreen() {
     (state) => state.activeIncident,
   );
 
-  const reconcileActiveIncident = useActiveIncidentStore(
-    (state) => state.reconcileActiveIncident,
-  );
-
   const emergencyAction = homeEmergencyAction(activeIncident);
 
   const [backgroundLocationGranted, setBackgroundLocationGranted] =
     useState<boolean | null>(null);
 
   const requestingBackgroundRef = useRef(false);
-
-  useEffect(() => {
-    if (isLoading || !isAuthenticated) return;
-
-    void reconcileActiveIncident().catch((error: unknown) => {
-      console.log('[active-incident] reconciliation failed', error);
-    });
-  }, [isAuthenticated, isLoading, reconcileActiveIncident]);
 
   useEffect(() => {
     if (isLoading || !isAuthenticated) {

@@ -3,6 +3,7 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { useEffect, useRef } from 'react';
 import { useAuthStore } from '../src/store/authStore';
+import { startActiveIncidentReconciliation } from '../src/services/active-incident-reconciliation';
 import { stopTracking } from '../src/services/journey-tracker';
 import {
   ensureVoiceProtectionMicrophonePermission,
@@ -45,6 +46,8 @@ export default function RootLayout() {
    * allowed only after the authenticated state is known.
    */
   const pendingLockScreenSosRef = useRef(false);
+
+  useEffect(() => startActiveIncidentReconciliation(), []);
 
   useEffect(() => {
     checkAuth();

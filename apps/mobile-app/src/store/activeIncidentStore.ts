@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { api } from '../services/api';
+import { backgroundApi } from '../services/api';
 
 export interface ActiveIncident {
   id: string;
@@ -17,29 +17,43 @@ interface ActiveIncidentState {
   isReconciling: boolean;
   setActiveIncident: (incident: ActiveIncident | null) => void;
   clearActiveIncident: () => void;
-  reconcileActiveIncident: () => Promise<ActiveIncident | null>;
+  reconcileActiveIncident: (isCurrent?: () => boolean) => Promise<ActiveIncident | null>;
 }
 
-export const useActiveIncidentStore = create<ActiveIncidentState>((set) => ({
+let revision = 0;
+let requestId = 0;
+
+export const useActiveIncidentStore = create<ActiveIncidentState>((set, get) => ({
   activeIncident: null,
   isReconciling: false,
 
-  setActiveIncident: (incident) => set({ activeIncident: incident }),
+  setActiveIncident: (incident) => {
+    revision++;
+    set({ activeIncident: incident });
+  },
 
-  clearActiveIncident: () => set({ activeIncident: null }),
+  clearActiveIncident: () => {
+    revision++;
+    set({ activeIncident: null });
+  },
 
-  reconcileActiveIncident: async () => {
+  reconcileActiveIncident: async (isCurrent = () => true) => {
+    const startedRevision = revision;
+    const currentRequest = ++requestId;
     set({ isReconciling: true });
     try {
-      const { data } = await api.get<IncidentListItem[]>('/incidents');
+      const { data } = await backgroundApi.get<IncidentListItem[]>('/incidents');
       const open = data.find((incident) => incident.status === 'OPEN') ?? null;
       const active: ActiveIncident | null = open
         ? { id: open.id, status: 'OPEN' }
         : null;
-      set({ activeIncident: active });
-      return active;
+      // Never resurrect an ended incident or erase a newer local activation.
+      if (isCurrent() && startedRevision === revision && currentRequest === requestId) {
+        set({ activeIncident: active });
+      }
+      return get().activeIncident;
     } finally {
-      set({ isReconciling: false });
+      if (currentRequest === requestId) set({ isReconciling: false });
     }
   },
 }));

@@ -1,9 +1,9 @@
-jest.mock('../services/api', () => ({ api: { get: jest.fn() } }));
+jest.mock('../services/api', () => ({ backgroundApi: { get: jest.fn() } }));
 
-import { api } from '../services/api';
+import { backgroundApi } from '../services/api';
 import { useActiveIncidentStore } from './activeIncidentStore';
 
-const mockedGet = api.get as jest.Mock;
+const mockedGet = backgroundApi.get as jest.Mock;
 
 describe('activeIncidentStore', () => {
   beforeEach(() => {

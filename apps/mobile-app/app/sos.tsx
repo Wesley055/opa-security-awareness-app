@@ -1,3 +1,4 @@
+import { isForegroundExecutionAllowed } from '../src/services/foreground-execution';
 import { cleanNonNegative } from '../src/services/journey-fix-contract';
 import {
   useState,
@@ -93,6 +94,7 @@ export default function SosScreen() {
   // Returns a promise the activation step can await, so a fast countdown
   // never fires before the location request has had a chance to resolve.
   const acquireLocation = useCallback(async (): Promise<void> => {
+    if (!isForegroundExecutionAllowed()) return;
     const gen = locationGenRef.current;
     try {
       const { status, canAskAgain } = await Location.requestForegroundPermissionsAsync();

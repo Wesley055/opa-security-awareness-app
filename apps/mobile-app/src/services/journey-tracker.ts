@@ -1,3 +1,4 @@
+import { isForegroundExecutionAllowed } from './foreground-execution';
 /**
  * Journey fix sender - Sprint 10B item 9b.
  *
@@ -695,6 +696,7 @@ async function flush(forSession: string): Promise<void> {
  * chances to land after a stop.
  */
 export async function startTracking(): Promise<void> {
+  if (!isForegroundExecutionAllowed()) return;
   if (running) {
     log('already running - ignoring start');
     return;
@@ -714,6 +716,7 @@ export async function startTracking(): Promise<void> {
     return;
   }
 
+  if (!isForegroundExecutionAllowed()) { running = false; return; }
   const durable = await initializeDurableQueue();
   if (!durable) {
     running = false;
@@ -725,6 +728,7 @@ export async function startTracking(): Promise<void> {
     return;
   }
 
+  if (!isForegroundExecutionAllowed()) { running = false; return; }
   const id = await acquireSession();
   if (!id) {
     running = false;
@@ -734,6 +738,7 @@ export async function startTracking(): Promise<void> {
     log('stopped while acquiring the session');
     return;
   }
+  if (!isForegroundExecutionAllowed()) { running = false; return; }
   sessionId = id;
 
   // Set BEFORE subscribing, so the cached fix that arrives immediately
@@ -750,6 +755,7 @@ export async function startTracking(): Promise<void> {
   const backgroundStarted = await startBackgroundCapture(id);
 
   if (!backgroundStarted) {
+    if (!isForegroundExecutionAllowed()) { running = false; return; }
     try {
       subscription = await Location.watchPositionAsync(
         {
@@ -793,8 +799,8 @@ export async function startTracking(): Promise<void> {
  * Runtime permission requests belong to a foreground React UI boundary
  * where the required prominent disclosure can be shown first.
  *
- * Headless/locked emergency paths may reach this function, so it only
- * reads the existing permission state. If background permission has not
+ * New capture is bootstrapped only from an unlocked foreground lifecycle.
+ * It only reads the existing permission state. If background permission has not
  * already been granted, tracking safely degrades to the foreground watcher
  * without blocking SOS activation.
  *
@@ -810,6 +816,7 @@ async function startBackgroundCapture(forSession: string): Promise<boolean> {
       return false;
     }
 
+    if (!isForegroundExecutionAllowed()) return false;
     await SecureStore.setItemAsync(BACKGROUND_SESSION_KEY, forSession);
 
     const already = await TaskManager.isTaskRegisteredAsync(
@@ -817,6 +824,7 @@ async function startBackgroundCapture(forSession: string): Promise<boolean> {
     );
 
     if (!already) {
+      if (!isForegroundExecutionAllowed()) return false;
       await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
         accuracy: Location.Accuracy.High,
         timeInterval: TIME_INTERVAL_MS,

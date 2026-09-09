@@ -1,3 +1,4 @@
+import { isForegroundExecutionAllowed } from './foreground-execution';
 import { PermissionsAndroid, Platform } from 'react-native';
 import { PicovoicePorcupineProvider } from './picovoice-porcupine-provider';
 import { activateFromVoiceTrigger } from './voice-activation-coordinator';
@@ -22,6 +23,8 @@ Promise<boolean> {
   if (await PermissionsAndroid.check(permission)) {
     return true;
   }
+
+  if (!isForegroundExecutionAllowed()) return false;
 
   return (
     await PermissionsAndroid.request(permission)

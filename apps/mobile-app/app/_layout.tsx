@@ -1,32 +1,22 @@
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
-import { useEffect, useRef } from 'react';
+import { AppState, Platform } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '../src/store/authStore';
 import { startActiveIncidentReconciliation } from '../src/services/active-incident-reconciliation';
-import { stopTracking } from '../src/services/journey-tracker';
+import { startTracking, stopTracking } from '../src/services/journey-tracker';
 import {
   ensureVoiceProtectionMicrophonePermission,
-  processVoiceTrigger,
   startVoiceProtection,
   stopVoiceProtection,
 } from '../src/services/voice-protection-service';
-import {
-  processOpaProtectionTrigger,
-} from '../src/services/opa-protection-trigger-processor';
-import {
-  processSosTrigger,
-} from '../src/services/sos-protection-service';
 import {
   getVoiceProtectionConfig,
   isVoiceProtectionReady,
 } from '../src/services/voice-protection-config';
 import {
-  acknowledgeClaimedOpaProtectionTrigger,
   addOpaVoiceTriggerListener,
-  claimPendingOpaProtectionTrigger,
   configureOpaVoiceProvider,
-  releasePendingOpaProtectionTrigger,
   startOpaProtectionService,
   stopOpaProtectionService,
 } from '../modules/opa-protection';
@@ -35,8 +25,18 @@ import {
   isLockScreenSosResponse,
 } from '../src/services/lock-screen-sos';
 
+import { runHeadlessProtectionWorker } from '../src/services/headless-sos-worker';
+import { isForegroundExecutionAllowed } from '../src/services/foreground-execution';
+import { useActiveIncidentStore } from '../src/store/activeIncidentStore';
+
 export default function RootLayout() {
   const { isAuthenticated, isLoading, checkAuth } = useAuthStore();
+  const [appState, setAppState] = useState(AppState.currentState);
+  const activeIncident = useActiveIncidentStore(state => state.activeIncident);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', setAppState);
+    return () => subscription.remove();
+  }, []);
   const segments = useSegments();
   const router = useRouter();
 
@@ -113,6 +113,8 @@ export default function RootLayout() {
       return;
     }
 
+    if (!isForegroundExecutionAllowed()) return;
+
     if (pendingLockScreenSosRef.current) {
       pendingLockScreenSosRef.current = false;
 
@@ -120,7 +122,7 @@ export default function RootLayout() {
         router.push('/sos');
       }
     }
-  }, [isAuthenticated, isLoading, router, segments]);
+  }, [isAuthenticated, isLoading, router, segments, appState]);
 
   useEffect(() => {
     if (isLoading) return;
@@ -134,9 +136,8 @@ export default function RootLayout() {
     }
   }, [isAuthenticated, isLoading, segments]);
 
-  // ADR-010 Decision 3: the tracker is STARTED from app/sos.tsx after a
-  // successful activation. This layout only ever stops it, and keying on
-  // isAuthenticated covers forceLogout for free.
+  // Tracking starts only after activation in an eligible foreground lifecycle.
+  // Logout still tears it down; auth hydration must never stop existing capture.
   //
   // THE isLoading GUARD IS LOAD-BEARING. This comment used to say the
   // false-on-cold-start pass was harmless because stopTracking is
@@ -168,8 +169,7 @@ export default function RootLayout() {
    * lifecycle. It is provider-neutral: Picovoice remains a separate voice
    * provider and does not own this Android foreground-service boundary.
    *
-   * Deliberately no React cleanup callback: component/activity teardown must
-   * not stop native protection. The service stops when authenticated OPA
+   * Cleanup cancels only pending setup, never native protection. The service stops when authenticated OPA
    * protection state ends, not merely because the React lifecycle changes.
    */
   useEffect(() => {
@@ -195,6 +195,9 @@ export default function RootLayout() {
       return;
     }
 
+    if (!isForegroundExecutionAllowed()) return;
+    let alive = true;
+    const eligible = () => alive && isForegroundExecutionAllowed();
     const config = getVoiceProtectionConfig();
 
     void (async () => {
@@ -209,6 +212,7 @@ export default function RootLayout() {
        * Never start native capture before step 1 completes.
        */
       await stopVoiceProtection();
+      if (!eligible()) return;
 
       if (
         !isVoiceProtectionReady(config) ||
@@ -233,7 +237,9 @@ export default function RootLayout() {
       /*
        * Denial degrades notification visibility only. Protection continues.
        */
+      if (!eligible()) return;
       await ensureProtectionNotificationPermission();
+      if (!eligible()) return;
 
       await configureOpaVoiceProvider({
         enabled: true,
@@ -245,198 +251,34 @@ export default function RootLayout() {
         sensitivity: config.sensitivity,
       });
 
-      await startOpaProtectionService();
+      if (eligible()) await startOpaProtectionService();
     })().catch((error: unknown) => {
       console.log(
         '[opa-protection] authenticated startup failed',
         error,
       );
     });
-  }, [isAuthenticated, isLoading]);
-  /*
-   * Native voice detections use one durable provider-neutral consumer.
-   *
-   * Live native events and startup recovery share the same processing path.
-   * A trigger is acknowledged only after a terminal application result.
-   * RETRY leaves the durable native record intact.
-   *
-   * Removing this listener does not stop the Android protection service.
-   */
+    return () => { alive = false; };
+  }, [isAuthenticated, isLoading, appState]);
+  /* React and HeadlessJS claim the same native FIFO through one worker.
+   * Consumer identity never grants interactive execution: actual lifecycle does.
+   * Auth/routing/MainActivity are not prerequisites for a native headless wake. */
   useEffect(() => {
-    if (isLoading || !isAuthenticated) {
-      return;
-    }
+    if (isLoading || !isAuthenticated || Platform.OS !== 'android') return;
+    const subscription = addOpaVoiceTriggerListener(() => {
+      void runHeadlessProtectionWorker('foreground-react');
+    });
+    void runHeadlessProtectionWorker('foreground-react');
+    return () => subscription.remove();
+  }, [isAuthenticated, isLoading, appState]);
 
-    let active = true;
-
-    /*
-     * Native events are queue-change signals only.
-     *
-     * The native layer persists each trigger before emitting an event. JavaScript
-     * therefore always consumes the durable FIFO head rather than processing the
-     * event envelope directly. This prevents a newer trigger from overtaking an
-     * older unacknowledged trigger.
-     */
-    let drainPromise: Promise<void> | null = null;
-
-    const processPendingProtectionTrigger = async (
-      event: Parameters<
-        typeof processOpaProtectionTrigger
-      >[0],
-      acknowledge: (
-        triggerId: string,
-      ) => Promise<boolean>,
-    ): Promise<'ACK' | 'RETRY'> => {
-      try {
-        return await processOpaProtectionTrigger(
-          event,
-          {
-            processVoiceTrigger,
-            processSosTrigger,
-            acknowledge,
-          },
-        );
-      } catch (error: unknown) {
-        /*
-         * Preserve native durability on unexpected processing or bridge
-         * failures.
-         */
-        console.log(
-          '[opa-protection] native trigger processing failed',
-          error,
-        );
-
-        return 'RETRY';
-      }
-    };
-    let drainRequested = false;
-    let retryBlocked = false;
-
-    const startPendingVoiceTriggerDrain =
-      (): Promise<void> => {
-        if (drainPromise !== null) {
-          return drainPromise;
-        }
-
-        retryBlocked = false;
-
-        const currentDrain = (async () => {
-          try {
-            while (active) {
-              drainRequested = false;
-
-              while (active) {
-                const claim =
-                  await claimPendingOpaProtectionTrigger(
-                    'foreground-react',
-                  );
-
-                if (!active) {
-                  if (claim !== null) {
-                    await releasePendingOpaProtectionTrigger(
-                      claim.id,
-                      claim.claimToken,
-                    );
-                  }
-
-                  return;
-                }
-
-                if (claim === null) {
-                  break;
-                }
-
-                const disposition =
-                  await processPendingProtectionTrigger(
-                    claim,
-                    (triggerId) =>
-                      acknowledgeClaimedOpaProtectionTrigger(
-                        triggerId,
-                        claim.claimToken,
-                      ),
-                  );
-
-                if (disposition === 'RETRY') {
-                  const released =
-                    await releasePendingOpaProtectionTrigger(
-                      claim.id,
-                      claim.claimToken,
-                    );
-
-                  if (!released) {
-                    console.log(
-                      '[opa-protection] native trigger claim release failed',
-                    );
-                  }
-
-                  retryBlocked = true;
-                  return;
-                }
-              }
-
-              if (!drainRequested) {
-                return;
-              }
-            }
-          } catch (error: unknown) {
-            retryBlocked = true;
-
-            console.log(
-              '[opa-protection] pending native trigger drain failed',
-              error,
-            );
-          }
-        })();
-
-        drainPromise = currentDrain;
-
-        void currentDrain.finally(() => {
-          if (drainPromise !== currentDrain) {
-            return;
-          }
-
-          drainPromise = null;
-
-          if (
-            active &&
-            drainRequested &&
-            !retryBlocked
-          ) {
-            void startPendingVoiceTriggerDrain();
-          }
-        });
-
-        return currentDrain;
-      };
-
-    const requestPendingVoiceTriggerDrain = () => {
-      if (!active) {
-        return;
-      }
-
-      drainRequested = true;
-
-      if (drainPromise === null) {
-        void startPendingVoiceTriggerDrain();
-      }
-    };
-
-    /*
-     * Listener is installed before the initial durable drain. Native events
-     * are wake signals only; the persisted FIFO remains the source of truth.
-     */
-    const subscription =
-      addOpaVoiceTriggerListener(() => {
-        requestPendingVoiceTriggerDrain();
-      });
-
-    requestPendingVoiceTriggerDrain();
-
-    return () => {
-      active = false;
-      subscription.remove();
-    };
-  }, [isAuthenticated, isLoading]);
+  // Activation and exact ACK finish independently of foreground tracking.
+  useEffect(() => {
+    if (isLoading || !isAuthenticated || !activeIncident || !isForegroundExecutionAllowed()) return;
+    void startTracking().catch(() => {
+      console.log('[opa-protection] foreground tracking unavailable');
+    });
+  }, [isAuthenticated, isLoading, activeIncident?.id, appState]);
 
   /*
    * Voice protection is owned by the authenticated app lifecycle.

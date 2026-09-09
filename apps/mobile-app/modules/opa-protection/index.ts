@@ -61,6 +61,7 @@ interface OpaProtectionEvents {
 }
 
 type OpaProtectionNativeModule = {
+  isForegroundEligible(): boolean;
   configureVoiceProviderAsync(
     enabled: boolean,
     provider: string,
@@ -236,4 +237,8 @@ export function addOpaVoiceTriggerListener(
     'onVoiceTrigger',
     listener,
   );
+}
+/** Actual unlocked/resumed Activity eligibility, not merely a live React tree. */
+export function isOpaForegroundEligible(): boolean {
+  return nativeModule.isForegroundEligible();
 }

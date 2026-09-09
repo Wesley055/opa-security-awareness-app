@@ -1,3 +1,4 @@
+import { isForegroundExecutionAllowed } from './foreground-execution';
 import { cleanNonNegative } from './journey-fix-contract';
 import {
   acquireEmergencyLocation,
@@ -37,20 +38,22 @@ export async function activateFromVoiceTrigger(
   event: VoiceTriggerEvent,
   execution: 'foreground' | 'headless' = 'foreground',
 ): Promise<VoiceActivationResult> {
-  const location = await (execution === 'headless'
+  let restricted = execution === 'headless' || !isForegroundExecutionAllowed();
+  const location = await (restricted
     ? acquireEmergencyLocationWithoutPermissionRequest().catch(() => ({
         ok: false as const, reason: 'LOCATION_UNAVAILABLE' as const,
       }))
     : acquireEmergencyLocation());
 
-  if (!location.ok && execution !== 'headless') {
+  restricted = restricted || !isForegroundExecutionAllowed();
+  if (!location.ok && !restricted) {
     return {
       status: 'LOCATION_UNAVAILABLE',
       locationFailure: location.reason,
     };
   }
 
-  const { data } = await (execution === 'headless' ? backgroundApi : api).post('/incident-orchestrator/activate', {
+  const { data } = await (restricted ? backgroundApi : api).post('/incident-orchestrator/activate', {
     triggerType: 'VOICE',
     mode: 'SILENT',
     detectedPhrase: event.phrase,
@@ -73,8 +76,13 @@ export async function activateFromVoiceTrigger(
   ) {
     // Headless activation is terminal; interactive tracking bootstrap must not
     // request permissions or turn successful activation into a durable retry.
-    if (execution === 'foreground') {
-      await startTracking();
+    if (!restricted && isForegroundExecutionAllowed()) {
+      // Capture is enrichment; a bootstrap failure cannot retry an activated emergency.
+      try {
+        await startTracking();
+      } catch {
+        console.log('[opa-protection] foreground tracking unavailable');
+      }
     }
 
     return {

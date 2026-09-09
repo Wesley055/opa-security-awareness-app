@@ -1,3 +1,4 @@
+import { useActiveIncidentStore } from '../store/activeIncidentStore';
 import {
   acknowledgeClaimedOpaProtectionTrigger,
   claimPendingOpaProtectionTrigger,
@@ -7,6 +8,8 @@ import {
 import { activateFromHeadlessSosTrigger } from './headless-sos-activation';
 import { processOpaProtectionTrigger } from './opa-protection-trigger-processor';
 import { processVoiceTrigger } from './voice-protection-service';
+import { activateFromSosTrigger } from './sos-activation-coordinator';
+import { isForegroundExecutionAllowed } from './foreground-execution';
 
 const HEADLESS_PROTECTION_OWNER = 'headless-protection';
 const HEADLESS_LOG = '[OPA-HEADLESS]';
@@ -43,14 +46,17 @@ async function releaseClaim(
  * Drains durable emergency trigger records from the native FIFO.
  *
  * Native storage remains the source of truth. This worker never selects or
- * skips records. VOICE uses the canonical voice processor in headless mode;
- * SOS_BUTTON retains its proven headless activation. RETRY releases and stops.
+ * skips records. Both consumers select execution policy from actual lifecycle
+ * eligibility. Restricted SOS retains its proven headless activation.
+ * RETRY releases and stops.
  *
  * Backend activation/retrigger is terminal success. Tracking bootstrap is not
  * part of this transaction and must never cause the emergency to be activated
  * a second time.
  */
-export async function runHeadlessProtectionWorker(): Promise<void> {
+export async function runHeadlessProtectionWorker(
+  ownerId: 'headless-protection' | 'foreground-react' = HEADLESS_PROTECTION_OWNER,
+): Promise<void> {
   console.log(`${HEADLESS_LOG} worker entered`);
 
   while (true) {
@@ -59,7 +65,7 @@ export async function runHeadlessProtectionWorker(): Promise<void> {
     try {
       claim =
         await claimPendingOpaProtectionTrigger(
-          HEADLESS_PROTECTION_OWNER,
+          ownerId,
         );
     } catch (error: unknown) {
       console.log(
@@ -77,11 +83,15 @@ export async function runHeadlessProtectionWorker(): Promise<void> {
       return;
     }
 
+    // Ownership does not confer foreground eligibility. Re-evaluate each FIFO head.
+    const interactive = isForegroundExecutionAllowed();
+    console.log(`${HEADLESS_LOG} owner=${ownerId} type=${claim.type} policy=${interactive ? 'FOREGROUND_INTERACTIVE' : 'BACKGROUND_RESTRICTED'}`);
+
     if (claim.type === 'VOICE') {
       console.log(`${HEADLESS_LOG} claim result=VOICE`);
       try {
         const disposition = await processOpaProtectionTrigger(claim, {
-          processVoiceTrigger: (event) => processVoiceTrigger(event, 'headless'),
+          processVoiceTrigger: (event) => processVoiceTrigger(event, interactive ? 'foreground' : 'headless'),
           // This branch only receives VOICE. Never synthesize an SOS activation.
           processSosTrigger: async () => 'RETRY',
           acknowledge: () => acknowledgeClaimedOpaProtectionTrigger(
@@ -109,7 +119,7 @@ export async function runHeadlessProtectionWorker(): Promise<void> {
 
     try {
       activation =
-        await activateFromHeadlessSosTrigger();
+        await (interactive ? activateFromSosTrigger() : activateFromHeadlessSosTrigger());
     } catch (error: unknown) {
       console.log(
         `${HEADLESS_LOG} activation exception category=${errorCategory(error)}`,
@@ -140,6 +150,12 @@ export async function runHeadlessProtectionWorker(): Promise<void> {
       await releaseClaim(claim);
       console.log(`${HEADLESS_LOG} worker complete`);
       return;
+    }
+
+    if (activation.incidentId) {
+      useActiveIncidentStore.getState().setActiveIncident({
+        id: activation.incidentId, status: 'OPEN', notifications: activation.notifications,
+      });
     }
 
     let acknowledged = false;

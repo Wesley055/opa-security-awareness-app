@@ -1,5 +1,10 @@
 package com.opasafety.protection
 
+import android.app.KeyguardManager
+import android.content.Context
+import android.os.PowerManager
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
 import android.content.Intent
 import android.os.Build
 import androidx.core.content.ContextCompat
@@ -13,6 +18,8 @@ class OpaProtectionModule : Module() {
         Name("OpaProtection")
 
         Events(VOICE_TRIGGER_EVENT)
+
+        Function("isForegroundEligible") { isForegroundEligible() }
 
         OnCreate {
             ProtectionTriggerBus.attach { trigger ->
@@ -198,6 +205,19 @@ class OpaProtectionModule : Module() {
                 ),
             )
         }
+    }
+
+    private fun isForegroundEligible(): Boolean {
+        val context = appContext.reactContext ?: return false
+        val activity = appContext.currentActivity
+        val power = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        val keyguard = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+        return ProtectionForegroundPolicy.isEligible(
+            hasActivity = activity != null && !activity.isFinishing && !activity.isDestroyed,
+            resumed = (activity as? LifecycleOwner)?.lifecycle?.currentState == Lifecycle.State.RESUMED,
+            interactive = power?.isInteractive == true,
+            locked = keyguard?.isKeyguardLocked != false,
+        )
     }
 
     companion object {

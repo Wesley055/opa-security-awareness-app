@@ -1,3 +1,5 @@
+import { isForegroundExecutionAllowed } from './foreground-execution';
+jest.mock('./foreground-execution', () => ({ isForegroundExecutionAllowed: jest.fn(() => true) }));
 import * as Location from 'expo-location';
 import { cleanNonNegative } from './journey-fix-contract';
 import {
@@ -815,5 +817,16 @@ describe('journey-tracker module reset', () => {
       fresh.stopTracking();
       fresh.resetTrackerStateForTests();
     });
+  });
+});
+
+describe('foreground-only tracking bootstrap', () => {
+  it('does no permission, session, or capture work while locked', async () => {
+    (isForegroundExecutionAllowed as jest.Mock).mockReturnValueOnce(false);
+    await startTracking();
+    expect(mockedLocation.getForegroundPermissionsAsync).not.toHaveBeenCalled();
+    expect(mockedPost).not.toHaveBeenCalled();
+    expect(mockedLocation.startLocationUpdatesAsync).not.toHaveBeenCalled();
+    expect(mockedLocation.watchPositionAsync).not.toHaveBeenCalled();
   });
 });

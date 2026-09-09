@@ -13,6 +13,9 @@ internal class ProtectionTriggerClaimCoordinator {
     private var activeClaim: ProtectionTriggerClaim? = null
 
     @Synchronized
+    fun currentOwnerId(): String? = activeClaim?.ownerId
+
+    @Synchronized
     fun claim(
         trigger: ProtectionEmergencyTrigger,
         ownerId: String,

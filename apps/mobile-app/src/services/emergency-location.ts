@@ -1,4 +1,5 @@
 import * as Location from 'expo-location';
+import { isForegroundExecutionAllowed } from './foreground-execution';
 
 export const EMERGENCY_LOCATION_TIMEOUT_MS = 15_000;
 export const MAX_EMERGENCY_LOCATION_AGE_MS = 60_000;
@@ -25,7 +26,7 @@ export type EmergencyLocationResult =
       reason: EmergencyLocationFailure;
     };
 
-async function acquireCurrentEmergencyFix(): Promise<EmergencyLocationResult> {
+async function acquireCurrentEmergencyFix(interactive: boolean): Promise<EmergencyLocationResult> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
   try {
@@ -39,6 +40,7 @@ async function acquireCurrentEmergencyFix(): Promise<EmergencyLocationResult> {
     const position = await Promise.race([
       Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
+        mayShowUserSettingsDialog: interactive && isForegroundExecutionAllowed(),
       }),
       timeout,
     ]);
@@ -71,6 +73,9 @@ async function acquireCurrentEmergencyFix(): Promise<EmergencyLocationResult> {
  * from the user before acquiring the emergency fix.
  */
 export async function acquireEmergencyLocation(): Promise<EmergencyLocationResult> {
+  if (!isForegroundExecutionAllowed()) {
+    return acquireEmergencyLocationWithoutPermissionRequest();
+  }
   const permission =
     await Location.requestForegroundPermissionsAsync();
 
@@ -83,7 +88,7 @@ export async function acquireEmergencyLocation(): Promise<EmergencyLocationResul
     };
   }
 
-  return acquireCurrentEmergencyFix();
+  return acquireCurrentEmergencyFix(true);
 }
 
 /**
@@ -106,7 +111,7 @@ Promise<EmergencyLocationResult> {
     };
   }
 
-  return acquireCurrentEmergencyFix();
+  return acquireCurrentEmergencyFix(false);
 }
 
 export function isEmergencyLocationFresh(

@@ -1,3 +1,6 @@
+jest.mock('./foreground-execution', () => ({ isForegroundExecutionAllowed: () => false }));
+jest.mock('./sos-activation-coordinator', () => ({ activateFromSosTrigger: jest.fn() }));
+jest.mock('../store/activeIncidentStore', () => ({ useActiveIncidentStore: { getState: () => ({ setActiveIncident: jest.fn() }) } }));
 import { processVoiceTrigger } from './voice-protection-service';
 import {
   acknowledgeClaimedOpaProtectionTrigger,

@@ -3,7 +3,8 @@ import {
   acquireEmergencyLocation,
   type EmergencyLocationFailure,
 } from './emergency-location';
-import { api } from './api';
+import { api, backgroundApi } from './api';
+import { isForegroundExecutionAllowed } from './foreground-execution';
 import { startTracking } from './journey-tracker';
 
 export type SosActivationStatus =
@@ -33,7 +34,9 @@ export interface SosActivationResult {
  */
 export async function activateFromSosTrigger():
 Promise<SosActivationResult> {
+  let restricted = !isForegroundExecutionAllowed();
   const location = await acquireEmergencyLocation();
+  restricted = restricted || !isForegroundExecutionAllowed();
 
   if (!location.ok) {
     return {
@@ -43,7 +46,7 @@ Promise<SosActivationResult> {
   }
 
   const { data } =
-    await api.post('/incident-orchestrator/activate', {
+    await (restricted ? backgroundApi : api).post('/incident-orchestrator/activate', {
       triggerType: 'SOS_BUTTON',
       mode: 'CONFIRMATION',
       userConfirmed: true,
@@ -56,7 +59,13 @@ Promise<SosActivationResult> {
     data.status === 'INCIDENT_ACTIVATED' ||
     data.status === 'INCIDENT_RETRIGGERED'
   ) {
-    await startTracking();
+    if (!restricted && isForegroundExecutionAllowed()) {
+      try {
+        await startTracking();
+      } catch {
+        console.log('[opa-protection] foreground tracking unavailable');
+      }
+    }
 
     return {
       status: data.status,

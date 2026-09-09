@@ -1,3 +1,4 @@
+jest.mock('./foreground-execution', () => ({ isForegroundExecutionAllowed: () => true }));
 import { api, backgroundApi } from './api';
 import {
   acquireEmergencyLocation,

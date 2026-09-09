@@ -1,3 +1,4 @@
+import { isForegroundExecutionAllowed } from './foreground-execution';
 import * as Notifications from 'expo-notifications';
 
 export const OPA_PROTECTION_CHANNEL = 'opa-protection';
@@ -63,6 +64,7 @@ export async function ensureProtectionNotificationPermission(): Promise<boolean>
       Notifications.IosAuthorizationStatus.PROVISIONAL;
 
   if (!granted) {
+    if (!isForegroundExecutionAllowed()) return false;
     const requested = await Notifications.requestPermissionsAsync();
 
     granted =

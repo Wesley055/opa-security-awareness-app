@@ -82,32 +82,24 @@ internal object ProtectionTriggerBus {
         context: Context,
         trigger: ProtectionEmergencyTrigger,
     ): ProtectionTriggerQueuePolicy.EnqueueStatus {
-        val enqueueStatus =
-            ProtectionPendingTriggerStore.save(
-                context,
-                trigger,
-            )
+        return publishDurably(
+            trigger,
+            persist = { ProtectionPendingTriggerStore.save(context, trigger) },
+            wake = { status -> OpaProtectionHeadlessService.requestWake(context, trigger.type, status) },
+            deliver = { synchronized(this) { listener }?.invoke(trigger) },
+        )
+    }
 
-        // Persistence precedes every execution signal. Wakes never select a record
-        // or grant ownership; foreground and headless consumers claim the same FIFO.
-        OpaProtectionHeadlessService.requestWake(context, trigger.type, enqueueStatus)
-
-        if (
-            !ProtectionTriggerPublishPolicy.shouldWakeListener(
-                triggerType = trigger.type,
-                status = enqueueStatus,
-            )
-        ) {
-            return enqueueStatus
-        }
-
-        val currentListener =
-            synchronized(this) {
-                listener
-            }
-
-        currentListener?.invoke(trigger)
-
-        return enqueueStatus
+    // Keep ordering in one production boundary that can be tested without Android services.
+    internal fun publishDurably(
+        trigger: ProtectionEmergencyTrigger,
+        persist: () -> ProtectionTriggerQueuePolicy.EnqueueStatus,
+        wake: (ProtectionTriggerQueuePolicy.EnqueueStatus) -> Unit,
+        deliver: () -> Unit,
+    ): ProtectionTriggerQueuePolicy.EnqueueStatus {
+        val status = persist()
+        if (ProtectionHeadlessWakePolicy.shouldWake(trigger.type, status)) wake(status)
+        if (ProtectionTriggerPublishPolicy.shouldWakeListener(trigger.type, status)) deliver()
+        return status
     }
 }

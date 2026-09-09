@@ -73,11 +73,14 @@ internal object ProtectionPendingTriggerStore {
         val queue =
             readQueue(context)
 
-        return ProtectionPendingTriggerClaimPolicy.claimHead(
+        val claim = ProtectionPendingTriggerClaimPolicy.claimHead(
             queue = queue,
             ownerId = ownerId,
             coordinator = claimCoordinator,
         )
+        val result = if (claim != null) "CLAIMED" else if (queue.isEmpty()) "EMPTY" else "BUSY"
+        android.util.Log.i("OpaProtection", "[OPA-CLAIM] result=$result requestedOwner=$ownerId activeOwner=${claimCoordinator.currentOwnerId()} headType=${queue.firstOrNull()?.type} depth=${queue.size}")
+        return claim
     }
 
     /**

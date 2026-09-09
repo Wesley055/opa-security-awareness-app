@@ -37,6 +37,7 @@ describe('voice-protection-service', () => {
     const check = jest.fn().mockResolvedValue(permission === 'granted');
     const request = jest.fn().mockResolvedValue(permission);
 
+    jest.doMock('./foreground-execution', () => ({ isForegroundExecutionAllowed: () => true }));
     jest.doMock('react-native', () => ({
       Platform: { OS: 'android' },
       PermissionsAndroid: {

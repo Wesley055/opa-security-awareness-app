@@ -1,3 +1,4 @@
+jest.mock('./foreground-execution', () => ({ isForegroundExecutionAllowed: () => true }));
 import * as Location from 'expo-location';
 
 import {
@@ -87,6 +88,7 @@ describe('emergency-location', () => {
       mockedLocation.getCurrentPositionAsync,
     ).toHaveBeenCalledWith({
       accuracy: Location.Accuracy.High,
+      mayShowUserSettingsDialog: true,
     });
   });
 

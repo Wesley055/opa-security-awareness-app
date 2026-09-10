@@ -18,8 +18,7 @@ export default function RegisterScreen() {
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [idempotencyKey] = useState(() => Date.now().toString(36) + '-' + Math.random().toString(36).slice(2));
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -36,15 +35,9 @@ export default function RegisterScreen() {
       !normalizedFirstName ||
       !normalizedLastName ||
       !normalizedEmail ||
-      !phoneNumber.trim() ||
-      !password
+      !phoneNumber.trim()
     ) {
       setError('All fields are required.');
-      return;
-    }
-
-    if (password.length < 12) {
-      setError('Password must be at least 12 characters.');
       return;
     }
 
@@ -61,14 +54,14 @@ export default function RegisterScreen() {
     setIsSubmitting(true);
 
     try {
-      await register({
+      const pending = await register({
         firstName: normalizedFirstName,
         lastName: normalizedLastName,
         email: normalizedEmail,
         phoneNumber: normalizedPhone,
-        password,
+        idempotencyKey,
       });
-      router.replace('/');
+      router.replace({ pathname: '/(auth)/enroll', params: { requestId: pending.requestId } });
     } catch (error: unknown) {
       const responseMessage =
         typeof error === 'object' && error !== null && 'response' in error
@@ -125,29 +118,6 @@ export default function RegisterScreen() {
           onChangeText={setPhoneNumber} keyboardType="phone-pad"
           textContentType="telephoneNumber" editable={!isSubmitting} />
 
-        <View style={styles.passwordWrapper}>
-          <TextInput
-            style={styles.passwordInput}
-            placeholder="Password, minimum 12 characters"
-            placeholderTextColor="#8B949E"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry={!showPassword}
-            textContentType="newPassword"
-            editable={!isSubmitting}
-            returnKeyType="done"
-            onSubmitEditing={handleRegister}
-          />
-          <TouchableOpacity
-            style={styles.showToggle}
-            onPress={() => setShowPassword((prev) => !prev)}
-            disabled={isSubmitting}
-          >
-            <Text style={styles.showToggleText}>
-              {showPassword ? 'Hide' : 'Show'}
-            </Text>
-          </TouchableOpacity>
-        </View>
 
         <TouchableOpacity
           style={[styles.button, isSubmitting && styles.buttonDisabled]}
@@ -158,7 +128,7 @@ export default function RegisterScreen() {
           {isSubmitting ? (
             <ActivityIndicator color="#08111A" />
           ) : (
-            <Text style={styles.buttonText}>Create Account</Text>
+            <Text style={styles.buttonText}>Request enrollment</Text>
           )}
         </TouchableOpacity>
 

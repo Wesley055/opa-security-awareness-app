@@ -29,7 +29,7 @@ describe('POST /api/operator/residents', () => {
   it('forwards only resident fields and never accepts facilityId', async () => {
     residents.createFacilityAdminResident.mockResolvedValue({
       state: 'READY',
-      data: { user: { id: 'resident-1' }, delivery: { id: 'delivery-1' } },
+      data: { requestId: 'request-1', status: 'VERIFICATION_PENDING' },
     });
 
     const response = await POST(
@@ -42,13 +42,13 @@ describe('POST /api/operator/residents', () => {
       }),
     );
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
     expect(residents.createFacilityAdminResident).toHaveBeenCalledWith({
       email: 'resident@example.com',
       phoneNumber: '+2348012345678',
       firstName: 'Ada',
       lastName: 'Okafor',
-    });
+    }, undefined);
     expect(residents.createFacilityAdminResident.mock.calls[0][0]).not.toHaveProperty('facilityId');
     expect(response.headers.get('Cache-Control')).toBe('no-store, private');
   });

@@ -110,7 +110,7 @@ describe('OperatorFacilityGuard', () => {
     expect(request.operatorFacilityId).toBe('facility-1');
   });
 
-  it('allows an administrator who does have a facility', async () => {
+  it('refuses platform authority on the tenant operator route even with a facility', async () => {
     const guard = makeGuard({
       role: 'ADMIN',
       facilityId: 'facility-2',
@@ -118,7 +118,9 @@ describe('OperatorFacilityGuard', () => {
     });
     const request = makeRequest();
 
-    await expect(guard.canActivate(makeContext(request))).resolves.toBe(true);
-    expect(request.operatorFacilityId).toBe('facility-2');
+    await expect(
+      guard.canActivate(makeContext(request)),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(request.operatorFacilityId).toBeUndefined();
   });
 });

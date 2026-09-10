@@ -36,7 +36,7 @@ describe('POST /api/operator/residents/bulk', () => {
   it('strips browser-supplied facilityId before forwarding residents', async () => {
     residents.createBulkFacilityAdminResidents.mockResolvedValue({
       state: 'READY',
-      data: { total: 1, queued: 1, failed: 0, results: [] },
+      data: { requests: [{ index: 0, requestId: 'request-1', status: 'VERIFICATION_PENDING' }] },
     });
 
     const response = await POST(
@@ -45,10 +45,10 @@ describe('POST /api/operator/residents/bulk', () => {
       }),
     );
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(202);
     expect(residents.createBulkFacilityAdminResidents).toHaveBeenCalledWith([
       row,
-    ]);
+    ], undefined);
     expect(
       residents.createBulkFacilityAdminResidents.mock.calls[0][0][0],
     ).not.toHaveProperty('facilityId');

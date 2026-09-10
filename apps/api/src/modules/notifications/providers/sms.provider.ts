@@ -1,4 +1,4 @@
-import {
+import type {
   NotificationProvider,
   NotificationRequest,
   NotificationResponse,
@@ -18,7 +18,7 @@ export class SmsProvider implements NotificationProvider {
 
     if (!apiKey || !username) {
       console.warn(
-        `[SmsProvider] AFRICASTALKING_API_KEY/USERNAME not set — logging instead of sending to ${request.recipient}`,
+        '[SmsProvider] SMS provider not configured.',
       );
       return {
         success: false,
@@ -42,7 +42,8 @@ export class SmsProvider implements NotificationProvider {
     }
 
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      // Keep the optional provider SDK lazy-loaded inside the existing failure boundary.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const AfricasTalking = require('africastalking');
       const sms = AfricasTalking({ apiKey, username }).SMS;
 

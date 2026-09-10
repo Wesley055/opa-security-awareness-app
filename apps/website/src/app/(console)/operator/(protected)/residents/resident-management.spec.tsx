@@ -58,7 +58,7 @@ describe('ResidentManagement', () => {
 
   it('creates a resident without sending a facility id from the browser', async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true }), {
+      new Response(JSON.stringify({ ok: true, enrollment: { requestId: 'request-1', status: 'VERIFICATION_PENDING' } }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       }),
@@ -82,7 +82,7 @@ describe('ResidentManagement', () => {
       target: { value: '+2348098765432' },
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add and send invitation' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Request enrollment' }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
 
@@ -98,6 +98,9 @@ describe('ResidentManagement', () => {
       phoneNumber: '+2348098765432',
     });
     expect(payload).not.toHaveProperty('facilityId');
+    expect(await screen.findByText(/Enrollment request accepted/)).toBeTruthy();
+    expect(screen.queryByText('Chidi Nwosu')).toBeNull();
+    expect(options.headers['Idempotency-Key']).toEqual(expect.any(String));
   });
 
   it('loads invitation status from the same-origin route and respects server resend policy', async () => {

@@ -3,11 +3,7 @@ import {
   ConflictException,
   NotFoundException,
 } from '@nestjs/common';
-import {
-  AccountStatus,
-  FacilityType,
-  UserRole,
-} from '@prisma/client';
+import { AccountStatus, FacilityType, UserRole } from '@prisma/client';
 import { AdminProvisioningService } from './admin-provisioning.service';
 
 describe('AdminProvisioningService', () => {
@@ -24,7 +20,9 @@ describe('AdminProvisioningService', () => {
       create: jest.fn(),
       update: jest.fn(),
     },
+    administrativeAuditEvent: { create: jest.fn() },
     accountInvitationDelivery: {
+      updateMany: jest.fn(),
       create: jest.fn(),
     },
   };
@@ -46,12 +44,15 @@ describe('AdminProvisioningService', () => {
       id: 'facility-1',
     });
 
-    await service.createFacility({
-      name: 'Lekki Estate Security',
-      type: FacilityType.SECURITY_PROVIDER,
-      address: 'Lekki',
-      phoneNumber: '+2348012345678',
-    });
+    await service.createFacility(
+      {
+        name: 'Lekki Estate Security',
+        type: FacilityType.SECURITY_PROVIDER,
+        address: 'Lekki',
+        phoneNumber: '+2348012345678',
+      },
+      'admin-1',
+    );
 
     expect(prisma.facility.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -104,9 +105,7 @@ describe('AdminProvisioningService', () => {
     const data = prisma.user.create.mock.calls[0][0].data;
 
     expect(data.role).toBe(UserRole.FACILITY_OPERATOR);
-    expect(data.accountStatus).toBe(
-      AccountStatus.PENDING_ACTIVATION,
-    );
+    expect(data.accountStatus).toBe(AccountStatus.PENDING_ACTIVATION);
     expect(data.passwordHash).toBeNull();
     expect(data.facilityId).toBe('facility-1');
     expect(data.invitedByUserId).toBe('admin-1');
@@ -474,23 +473,19 @@ describe('AdminProvisioningService', () => {
     await service.assignResidentToFacility(
       'resident-1',
       'facility-1',
+      'admin-1',
     );
 
-    const lockOrder =
-      prisma.$executeRaw.mock.invocationCallOrder[0];
-    const readOrder =
-      prisma.user.findUnique.mock.invocationCallOrder[0];
-    const updateOrder =
-      prisma.user.update.mock.invocationCallOrder[0];
+    const lockOrder = prisma.$executeRaw.mock.invocationCallOrder[0];
+    const readOrder = prisma.user.findUnique.mock.invocationCallOrder[0];
+    const updateOrder = prisma.user.update.mock.invocationCallOrder[0];
 
     if (
       lockOrder === undefined ||
       readOrder === undefined ||
       updateOrder === undefined
     ) {
-      throw new Error(
-        'Expected lock, resident read, and membership update.',
-      );
+      throw new Error('Expected lock, resident read, and membership update.');
     }
 
     expect(lockOrder).toBeLessThan(readOrder);
@@ -505,10 +500,7 @@ describe('AdminProvisioningService', () => {
     });
 
     await expect(
-      service.assignResidentToFacility(
-        'operator-1',
-        'facility-2',
-      ),
+      service.assignResidentToFacility('operator-1', 'facility-2', 'admin-1'),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(prisma.user.update).not.toHaveBeenCalled();
@@ -524,7 +516,7 @@ describe('AdminProvisioningService', () => {
     // The admin is looking at facility-a's roster. Somebody moved this
     // resident to facility-b. Removing must fail, not detach them from b.
     await expect(
-      service.removeResidentFromFacility('resident-1', 'facility-a'),
+      service.removeResidentFromFacility('resident-1', 'facility-a', 'admin-1'),
     ).rejects.toBeInstanceOf(ConflictException);
 
     expect(prisma.user.update).not.toHaveBeenCalled();
@@ -540,7 +532,7 @@ describe('AdminProvisioningService', () => {
     // The previous version wrote facilityId: null over null and reported
     // success, so an admin could not tell a removal from a no-op.
     await expect(
-      service.removeResidentFromFacility('resident-1', 'facility-a'),
+      service.removeResidentFromFacility('resident-1', 'facility-a', 'admin-1'),
     ).rejects.toBeInstanceOf(ConflictException);
 
     expect(prisma.user.update).not.toHaveBeenCalled();
@@ -560,8 +552,11 @@ describe('AdminProvisioningService', () => {
       facilityId: null,
     });
 
-    const result =
-      await service.removeResidentFromFacility('resident-1', 'facility-1');
+    const result = await service.removeResidentFromFacility(
+      'resident-1',
+      'facility-1',
+      'admin-1',
+    );
 
     expect(result.facilityId).toBeNull();
     expect(prisma.$executeRaw).toHaveBeenCalledTimes(1);

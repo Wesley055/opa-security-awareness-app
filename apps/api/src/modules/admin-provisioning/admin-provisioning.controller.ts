@@ -27,13 +27,14 @@ type AuthenticatedRequest = Request & { user: JwtPayload };
 @UseGuards(JwtAuthGuard, AdminGuard)
 @Controller('admin')
 export class AdminProvisioningController {
-  constructor(
-    private readonly provisioning: AdminProvisioningService,
-  ) {}
+  constructor(private readonly provisioning: AdminProvisioningService) {}
 
   @Post('facilities')
-  createFacility(@Body() dto: CreateFacilityDto) {
-    return this.provisioning.createFacility(dto);
+  createFacility(
+    @Req() request: AuthenticatedRequest,
+    @Body() dto: CreateFacilityDto,
+  ) {
+    return this.provisioning.createFacility(dto, request.user.sub);
   }
 
   @Post('facility-admins')
@@ -41,10 +42,7 @@ export class AdminProvisioningController {
     @Req() request: AuthenticatedRequest,
     @Body() dto: CreateOperatorDto,
   ) {
-    return this.provisioning.createFacilityAdminSeat(
-      request.user.sub,
-      dto,
-    );
+    return this.provisioning.createFacilityAdminSeat(request.user.sub, dto);
   }
 
   @Post('operators')
@@ -52,10 +50,7 @@ export class AdminProvisioningController {
     @Req() request: AuthenticatedRequest,
     @Body() dto: CreateOperatorDto,
   ) {
-    return this.provisioning.createOperatorSeat(
-      request.user.sub,
-      dto,
-    );
+    return this.provisioning.createOperatorSeat(request.user.sub, dto);
   }
   /**
    * Provision a resident directly into an active facility.
@@ -79,10 +74,7 @@ export class AdminProvisioningController {
     @Req() request: AuthenticatedRequest,
     @Body() dto: CreateResidentDto,
   ) {
-    return this.provisioning.createResidentInvite(
-      request.user.sub,
-      dto,
-    );
+    return this.provisioning.createResidentInvite(request.user.sub, dto);
   }
 
   /**
@@ -127,12 +119,14 @@ export class AdminProvisioningController {
 
   @Patch('residents/:userId/facility')
   assignResident(
+    @Req() request: AuthenticatedRequest,
     @Param('userId') userId: string,
     @Body() dto: AssignResidentFacilityDto,
   ) {
     return this.provisioning.assignResidentToFacility(
       userId,
       dto.facilityId,
+      request.user.sub,
     );
   }
 
@@ -151,12 +145,14 @@ export class AdminProvisioningController {
    */
   @Delete('facilities/:facilityId/residents/:userId')
   removeResident(
+    @Req() request: AuthenticatedRequest,
     @Param('facilityId') facilityId: string,
     @Param('userId') userId: string,
   ) {
     return this.provisioning.removeResidentFromFacility(
       userId,
       facilityId,
+      request.user.sub,
     );
   }
 }

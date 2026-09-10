@@ -1,3 +1,4 @@
+import { EnrollmentModule } from './enrollment.module';
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
@@ -13,6 +14,7 @@ import { PasswordResetService } from './password-reset.service';
 @Module({
   imports: [
     PrismaModule,
+    EnrollmentModule,
     UsersModule,
     NotificationModule,
     PassportModule,

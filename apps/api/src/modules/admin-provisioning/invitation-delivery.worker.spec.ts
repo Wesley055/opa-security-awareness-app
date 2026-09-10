@@ -70,6 +70,8 @@ describe('InvitationDeliveryWorker', () => {
     worker = new InvitationDeliveryWorker(
       prisma as never,
       smsProvider as never,
+      { send: jest.fn() } as never,
+      {} as never,
     );
   });
 

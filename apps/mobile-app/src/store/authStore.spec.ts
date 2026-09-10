@@ -6,6 +6,8 @@ import {
 } from '../services/api';
 import { useAuthStore } from './authStore';
 
+jest.mock('../config/api-config', () => ({ API_BASE_URL: 'https://api.example.test' }));
+
 jest.mock('expo-secure-store', () => ({
   getItemAsync: jest.fn(),
   setItemAsync: jest.fn(),

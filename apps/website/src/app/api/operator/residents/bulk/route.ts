@@ -72,10 +72,11 @@ export async function POST(request: Request) {
   // from the authenticated FACILITY_ADMIN row.
   const result = await createBulkFacilityAdminResidents(
     residents.map(residentInput),
+    request.headers.get('idempotency-key') ?? undefined,
   );
 
   if (result.state === 'READY') {
-    return noStore(NextResponse.json({ ok: true, result: result.data }));
+    return noStore(NextResponse.json({ ok: true, result: result.data }, { status: 202 }));
   }
 
   const status =

@@ -16,6 +16,7 @@ import { validateEnv } from './env.validation';
  */
 describe('validateEnv', () => {
   const required = {
+    ENROLLMENT_ENCRYPTION_KEY: 'ab'.repeat(32),
     DATABASE_URL: 'postgresql://user:pass@localhost:5432/opa',
     JWT_ACCESS_SECRET: 'a'.repeat(32),
     JWT_REFRESH_SECRET: 'b'.repeat(32),

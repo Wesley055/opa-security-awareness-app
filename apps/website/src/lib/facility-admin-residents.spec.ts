@@ -42,28 +42,7 @@ const RESIDENTS = {
   ],
 };
 
-const CREATED = {
-  user: {
-    id: 'resident-1',
-    email: 'resident@example.com',
-    phoneNumber: '+2348012345678',
-    firstName: 'Ada',
-    lastName: 'Okafor',
-    role: 'USER',
-    facilityId: 'facility-1',
-    accountStatus: 'PENDING_ACTIVATION',
-    activationExpiresAt: null,
-    invitedByUserId: 'facility-admin-1',
-  },
-  delivery: {
-    id: 'delivery-1',
-    channel: 'SMS',
-    status: 'QUEUED',
-    recipient: '+2348012345678',
-    queuedAt: '2026-09-01T09:00:00.000Z',
-    nextAttemptAt: '2026-09-01T09:00:00.000Z',
-  },
-};
+const CREATED = { requestId: 'request-1', status: 'VERIFICATION_PENDING' };
 
 const INVITATION = {
   resident: {
@@ -253,7 +232,7 @@ describe('facility-admin-residents', () => {
     });
   });
 
-  it('preserves resident conflicts without leaking an internal error', async () => {
+  it('rejects the obsolete immediate-create conflict contract without forwarding existence details', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -274,33 +253,12 @@ describe('facility-admin-residents', () => {
         lastName: 'Okafor',
       }),
     ).resolves.toEqual({
-      state: 'CONFLICT',
-      message: 'An account already exists for this email.',
+      state: 'UNAVAILABLE',
     });
   });
 
-  it('accepts partial success from bulk provisioning', async () => {
-    const bulk = {
-      total: 2,
-      queued: 1,
-      failed: 1,
-      results: [
-        {
-          index: 0,
-          status: 'QUEUED',
-          user: CREATED.user,
-          delivery: CREATED.delivery,
-        },
-        {
-          index: 1,
-          status: 'FAILED',
-          error: {
-            statusCode: 409,
-            message: 'An account already exists for this email.',
-          },
-        },
-      ],
-    };
+  it('accepts uniform pending receipts from bulk enrollment', async () => {
+    const bulk = { requests: [{ index: 0, ...CREATED }, { index: 1, ...CREATED, requestId: 'request-2' }] };
 
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify(bulk), {

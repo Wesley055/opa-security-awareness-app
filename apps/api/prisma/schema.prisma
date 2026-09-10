@@ -284,11 +284,16 @@ model AccountInvitationDelivery {
 
   /// The invited account. Restrict, not Cascade: this is an audit record of
   /// what OPA sent on whose behalf, and it outlives convenience.
-  userId String @db.Uuid
-  user   User   @relation("InvitationDeliveryRecipient", fields: [userId], references: [id], onDelete: Restrict)
+  userId String? @db.Uuid
+  user   User?   @relation("InvitationDeliveryRecipient", fields: [userId], references: [id], onDelete: Restrict)
 
-  facilityId String   @db.Uuid
-  facility   Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  facilityId String?   @db.Uuid
+  facility   Facility? @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+
+  purpose String @default("LEGACY_INVITATION")
+  enrollmentId String? @db.Uuid
+  enrollment EnrollmentRequest? @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+  requestCiphertext String?
 
   /// NULLABLE, unlike the recipient. An administrator's own lifecycle must
   /// not be blocked by the invitations they once sent, so the actor may
@@ -318,6 +323,8 @@ model AccountInvitationDelivery {
   updatedAt     DateTime  @updatedAt
 
   @@index([userId])
+  @@index([facilityId, userId, queuedAt(sort: Desc)])
+  @@unique([enrollmentId, channel])
   /// The worker's claim query: due QUEUED rows, oldest original queue time first.
   @@index([status, nextAttemptAt, queuedAt])
 }
@@ -577,4 +584,40 @@ model EmergencyIntelligenceSnapshot {
   sourceFix JourneyLocationFix @relation(fields: [journeySessionId, sourceFixSequence], references: [journeySessionId, sequence], onDelete: Restrict)
 
   @@index([sourceFixReceivedAt])
+}
+
+/// Durable administrative provenance, retained independently of actor/resource deletion.
+model AdministrativeAuditEvent {
+  id String @id @default(uuid()) @db.Uuid
+  actorUserId String @db.Uuid
+  actorRole String
+  action String
+  resourceId String @db.Uuid
+  facilityId String? @db.Uuid
+  previousFacilityId String? @db.Uuid
+  createdAt DateTime @default(now())
+
+  @@index([facilityId, createdAt])
+  @@index([actorUserId, createdAt])
+}
+
+/// Pending intent, not an account or membership. No global identifier uniqueness here.
+model EnrollmentRequest {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String? @db.Uuid
+  invitedByUserId String? @db.Uuid
+  identityCiphertext String
+  idempotencyDigest String @unique @db.VarChar(64)
+  emailTokenHash String? @db.VarChar(64)
+  phoneTokenHash String? @db.VarChar(64)
+  acceptanceTokenHash String? @db.VarChar(64)
+  proofAttempts Int @default(0)
+  verifiedAt DateTime?
+  acceptedAt DateTime?
+  acceptedUserId String? @db.Uuid
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  deliveries AccountInvitationDelivery[]
+  @@index([facilityId, createdAt])
+  @@index([expiresAt])
 }

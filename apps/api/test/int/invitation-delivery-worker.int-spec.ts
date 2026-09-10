@@ -51,7 +51,7 @@ describe('InvitationDeliveryWorker integration', () => {
   }
 
   function buildWorker(send: jest.Mock) {
-    return new InvitationDeliveryWorker(prismaTest as never, { send } as never);
+    return new InvitationDeliveryWorker(prismaTest as never, { send } as never, { send: jest.fn() } as never, {} as never);
   }
 
   it('sends a due delivery and stores only the provider outcome', async () => {

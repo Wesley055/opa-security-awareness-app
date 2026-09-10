@@ -71,10 +71,10 @@ export async function POST(request: Request) {
     phoneNumber: candidate.phoneNumber as string,
     firstName: candidate.firstName as string,
     lastName: candidate.lastName as string,
-  });
+  }, request.headers.get('idempotency-key') ?? undefined);
 
   if (result.state === 'READY') {
-    return noStore(NextResponse.json({ ok: true, resident: result.data }));
+    return noStore(NextResponse.json({ ok: true, enrollment: result.data }, { status: 202 }));
   }
 
   return errorResponse(result);

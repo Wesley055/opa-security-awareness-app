@@ -1,3 +1,4 @@
+import { EnrollmentModule } from '../auth/enrollment.module';
 import { Module } from '@nestjs/common';
 import { AdminProvisioningModule } from '../admin-provisioning/admin-provisioning.module';
 import { FacilitiesController } from './facilities.controller';
@@ -10,7 +11,7 @@ import { OperatorMembersController } from './operator-members.controller';
 import { FacilityAdminResidentProvisioningController } from './facility-admin-resident-provisioning.controller';
 
 @Module({
-  imports: [AdminProvisioningModule],
+  imports: [AdminProvisioningModule, EnrollmentModule],
   controllers: [
     FacilitiesController,
     OperatorIncidentsController,

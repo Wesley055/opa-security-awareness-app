@@ -28,6 +28,7 @@ describe('FacilityAdminResidentProvisioningController', () => {
 
     const controller = new FacilityAdminResidentProvisioningController(
       provisioning as never,
+      {} as never,
     );
 
     const result = await controller.listResidents({

@@ -6,7 +6,7 @@ import { PasswordResetService } from './password-reset.service';
 
 describe('PasswordResetService', () => {
   const genericMessage =
-    'If an eligible OPA account exists for that email, password reset instructions have been sent.';
+    'If an eligible OPA account exists for that email, password reset instructions will be sent.';
 
   const emailProvider = {
     send: jest.fn(),
@@ -15,6 +15,7 @@ describe('PasswordResetService', () => {
   const config = {
     get: jest.fn<string | undefined, [string]>(() => undefined),
     getOrThrow: jest.fn((key: string) => {
+      if (key === 'ENROLLMENT_ENCRYPTION_KEY') return 'ab'.repeat(32);
       if (key === 'BCRYPT_ROUNDS') {
         return 4;
       }
@@ -35,6 +36,7 @@ describe('PasswordResetService', () => {
   };
 
   const prisma = {
+    accountInvitationDelivery: { create: jest.fn() },
     user: {
       findUnique: jest.fn(),
     },
@@ -50,7 +52,6 @@ describe('PasswordResetService', () => {
   const service = new PasswordResetService(
     prisma as never,
     config as never,
-    emailProvider as never,
   );
 
   const activeUser = {
@@ -78,117 +79,17 @@ describe('PasswordResetService', () => {
     prisma.passwordResetToken.updateMany.mockResolvedValue({ count: 1 });
   });
 
-  it('returns the same generic response for an unknown account and sends nothing', async () => {
-    prisma.user.findUnique.mockResolvedValue(null);
-
-    const result = await service.requestReset({
-      email: 'missing@example.com',
-    });
-
+  it.each([null, { ...activeUser }, { ...activeUser, isActive: false }])('durably queues identical reset work without querying identity or calling a provider (%p)', async (candidate) => {
+    prisma.user.findUnique.mockResolvedValue(candidate);
+    const result = await service.requestReset({ email: 'ADA@EXAMPLE.COM' });
     expect(result).toEqual({ message: genericMessage });
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
     expect(emailProvider.send).not.toHaveBeenCalled();
-    expect(prisma.$transaction).not.toHaveBeenCalled();
-  });
-
-  it('returns the same generic response for a suspended account and sends nothing', async () => {
-    prisma.user.findUnique.mockResolvedValue({
-      ...activeUser,
-      isActive: false,
-    });
-
-    const result = await service.requestReset({
-      email: 'ada@example.com',
-    });
-
-    expect(result).toEqual({ message: genericMessage });
-    expect(emailProvider.send).not.toHaveBeenCalled();
-    expect(prisma.$transaction).not.toHaveBeenCalled();
-  });
-
-  it('stores only a SHA-256 token hash and consumes previous live reset tokens', async () => {
-    let createdData:
-      | { userId: string; tokenHash: string; expiresAt: Date }
-      | undefined;
-
-    tx.passwordResetToken.create.mockImplementation(async ({ data }) => {
-      createdData = data;
-      return { id: 'reset-1', ...data };
-    });
-
-    const result = await service.requestReset({
-      email: 'ADA@EXAMPLE.COM',
-    });
-
-    expect(result).toEqual({ message: genericMessage });
-
-    expect(tx.passwordResetToken.updateMany).toHaveBeenCalledWith({
-      where: {
-        userId: activeUser.id,
-        consumedAt: null,
-      },
-      data: {
-        consumedAt: expect.any(Date),
-      },
-    });
-
-    expect(createdData).toBeDefined();
-    expect(createdData?.tokenHash).toMatch(/^[a-f0-9]{64}$/);
-    expect(createdData?.expiresAt).toBeInstanceOf(Date);
-
-    expect(emailProvider.send).toHaveBeenCalledTimes(1);
-    const request = emailProvider.send.mock.calls[0][0];
-    expect(request.recipient).toBe(activeUser.email);
-
-    const rawToken = request.message
-      .split('\n')
-      .find((line: string) => /^[a-f0-9]{64}$/.test(line));
-
-    expect(rawToken).toBeDefined();
-    expect(rawToken).not.toBe(createdData?.tokenHash);
-    expect(
-      createHash('sha256').update(rawToken as string).digest('hex'),
-    ).toBe(createdData?.tokenHash);
-
-    config.get.mockReturnValueOnce('https://opasafety.com');
-
-    await service.requestReset({
-      email: 'ada@example.com',
-    });
-
-    const webRequest = emailProvider.send.mock.calls[1][0];
-    const webRawToken = webRequest.message
-      .split('\n')
-      .find((line: string) => /^[a-f0-9]{64}$/.test(line));
-
-    expect(webRawToken).toBeDefined();
-    expect(webRequest.message).toContain(
-      `https://opasafety.com/operator/reset-password?token=${webRawToken}`,
-    );
-    expect(webRequest.message).toContain(webRawToken);
-  });
-
-  it('invalidates the newly created token when email delivery fails', async () => {
-    emailProvider.send.mockResolvedValue({
-      success: false,
-      provider: 'Email',
-      error: 'provider unavailable',
-    });
-
-    await service.requestReset({
-      email: 'ada@example.com',
-    });
-
-    const created = tx.passwordResetToken.create.mock.calls[0][0].data;
-
-    expect(prisma.passwordResetToken.updateMany).toHaveBeenCalledWith({
-      where: {
-        tokenHash: created.tokenHash,
-        consumedAt: null,
-      },
-      data: {
-        consumedAt: expect.any(Date),
-      },
-    });
+    expect(tx.passwordResetToken.create).not.toHaveBeenCalled();
+    expect(prisma.accountInvitationDelivery.create).toHaveBeenCalledTimes(1);
+    const data = prisma.accountInvitationDelivery.create.mock.calls[0][0].data;
+    expect(data).toEqual({ purpose: 'PASSWORD_RESET', channel: 'EMAIL', recipient: '', status: 'QUEUED', requestCiphertext: expect.any(String) });
+    expect(JSON.stringify(data)).not.toContain('example.com');
   });
 
   it('rejects an unknown reset token before bcrypt or transaction work', async () => {

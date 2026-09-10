@@ -88,6 +88,10 @@ export default function ActivateScreen() {
           create your password.
         </Text>
 
+        <TouchableOpacity onPress={() => router.push('/(auth)/enroll')}>
+          <Text style={styles.link}>Have an enrollment request with email and phone codes?</Text>
+        </TouchableOpacity>
+
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <TextInput

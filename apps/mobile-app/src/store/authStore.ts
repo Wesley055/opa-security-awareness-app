@@ -1,3 +1,5 @@
+import axios from 'axios';
+import { API_BASE_URL } from '../config/api-config';
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
 import { api, ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY } from '../services/api';
@@ -15,7 +17,7 @@ interface RegisterPayload {
   lastName: string;
   email: string;
   phoneNumber: string;
-  password: string;
+  idempotencyKey?: string;
 }
 
 interface AuthSession {
@@ -29,7 +31,9 @@ interface AuthState {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (payload: RegisterPayload) => Promise<void>;
+  register: (payload: RegisterPayload) => Promise<{ requestId: string; status: 'VERIFICATION_PENDING' }>;
+  verifyEnrollment: (payload: { requestId: string; emailCode: string; phoneCode: string; password: string; accept: true }) => Promise<{ status: 'ACCEPTED' } | { status: 'AUTHENTICATION_REQUIRED'; acceptanceToken: string }>;
+  acceptEnrollment: (requestId: string, acceptanceToken: string, email: string, password: string) => Promise<void>;
   activate: (token: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
@@ -58,8 +62,27 @@ export const useAuthStore = create<AuthState>((set) => {
       set({ user: data.user, isAuthenticated: true, isLoading: false });
     },
 
-    register: async (payload: RegisterPayload) => {
-      const { data } = await api.post<AuthSession>('/auth/register', payload);
+    register: async ({ idempotencyKey, ...payload }: RegisterPayload) => {
+      const { data } = await api.post<{ requestId: string; status: 'VERIFICATION_PENDING' }>('/auth/register', payload, { headers: { 'Idempotency-Key': idempotencyKey } });
+      if (data.status !== 'VERIFICATION_PENDING' || !data.requestId) throw new Error('Invalid enrollment response.');
+      return data;
+    },
+
+    verifyEnrollment: async (payload) => {
+      const { data } = await api.post<(AuthSession & { status: 'ACCEPTED' }) | { status: 'AUTHENTICATION_REQUIRED'; acceptanceToken: string }>('/auth/enrollment/verify', payload);
+      if (data.status === 'ACCEPTED') {
+        await persistSession(data);
+        set({ user: data.user, isAuthenticated: true, isLoading: false });
+        return { status: 'ACCEPTED' };
+      }
+      if (data.status !== 'AUTHENTICATION_REQUIRED' || !data.acceptanceToken) throw new Error('Invalid verification response.');
+      return data;
+    },
+
+    acceptEnrollment: async (requestId, acceptanceToken, email, password) => {
+      // Do not establish the UI session before authenticated enrollment acceptance succeeds.
+      const { data } = await api.post<AuthSession>('/auth/login', { email, password });
+      await axios.post(API_BASE_URL + '/auth/enrollment/accept', { requestId, acceptanceToken }, { headers: { Authorization: 'Bearer ' + data.accessToken }, timeout: 10000 });
       await persistSession(data);
       set({ user: data.user, isAuthenticated: true, isLoading: false });
     },

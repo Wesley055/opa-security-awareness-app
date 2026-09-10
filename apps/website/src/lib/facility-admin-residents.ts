@@ -53,39 +53,9 @@ export type CreateResidentInput = {
   lastName: string;
 };
 
-export type CreatedResident = {
-  user: {
-    id: string;
-    email: string;
-    phoneNumber: string | null;
-    firstName: string;
-    lastName: string;
-    role: string;
-    facilityId: string;
-    accountStatus: string;
-    activationExpiresAt: string | null;
-    invitedByUserId: string;
-  };
-  delivery: {
-    id: string;
-    channel: string;
-    status: string;
-    recipient: string;
-    queuedAt: string;
-    nextAttemptAt: string | null;
-  };
-};
-
-export type BulkResidentResult =
-  | { index: number; status: 'QUEUED'; user: CreatedResident['user']; delivery: CreatedResident['delivery'] }
-  | { index: number; status: 'FAILED'; error: { statusCode: number; message: string } };
-
-export type BulkResidentResponse = {
-  total: number;
-  queued: number;
-  failed: number;
-  results: BulkResidentResult[];
-};
+export type CreatedResident = { requestId: string; status: 'VERIFICATION_PENDING' };
+export type BulkResidentResponse = { requests: Array<CreatedResident & { index: number }> };
+export type EnrollmentStatus = { requestId: string; status: 'VERIFICATION_PENDING' | 'ACCEPTED' | 'EXPIRED'; createdAt: string; expiresAt: string };
 
 export type ResendInvitationResponse = {
   delivery: {
@@ -106,7 +76,7 @@ export type FacilityAdminResult<T> =
   | { state: 'NOT_FOUND'; message: string }
   | { state: 'UNAVAILABLE'; message?: string };
 
-type ApiRequestOptions = { method?: 'GET' | 'POST'; body?: unknown };
+type ApiRequestOptions = { method?: 'GET' | 'POST'; body?: unknown; idempotencyKey?: string };
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -147,6 +117,7 @@ async function facilityAdminRequest(
       method: options.method ?? 'GET',
       headers: {
         Authorization: `Bearer ${accessToken}`,
+        ...(options.idempotencyKey ? { 'Idempotency-Key': options.idempotencyKey } : {}),
         ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
       },
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -251,50 +222,10 @@ function isInvitationPayload(value: unknown): value is ResidentInvitation {
 }
 
 function isCreatedResident(value: unknown): value is CreatedResident {
-  return (
-    isObject(value) &&
-    isObject(value.user) &&
-    isObject(value.delivery) &&
-    typeof value.user.id === 'string' &&
-    typeof value.user.email === 'string' &&
-    (typeof value.user.phoneNumber === 'string' || value.user.phoneNumber === null) &&
-    typeof value.user.firstName === 'string' &&
-    typeof value.user.lastName === 'string' &&
-    typeof value.user.role === 'string' &&
-    typeof value.user.facilityId === 'string' &&
-    typeof value.user.accountStatus === 'string' &&
-    (typeof value.user.activationExpiresAt === 'string' || value.user.activationExpiresAt === null) &&
-    typeof value.user.invitedByUserId === 'string' &&
-    typeof value.delivery.id === 'string' &&
-    typeof value.delivery.channel === 'string' &&
-    typeof value.delivery.status === 'string' &&
-    typeof value.delivery.recipient === 'string' &&
-    typeof value.delivery.queuedAt === 'string' &&
-    (typeof value.delivery.nextAttemptAt === 'string' || value.delivery.nextAttemptAt === null)
-  );
+  return isObject(value) && typeof value.requestId === 'string' && value.status === 'VERIFICATION_PENDING' && Object.keys(value).every(key => ['requestId','status','index'].includes(key));
 }
-
 function isBulkResponse(value: unknown): value is BulkResidentResponse {
-  if (
-    !isObject(value) ||
-    typeof value.total !== 'number' ||
-    typeof value.queued !== 'number' ||
-    typeof value.failed !== 'number' ||
-    !Array.isArray(value.results)
-  ) return false;
-
-  return value.results.every((result) => {
-    if (!isObject(result) || typeof result.index !== 'number') return false;
-    if (result.status === 'QUEUED') {
-      return isCreatedResident({ user: result.user, delivery: result.delivery });
-    }
-    return (
-      result.status === 'FAILED' &&
-      isObject(result.error) &&
-      typeof result.error.statusCode === 'number' &&
-      typeof result.error.message === 'string'
-    );
-  });
+  return isObject(value) && Array.isArray(value.requests) && value.requests.every(row => isCreatedResident(row) && typeof (row as Record<string, unknown>).index === 'number');
 }
 
 function isResendResponse(value: unknown): value is ResendInvitationResponse {
@@ -330,21 +261,26 @@ export async function fetchResidentInvitation(userId: string): Promise<FacilityA
 
 export async function createFacilityAdminResident(
   input: CreateResidentInput,
+  idempotencyKey?: string,
 ): Promise<FacilityAdminResult<CreatedResident>> {
   const result = await facilityAdminRequest('/facility-admin/facility/residents', {
     method: 'POST',
     body: input,
+    idempotencyKey,
   });
+  if (result.state === 'CONFLICT') return { state: 'UNAVAILABLE' };
   if (result.state !== 'READY') return result;
   return isCreatedResident(result.data) ? { state: 'READY', data: result.data } : unexpectedShape();
 }
 
 export async function createBulkFacilityAdminResidents(
   residents: CreateResidentInput[],
+  idempotencyKey?: string,
 ): Promise<FacilityAdminResult<BulkResidentResponse>> {
   const result = await facilityAdminRequest('/facility-admin/facility/residents/bulk', {
     method: 'POST',
     body: { residents },
+    idempotencyKey,
   });
   if (result.state !== 'READY') return result;
   return isBulkResponse(result.data) ? { state: 'READY', data: result.data } : unexpectedShape();
@@ -359,4 +295,12 @@ export async function resendResidentInvitation(
   );
   if (result.state !== 'READY') return result;
   return isResendResponse(result.data) ? { state: 'READY', data: result.data } : unexpectedShape();
+}
+
+export async function fetchEnrollmentRequests(): Promise<FacilityAdminResult<{ requests: EnrollmentStatus[] }>> {
+  const result = await facilityAdminRequest('/facility-admin/facility/residents/enrollments');
+  if (result.state !== 'READY') return result;
+  const data = result.data;
+  if (!isObject(data) || !Array.isArray(data.requests) || !data.requests.every(row => isObject(row) && typeof row.requestId === 'string' && typeof row.createdAt === 'string' && typeof row.expiresAt === 'string' && ['VERIFICATION_PENDING','ACCEPTED','EXPIRED'].includes(String(row.status)))) return unexpectedShape();
+  return { state: 'READY', data: { requests: data.requests.map(row => ({ requestId: row.requestId, status: row.status, createdAt: row.createdAt, expiresAt: row.expiresAt })) } };
 }

@@ -1,5 +1,5 @@
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
+import { UnauthorizedException } from '@nestjs/common';
+import type { JwtService } from '@nestjs/jwt';
 import { AccountStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
@@ -31,58 +31,7 @@ describe('AuthService', () => {
     jwtService.signAsync.mockResolvedValueOnce('access').mockResolvedValueOnce('refresh');
   });
 
-  it('registers a user with a hashed password', async () => {
-    usersService.findByEmail.mockResolvedValue(null);
-    usersService.findByPhone.mockResolvedValue(null);
-    usersService.create.mockResolvedValue({
-      id: 'user-id',
-      email: 'ada@example.com',
-      firstName: 'Ada',
-      lastName: 'Okafor',
-      role: 'USER',
-    });
-    const service = new AuthService(usersService as never, jwtService as unknown as JwtService, config as never);
-    const result = await service.register({
-      email: 'Ada@Example.com',
-      phoneNumber: '+2348012345678',
-      password: 'StrongPassword123!',
-      firstName: 'Ada',
-      lastName: 'Okafor',
-    });
-    expect(usersService.create).toHaveBeenCalledWith(expect.objectContaining({ email: 'ada@example.com' }));
-    expect(usersService.create.mock.calls[0][0].passwordHash).not.toBe('StrongPassword123!');
-    expect(result.accessToken).toBe('access');
-  });
-
-  it('rejects duplicate email registration', async () => {
-    usersService.findByEmail.mockResolvedValue({ id: 'existing' });
-    const service = new AuthService(usersService as never, jwtService as unknown as JwtService, config as never);
-    await expect(
-      service.register({
-        email: 'ada@example.com',
-        phoneNumber: '+2348012345678',
-        password: 'StrongPassword123!',
-        firstName: 'Ada',
-        lastName: 'Okafor',
-      }),
-    ).rejects.toBeInstanceOf(ConflictException);
-  });
-
-  it('rejects duplicate phone number registration', async () => {
-    usersService.findByEmail.mockResolvedValue(null);
-    usersService.findByPhone.mockResolvedValue({ id: 'existing' });
-    const service = new AuthService(usersService as never, jwtService as unknown as JwtService, config as never);
-    await expect(
-      service.register({
-        email: 'newemail@example.com',
-        phoneNumber: '+2348012345678',
-        password: 'StrongPassword123!',
-        firstName: 'Ada',
-        lastName: 'Okafor',
-      }),
-    ).rejects.toBeInstanceOf(ConflictException);
-  });
-
+  // Registration now belongs to EnrollmentService; HTTP coverage proves no immediate account creation.
   // THE POSITIVE CASE, AND IT IS LOAD-BEARING.
   //
   // Before this, the suite held four tests and every one of them asserted
@@ -126,13 +75,7 @@ describe('AuthService', () => {
       accountStatus: AccountStatus.PENDING_ACTIVATION,
     });
 
-    // NO SPY. bcrypt is a native module and its compare export is
-    // non-configurable, so jest.spyOn cannot redefine it.
-    //
-    // The assertion below still proves the guard fires FIRST: passwordHash
-    // is null here, and bcrypt.compare(password, null) rejects with its own
-    // error. Getting UnauthorizedException rather than a bcrypt failure is
-    // only possible if the lifecycle check returned before the comparison.
+    // A pending seat must be refused after dummy credential work.
     const service = new AuthService(
       usersService as never,
       jwtService as unknown as JwtService,

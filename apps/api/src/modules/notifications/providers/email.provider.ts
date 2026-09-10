@@ -1,4 +1,4 @@
-import {
+import type {
   NotificationProvider,
   NotificationRequest,
   NotificationResponse,
@@ -15,7 +15,7 @@ export class EmailProvider implements NotificationProvider {
 
     if (!apiKey || !fromAddress) {
       console.warn(
-        `[EmailProvider] RESEND_API_KEY/FROM_ADDRESS not set — logging instead of sending to ${request.recipient}`,
+        '[EmailProvider] Email provider not configured.',
       );
       return {
         success: false,

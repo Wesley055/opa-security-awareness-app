@@ -7,6 +7,7 @@ describe('AdminProvisioningService invitation visibility + resend', () => {
 
   const prisma: any = {
     $transaction: jest.fn(),
+    $executeRaw: jest.fn(),
     user: {
       findUnique: jest.fn(),
     },

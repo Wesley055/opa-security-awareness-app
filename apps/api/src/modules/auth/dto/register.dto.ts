@@ -1,4 +1,4 @@
-﻿import { IsEmail, IsNotEmpty, IsString, MinLength } from 'class-validator';
+﻿import { IsOptional, IsEmail, IsNotEmpty, IsString, MinLength } from 'class-validator';
 
 export class RegisterDto {
   @IsEmail()
@@ -9,7 +9,7 @@ export class RegisterDto {
   // bare form demands international format, rejecting 08024662124.
   // Neither matches OPA's rule.
   //
-  // toE164 in auth.service is the SINGLE validation authority: any
+  // toE164 in enrollment.service is the SINGLE validation authority: any
   // country by its own country code, Nigeria assumed only when none is
   // given. Two validators disagreeing about one field is how the old
   // Nigeria-only restriction survived unnoticed.
@@ -18,8 +18,9 @@ export class RegisterDto {
   phoneNumber!: string;
 
   @IsString()
+  @IsOptional()
   @MinLength(12)
-  password!: string;
+  password?: string;
 
   @IsString()
   @IsNotEmpty()

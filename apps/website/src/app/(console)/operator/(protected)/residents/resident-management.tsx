@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo, useState, useRef } from 'react';
 import { viewerSessionFetch } from '@/lib/viewer-session-fetch';
 import type {
   FacilityAdminResident,
   FacilityAdminResidents,
   ResidentInvitation,
+  EnrollmentStatus,
 } from '@/lib/facility-admin-residents';
 
 type InitialResult =
@@ -50,9 +51,11 @@ function invitationSummary(invitation: ResidentInvitation | undefined) {
 }
 
 export function ResidentManagement({ initialResult }: { initialResult: InitialResult }) {
-  const [data, setData] = useState<FacilityAdminResidents | null>(
+  const [data] = useState<FacilityAdminResidents | null>(
     initialResult.state === 'READY' ? initialResult.data : null,
   );
+  const requestKey = useRef<string | null>(null);
+  const [enrollments, setEnrollments] = useState<EnrollmentStatus[]>([]);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [showAdd, setShowAdd] = useState(false);
   const [bulkText, setBulkText] = useState('');
@@ -71,9 +74,6 @@ export function ResidentManagement({ initialResult }: { initialResult: InitialRe
 
   const residents = data?.residents ?? [];
 
-  const refreshResidents = useCallback(async () => {
-    window.location.reload();
-  }, []);
 
   async function createResident(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -84,22 +84,24 @@ export function ResidentManagement({ initialResult }: { initialResult: InitialRe
     try {
       const response = await viewerSessionFetch('/api/operator/residents', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestKey.current ?? (requestKey.current = crypto.randomUUID()) },
         body: JSON.stringify(form),
       });
       const body = await response.json();
 
       if (!response.ok) {
-        setError(body.error ?? 'Resident could not be added.');
+        setError(body.error ?? 'Enrollment request could not be accepted.');
         return;
       }
 
-      setNotice('Resident added. OPA queued the activation invitation for delivery.');
+      setNotice('Enrollment request accepted. Membership will appear only after verification and acceptance.');
+      requestKey.current = null;
+      setEnrollments(current => [{ ...body.enrollment }, ...current]);
       setForm(emptyForm);
       setShowAdd(false);
-      await refreshResidents();
+
     } catch {
-      setError('Resident could not be added. Check the connection and try again.');
+      setError('Enrollment request could not be accepted. Check the connection and try again.');
     } finally {
       setBusy(false);
     }
@@ -135,24 +137,31 @@ export function ResidentManagement({ initialResult }: { initialResult: InitialRe
       const body = await response.json();
 
       if (!response.ok) {
-        setError(body.error ?? 'Residents could not be added.');
+        setError(body.error ?? 'Enrollment requests could not be accepted.');
         return;
       }
 
       const result = body.result;
-      setNotice(
-        result.failed > 0
-          ? `${result.queued} invitation(s) queued; ${result.failed} resident(s) failed. Review the entries and retry only the failed residents.`
-          : `${result.queued} invitation(s) queued successfully.`,
-      );
+      setNotice(`${result.requests.length} enrollment request(s) accepted for verification. No membership has been created by submission.`);
+      requestKey.current = null;
+      setEnrollments(current => [...result.requests, ...current]);
       setBulkText('');
       setShowBulk(false);
-      await refreshResidents();
+
     } catch {
-      setError('Residents could not be added. Check the connection and try again.');
+      setError('Enrollment requests could not be accepted. Check the connection and try again.');
     } finally {
       setBusy(false);
     }
+  }
+
+  async function loadEnrollments() {
+    try {
+      const response = await viewerSessionFetch('/api/operator/residents/enrollments', { cache: 'no-store' });
+      const body = await response.json();
+      if (!response.ok) { setError(body.error ?? 'Enrollment requests could not be loaded.'); return; }
+      setEnrollments(body.requests);
+    } catch { setError('Enrollment requests could not be loaded.'); }
   }
 
   async function loadInvitation(userId: string) {
@@ -288,7 +297,7 @@ export function ResidentManagement({ initialResult }: { initialResult: InitialRe
           </div>
           <div className="mt-4 flex justify-end">
             <button disabled={busy} className="min-h-10 rounded-md bg-protection px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
-              {busy ? 'Adding...' : 'Add and send invitation'}
+              {busy ? 'Adding...' : 'Request enrollment'}
             </button>
           </div>
         </form>
@@ -317,18 +326,24 @@ export function ResidentManagement({ initialResult }: { initialResult: InitialRe
         </form>
       ) : null}
 
+      <section className="mt-8 rounded-xl border border-line bg-panel p-4">
+        <h2 className="font-display text-lg font-bold text-ink">Enrollment requests</h2>
+        <p className="text-sm text-muted">Pending requests are separate from members. Delivery and account eligibility are not shown. Expired requests require a new submission.</p>
+        <button type="button" onClick={loadEnrollments} className="mt-3 border border-line p-2">Refresh enrollment requests</button>
+        <ul>{enrollments.map(row => <li key={row.requestId} className="py-2 text-sm break-all">{row.requestId} — {statusLabel(row.status)}</li>)}</ul>
+      </section>
       <section className="mt-8 rounded-xl border border-line bg-panel">
         <div className="border-b border-line px-4 py-4 sm:px-5">
           <h2 className="font-display text-lg font-bold text-ink">Resident accounts</h2>
           <p className="mt-1 text-sm text-muted">
-            Activation and invitation delivery are shown from OPA's current server state.
+            Activation and invitation delivery are shown from OPA&apos;s current server state.
           </p>
         </div>
 
         {residents.length === 0 ? (
           <div className="px-4 py-10 text-center sm:px-5">
             <p className="font-display font-bold text-ink">No residents yet</p>
-            <p className="mt-1 text-sm text-muted">Add the first resident to queue an activation invitation.</p>
+            <p className="mt-1 text-sm text-muted">Request enrollment to invite a resident to verify and accept membership.</p>
           </div>
         ) : (
           <ul className="divide-y divide-line">

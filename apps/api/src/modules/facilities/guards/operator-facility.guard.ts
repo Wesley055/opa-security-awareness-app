@@ -29,17 +29,9 @@ import type { JwtPayload } from '../../auth/jwt.strategy';
  * reflect current truth after promotion, demotion, suspension or facility
  * reassignment, and a token minted before any of those still verifies.
  *
- * AN ADMIN WITH NO FACILITY IS REFUSED, and that is deliberate rather than
- * an oversight. FacilityOperatorGuard grants admins a cross-tenant override
- * because a facility is named in the URL for them to override TO. Here there
- * is nothing to override to: the route means "my assigned facility's queue"
- * and an unassigned account has no such queue. An admin who needs to see a
- * particular facility uses the explicit /facilities/:facilityId route, which
- * still admits them.
- *
- * SUSPENSION IS CHECKED BEFORE ROLE, matching FacilityOperatorGuard. A
- * suspended administrator must not keep access merely because the role
- * branch would have returned first.
+ * Platform administrators use the explicit /facilities/:facilityId route.
+ * /operator represents tenant operator authority only, even if an ADMIN has
+ * a facility assignment. Suspension is checked before role.
  */
 
 export type OperatorQueueRequest = Request & {
@@ -56,9 +48,7 @@ export class OperatorFacilityGuard implements CanActivate {
   constructor(private readonly prisma: PrismaService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const request = context
-      .switchToHttp()
-      .getRequest<OperatorQueueRequest>();
+    const request = context.switchToHttp().getRequest<OperatorQueueRequest>();
 
     const user = await this.prisma.user.findUnique({
       where: { id: request.user.sub },
@@ -77,7 +67,7 @@ export class OperatorFacilityGuard implements CanActivate {
       throw new ForbiddenException('User account is inactive.');
     }
 
-    if (user.role !== 'FACILITY_OPERATOR' && user.role !== 'ADMIN') {
+    if (user.role !== 'FACILITY_OPERATOR') {
       throw new ForbiddenException('Not authorized for facility access.');
     }
 

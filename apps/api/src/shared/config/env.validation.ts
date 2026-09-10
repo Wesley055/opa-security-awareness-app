@@ -14,6 +14,7 @@ const envSchema = z.object({
   // production down. A supplied-but-malformed value is still
   // rejected: absent and malformed are different failures.
   REDIS_URL: z.string().url().optional(),
+  ENROLLMENT_ENCRYPTION_KEY: z.string().regex(/^[a-f0-9]{64}$/i),
   JWT_ACCESS_SECRET: z.string().min(32),
   JWT_REFRESH_SECRET: z.string().min(32),
   JWT_ACCESS_EXPIRES_IN: z.string().default('15m'),

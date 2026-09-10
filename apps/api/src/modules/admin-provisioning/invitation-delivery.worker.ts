@@ -1,4 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { EmailProvider } from '../notifications/providers/email.provider';
+import { prepareIdentityDelivery, type IdentityMessage } from './identity-delivery';
 import { Interval } from '@nestjs/schedule';
 import {
   AccountStatus,
@@ -34,6 +37,7 @@ type ClaimedInvitation = {
   facilityName: string;
   attemptCount: number;
   code: string;
+  identityMessage?: IdentityMessage;
 };
 
 function gsm7BasicSanitize(value: string): string {
@@ -111,6 +115,8 @@ export class InvitationDeliveryWorker {
   constructor(
     private readonly prisma: PrismaService,
     private readonly smsProvider: SmsProvider,
+    private readonly emailProvider: EmailProvider,
+    private readonly config: ConfigService,
   ) {}
 
   @Interval(2000)
@@ -195,6 +201,10 @@ export class InvitationDeliveryWorker {
         return;
       }
 
+      if (candidate.enrollmentId) {
+        await tx.$queryRaw`SELECT id FROM "EnrollmentRequest" WHERE id = ${candidate.enrollmentId}::uuid FOR UPDATE`;
+      }
+
       const claim = await tx.accountInvitationDelivery.updateMany({
         where: {
           id: candidate.id,
@@ -234,7 +244,17 @@ export class InvitationDeliveryWorker {
         return;
       }
 
+      if (delivery.purpose && delivery.purpose !== 'LEGACY_INVITATION') {
+        const identityMessage = await prepareIdentityDelivery(tx, delivery, this.config);
+        if (!identityMessage) {
+          await tx.accountInvitationDelivery.update({ where: { id: delivery.id }, data: { status: NotificationStatus.CANCELLED, lastError: 'Delivery no longer eligible.' } });
+          return;
+        }
+        claimedResult = { deliveryId: delivery.id, recipient: identityMessage.recipient, facilityName: '', attemptCount: delivery.attemptCount, code: '', identityMessage };
+        return;
+      }
       if (
+        !delivery.user || !delivery.facility || !delivery.userId ||
         !delivery.facility.isActive ||
         !delivery.user.isActive ||
         delivery.user.role !== UserRole.USER ||
@@ -278,10 +298,9 @@ export class InvitationDeliveryWorker {
   }
 
   private async dispatch(claimed: ClaimedInvitation): Promise<void> {
-    const response = await this.smsProvider.send({
-      recipient: claimed.recipient,
-      message: buildInvitationMessage(claimed.facilityName, claimed.code),
-    });
+    const request = claimed.identityMessage ?? { recipient: claimed.recipient, message: buildInvitationMessage(claimed.facilityName, claimed.code) };
+    const provider = claimed.identityMessage?.channel === 'EMAIL' ? this.emailProvider : this.smsProvider;
+    const response = await provider.send(request);
 
     if (response.success) {
       await this.prisma.accountInvitationDelivery.update({

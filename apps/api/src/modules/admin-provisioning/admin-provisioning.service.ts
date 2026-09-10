@@ -5,15 +5,10 @@ import {
   NotFoundException,
   BadRequestException,
 } from '@nestjs/common';
-import {
-  AccountStatus,
-  UserRole,
-} from '@prisma/client';
+import { AccountStatus, UserRole } from '@prisma/client';
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../../prisma/prisma.service';
-import {
-  hashActivationCredential,
-} from '../../shared/security/activation-code';
+import { hashActivationCredential } from '../../shared/security/activation-code';
 import { toE164 } from '../../shared/phone/normalize-phone-number';
 import type { FindResidentDto } from './dto/find-resident.dto';
 import type { CreateFacilityDto } from './dto/create-facility.dto';
@@ -34,20 +29,30 @@ type ProvisionedAccountDto = {
 export class AdminProvisioningService {
   constructor(private readonly prisma: PrismaService) {}
 
-async createFacility(dto: CreateFacilityDto) {
-    const phoneNumber = dto.phoneNumber
-      ? toE164(dto.phoneNumber)
-      : undefined;
+  async createFacility(dto: CreateFacilityDto, actorUserId: string) {
+    const phoneNumber = dto.phoneNumber ? toE164(dto.phoneNumber) : undefined;
 
-    return this.prisma.facility.create({
-      data: {
-        name: dto.name.trim(),
-        type: dto.type,
-        address: dto.address?.trim(),
-        phoneNumber,
-        latitude: dto.latitude,
-        longitude: dto.longitude,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const facility = await tx.facility.create({
+        data: {
+          name: dto.name.trim(),
+          type: dto.type,
+          address: dto.address?.trim(),
+          phoneNumber,
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+        },
+      });
+      await tx.administrativeAuditEvent.create({
+        data: {
+          actorUserId,
+          actorRole: 'ADMIN',
+          action: 'FACILITY_CREATED',
+          resourceId: facility.id,
+          facilityId: facility.id,
+        },
+      });
+      return facility;
     });
   }
 
@@ -77,8 +82,12 @@ async createFacility(dto: CreateFacilityDto) {
       | {
           index: number;
           status: 'QUEUED';
-          user: Awaited<ReturnType<AdminProvisioningService['createResidentInvite']>>['user'];
-          delivery: Awaited<ReturnType<AdminProvisioningService['createResidentInvite']>>['delivery'];
+          user: Awaited<
+            ReturnType<AdminProvisioningService['createResidentInvite']>
+          >['user'];
+          delivery: Awaited<
+            ReturnType<AdminProvisioningService['createResidentInvite']>
+          >['delivery'];
         }
       | {
           index: number;
@@ -107,7 +116,8 @@ async createFacility(dto: CreateFacilityDto) {
               ? response
               : Array.isArray((response as { message?: unknown })?.message)
                 ? (response as { message: unknown[] }).message.join('; ')
-                : typeof (response as { message?: unknown })?.message === 'string'
+                : typeof (response as { message?: unknown })?.message ===
+                    'string'
                   ? (response as { message: string }).message
                   : error.message;
 
@@ -134,7 +144,9 @@ async createFacility(dto: CreateFacilityDto) {
       }
     }
 
-    const queued = results.filter((result) => result.status === 'QUEUED').length;
+    const queued = results.filter(
+      (result) => result.status === 'QUEUED',
+    ).length;
     const failed = results.length - queued;
 
     return {
@@ -303,11 +315,11 @@ async createFacility(dto: CreateFacilityDto) {
         );
       }
 
-      const rawToken = randomBytes(ACTIVATION_TOKEN_BYTES).toString('base64url');
-      const activationTokenHash = hashActivationCredential(rawToken);
-      const activationExpiresAt = new Date(
-        Date.now() + ACTIVATION_VALIDITY_MS,
+      const rawToken = randomBytes(ACTIVATION_TOKEN_BYTES).toString(
+        'base64url',
       );
+      const activationTokenHash = hashActivationCredential(rawToken);
+      const activationExpiresAt = new Date(Date.now() + ACTIVATION_VALIDITY_MS);
 
       const user = await tx.user.create({
         data: {
@@ -452,107 +464,126 @@ async createFacility(dto: CreateFacilityDto) {
 
     return {
       facility,
-      operators: members.filter(
-        (m) => m.role === UserRole.FACILITY_OPERATOR,
-      ),
+      operators: members.filter((m) => m.role === UserRole.FACILITY_OPERATOR),
       residents: members.filter((m) => m.role === UserRole.USER),
     };
   }
 
   async getResidentInvitation(userId: string, expectedFacilityId?: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        role: true,
-        facilityId: true,
-        isActive: true,
-        accountStatus: true,
-        activatedAt: true,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+      const user = await tx.user.findUnique({
+        where: {
+          id: userId,
+          role: UserRole.USER,
+          ...(expectedFacilityId === undefined
+            ? {}
+            : { facilityId: expectedFacilityId }),
+        },
+        select: {
+          id: true,
+          role: true,
+          facilityId: true,
+          isActive: true,
+          accountStatus: true,
+          activatedAt: true,
+        },
+      });
+
+      if (!user || user.role !== UserRole.USER) {
+        throw new NotFoundException('Resident not found.');
+      }
+
+      if (expectedFacilityId && user.facilityId !== expectedFacilityId) {
+        throw new NotFoundException('Resident not found.');
+      }
+
+      const deliveries = await tx.accountInvitationDelivery.findMany({
+        where: {
+          userId,
+          ...(expectedFacilityId === undefined
+            ? {}
+            : { facilityId: expectedFacilityId }),
+        },
+        select: {
+          id: true,
+          channel: true,
+          status: true,
+          attemptCount: true,
+          lastError: true,
+          queuedAt: true,
+          nextAttemptAt: true,
+          lastAttemptAt: true,
+          sentAt: true,
+          failedAt: true,
+          createdAt: true,
+        },
+        orderBy: [{ queuedAt: 'desc' }, { createdAt: 'desc' }],
+        take: 20,
+      });
+
+      const history = deliveries.map((delivery) => ({
+        id: delivery.id,
+        channel: delivery.channel,
+        status: delivery.status,
+        attemptCount: delivery.attemptCount,
+        lastError: delivery.lastError?.slice(0, 300) ?? null,
+        queuedAt: delivery.queuedAt,
+        nextAttemptAt: delivery.nextAttemptAt,
+        lastAttemptAt: delivery.lastAttemptAt,
+        sentAt: delivery.sentAt,
+        failedAt: delivery.failedAt,
+        createdAt: delivery.createdAt,
+      }));
+      const latest = history[0] ?? null;
+
+      const inFlight = await tx.accountInvitationDelivery.findFirst({
+        where: {
+          userId,
+          ...(expectedFacilityId === undefined
+            ? {}
+            : { facilityId: expectedFacilityId }),
+          status: { in: ['QUEUED', 'SENDING'] },
+        },
+        select: { id: true },
+      });
+      const hasInFlight = inFlight !== null;
+
+      const cooldownFrom = latest?.lastAttemptAt ?? latest?.queuedAt ?? null;
+      const cooldownUntil = cooldownFrom
+        ? new Date(cooldownFrom.getTime() + 5 * 60 * 1000)
+        : null;
+      const cooldownActive =
+        cooldownUntil !== null && cooldownUntil.getTime() > Date.now();
+
+      const eligibleAccount =
+        user.isActive &&
+        user.accountStatus === AccountStatus.PENDING_ACTIVATION;
+
+      const canResend =
+        user.facilityId !== null &&
+        eligibleAccount &&
+        !hasInFlight &&
+        !cooldownActive;
+
+      return {
+        resident: {
+          id: user.id,
+          facilityId: user.facilityId,
+          isActive: user.isActive,
+          accountStatus: user.accountStatus,
+          activatedAt: user.activatedAt,
+        },
+        latest,
+        history,
+        canResend,
+        resendAvailableAt: canResend
+          ? null
+          : cooldownActive
+            ? cooldownUntil
+            : null,
+      };
     });
-
-    if (!user || user.role !== UserRole.USER) {
-      throw new NotFoundException('Resident not found.');
-    }
-
-    if (expectedFacilityId && user.facilityId !== expectedFacilityId) {
-      throw new NotFoundException('Resident not found.');
-    }
-
-    const deliveries = await this.prisma.accountInvitationDelivery.findMany({
-      where: { userId },
-      select: {
-        id: true,
-        channel: true,
-        status: true,
-        attemptCount: true,
-        lastError: true,
-        queuedAt: true,
-        nextAttemptAt: true,
-        lastAttemptAt: true,
-        sentAt: true,
-        failedAt: true,
-        createdAt: true,
-      },
-      orderBy: [{ queuedAt: 'desc' }, { createdAt: 'desc' }],
-      take: 20,
-    });
-
-    const history = deliveries.map((delivery) => ({
-      id: delivery.id,
-      channel: delivery.channel,
-      status: delivery.status,
-      attemptCount: delivery.attemptCount,
-      lastError: delivery.lastError?.slice(0, 300) ?? null,
-      queuedAt: delivery.queuedAt,
-      nextAttemptAt: delivery.nextAttemptAt,
-      lastAttemptAt: delivery.lastAttemptAt,
-      sentAt: delivery.sentAt,
-      failedAt: delivery.failedAt,
-      createdAt: delivery.createdAt,
-    }));
-    const latest = history[0] ?? null;
-
-    const inFlight = await this.prisma.accountInvitationDelivery.findFirst({
-      where: {
-        userId,
-        status: { in: ['QUEUED', 'SENDING'] },
-      },
-      select: { id: true },
-    });
-    const hasInFlight = inFlight !== null;
-
-    const cooldownFrom = latest?.lastAttemptAt ?? latest?.queuedAt ?? null;
-    const cooldownUntil = cooldownFrom
-      ? new Date(cooldownFrom.getTime() + 5 * 60 * 1000)
-      : null;
-    const cooldownActive =
-      cooldownUntil !== null && cooldownUntil.getTime() > Date.now();
-
-    const eligibleAccount =
-      user.isActive &&
-      user.accountStatus === AccountStatus.PENDING_ACTIVATION;
-
-    const canResend =
-      user.facilityId !== null &&
-      eligibleAccount &&
-      !hasInFlight &&
-      !cooldownActive;
-
-    return {
-      resident: {
-        id: user.id,
-        facilityId: user.facilityId,
-        isActive: user.isActive,
-        accountStatus: user.accountStatus,
-        activatedAt: user.activatedAt,
-      },
-      latest,
-      history,
-      canResend,
-      resendAvailableAt: canResend ? null : cooldownActive ? cooldownUntil : null,
-    };
   }
 
   async resendResidentInvitation(
@@ -566,7 +597,13 @@ async createFacility(dto: CreateFacilityDto) {
       `;
 
       const user = await tx.user.findUnique({
-        where: { id: userId },
+        where: {
+          id: userId,
+          role: UserRole.USER,
+          ...(expectedFacilityId === undefined
+            ? {}
+            : { facilityId: expectedFacilityId }),
+        },
         select: {
           id: true,
           role: true,
@@ -589,9 +626,7 @@ async createFacility(dto: CreateFacilityDto) {
         !user.isActive ||
         user.accountStatus !== AccountStatus.PENDING_ACTIVATION
       ) {
-        throw new ConflictException(
-          'Resident is not eligible for activation.',
-        );
+        throw new ConflictException('Resident is not eligible for activation.');
       }
 
       if (!user.phoneNumber) {
@@ -603,6 +638,9 @@ async createFacility(dto: CreateFacilityDto) {
       const inFlight = await tx.accountInvitationDelivery.findFirst({
         where: {
           userId,
+          ...(expectedFacilityId === undefined
+            ? {}
+            : { facilityId: expectedFacilityId }),
           status: { in: ['QUEUED', 'SENDING'] },
         },
         select: { id: true, status: true },
@@ -615,7 +653,12 @@ async createFacility(dto: CreateFacilityDto) {
       }
 
       const latest = await tx.accountInvitationDelivery.findFirst({
-        where: { userId },
+        where: {
+          userId,
+          ...(expectedFacilityId === undefined
+            ? {}
+            : { facilityId: expectedFacilityId }),
+        },
         select: {
           lastAttemptAt: true,
           queuedAt: true,
@@ -625,10 +668,7 @@ async createFacility(dto: CreateFacilityDto) {
       });
 
       const cooldownFrom = latest?.lastAttemptAt ?? latest?.queuedAt;
-      if (
-        cooldownFrom &&
-        Date.now() - cooldownFrom.getTime() < 5 * 60 * 1000
-      ) {
+      if (cooldownFrom && Date.now() - cooldownFrom.getTime() < 5 * 60 * 1000) {
         throw new ConflictException(
           'Please wait five minutes before resending this invitation.',
         );
@@ -655,7 +695,11 @@ async createFacility(dto: CreateFacilityDto) {
       return { delivery };
     });
   }
-  async assignResidentToFacility(userId: string, facilityId: string) {
+  async assignResidentToFacility(
+    userId: string,
+    facilityId: string,
+    actorUserId: string,
+  ) {
     return this.prisma.$transaction(async (tx) => {
       // Same user serialization domain used by incident routing. A facility
       // reassignment therefore cannot race the facility snapshot taken when
@@ -688,7 +732,13 @@ async createFacility(dto: CreateFacilityDto) {
         throw new NotFoundException('Active facility not found.');
       }
 
-      return tx.user.update({
+      await tx.accountInvitationDelivery.updateMany({
+        // Only unclaimed deliveries can be cancelled. A provider request may
+        // already be in flight for SENDING; its outcome must stay truthful.
+        where: { userId, facilityId: { not: facilityId }, status: 'QUEUED' },
+        data: { status: 'CANCELLED' },
+      });
+      const updated = await tx.user.update({
         where: { id: userId },
         data: { facilityId },
         select: {
@@ -698,6 +748,20 @@ async createFacility(dto: CreateFacilityDto) {
           facilityId: true,
         },
       });
+      await tx.administrativeAuditEvent.create({
+        data: {
+          actorUserId,
+          actorRole: 'ADMIN',
+          action:
+            updated.facilityId === null
+              ? 'RESIDENT_REMOVED'
+              : 'RESIDENT_ASSIGNED',
+          resourceId: userId,
+          facilityId: updated.facilityId,
+          previousFacilityId: user.facilityId,
+        },
+      });
+      return updated;
     });
   }
 
@@ -711,6 +775,7 @@ async createFacility(dto: CreateFacilityDto) {
   async removeResidentFromFacility(
     userId: string,
     expectedFacilityId: string,
+    actorUserId: string,
   ) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`
@@ -744,7 +809,11 @@ async createFacility(dto: CreateFacilityDto) {
         );
       }
 
-      return tx.user.update({
+      await tx.accountInvitationDelivery.updateMany({
+        where: { userId, facilityId: expectedFacilityId, status: 'QUEUED' },
+        data: { status: 'CANCELLED' },
+      });
+      const updated = await tx.user.update({
         where: { id: userId },
         data: { facilityId: null },
         select: {
@@ -754,6 +823,20 @@ async createFacility(dto: CreateFacilityDto) {
           facilityId: true,
         },
       });
+      await tx.administrativeAuditEvent.create({
+        data: {
+          actorUserId,
+          actorRole: 'ADMIN',
+          action:
+            updated.facilityId === null
+              ? 'RESIDENT_REMOVED'
+              : 'RESIDENT_ASSIGNED',
+          resourceId: userId,
+          facilityId: updated.facilityId,
+          previousFacilityId: user.facilityId,
+        },
+      });
+      return updated;
     });
   }
 }

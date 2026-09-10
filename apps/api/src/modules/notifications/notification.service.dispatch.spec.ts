@@ -154,7 +154,7 @@ describe('NotificationService.dispatchNotification', () => {
     expect(result).toBeNull();
     const updateArgs = prisma.incidentNotification.update.mock.calls[0][0];
     expect(updateArgs.data.status).toBe(NotificationStatus.FAILED);
-    expect(updateArgs.data.lastError).toBe('provider exploded');
+    expect(updateArgs.data.lastError).toBe('Notification transport failed.');
   });
 
   it('never creates a notification row', async () => {
@@ -171,7 +171,8 @@ describe('NotificationService.dispatchNotification', () => {
   });
 
   it('fails the row when a required dispatch field is missing', async () => {
-    const { recipient, ...withoutRecipient } = validPayload;
+    const { recipient: omittedRecipient, ...withoutRecipient } = validPayload;
+    void omittedRecipient;
     prisma.incidentNotification.findUnique.mockResolvedValue({
       ...claimedRow,
       payload: withoutRecipient,

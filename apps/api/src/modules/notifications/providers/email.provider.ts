@@ -45,7 +45,7 @@ export class EmailProvider implements NotificationProvider {
         return {
           success: false,
           provider: this.providerName,
-          error: result?.message ?? `Resend API error (${res.status})`,
+          error: `Resend API error (${res.status})`,
         };
       }
 
@@ -54,11 +54,11 @@ export class EmailProvider implements NotificationProvider {
         provider: this.providerName,
         messageId: result?.id,
       };
-    } catch (error) {
+    } catch {
       return {
         success: false,
         provider: this.providerName,
-        error: error instanceof Error ? error.message : 'Unknown email error',
+        error: 'Email transport failed',
       };
     }
   }

@@ -1,3 +1,4 @@
+import { ProtectedSnapshotsService } from "../protected-identity/protected-snapshots.service";
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EmailProvider } from '../notifications/providers/email.provider';
@@ -38,6 +39,8 @@ type ClaimedInvitation = {
   attemptCount: number;
   code: string;
   identityMessage?: IdentityMessage;
+  protectedSnapshotId?: string | null;
+  subjectUserId?: string;
 };
 
 function gsm7BasicSanitize(value: string): string {
@@ -117,6 +120,7 @@ export class InvitationDeliveryWorker {
     private readonly smsProvider: SmsProvider,
     private readonly emailProvider: EmailProvider,
     private readonly config: ConfigService,
+    private readonly snapshots: ProtectedSnapshotsService,
   ) {}
 
   @Interval(2000)
@@ -145,11 +149,8 @@ export class InvitationDeliveryWorker {
           `Invitation worker: processed ${processed} delivery attempt(s)`,
         );
       }
-    } catch (error) {
-      this.logger.error(
-        'Invitation delivery tick failed.',
-        error instanceof Error ? error.stack : undefined,
-      );
+    } catch {
+      this.logger.error("Invitation delivery tick failed.");
     } finally {
       this.running = false;
     }
@@ -288,6 +289,8 @@ export class InvitationDeliveryWorker {
       claimedResult = {
         deliveryId: delivery.id,
         recipient: delivery.recipient,
+        protectedSnapshotId: delivery.protectedSnapshotId,
+        subjectUserId: delivery.userId,
         facilityName: delivery.facility.name,
         attemptCount: delivery.attemptCount,
         code,
@@ -298,9 +301,17 @@ export class InvitationDeliveryWorker {
   }
 
   private async dispatch(claimed: ClaimedInvitation): Promise<void> {
-    const request = claimed.identityMessage ?? { recipient: claimed.recipient, message: buildInvitationMessage(claimed.facilityName, claimed.code) };
-    const provider = claimed.identityMessage?.channel === 'EMAIL' ? this.emailProvider : this.smsProvider;
-    const response = await provider.send(request);
+    let response;
+    try {
+      const recipient = claimed.protectedSnapshotId
+        ? await this.snapshots.invitationRecipient(claimed.protectedSnapshotId, claimed.deliveryId, claimed.subjectUserId!)
+        : claimed.recipient;
+      const request = claimed.identityMessage ?? { recipient, message: buildInvitationMessage(claimed.facilityName, claimed.code) };
+      const provider = claimed.identityMessage?.channel === 'EMAIL' ? this.emailProvider : this.smsProvider;
+      response = await provider.send(request);
+    } catch {
+      response = { success: false, provider: 'INVITATION', error: 'Invitation dispatch unavailable.', messageId: undefined };
+    }
 
     if (response.success) {
       await this.prisma.accountInvitationDelivery.update({
@@ -317,7 +328,7 @@ export class InvitationDeliveryWorker {
       return;
     }
 
-    const error = response.error ?? 'SMS provider did not accept invitation.';
+    const error = response.error?.includes('InvalidPhoneNumber') ? 'InvalidPhoneNumber' : response.error?.includes('UserInBlacklist') ? 'UserInBlacklist' : 'Invitation dispatch unavailable.';
     const terminal = this.isTerminalFailure(error);
     const exhausted = claimed.attemptCount >= MAX_ATTEMPTS;
 

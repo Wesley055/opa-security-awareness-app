@@ -5,7 +5,7 @@ import { AdminProvisioningService } from './admin-provisioning.service';
 describe('AdminProvisioningService invitation visibility + resend', () => {
   let service: AdminProvisioningService;
 
-  const prisma: any = {
+  const prisma = {
     $transaction: jest.fn(),
     $executeRaw: jest.fn(),
     user: {
@@ -20,7 +20,7 @@ describe('AdminProvisioningService invitation visibility + resend', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    prisma.$transaction.mockImplementation(async (callback: any) => {
+    prisma.$transaction.mockImplementation(async (callback: (tx: unknown) => Promise<unknown>) => {
       const tx = {
         $executeRaw: jest.fn().mockResolvedValue(undefined),
         user: prisma.user,
@@ -29,12 +29,12 @@ describe('AdminProvisioningService invitation visibility + resend', () => {
       return callback(tx);
     });
 
-    service = new AdminProvisioningService(prisma);
+    service = new AdminProvisioningService(prisma as never);
   });
 
   it('returns bounded minimal history and derives a five-minute resend cooldown', async () => {
     const queuedAt = new Date(Date.now() - 60_000);
-    const rawError = 'X'.repeat(400);
+    const rawError = 'private@example.test ' + 'X'.repeat(400);
 
     prisma.user.findUnique.mockResolvedValue({
       id: '11111111-1111-1111-1111-111111111111',
@@ -73,7 +73,8 @@ describe('AdminProvisioningService invitation visibility + resend', () => {
     expect(result.canResend).toBe(false);
     expect(result.resendAvailableAt).toBeInstanceOf(Date);
     expect(result.history).toHaveLength(1);
-    expect(result.history[0]!.lastError).toHaveLength(300);
+    expect(result.history[0]!.lastError).toBe('Delivery unavailable.');
+    expect(JSON.stringify(result)).not.toContain('private@example.test');
     expect(result.history[0]!).not.toHaveProperty('recipient');
     expect(result.history[0]!).not.toHaveProperty('providerMessageId');
   });

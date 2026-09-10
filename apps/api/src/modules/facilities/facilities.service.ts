@@ -1,3 +1,4 @@
+import { maskedPerson } from '../protected-identity/masked-person';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { IncidentStatus, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -188,7 +189,7 @@ export class FacilitiesService {
     const last = incidents[incidents.length - 1];
 
     return {
-      incidents,
+      incidents: incidents.map(incident => ({ ...incident, user: maskedPerson(incident.user) })),
       // Null means the end of the queue, not an error.
       nextCursor: hasMore && last ? encodeCursor(last) : null,
       hasMore,
@@ -253,8 +254,8 @@ export class FacilitiesService {
       facility,
       operators: members.filter(
         (member) => member.role === UserRole.FACILITY_OPERATOR,
-      ),
-      residents: members.filter((member) => member.role === UserRole.USER),
+      ).map(maskedPerson),
+      residents: members.filter((member) => member.role === UserRole.USER).map(maskedPerson),
     };
   }
 }

@@ -19,7 +19,7 @@ export class CorrelationIdMiddleware implements NestMiddleware {
       request.header(CORRELATION_ID_HEADER)?.trim();
 
     const correlationId =
-      incomingCorrelationId || randomUUID();
+      incomingCorrelationId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(incomingCorrelationId) ? incomingCorrelationId : randomUUID();
 
     request.correlationId = correlationId;
 

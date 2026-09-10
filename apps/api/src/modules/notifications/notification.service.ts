@@ -1,7 +1,9 @@
+import { ProtectedSnapshotsService } from '../protected-identity/protected-snapshots.service';
 import {
   BadRequestException,
   Injectable,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import {
   NotificationChannel as PrismaNotificationChannel,
@@ -43,6 +45,7 @@ export class NotificationService {
     private readonly pushProvider: PushProvider,
     private readonly emailProvider: EmailProvider,
     private readonly voiceProvider: VoiceProvider,
+    @Optional() private readonly protectedSnapshots?: ProtectedSnapshotsService,
   ) {
     this.providers = {
       [NotificationChannel.SMS]: this.smsProvider,
@@ -164,20 +167,18 @@ export class NotificationService {
       }
 
       return result;
-    } catch (error) {
+    } catch {
       await this.prisma.incidentNotification.update({
         where: { id: notification.id },
         data: {
           status: NotificationStatus.FAILED,
           failedAt: new Date(),
           lastError:
-            error instanceof Error
-              ? error.message
-              : 'Unknown provider error',
+            'Notification transport failed.',
         },
       });
 
-      throw error;
+      throw new BadRequestException('Notification transport failed.');
     }
   }
 
@@ -214,7 +215,7 @@ export class NotificationService {
       'error' in result &&
       typeof result.error === 'string'
     ) {
-      return result.error;
+      return 'Notification provider reported failure.';
     }
 
     return undefined;
@@ -254,7 +255,17 @@ export class NotificationService {
       return null;
     }
 
-    if (!isNotificationPayloadV1(notification.payload)) {
+    let durablePayload: unknown = notification.payload;
+    if (notification.protectedSnapshotId) {
+      try {
+        if (!this.protectedSnapshots) throw new Error();
+        durablePayload = await this.protectedSnapshots.notificationPayload(notification.protectedSnapshotId, notification.id);
+      } catch {
+        await this.prisma.incidentNotification.update({ where: { id: notificationId }, data: { status: NotificationStatus.FAILED, failedAt: new Date(), lastError: 'Protected snapshot unavailable.' } });
+        return null;
+      }
+    }
+    if (!isNotificationPayloadV1(durablePayload)) {
       await this.prisma.incidentNotification.update({
         where: { id: notificationId },
         data: {
@@ -269,7 +280,7 @@ export class NotificationService {
       return null;
     }
 
-    const payload = notification.payload;
+    const payload = durablePayload;
 
     try {
       const result = await this.send({
@@ -307,16 +318,14 @@ export class NotificationService {
       }
 
       return result;
-    } catch (error) {
+    } catch {
       await this.prisma.incidentNotification.update({
         where: { id: notificationId },
         data: {
           status: NotificationStatus.FAILED,
           failedAt: new Date(),
           lastError:
-            error instanceof Error
-              ? error.message
-              : 'Unknown provider error',
+            'Notification transport failed.',
         },
       });
       return null;

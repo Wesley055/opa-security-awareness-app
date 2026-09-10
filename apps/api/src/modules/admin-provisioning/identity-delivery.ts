@@ -1,7 +1,7 @@
 import type { ConfigService } from "@nestjs/config";
 import type { AccountInvitationDelivery, Prisma } from "@prisma/client";
 import { randomBytes } from "crypto";
-import { revealIdentity } from "../../shared/security/enrollment-identity";
+import { resolveEnrollmentIdentity } from "../../shared/security/enrollment-resolution";
 import { hashActivationCredential } from "../../shared/security/activation-code";
 import type { EnrollmentIdentity } from "../auth/enrollment.service";
 export type IdentityMessage = {
@@ -44,9 +44,9 @@ export async function prepareIdentityDelivery(
       if (!inviter?.facility) return null;
       organization = inviter.facility.name;
     }
-    const identity = revealIdentity<EnrollmentIdentity>(
-      config,
-      request.identityCiphertext,
+    const identity = await resolveEnrollmentIdentity<EnrollmentIdentity>(
+      tx, config, request.identityCiphertext,
+      { sourceId: request.id, facilityId: request.facilityId, purpose: "ENROLLMENT_DELIVERY" },
     );
     const code = randomBytes(32).toString("base64url");
     const isEmail = delivery.channel === "EMAIL";
@@ -64,9 +64,9 @@ export async function prepareIdentityDelivery(
     };
   }
   if (delivery.purpose === "PASSWORD_RESET" && delivery.requestCiphertext) {
-    const { email } = revealIdentity<{ email: string }>(
-      config,
-      delivery.requestCiphertext,
+    const { email } = await resolveEnrollmentIdentity<{ email: string }>(
+      tx, config, delivery.requestCiphertext,
+      { sourceId: delivery.id, purpose: "PASSWORD_RESET_DELIVERY" },
     );
     const candidate = await tx.user.findUnique({
       where: { email },

@@ -1,0 +1,16 @@
+{
+  "database": "opa_pii_upgrade_1789041790546_test",
+  "serverVersion": "16.14",
+  "baselineMigrations": 24,
+  "piiMigrations": [
+    "20260910120000_protected_identity_foundation",
+    "20260910120100_protected_recipient_snapshots",
+    "20260910120200_enrollment_resolution_audit"
+  ],
+  "totalMigrations": 27,
+  "fixtureTablesVerified": 7,
+  "fixtureRowsVerified": 7,
+  "plaintextUnchanged": true,
+  "evidenceProvenanceUnchanged": true,
+  "success": true
+}

@@ -24,6 +24,10 @@ import { EvidenceService } from '../../src/modules/evidence/evidence.service';
 
 const secret = 'tenant-isolation-integration-only-signing-key';
 const jwt = new JwtService({ secret });
+// Test authority must not be replaced by host environment secrets.
+const configValues: Record<string, string | number> = {
+  JWT_ACCESS_SECRET: secret, ENROLLMENT_ENCRYPTION_KEY: 'ab'.repeat(32), BCRYPT_ROUNDS: 4,
+};
 type Seat = { id: string; email: string; role: string };
 const token = (u: Seat) =>
   jwt.sign({ sub: u.id, email: u.email, role: u.role, credentialVersion: 0 });
@@ -75,7 +79,14 @@ describe('tenant isolation over HTTP and PostgreSQL', () => {
         { provide: PrismaService, useValue: prismaTest },
         {
           provide: ConfigService,
-          useValue: new ConfigService({ JWT_ACCESS_SECRET: secret, ENROLLMENT_ENCRYPTION_KEY: 'ab'.repeat(32), BCRYPT_ROUNDS: 4 }),
+          useValue: {
+            get: (key: string) => configValues[key],
+            getOrThrow: (key: string) => {
+              const value = configValues[key];
+              if (value === undefined) throw new Error('Missing test configuration');
+              return value;
+            },
+          },
         },
         { provide: EvidenceService, useValue: evidence },
       ],
@@ -378,6 +389,21 @@ describe('tenant isolation over HTTP and PostgreSQL', () => {
     expect(audit[0]?.previousFacilityId).toBe(a);
     expect(audit[0]?.facilityId).toBe(b);
   });
+  it('keeps platform administrator member lists masked without reveal grants', async () => {
+    const result = await get(platform, '/admin/facilities/' + a + '/members').expect(200);
+    for (const member of [...result.body.operators, ...result.body.residents]) {
+      expect(member).toMatchObject({ firstName: '[protected]', lastName: '[protected]', email: '[protected]', phoneNumber: '[protected]' });
+      expect(member.id).toBeDefined();
+      expect(member.role).toBeDefined();
+      expect(member.accountStatus).toBeDefined();
+    }
+    expect(result.body.operators).toHaveLength(1);
+    expect(result.body.residents).toHaveLength(1);
+    expect(JSON.stringify(result.body)).not.toContain(opA.email);
+    expect(JSON.stringify(result.body)).not.toContain(residentA.email);
+    expect(await prismaTest.identityAccessGrant.count()).toBe(0);
+  });
+
   it('records facility creation with authenticated platform actor', async () => {
     const created = await post(platform, '/admin/facilities')
       .send({ name: 'Kano', type: 'SECURITY_PROVIDER' })

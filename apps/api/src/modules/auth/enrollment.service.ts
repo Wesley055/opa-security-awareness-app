@@ -9,10 +9,10 @@ import { Prisma, type EnrollmentRequest } from "@prisma/client";
 import { randomBytes, timingSafeEqual } from "crypto";
 import * as bcrypt from "bcrypt";
 import { PrismaService } from "../../prisma/prisma.service";
+import { resolveEnrollmentIdentity } from "../../shared/security/enrollment-resolution";
 import {
   enrollmentDigest,
   protectIdentity,
-  revealIdentity,
 } from "../../shared/security/enrollment-identity";
 import {
   hashActivationCredential,
@@ -209,9 +209,9 @@ export class EnrollmentService {
           });
           return null;
         }
-        const identity = revealIdentity<EnrollmentIdentity>(
-          this.config,
-          request.identityCiphertext,
+        const identity = await resolveEnrollmentIdentity<EnrollmentIdentity>(
+          tx, this.config, request.identityCiphertext,
+          { sourceId: request.id, facilityId: request.facilityId, purpose: "ENROLLMENT_VERIFY" },
         );
         for (const value of [
           "email:" + identity.email,
@@ -294,9 +294,9 @@ export class EnrollmentService {
       // Serialize with administrative lifecycle/identifier changes, including writers without advisory locks.
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${actorId}::uuid FOR UPDATE`;
       const user = await tx.user.findUnique({ where: { id: actorId } });
-      const identity = revealIdentity<EnrollmentIdentity>(
-        this.config,
-        request.identityCiphertext,
+      const identity = await resolveEnrollmentIdentity<EnrollmentIdentity>(
+        tx, this.config, request.identityCiphertext,
+        { sourceId: request.id, facilityId: request.facilityId, actorUserId: actorId, purpose: "ENROLLMENT_ACCEPT" },
       );
       if (
         !user?.isActive ||

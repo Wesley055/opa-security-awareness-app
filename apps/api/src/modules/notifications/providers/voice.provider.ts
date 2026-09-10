@@ -1,4 +1,4 @@
-import {
+import type {
   NotificationProvider,
   NotificationRequest,
   NotificationResponse,
@@ -8,8 +8,9 @@ export class VoiceProvider implements NotificationProvider {
   readonly providerName = 'Voice';
 
   async send(
-    request: NotificationRequest,
+    _request: NotificationRequest,
   ): Promise<NotificationResponse> {
+    void _request;
     // ADR-015 SECTION 6b: A PROVIDER THAT CANNOT DELIVER MUST RETURN
     // FAILURE. This channel is not implemented - no API is called and
     // no message leaves this process.
@@ -24,7 +25,7 @@ export class VoiceProvider implements NotificationProvider {
     // NO messageId IS RETURNED. An invented identifier for a message
     // that does not exist is as untrue as the success flag was.
     console.warn(
-      `[VoiceProvider] NOT IMPLEMENTED - nothing sent to ${request.recipient}`,
+      `[VoiceProvider] NOT IMPLEMENTED - nothing sent`,
     );
 
     return {

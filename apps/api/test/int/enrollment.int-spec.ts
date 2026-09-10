@@ -91,6 +91,7 @@ describe("verification-first enrollment HTTP, signed JWT and PostgreSQL", () => 
       { send } as never,
       { send } as never,
       config,
+      {} as never,
     );
   });
   afterAll(async () => {

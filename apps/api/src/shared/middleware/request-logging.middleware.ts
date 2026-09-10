@@ -34,7 +34,7 @@ export function redactSensitivePath(originalUrl: string): string {
       return `${prefix}${REDACTED}`;
     }
   }
-  return originalUrl;
+  return originalUrl.split(/[?#]/, 1)[0] ?? '/';
 }
 
 /**
@@ -83,11 +83,9 @@ export class RequestLoggingMiddleware implements NestMiddleware {
           event: 'http_request',
           correlationId: request.correlationId,
           method: request.method,
-          path: redactSensitivePath(request.originalUrl),
+          path: typeof request.route?.path === 'string' ? request.route.path : '[unmatched]',
           statusCode: response.statusCode,
           durationMs,
-          userAgent: request.get('user-agent'),
-          ip: request.ip,
           timestamp: new Date().toISOString(),
         }),
       );

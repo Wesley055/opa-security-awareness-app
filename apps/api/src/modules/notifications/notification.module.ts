@@ -1,3 +1,4 @@
+import { ProtectedIdentityModule } from '../protected-identity/protected-identity.module';
 import { Module } from '@nestjs/common';
 import { NotificationController } from './notification.controller';
 import { NotificationService } from './notification.service';
@@ -9,6 +10,7 @@ import { WhatsAppProvider } from './providers/whatsapp.provider';
 import { NotificationDispatchWorker } from './notification-dispatch.worker';
 
 @Module({
+  imports: [ProtectedIdentityModule],
   controllers: [NotificationController],
   providers: [
     NotificationService,

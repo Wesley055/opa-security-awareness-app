@@ -44,12 +44,10 @@ export class EmergencyIntelligenceService {
     ): Promise<T | null> => {
       try {
         return await operation();
-      } catch (error) {
-        const message =
-          error instanceof Error ? error.message : 'Unknown provider failure';
+      } catch {
 
         this.logger.warn(
-          `${providerName} failed while building location intelligence: ${message}`,
+          `${providerName} failed while building location intelligence.`,
         );
 
         return null;

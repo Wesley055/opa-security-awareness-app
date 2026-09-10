@@ -43,34 +43,22 @@ export class GlobalExceptionFilter implements ExceptionFilter {
             ? 'Internal server error'
             : 'Request failed';
 
-    const errorName =
-      exception instanceof Error
-        ? exception.name
-        : 'UnknownError';
-
     const safePath = redactSensitivePath(request.originalUrl);
 
     const safeMessage = Array.isArray(message)
       ? message.map((entry) => redactSensitiveTrackingUrls(entry))
       : redactSensitiveTrackingUrls(message);
 
-    const safeStack =
-      exception instanceof Error && exception.stack !== undefined
-        ? redactSensitiveTrackingUrls(exception.stack)
-        : undefined;
-
     this.logger.error(
       JSON.stringify({
         event: 'http_error',
         correlationId: request.correlationId,
         method: request.method,
-        path: safePath,
+        path: typeof request.route?.path === 'string' ? request.route.path : '[unmatched]',
         statusCode: status,
-        errorName,
-        message: safeMessage,
+        message: 'Request failed.',
         timestamp: new Date().toISOString(),
       }),
-      safeStack,
     );
 
     response.status(status).json({

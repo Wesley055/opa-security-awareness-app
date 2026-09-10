@@ -51,7 +51,7 @@ describe('InvitationDeliveryWorker integration', () => {
   }
 
   function buildWorker(send: jest.Mock) {
-    return new InvitationDeliveryWorker(prismaTest as never, { send } as never, { send: jest.fn() } as never, {} as never);
+    return new InvitationDeliveryWorker(prismaTest as never, { send } as never, { send: jest.fn() } as never, {} as never, {} as never);
   }
 
   it('sends a due delivery and stores only the provider outcome', async () => {
@@ -166,7 +166,7 @@ describe('InvitationDeliveryWorker integration', () => {
     });
     expect(row.status).toBe('QUEUED');
     expect(row.attemptCount).toBe(1);
-    expect(row.lastError).toContain('Gateway timeout');
+    expect(row.lastError).toBe('Invitation dispatch unavailable.');
     expect(row.nextAttemptAt.getTime()).toBeGreaterThan(before);
   });
 

@@ -47,10 +47,9 @@ export class NotificationDispatchWorker {
           `Dispatch worker: dispatched ${dispatched} notification(s)`,
         );
       }
-    } catch (error) {
+    } catch {
       this.logger.error(
         'Notification dispatch tick failed.',
-        error instanceof Error ? error.stack : undefined,
       );
     } finally {
       this.running = false;

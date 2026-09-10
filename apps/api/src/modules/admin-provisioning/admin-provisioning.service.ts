@@ -1,3 +1,4 @@
+import { maskedPerson } from '../protected-identity/masked-person';
 import {
   ConflictException,
   HttpException,
@@ -255,7 +256,7 @@ export class AdminProvisioningService {
         },
       });
 
-      return { user, delivery };
+      return { user: maskedPerson(user), delivery: { ...delivery, recipient: "[protected]" } };
     });
   }
 
@@ -352,7 +353,7 @@ export class AdminProvisioningService {
       });
 
       return {
-        user,
+        user: maskedPerson(user),
         activationToken: rawToken,
         activationPath: activationPathPrefix + rawToken,
         activationExpiresAt,
@@ -420,7 +421,7 @@ export class AdminProvisioningService {
       return null;
     }
 
-    return user;
+    return maskedPerson(user);
   }
 
   /**
@@ -464,8 +465,8 @@ export class AdminProvisioningService {
 
     return {
       facility,
-      operators: members.filter((m) => m.role === UserRole.FACILITY_OPERATOR),
-      residents: members.filter((m) => m.role === UserRole.USER),
+      operators: members.filter((m) => m.role === UserRole.FACILITY_OPERATOR).map(maskedPerson),
+      residents: members.filter((m) => m.role === UserRole.USER).map(maskedPerson),
     };
   }
 
@@ -527,7 +528,7 @@ export class AdminProvisioningService {
         channel: delivery.channel,
         status: delivery.status,
         attemptCount: delivery.attemptCount,
-        lastError: delivery.lastError?.slice(0, 300) ?? null,
+        lastError: delivery.lastError ? "Delivery unavailable." : null,
         queuedAt: delivery.queuedAt,
         nextAttemptAt: delivery.nextAttemptAt,
         lastAttemptAt: delivery.lastAttemptAt,
@@ -761,7 +762,7 @@ export class AdminProvisioningService {
           previousFacilityId: user.facilityId,
         },
       });
-      return updated;
+      return maskedPerson(updated);
     });
   }
 
@@ -836,7 +837,7 @@ export class AdminProvisioningService {
           previousFacilityId: user.facilityId,
         },
       });
-      return updated;
+      return maskedPerson(updated);
     });
   }
 }

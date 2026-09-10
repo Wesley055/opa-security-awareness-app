@@ -22,9 +22,9 @@ describe('IncidentDetailService.getDetail', () => {
     return prisma.incident.findUnique.mock.calls[0][0].select;
   }
 
-  const ROW = { id: 'incident-1', status: 'OPEN' };
+  const ROW = { id: 'incident-1', status: 'OPEN', user: { firstName: 'Private', lastName: 'Person' } };
 
-  it('queries by id and returns the row', async () => {
+  it('queries by id and masks identity in the returned projection', async () => {
     const prisma = makePrisma(ROW);
     const result = await new IncidentDetailService(prisma as never).getDetail(
       'incident-1',
@@ -33,7 +33,8 @@ describe('IncidentDetailService.getDetail', () => {
     expect(prisma.incident.findUnique.mock.calls[0][0].where).toEqual({
       id: 'incident-1',
     });
-    expect(result).toBe(ROW);
+    expect(result).toEqual({ ...ROW, user: { firstName: '[protected]', lastName: '[protected]' } });
+    expect(ROW.user.firstName).toBe('Private');
   });
 
   it('throws when the incident does not exist', async () => {

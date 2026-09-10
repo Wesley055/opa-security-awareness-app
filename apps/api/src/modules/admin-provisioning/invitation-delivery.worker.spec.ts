@@ -72,6 +72,7 @@ describe('InvitationDeliveryWorker', () => {
       smsProvider as never,
       { send: jest.fn() } as never,
       {} as never,
+      {} as never,
     );
   });
 
@@ -188,7 +189,7 @@ describe('InvitationDeliveryWorker', () => {
         provider: 'SMS',
         nextAttemptAt: expect.any(Date),
         failedAt: null,
-        lastError: 'temporary network error',
+        lastError: 'Invitation dispatch unavailable.',
       }),
     });
   });
@@ -209,7 +210,7 @@ describe('InvitationDeliveryWorker', () => {
       data: expect.objectContaining({
         status: NotificationStatus.FAILED,
         failedAt: expect.any(Date),
-        lastError: "Africa's Talking status: InvalidPhoneNumber",
+        lastError: 'InvalidPhoneNumber',
       }),
     });
   });
@@ -230,7 +231,7 @@ describe('InvitationDeliveryWorker', () => {
       data: expect.objectContaining({
         status: NotificationStatus.FAILED,
         failedAt: expect.any(Date),
-        lastError: 'temporary network error',
+        lastError: 'Invitation dispatch unavailable.',
       }),
     });
   });

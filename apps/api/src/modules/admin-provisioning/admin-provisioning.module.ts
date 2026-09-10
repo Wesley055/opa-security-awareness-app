@@ -1,3 +1,4 @@
+import { ProtectedIdentityModule } from '../protected-identity/protected-identity.module';
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { NotificationModule } from '../notifications/notification.module';
@@ -7,7 +8,7 @@ import { AdminProvisioningService } from './admin-provisioning.service';
 import { InvitationDeliveryWorker } from './invitation-delivery.worker';
 
 @Module({
-  imports: [PrismaModule, NotificationModule],
+  imports: [ProtectedIdentityModule, PrismaModule, NotificationModule],
   controllers: [AdminProvisioningController],
   providers: [AdminProvisioningService, AdminGuard, InvitationDeliveryWorker],
   exports: [AdminProvisioningService],

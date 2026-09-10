@@ -1,3 +1,4 @@
+import type { SmsProvider } from './sms.provider';
 /**
  * Provider truthfulness.
  *
@@ -23,7 +24,7 @@ describe('SmsProvider send-time status handling', () => {
   // inside send() would then resolve against whatever was in the registry
   // when the class first loaded - so these tests would pass or fail
   // depending on module-cache state, which is worse than failing outright.
-  let SmsProviderClass: typeof import('./sms.provider').SmsProvider;
+  let SmsProviderClass: typeof SmsProvider;
 
   beforeEach(() => {
     jest.resetModules();
@@ -37,8 +38,8 @@ describe('SmsProvider send-time status handling', () => {
       { virtual: true },
     );
 
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    SmsProviderClass = require('./sms.provider').SmsProvider;
+
+    SmsProviderClass = jest.requireActual<{ SmsProvider: typeof SmsProvider }>('./sms.provider').SmsProvider;
   });
 
   afterEach(() => {
@@ -86,7 +87,7 @@ describe('SmsProvider send-time status handling', () => {
     // An UNKNOWN provider state must never become a successful delivery
     // record. Failing closed is the only safe default for a safety product.
     expect(result.success).toBe(false);
-    expect(result.error).toContain(status);
+    expect(result.error).toContain(status === 'SomethingNobodyHasSeenYet' ? 'UnknownProviderStatus' : status);
   });
 
   it('fails closed when the status field is missing entirely', async () => {
@@ -119,7 +120,7 @@ describe('SmsProvider send-time status handling', () => {
     const result = await provider().send(REQUEST);
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('network down');
+    expect(result.error).toBe('SMS transport failed');
   });
 
   it('fails without attempting a send when credentials are absent', async () => {
@@ -129,5 +130,17 @@ describe('SmsProvider send-time status handling', () => {
 
     expect(result.success).toBe(false);
     expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('omits recipients, secrets and unknown provider text from failures and logs', async () => {
+    const secret = 'private@example.test token=secret';
+    const spies = [jest.spyOn(console, 'error').mockImplementation(() => undefined), jest.spyOn(console, 'warn').mockImplementation(() => undefined)];
+    try {
+      sendMock.mockRejectedValueOnce(new Error(secret));
+      expect((await provider().send({ recipient: secret, message: secret })).error).toBe('SMS transport failed');
+      withRecipients([{ status: secret }]);
+      expect((await provider().send({ recipient: secret, message: secret })).error).toContain('UnknownProviderStatus');
+      expect(JSON.stringify(spies.flatMap(spy => spy.mock.calls))).not.toContain(secret);
+    } finally { spies.forEach(spy => spy.mockRestore()); }
   });
 });

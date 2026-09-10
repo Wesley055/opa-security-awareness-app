@@ -45,9 +45,9 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     this.client.on('ready', () => {
       this.logger.log('Redis client ready');
     });
-    this.client.on('error', (err: Error) => {
+    this.client.on('error', () => {
       // Log but don't crash - readiness check will report Redis as down.
-      this.logger.error(`Redis error: ${err.message}`);
+      this.logger.error('Redis connection error.');
     });
     this.client.on('close', () => {
       this.logger.warn('Redis connection closed');
@@ -60,12 +60,12 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     try {
       const pong = await this.client.ping();
       this.logger.log(`Redis PING -> ${pong}`);
-    } catch (err) {
+    } catch {
       // Startup should not hard-fail just because Redis is down at boot;
       // the app can still serve the synchronous path, and readiness will
       // report Redis as unavailable. Log it clearly.
       this.logger.error(
-        `Redis PING failed on startup: ${(err as Error).message}`,
+        'Redis PING failed on startup.',
       );
     }
   }

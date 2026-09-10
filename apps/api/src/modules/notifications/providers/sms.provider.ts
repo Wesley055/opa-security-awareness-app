@@ -38,7 +38,7 @@ export class SmsProvider implements NotificationProvider {
     if (!SmsProvider.modeLogged) {
       SmsProvider.modeLogged = true;
       const mode = username === 'sandbox' ? 'SANDBOX (simulator - NOTHING IS DELIVERED)' : 'PRODUCTION';
-      console.log(`[SmsProvider] mode=${mode} username=${username}`);
+      console.log(`[SmsProvider] mode=${mode}`);
     }
 
     try {
@@ -72,9 +72,9 @@ export class SmsProvider implements NotificationProvider {
       // response ALL return success:false. An unknown provider state must
       // never become a successful delivery record.
       if (recipient?.status !== 'Success') {
-        const reported = recipient?.status ?? 'no recipient status returned';
+        const reported = ['Failed', 'InsufficientBalance', 'UserInBlacklist', 'CouldNotSend', 'InvalidPhoneNumber'].includes(recipient?.status ?? '') ? recipient!.status! : 'UnknownProviderStatus';
         console.warn(
-          `[SmsProvider] Not accepted for ${request.recipient}: ${reported}`,
+          `[SmsProvider] Not accepted: ${reported}`,
         );
         return {
           success: false,
@@ -99,12 +99,12 @@ export class SmsProvider implements NotificationProvider {
         provider: this.providerName,
         messageId: recipient.messageId,
       };
-    } catch (error) {
-      console.error(`[SmsProvider] Send failed:`, error);
+    } catch {
+      console.error('[SmsProvider] Send failed.');
       return {
         success: false,
         provider: this.providerName,
-        error: error instanceof Error ? error.message : 'Unknown SMS error',
+        error: 'SMS transport failed',
       };
     }
   }

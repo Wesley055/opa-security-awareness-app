@@ -1,3 +1,4 @@
+import { ProtectedIdentityModule } from './modules/protected-identity/protected-identity.module';
 import {
   MiddlewareConsumer,
   Module,
@@ -38,6 +39,7 @@ import { RequestLoggingMiddleware } from './shared/middleware/request-logging.mi
       },
     ]),
     PrismaModule,
+    ProtectedIdentityModule,
     ScheduleModule.forRoot(),
     RedisModule,
     HealthModule,

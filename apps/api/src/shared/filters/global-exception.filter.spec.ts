@@ -90,7 +90,7 @@ describe('GlobalExceptionFilter', () => {
 
     filter.catch(new Error('boom'), host);
 
-    expect(loggedPayload().path).toBe(REDACTED_PATH);
+    expect(loggedPayload().path).toBe('[unmatched]');
   });
 
   it('redacts the tracking token from the response body path', () => {
@@ -112,7 +112,7 @@ describe('GlobalExceptionFilter', () => {
 
     filter.catch(new NotFoundException(`Cannot GET ${url}`), host);
 
-    expect(loggedPayload().message).toBe(`Cannot GET ${REDACTED_PATH}/extra`);
+    expect(loggedPayload().message).toBe('Request failed.');
     expect(responseBody(captured).message).toBe(
       `Cannot GET ${REDACTED_PATH}/extra`,
     );
@@ -121,11 +121,7 @@ describe('GlobalExceptionFilter', () => {
     if (call === undefined) {
       throw new Error('logger.error was not called');
     }
-    const stack = call[1];
-    if (typeof stack !== 'string') {
-      throw new Error('no stack was logged');
-    }
-    expect(stack).not.toContain(TOKEN);
+    expect(call[1]).toBeUndefined();
   });
 
   // ValidationPipe returns an array of messages, and forbidNonWhitelisted
@@ -141,10 +137,7 @@ describe('GlobalExceptionFilter', () => {
       host,
     );
 
-    expect(loggedPayload().message).toEqual([
-      `bad link ${REDACTED_PATH}`,
-      'unrelated',
-    ]);
+    expect(loggedPayload().message).toBe('Request failed.');
   });
 
   // Control case. Without it, a helper that redacted everything would pass
@@ -157,7 +150,7 @@ describe('GlobalExceptionFilter', () => {
       host,
     );
 
-    expect(loggedPayload().path).toBe('/incidents/abc-123');
+    expect(loggedPayload().path).toBe('[unmatched]');
     expect(responseBody(captured).message).toBe(
       'Cannot GET /incidents/abc-123',
     );
@@ -168,6 +161,6 @@ describe('GlobalExceptionFilter', () => {
 
     filter.catch(new NotFoundException(`Cannot GET ${REDACTED_PATH}`), host);
 
-    expect(loggedPayload().message).toBe(`Cannot GET ${REDACTED_PATH}`);
+    expect(loggedPayload().message).toBe('Request failed.');
   });
 });

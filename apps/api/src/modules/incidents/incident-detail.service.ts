@@ -1,3 +1,4 @@
+import { maskedPerson } from '../protected-identity/masked-person';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -85,6 +86,6 @@ export class IncidentDetailService {
       throw new NotFoundException('Incident not found.');
     }
 
-    return incident;
+    return { ...incident, user: maskedPerson(incident.user) };
   }
 }

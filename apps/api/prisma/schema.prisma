@@ -82,6 +82,8 @@ enum EvidenceStatus {
 }
 
 model User {
+  identityGrants IdentityAccessGrant[] @relation("IdentityGrantActor")
+  protectedIdentifiers ProtectedIdentifier[] @relation("ProtectedIdentitySubject")
   id           String   @id @default(uuid()) @db.Uuid
   email        String   @unique
   phoneNumber  String   @unique
@@ -229,6 +231,8 @@ model IncidentTimelineEvent {
 }
 
 model IncidentNotification {
+  protectedSnapshotId String? @db.Uuid
+  protectedSnapshot ProtectedIdentifier? @relation("IncidentProtectedSnapshot", fields: [protectedSnapshotId], references: [id], onDelete: Restrict)
   id         String   @id @default(uuid()) @db.Uuid
   incidentId String   @db.Uuid
   incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
@@ -280,6 +284,8 @@ model IncidentNotification {
 /// accepted the message, nothing more. SENT is the strongest state OPA can
 /// honestly assert until a delivery-receipt webhook exists.
 model AccountInvitationDelivery {
+  protectedSnapshotId String? @db.Uuid
+  protectedSnapshot ProtectedIdentifier? @relation("InvitationProtectedSnapshot", fields: [protectedSnapshotId], references: [id], onDelete: Restrict)
   id String @id @default(uuid()) @db.Uuid
 
   /// The invited account. Restrict, not Cascade: this is an audit record of
@@ -330,6 +336,8 @@ model AccountInvitationDelivery {
 }
 
 model Facility {
+  identityGrants IdentityAccessGrant[]
+  protectedIdentifiers ProtectedIdentifier[]
   id          String       @id @default(uuid()) @db.Uuid
   name        String
   type        FacilityType
@@ -620,4 +628,79 @@ model EnrollmentRequest {
   deliveries AccountInvitationDelivery[]
   @@index([facilityId, createdAt])
   @@index([expiresAt])
+}
+
+// Tenant references use the authoritative Facility boundary; no parallel membership tables.
+enum IdentityPermission {
+  READ_MASKED
+  WRITE
+  LOOKUP
+  RESOLVE
+  DELIVERY
+}
+
+enum ProtectedIdentifierKind {
+  EMAIL
+  PHONE
+  NOTIFICATION_SNAPSHOT
+  INVITATION_SNAPSHOT
+}
+
+model IdentityAccessGrant {
+  id                  String                   @id @default(uuid()) @db.Uuid
+  tenantId            String                   @db.Uuid
+  actorUserId         String                   @db.Uuid
+  permission          IdentityPermission
+  expiresAt           DateTime
+  revokedAt           DateTime?
+  // Grant provenance is independent of ordinary User.role / ADMIN.
+  approvedByReference String                   @db.Uuid
+  createdAt           DateTime                 @default(now())
+  tenant Facility @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  actor User @relation("IdentityGrantActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, actorUserId, permission, expiresAt])
+}
+
+model ProtectedIdentifier {
+  incidentSnapshots IncidentNotification[] @relation("IncidentProtectedSnapshot")
+  invitationSnapshots AccountInvitationDelivery[] @relation("InvitationProtectedSnapshot")
+
+  id                   String                   @id @default(uuid()) @db.Uuid
+  tenantId             String                   @db.Uuid
+  subjectUserId        String                   @db.Uuid
+  sourceId             String                   @db.Uuid
+  kind                 ProtectedIdentifierKind
+  formatVersion        Int                      @default(1)
+  normalizationVersion Int                      @default(1)
+  encryptionKeyVersion String                   @db.VarChar(40)
+  ciphertext           String
+  nonce                String                   @db.VarChar(24)
+  tag                  String                   @db.VarChar(24)
+  lookupDigest         String?                  @db.VarChar(64)
+  lookupKeyVersion     String?                  @db.VarChar(40)
+  createdAt            DateTime                 @default(now())
+  tenant Facility @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  subject User @relation("ProtectedIdentitySubject", fields: [subjectUserId], references: [id], onDelete: Restrict)
+
+  // Immutable versioned source reference. A snapshot is not a live profile lookup.
+  @@unique([tenantId, subjectUserId, kind, sourceId])
+  @@index([tenantId, kind, normalizationVersion, lookupKeyVersion, lookupDigest])
+}
+
+// Append-only application audit. Intentionally retains opaque references after lifecycle changes.
+model IdentityResolutionAudit {
+  sourceType           String   @default("PROTECTED_IDENTIFIER") @db.VarChar(32)
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String?  @db.Uuid
+  actorUserId          String?  @db.Uuid
+  identifierId         String   @db.Uuid
+  grantId              String?  @db.Uuid
+  purpose              String   @db.VarChar(32)
+  caseReference        String   @db.Uuid
+  encryptionKeyVersion String   @db.VarChar(40)
+  createdAt            DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([actorUserId, createdAt])
 }

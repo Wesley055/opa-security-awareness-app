@@ -113,7 +113,6 @@ export class EvidenceService {
     } catch (error) {
       this.logger.error(
         `Evidence upload failed for incident ${params.incidentId}`,
-        error instanceof Error ? error.stack : String(error),
       );
 
       await this.prisma.evidence.update({

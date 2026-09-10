@@ -1,5 +1,6 @@
 ﻿import { EnrollmentService } from '../../src/modules/auth/enrollment.service';
-import { INestApplication, ValidationPipe } from '@nestjs/common';
+import type { INestApplication } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { PassportModule } from '@nestjs/passport';

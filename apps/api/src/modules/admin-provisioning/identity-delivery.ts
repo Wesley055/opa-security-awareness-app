@@ -22,6 +22,7 @@ export async function prepareIdentityDelivery(
     });
     if (
       !request ||
+      request.revokedAt ||
       request.expiresAt <= new Date() ||
       request.verifiedAt ||
       request.acceptedAt ||
@@ -30,23 +31,35 @@ export async function prepareIdentityDelivery(
       return null;
     let organization = "OPA personal account";
     if (request.facilityId) {
-      const inviter = await tx.user.findFirst({
-        where: {
-          id: request.invitedByUserId!,
-          facilityId: request.facilityId,
-          role: "FACILITY_ADMIN",
-          isActive: true,
-          accountStatus: "ACTIVE",
-          facility: { isActive: true },
-        },
-        select: { id: true, facility: { select: { name: true } } },
+      const inviter = await tx.user.findUnique({
+        where: { id: request.invitedByUserId! },
       });
-      if (!inviter?.facility) return null;
-      organization = inviter.facility.name;
+      const facility = await tx.facility.findUnique({
+        where: { id: request.facilityId },
+      });
+      if (
+        !facility?.isActive ||
+        !inviter?.isActive ||
+        inviter.accountStatus !== "ACTIVE" ||
+        !(
+          inviter.role === "ADMIN" ||
+          ((request.requestedRole ?? "USER") === "USER" &&
+            inviter.role === "FACILITY_ADMIN" &&
+            inviter.facilityId === request.facilityId)
+        )
+      )
+        return null;
+      organization = facility.name;
     }
     const identity = await resolveEnrollmentIdentity<EnrollmentIdentity>(
-      tx, config, request.identityCiphertext,
-      { sourceId: request.id, facilityId: request.facilityId, purpose: "ENROLLMENT_DELIVERY" },
+      tx,
+      config,
+      request.identityCiphertext,
+      {
+        sourceId: request.id,
+        facilityId: request.facilityId,
+        purpose: "ENROLLMENT_DELIVERY",
+      },
     );
     const code = randomBytes(32).toString("base64url");
     const isEmail = delivery.channel === "EMAIL";
@@ -60,12 +73,14 @@ export async function prepareIdentityDelivery(
       channel: isEmail ? "EMAIL" : "SMS",
       recipient: isEmail ? identity.email : identity.phoneNumber,
       subject: "Verify your OPA enrollment request",
-      message: `OPA enrollment for ${organization}\nRequest: ${request.id}\n${isEmail ? "Email" : "Phone"} code: ${code}\nExpires: ${request.expiresAt.toISOString()}. Enter both codes in OPA only if you intend to enroll.`,
+      message: `OPA enrollment for ${organization}\nRequest: ${request.id}\n${isEmail ? "Email" : "Phone"} code: ${code}\nExpires: ${request.expiresAt.toISOString()}. Enter both codes in OPA only if you intend to enroll.${config.get<string>("OPA_WEB_URL") ? "\nEnroll: " + new URL("/enroll", config.get<string>("OPA_WEB_URL")).toString() : ""}`,
     };
   }
   if (delivery.purpose === "PASSWORD_RESET" && delivery.requestCiphertext) {
     const { email } = await resolveEnrollmentIdentity<{ email: string }>(
-      tx, config, delivery.requestCiphertext,
+      tx,
+      config,
+      delivery.requestCiphertext,
       { sourceId: delivery.id, purpose: "PASSWORD_RESET_DELIVERY" },
     );
     const candidate = await tx.user.findUnique({

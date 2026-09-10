@@ -49,7 +49,10 @@ export class EnrollmentService {
     idempotencyKey: string,
     facilityId?: string,
     actorId?: string,
+    requestedRole: "USER" | "FACILITY_ADMIN" | "FACILITY_OPERATOR" = "USER",
   ) {
+    if (requestedRole !== "USER" && (!facilityId || !actorId))
+      throw new ForbiddenException("Platform authority required.");
     const identity = {
       email: input.email.trim().toLowerCase(),
       phoneNumber: toE164(input.phoneNumber),
@@ -65,11 +68,13 @@ export class EnrollmentService {
         facilityId ?? null,
         actorId ?? null,
         identity,
+        requestedRole,
         idempotencyKey,
       ]),
     );
     return this.prisma.$transaction(async (tx) => {
-      if (facilityId) await this.authorizeInviter(tx, facilityId, actorId);
+      if (facilityId)
+        await this.authorizeInviter(tx, facilityId, actorId, requestedRole);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${digest}))`;
       const existing = await tx.enrollmentRequest.findUnique({
         where: { idempotencyDigest: digest },
@@ -82,6 +87,7 @@ export class EnrollmentService {
         };
       const request = await tx.enrollmentRequest.create({
         data: {
+          requestedRole,
           identityCiphertext: protectIdentity(this.config, identity),
           idempotencyDigest: digest,
           facilityId,
@@ -98,6 +104,17 @@ export class EnrollmentService {
           status: "QUEUED" as const,
         })),
       });
+      if (actorId)
+        await tx.administrativeAuditEvent.create({
+          data: {
+            actorUserId: actorId,
+            actorRole: "INSTITUTIONAL_INVITER",
+            action: "ENROLLMENT_REQUESTED",
+            resourceId: request.id,
+            facilityId,
+            afterState: { requestedRole },
+          },
+        });
       return { requestId: request.id, status: "VERIFICATION_PENDING" as const };
     });
   }
@@ -159,6 +176,7 @@ export class EnrollmentService {
     tx: Prisma.TransactionClient,
     facilityId: string,
     actorId?: string,
+    requestedRole: "USER" | "FACILITY_ADMIN" | "FACILITY_OPERATOR" = "USER",
   ) {
     if (!actorId)
       throw new ForbiddenException("Enrollment authority required.");
@@ -167,8 +185,12 @@ export class EnrollmentService {
     if (
       !actor?.isActive ||
       actor.accountStatus !== "ACTIVE" ||
-      actor.role !== "FACILITY_ADMIN" ||
-      actor.facilityId !== facilityId
+      !(
+        actor.role === "ADMIN" ||
+        (requestedRole === "USER" &&
+          actor.role === "FACILITY_ADMIN" &&
+          actor.facilityId === facilityId)
+      )
     )
       throw new ForbiddenException("Enrollment authority required.");
     await tx.$queryRaw`SELECT id FROM "Facility" WHERE id = ${facilityId}::uuid FOR SHARE`;
@@ -194,6 +216,7 @@ export class EnrollmentService {
         const request = await this.locked(tx, dto.requestId);
         if (
           !request ||
+          request.revokedAt ||
           request.expiresAt <= new Date() ||
           request.acceptedAt ||
           request.verifiedAt ||
@@ -210,8 +233,14 @@ export class EnrollmentService {
           return null;
         }
         const identity = await resolveEnrollmentIdentity<EnrollmentIdentity>(
-          tx, this.config, request.identityCiphertext,
-          { sourceId: request.id, facilityId: request.facilityId, purpose: "ENROLLMENT_VERIFY" },
+          tx,
+          this.config,
+          request.identityCiphertext,
+          {
+            sourceId: request.id,
+            facilityId: request.facilityId,
+            purpose: "ENROLLMENT_VERIFY",
+          },
         );
         for (const value of [
           "email:" + identity.email,
@@ -226,7 +255,15 @@ export class EnrollmentService {
               { phoneNumber: identity.phoneNumber },
             ],
           },
-          select: { id: true },
+          select: {
+            id: true,
+            email: true,
+            phoneNumber: true,
+            role: true,
+            facilityId: true,
+            accountStatus: true,
+            isActive: true,
+          },
         });
         const acceptanceToken = randomBytes(32).toString("base64url");
         await tx.enrollmentRequest.update({
@@ -242,6 +279,49 @@ export class EnrollmentService {
           where: { enrollmentId: request.id, status: "QUEUED" },
           data: { status: "CANCELLED" },
         });
+        // Recover a legacy unclaimed staff seat after BOTH proofs, never from the old activation secret.
+        if (
+          existing &&
+          existing.accountStatus === "PENDING_ACTIVATION" &&
+          existing.isActive &&
+          existing.email === identity.email &&
+          existing.phoneNumber === identity.phoneNumber &&
+          existing.role === request.requestedRole &&
+          existing.facilityId === request.facilityId &&
+          ["FACILITY_OPERATOR", "FACILITY_ADMIN"].includes(existing.role)
+        ) {
+          await this.authorizeInviter(
+            tx,
+            request.facilityId!,
+            request.invitedByUserId ?? undefined,
+            request.requestedRole as "FACILITY_OPERATOR" | "FACILITY_ADMIN",
+          );
+          const claimed = await tx.user.updateMany({
+            where: {
+              id: existing.id,
+              accountStatus: "PENDING_ACTIVATION",
+              isActive: true,
+              facilityId: request.facilityId,
+              role: existing.role,
+              email: identity.email,
+              phoneNumber: identity.phoneNumber,
+            },
+            data: {
+              passwordHash,
+              accountStatus: "ACTIVE",
+              activatedAt: new Date(),
+              activationTokenHash: null,
+              activationExpiresAt: null,
+              credentialVersion: { increment: 1 },
+            },
+          });
+          if (claimed.count !== 1) throw new BadRequestException(FAILURE);
+          const user = await tx.user.findUniqueOrThrow({
+            where: { id: existing.id },
+          });
+          await this.complete(tx, request, user.id);
+          return { status: "ACCEPTED" as const, user };
+        }
         if (existing)
           return {
             status: "AUTHENTICATION_REQUIRED" as const,
@@ -252,6 +332,8 @@ export class EnrollmentService {
             tx,
             request.facilityId,
             request.invitedByUserId ?? undefined,
+            request.requestedRole as
+              "USER" | "FACILITY_ADMIN" | "FACILITY_OPERATOR",
           );
         const user = await tx.user.create({
           data: {
@@ -259,7 +341,7 @@ export class EnrollmentService {
             passwordHash,
             facilityId: request.facilityId,
             invitedByUserId: request.invitedByUserId,
-            role: "USER",
+            role: request.requestedRole ?? "USER",
             accountStatus: "ACTIVE",
             isActive: true,
             activatedAt: new Date(),
@@ -285,6 +367,7 @@ export class EnrollmentService {
       const request = await this.locked(tx, dto.requestId);
       if (
         !request ||
+        request.revokedAt ||
         !request.verifiedAt ||
         request.expiresAt <= new Date() ||
         !matches(dto.acceptanceToken, request.acceptanceTokenHash)
@@ -295,13 +378,20 @@ export class EnrollmentService {
       await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${actorId}::uuid FOR UPDATE`;
       const user = await tx.user.findUnique({ where: { id: actorId } });
       const identity = await resolveEnrollmentIdentity<EnrollmentIdentity>(
-        tx, this.config, request.identityCiphertext,
-        { sourceId: request.id, facilityId: request.facilityId, actorUserId: actorId, purpose: "ENROLLMENT_ACCEPT" },
+        tx,
+        this.config,
+        request.identityCiphertext,
+        {
+          sourceId: request.id,
+          facilityId: request.facilityId,
+          actorUserId: actorId,
+          purpose: "ENROLLMENT_ACCEPT",
+        },
       );
       if (
         !user?.isActive ||
         user.accountStatus !== "ACTIVE" ||
-        user.role !== "USER" ||
+        (user.role !== "USER" && user.role !== request.requestedRole) ||
         user.email !== identity.email ||
         user.phoneNumber !== identity.phoneNumber
       )
@@ -316,12 +406,18 @@ export class EnrollmentService {
           tx,
           request.facilityId,
           request.invitedByUserId ?? undefined,
+          request.requestedRole as
+            "USER" | "FACILITY_ADMIN" | "FACILITY_OPERATOR",
         );
         if (user.facilityId !== null && user.facilityId !== request.facilityId)
           throw new BadRequestException(FAILURE);
         await tx.user.update({
           where: { id: user.id, facilityId: user.facilityId },
-          data: { facilityId: request.facilityId },
+          data: {
+            facilityId: request.facilityId,
+            role: request.requestedRole ?? "USER",
+            ...(user.role !== (request.requestedRole ?? "USER") ? { credentialVersion: { increment: 1 } } : {}),
+          },
         });
       }
       await this.complete(tx, request, user.id);
@@ -341,8 +437,13 @@ export class EnrollmentService {
     await tx.administrativeAuditEvent.create({
       data: {
         actorUserId: userId,
-        actorRole: "USER",
+        actorRole: request.requestedRole ?? "USER",
         action: "ENROLLMENT_ACCEPTED",
+        afterState: {
+          userId,
+          requestedRole: request.requestedRole ?? "USER",
+          invitedByUserId: request.invitedByUserId,
+        },
         resourceId: request.id,
         facilityId: request.facilityId,
       },

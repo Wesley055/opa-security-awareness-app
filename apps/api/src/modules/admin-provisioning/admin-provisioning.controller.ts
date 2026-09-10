@@ -1,158 +1,166 @@
 import {
   Body,
   Controller,
-  Delete,
   Get,
+  Header,
+  Headers,
   Param,
-  Patch,
+  ParseUUIDPipe,
   Post,
   Query,
   Req,
   UseGuards,
-} from '@nestjs/common';
-import type { Request } from 'express';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import type { JwtPayload } from '../auth/jwt.strategy';
-import { AdminGuard } from '../../shared/guards/admin.guard';
-import { AdminProvisioningService } from './admin-provisioning.service';
-import { AssignResidentFacilityDto } from './dto/assign-resident-facility.dto';
-import { CreateFacilityDto } from './dto/create-facility.dto';
-import { CreateOperatorDto } from './dto/create-operator.dto';
-import { CreateBulkResidentsDto } from './dto/create-bulk-residents.dto';
-import { CreateResidentDto } from './dto/create-resident.dto';
-import { FindResidentDto } from './dto/find-resident.dto';
+} from "@nestjs/common";
+import { IsIn, IsOptional, IsString, IsUUID, Length } from "class-validator";
+import type { Request } from "express";
+import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import type { JwtPayload } from "../auth/jwt.strategy";
+import { AdminGuard } from "../../shared/guards/admin.guard";
+import { AdminProvisioningService } from "./admin-provisioning.service";
+import { PlatformAdminService } from "./platform-admin.service";
+import { CreateFacilityDto } from "./dto/create-facility.dto";
+import { CreateOperatorDto } from "./dto/create-operator.dto";
 
+class PageDto {
+  @IsOptional() @IsUUID() cursor?: string;
+}
+class ReasonDto {
+  @IsString() @Length(1, 500) reason!: string;
+}
+class MembershipActionDto extends ReasonDto {
+  @IsIn(["suspend", "reactivate", "revoke"]) action!:
+    "suspend" | "reactivate" | "revoke";
+}
 type AuthenticatedRequest = Request & { user: JwtPayload };
 
 @UseGuards(JwtAuthGuard, AdminGuard)
-@Controller('admin')
+@Controller("admin")
 export class AdminProvisioningController {
-  constructor(private readonly provisioning: AdminProvisioningService) {}
-
-  @Post('facilities')
+  constructor(
+    private readonly provisioning: AdminProvisioningService,
+    private readonly platform: PlatformAdminService,
+  ) {}
+  @Post("facilities")
+  @Header("Cache-Control", "no-store")
   createFacility(
-    @Req() request: AuthenticatedRequest,
+    @Req() req: AuthenticatedRequest,
     @Body() dto: CreateFacilityDto,
   ) {
-    return this.provisioning.createFacility(dto, request.user.sub);
+    return this.provisioning.createFacility(dto, req.user.sub);
   }
-
-  @Post('facility-admins')
-  createFacilityAdmin(
-    @Req() request: AuthenticatedRequest,
+  @Get("facilities")
+  @Header("Cache-Control", "no-store")
+  facilities(@Req() req: AuthenticatedRequest, @Query() query: PageDto) {
+    return this.platform.directory(req.user.sub, query.cursor);
+  }
+  @Get("facilities/:facilityId")
+  @Header("Cache-Control", "no-store")
+  detail(
+    @Req() req: AuthenticatedRequest,
+    @Param("facilityId", ParseUUIDPipe) id: string,
+  ) {
+    return this.platform.detail(req.user.sub, id);
+  }
+  @Get("facilities/:facilityId/members")
+  @Header("Cache-Control", "no-store")
+  members(
+    @Req() req: AuthenticatedRequest,
+    @Param("facilityId", ParseUUIDPipe) id: string,
+    @Query() query: PageDto,
+  ) {
+    return this.platform.members(req.user.sub, id, query.cursor);
+  }
+  @Post("operators")
+  @Header("Cache-Control", "no-store")
+  operator(
+    @Req() req: AuthenticatedRequest,
     @Body() dto: CreateOperatorDto,
+    @Headers("idempotency-key") key: string,
   ) {
-    return this.provisioning.createFacilityAdminSeat(request.user.sub, dto);
+    return this.platform.invite(req.user.sub, dto, key, "FACILITY_OPERATOR");
   }
-
-  @Post('operators')
-  createOperator(
-    @Req() request: AuthenticatedRequest,
+  @Post("facility-admins")
+  @Header("Cache-Control", "no-store")
+  facilityAdmin(
+    @Req() req: AuthenticatedRequest,
     @Body() dto: CreateOperatorDto,
+    @Headers("idempotency-key") key: string,
   ) {
-    return this.provisioning.createOperatorSeat(request.user.sub, dto);
+    return this.platform.invite(req.user.sub, dto, key, "FACILITY_ADMIN");
   }
-  /**
-   * Provision a resident directly into an active facility.
-   *
-   * Unlike public self-registration, this creates the institutional
-   * membership before the resident can activate the account, eliminating
-   * the window where an SOS can exist without its estate/facility context.
-   */
-  @Post('residents/bulk')
-  createBulkResidents(
-    @Req() request: AuthenticatedRequest,
-    @Body() dto: CreateBulkResidentsDto,
+  @Post("residents")
+  @Header("Cache-Control", "no-store")
+  resident(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: CreateOperatorDto,
+    @Headers("idempotency-key") key: string,
   ) {
-    return this.provisioning.createBulkResidentInvites(
-      request.user.sub,
-      dto.residents,
+    return this.platform.invite(req.user.sub, dto, key, "USER");
+  }
+  @Get("facilities/:facilityId/invitations")
+  @Header("Cache-Control", "no-store")
+  invitations(
+    @Req() req: AuthenticatedRequest,
+    @Param("facilityId", ParseUUIDPipe) id: string,
+    @Query() query: PageDto,
+  ) {
+    return this.platform.invitations(req.user.sub, id, query.cursor);
+  }
+  @Post("facilities/:facilityId/invitations/:id/resend")
+  @Header("Cache-Control", "no-store")
+  resend(
+    @Req() req: AuthenticatedRequest,
+    @Param("facilityId", ParseUUIDPipe) facility: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: ReasonDto,
+  ) {
+    return this.platform.invitationAction(
+      req.user.sub,
+      facility,
+      id,
+      "resend",
+      dto.reason,
     );
   }
-  @Post('residents')
-  createResident(
-    @Req() request: AuthenticatedRequest,
-    @Body() dto: CreateResidentDto,
+  @Post("facilities/:facilityId/invitations/:id/revoke")
+  @Header("Cache-Control", "no-store")
+  revoke(
+    @Req() req: AuthenticatedRequest,
+    @Param("facilityId", ParseUUIDPipe) facility: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: ReasonDto,
   ) {
-    return this.provisioning.createResidentInvite(request.user.sub, dto);
-  }
-
-  /**
-   * Find one RESIDENT by an exact unique identifier.
-   *
-   * Not a search. email and phoneNumber are both unique and indexed, so
-   * this returns one row or none - an admin is about to change somebody's
-   * facility membership, and a list to disambiguate first is the wrong
-   * shape for that.
-   *
-   * A match that is not a USER returns null, not an error. The question
-   * is whether a resident exists; an operator is still no.
-   */
-  @Get('residents')
-  findResident(@Query() query: FindResidentDto) {
-    return this.provisioning.findResident(query);
-  }
-
-  /**
-   * Everyone attached to a facility, partitioned by role.
-   *
-   * User.facilityId carries operators and residents in one column, so
-   * this reads it once and splits rather than issuing two queries.
-   */
-  @Get('facilities/:facilityId/members')
-  listFacilityMembers(@Param('facilityId') facilityId: string) {
-    return this.provisioning.listFacilityMembers(facilityId);
-  }
-
-  @Get('residents/:userId/invitation')
-  getResidentInvitation(@Param('userId') userId: string) {
-    return this.provisioning.getResidentInvitation(userId);
-  }
-
-  @Post('residents/:userId/invitation/resend')
-  resendResidentInvitation(
-    @Req() request: AuthenticatedRequest,
-    @Param('userId') userId: string,
-  ) {
-    return this.provisioning.resendResidentInvitation(request.user.sub, userId);
-  }
-
-  @Patch('residents/:userId/facility')
-  assignResident(
-    @Req() request: AuthenticatedRequest,
-    @Param('userId') userId: string,
-    @Body() dto: AssignResidentFacilityDto,
-  ) {
-    return this.provisioning.assignResidentToFacility(
-      userId,
-      dto.facilityId,
-      request.user.sub,
+    return this.platform.invitationAction(
+      req.user.sub,
+      facility,
+      id,
+      "revoke",
+      dto.reason,
     );
   }
-
-  /**
-   * Membership removal is FACILITY-SCOPED.
-   *
-   * The facility in the route is the admin's EXPECTED current membership.
-   * If somebody reassigned the resident after the admin loaded their
-   * screen, removal must fail rather than silently detach them from the
-   * facility they were moved to.
-   *
-   * ASSIGNMENT DELIBERATELY STAYS LAST-WRITE-WINS. Assigning STATES where
-   * a resident belongs, so the admin's intent is the target value.
-   * Removing REVERSES a specific membership, so it is inherently about
-   * the current one. The asymmetry is intentional, not an oversight.
-   */
-  @Delete('facilities/:facilityId/residents/:userId')
-  removeResident(
-    @Req() request: AuthenticatedRequest,
-    @Param('facilityId') facilityId: string,
-    @Param('userId') userId: string,
+  @Post("facilities/:facilityId/members/:id/access")
+  @Header("Cache-Control", "no-store")
+  access(
+    @Req() req: AuthenticatedRequest,
+    @Param("facilityId", ParseUUIDPipe) facility: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: MembershipActionDto,
   ) {
-    return this.provisioning.removeResidentFromFacility(
-      userId,
-      facilityId,
-      request.user.sub,
+    return this.platform.membershipAction(
+      req.user.sub,
+      facility,
+      id,
+      dto.action,
+      dto.reason,
     );
+  }
+  @Get("facilities/:facilityId/audit")
+  @Header("Cache-Control", "no-store")
+  audit(
+    @Req() req: AuthenticatedRequest,
+    @Param("facilityId", ParseUUIDPipe) id: string,
+    @Query() query: PageDto,
+  ) {
+    return this.platform.audit(req.user.sub, id, query.cursor);
   }
 }

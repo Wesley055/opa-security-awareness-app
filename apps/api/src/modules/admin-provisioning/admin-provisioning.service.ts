@@ -1,23 +1,20 @@
-import { maskedPerson } from '../protected-identity/masked-person';
+import { maskedPerson } from "../protected-identity/masked-person";
 import {
   ConflictException,
   HttpException,
   Injectable,
   NotFoundException,
   BadRequestException,
-} from '@nestjs/common';
-import { AccountStatus, UserRole } from '@prisma/client';
-import { randomBytes } from 'crypto';
-import { PrismaService } from '../../prisma/prisma.service';
-import { hashActivationCredential } from '../../shared/security/activation-code';
-import { toE164 } from '../../shared/phone/normalize-phone-number';
-import type { FindResidentDto } from './dto/find-resident.dto';
-import type { CreateFacilityDto } from './dto/create-facility.dto';
-import type { CreateOperatorDto } from './dto/create-operator.dto';
-import type { CreateResidentDto } from './dto/create-resident.dto';
+  GoneException,
+} from "@nestjs/common";
+import { AccountStatus, UserRole } from "@prisma/client";
+import { PrismaService } from "../../prisma/prisma.service";
+import { toE164 } from "../../shared/phone/normalize-phone-number";
+import type { FindResidentDto } from "./dto/find-resident.dto";
+import type { CreateFacilityDto } from "./dto/create-facility.dto";
+import type { CreateOperatorDto } from "./dto/create-operator.dto";
+import type { CreateResidentDto } from "./dto/create-resident.dto";
 
-const ACTIVATION_TOKEN_BYTES = 32;
-const ACTIVATION_VALIDITY_MS = 24 * 60 * 60 * 1000;
 type ProvisionedAccountDto = {
   email: string;
   phoneNumber: string;
@@ -47,8 +44,8 @@ export class AdminProvisioningService {
       await tx.administrativeAuditEvent.create({
         data: {
           actorUserId,
-          actorRole: 'ADMIN',
-          action: 'FACILITY_CREATED',
+          actorRole: "ADMIN",
+          action: "FACILITY_CREATED",
           resourceId: facility.id,
           facilityId: facility.id,
         },
@@ -62,7 +59,7 @@ export class AdminProvisioningService {
       adminUserId,
       dto,
       UserRole.FACILITY_OPERATOR,
-      '/operator/activate/',
+      "/operator/activate/",
     );
   }
 
@@ -71,7 +68,7 @@ export class AdminProvisioningService {
       adminUserId,
       dto,
       UserRole.FACILITY_ADMIN,
-      '/operator/activate/',
+      "/operator/activate/",
     );
   }
 
@@ -82,17 +79,17 @@ export class AdminProvisioningService {
     const results: Array<
       | {
           index: number;
-          status: 'QUEUED';
+          status: "QUEUED";
           user: Awaited<
-            ReturnType<AdminProvisioningService['createResidentInvite']>
-          >['user'];
+            ReturnType<AdminProvisioningService["createResidentInvite"]>
+          >["user"];
           delivery: Awaited<
-            ReturnType<AdminProvisioningService['createResidentInvite']>
-          >['delivery'];
+            ReturnType<AdminProvisioningService["createResidentInvite"]>
+          >["delivery"];
         }
       | {
           index: number;
-          status: 'FAILED';
+          status: "FAILED";
           error: {
             statusCode: number;
             message: string;
@@ -105,7 +102,7 @@ export class AdminProvisioningService {
         const created = await this.createResidentInvite(adminUserId, dto);
         results.push({
           index,
-          status: 'QUEUED',
+          status: "QUEUED",
           user: created.user,
           delivery: created.delivery,
         });
@@ -113,18 +110,18 @@ export class AdminProvisioningService {
         if (error instanceof HttpException) {
           const response = error.getResponse();
           const responseMessage =
-            typeof response === 'string'
+            typeof response === "string"
               ? response
               : Array.isArray((response as { message?: unknown })?.message)
-                ? (response as { message: unknown[] }).message.join('; ')
+                ? (response as { message: unknown[] }).message.join("; ")
                 : typeof (response as { message?: unknown })?.message ===
-                    'string'
+                    "string"
                   ? (response as { message: string }).message
                   : error.message;
 
           results.push({
             index,
-            status: 'FAILED',
+            status: "FAILED",
             error: {
               statusCode: error.getStatus(),
               message: responseMessage,
@@ -136,17 +133,17 @@ export class AdminProvisioningService {
         // Do not leak unexpected internal/provider details through a bulk row.
         results.push({
           index,
-          status: 'FAILED',
+          status: "FAILED",
           error: {
             statusCode: 500,
-            message: 'Resident provisioning failed.',
+            message: "Resident provisioning failed.",
           },
         });
       }
     }
 
     const queued = results.filter(
-      (result) => result.status === 'QUEUED',
+      (result) => result.status === "QUEUED",
     ).length;
     const failed = results.length - queued;
 
@@ -182,7 +179,7 @@ export class AdminProvisioningService {
       });
 
       if (!facility || !facility.isActive) {
-        throw new NotFoundException('Active facility not found.');
+        throw new NotFoundException("Active facility not found.");
       }
 
       const existingEmail = await tx.user.findUnique({
@@ -197,13 +194,13 @@ export class AdminProvisioningService {
 
       if (existingEmail) {
         throw new ConflictException(
-          'An account already exists for this email.',
+          "An account already exists for this email.",
         );
       }
 
       if (existingPhone) {
         throw new ConflictException(
-          'An account already exists for this phone number.',
+          "An account already exists for this phone number.",
         );
       }
 
@@ -242,8 +239,8 @@ export class AdminProvisioningService {
           userId: user.id,
           facilityId: dto.facilityId,
           invitedByUserId: adminUserId,
-          channel: 'SMS',
-          status: 'QUEUED',
+          channel: "SMS",
+          status: "QUEUED",
           recipient: phoneNumber,
         },
         select: {
@@ -256,18 +253,23 @@ export class AdminProvisioningService {
         },
       });
 
-      return { user: maskedPerson(user), delivery: { ...delivery, recipient: "[protected]" } };
+      return {
+        user: maskedPerson(user),
+        delivery: { ...delivery, recipient: "[protected]" },
+      };
     });
   }
 
   /**
    * Shared provisioning boundary for institution-created accounts.
    *
-   * Both operators and residents enter the same token lifecycle:
+   * Retired legacy entry point. Calls fail closed; platform routes use EnrollmentService.
+   * Historical implementation removed to prevent accidental token exposure.
+   * Previously:
    * - active facility must already exist;
    * - email and phone are canonicalised and globally unique;
    * - only a SHA-256 token digest is stored;
-   * - the raw token is returned once;
+   * - a credential was returned once;
    * - the account starts PENDING_ACTIVATION with no password.
    *
    * Keeping this in one path prevents resident and operator invitation
@@ -279,86 +281,11 @@ export class AdminProvisioningService {
     role: UserRole,
     activationPathPrefix: string,
   ) {
-    const email = dto.email.trim().toLowerCase();
-    const phoneNumber = toE164(dto.phoneNumber);
-
-    return this.prisma.$transaction(async (tx) => {
-      const facility = await tx.facility.findUnique({
-        where: { id: dto.facilityId },
-        select: { id: true, isActive: true },
-      });
-
-      if (!facility || !facility.isActive) {
-        throw new NotFoundException('Active facility not found.');
-      }
-
-      // Sequential by design: deterministic conflict reporting and no
-      // concurrent queries on the interactive transaction connection.
-      const existingEmail = await tx.user.findUnique({
-        where: { email },
-        select: { id: true },
-      });
-
-      const existingPhone = await tx.user.findUnique({
-        where: { phoneNumber },
-        select: { id: true },
-      });
-
-      if (existingEmail) {
-        throw new ConflictException(
-          'An account already exists for this email.',
-        );
-      }
-
-      if (existingPhone) {
-        throw new ConflictException(
-          'An account already exists for this phone number.',
-        );
-      }
-
-      const rawToken = randomBytes(ACTIVATION_TOKEN_BYTES).toString(
-        'base64url',
-      );
-      const activationTokenHash = hashActivationCredential(rawToken);
-      const activationExpiresAt = new Date(Date.now() + ACTIVATION_VALIDITY_MS);
-
-      const user = await tx.user.create({
-        data: {
-          email,
-          phoneNumber,
-          passwordHash: null,
-          firstName: dto.firstName.trim(),
-          lastName: dto.lastName.trim(),
-          role,
-          facilityId: dto.facilityId,
-          isActive: true,
-          accountStatus: AccountStatus.PENDING_ACTIVATION,
-          activationTokenHash,
-          activationExpiresAt,
-          activatedAt: null,
-          invitedByUserId: adminUserId,
-        },
-        select: {
-          id: true,
-          email: true,
-          phoneNumber: true,
-          firstName: true,
-          lastName: true,
-          role: true,
-          facilityId: true,
-          accountStatus: true,
-          activationExpiresAt: true,
-          invitedByUserId: true,
-        },
-      });
-
-      return {
-        user: maskedPerson(user),
-        activationToken: rawToken,
-        activationPath: activationPathPrefix + rawToken,
-        activationExpiresAt,
-      };
-    });
+    void adminUserId;
+    void dto;
+    void role;
+    void activationPathPrefix;
+    throw new GoneException("Use durable platform enrollment invitations.");
   }
 
   /**
@@ -393,7 +320,7 @@ export class AdminProvisioningService {
 
     if (hasEmail === hasPhone) {
       throw new BadRequestException(
-        'Provide exactly one of email or phoneNumber.',
+        "Provide exactly one of email or phoneNumber.",
       );
     }
 
@@ -445,7 +372,7 @@ export class AdminProvisioningService {
     });
 
     if (!facility) {
-      throw new NotFoundException('Facility not found.');
+      throw new NotFoundException("Facility not found.");
     }
 
     const members = await this.prisma.user.findMany({
@@ -460,13 +387,17 @@ export class AdminProvisioningService {
         isActive: true,
         accountStatus: true,
       },
-      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+      orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
     });
 
     return {
       facility,
-      operators: members.filter((m) => m.role === UserRole.FACILITY_OPERATOR).map(maskedPerson),
-      residents: members.filter((m) => m.role === UserRole.USER).map(maskedPerson),
+      operators: members
+        .filter((m) => m.role === UserRole.FACILITY_OPERATOR)
+        .map(maskedPerson),
+      residents: members
+        .filter((m) => m.role === UserRole.USER)
+        .map(maskedPerson),
     };
   }
 
@@ -492,11 +423,11 @@ export class AdminProvisioningService {
       });
 
       if (!user || user.role !== UserRole.USER) {
-        throw new NotFoundException('Resident not found.');
+        throw new NotFoundException("Resident not found.");
       }
 
       if (expectedFacilityId && user.facilityId !== expectedFacilityId) {
-        throw new NotFoundException('Resident not found.');
+        throw new NotFoundException("Resident not found.");
       }
 
       const deliveries = await tx.accountInvitationDelivery.findMany({
@@ -519,7 +450,7 @@ export class AdminProvisioningService {
           failedAt: true,
           createdAt: true,
         },
-        orderBy: [{ queuedAt: 'desc' }, { createdAt: 'desc' }],
+        orderBy: [{ queuedAt: "desc" }, { createdAt: "desc" }],
         take: 20,
       });
 
@@ -544,7 +475,7 @@ export class AdminProvisioningService {
           ...(expectedFacilityId === undefined
             ? {}
             : { facilityId: expectedFacilityId }),
-          status: { in: ['QUEUED', 'SENDING'] },
+          status: { in: ["QUEUED", "SENDING"] },
         },
         select: { id: true },
       });
@@ -616,23 +547,23 @@ export class AdminProvisioningService {
       });
 
       if (!user || user.role !== UserRole.USER || !user.facilityId) {
-        throw new NotFoundException('Resident not found.');
+        throw new NotFoundException("Resident not found.");
       }
 
       if (expectedFacilityId && user.facilityId !== expectedFacilityId) {
-        throw new NotFoundException('Resident not found.');
+        throw new NotFoundException("Resident not found.");
       }
 
       if (
         !user.isActive ||
         user.accountStatus !== AccountStatus.PENDING_ACTIVATION
       ) {
-        throw new ConflictException('Resident is not eligible for activation.');
+        throw new ConflictException("Resident is not eligible for activation.");
       }
 
       if (!user.phoneNumber) {
         throw new ConflictException(
-          'Resident has no SMS-capable phone number.',
+          "Resident has no SMS-capable phone number.",
         );
       }
 
@@ -642,14 +573,14 @@ export class AdminProvisioningService {
           ...(expectedFacilityId === undefined
             ? {}
             : { facilityId: expectedFacilityId }),
-          status: { in: ['QUEUED', 'SENDING'] },
+          status: { in: ["QUEUED", "SENDING"] },
         },
         select: { id: true, status: true },
       });
 
       if (inFlight) {
         throw new ConflictException(
-          'An invitation delivery is already queued or sending.',
+          "An invitation delivery is already queued or sending.",
         );
       }
 
@@ -665,13 +596,13 @@ export class AdminProvisioningService {
           queuedAt: true,
           createdAt: true,
         },
-        orderBy: [{ queuedAt: 'desc' }, { createdAt: 'desc' }],
+        orderBy: [{ queuedAt: "desc" }, { createdAt: "desc" }],
       });
 
       const cooldownFrom = latest?.lastAttemptAt ?? latest?.queuedAt;
       if (cooldownFrom && Date.now() - cooldownFrom.getTime() < 5 * 60 * 1000) {
         throw new ConflictException(
-          'Please wait five minutes before resending this invitation.',
+          "Please wait five minutes before resending this invitation.",
         );
       }
 
@@ -680,8 +611,8 @@ export class AdminProvisioningService {
           userId,
           facilityId: user.facilityId,
           invitedByUserId: adminUserId,
-          channel: 'SMS',
-          status: 'QUEUED',
+          channel: "SMS",
+          status: "QUEUED",
           recipient: user.phoneNumber,
         },
         select: {
@@ -715,12 +646,12 @@ export class AdminProvisioningService {
       });
 
       if (!user) {
-        throw new NotFoundException('Resident not found.');
+        throw new NotFoundException("Resident not found.");
       }
 
       if (user.role !== UserRole.USER) {
         throw new BadRequestException(
-          'Only USER accounts may be assigned as residents.',
+          "Only USER accounts may be assigned as residents.",
         );
       }
 
@@ -730,14 +661,14 @@ export class AdminProvisioningService {
       });
 
       if (!facility || !facility.isActive) {
-        throw new NotFoundException('Active facility not found.');
+        throw new NotFoundException("Active facility not found.");
       }
 
       await tx.accountInvitationDelivery.updateMany({
         // Only unclaimed deliveries can be cancelled. A provider request may
         // already be in flight for SENDING; its outcome must stay truthful.
-        where: { userId, facilityId: { not: facilityId }, status: 'QUEUED' },
-        data: { status: 'CANCELLED' },
+        where: { userId, facilityId: { not: facilityId }, status: "QUEUED" },
+        data: { status: "CANCELLED" },
       });
       const updated = await tx.user.update({
         where: { id: userId },
@@ -752,11 +683,11 @@ export class AdminProvisioningService {
       await tx.administrativeAuditEvent.create({
         data: {
           actorUserId,
-          actorRole: 'ADMIN',
+          actorRole: "ADMIN",
           action:
             updated.facilityId === null
-              ? 'RESIDENT_REMOVED'
-              : 'RESIDENT_ASSIGNED',
+              ? "RESIDENT_REMOVED"
+              : "RESIDENT_ASSIGNED",
           resourceId: userId,
           facilityId: updated.facilityId,
           previousFacilityId: user.facilityId,
@@ -789,12 +720,12 @@ export class AdminProvisioningService {
       });
 
       if (!user) {
-        throw new NotFoundException('Resident not found.');
+        throw new NotFoundException("Resident not found.");
       }
 
       if (user.role !== UserRole.USER) {
         throw new BadRequestException(
-          'Only USER accounts may be assigned as residents.',
+          "Only USER accounts may be assigned as residents.",
         );
       }
 
@@ -806,13 +737,13 @@ export class AdminProvisioningService {
       // removal - so an admin could not tell a removal from a no-op.
       if (user.facilityId !== expectedFacilityId) {
         throw new ConflictException(
-          'Resident facility membership has changed.',
+          "Resident facility membership has changed.",
         );
       }
 
       await tx.accountInvitationDelivery.updateMany({
-        where: { userId, facilityId: expectedFacilityId, status: 'QUEUED' },
-        data: { status: 'CANCELLED' },
+        where: { userId, facilityId: expectedFacilityId, status: "QUEUED" },
+        data: { status: "CANCELLED" },
       });
       const updated = await tx.user.update({
         where: { id: userId },
@@ -827,11 +758,11 @@ export class AdminProvisioningService {
       await tx.administrativeAuditEvent.create({
         data: {
           actorUserId,
-          actorRole: 'ADMIN',
+          actorRole: "ADMIN",
           action:
             updated.facilityId === null
-              ? 'RESIDENT_REMOVED'
-              : 'RESIDENT_ASSIGNED',
+              ? "RESIDENT_REMOVED"
+              : "RESIDENT_ASSIGNED",
           resourceId: userId,
           facilityId: updated.facilityId,
           previousFacilityId: user.facilityId,

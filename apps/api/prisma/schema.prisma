@@ -603,6 +603,9 @@ model AdministrativeAuditEvent {
   resourceId String @db.Uuid
   facilityId String? @db.Uuid
   previousFacilityId String? @db.Uuid
+  reason String? @db.VarChar(500)
+  beforeState Json?
+  afterState Json?
   createdAt DateTime @default(now())
 
   @@index([facilityId, createdAt])
@@ -614,6 +617,9 @@ model EnrollmentRequest {
   id String @id @default(uuid()) @db.Uuid
   facilityId String? @db.Uuid
   invitedByUserId String? @db.Uuid
+  requestedRole UserRole @default(USER)
+  revokedAt DateTime?
+  lastResentAt DateTime?
   identityCiphertext String
   idempotencyDigest String @unique @db.VarChar(64)
   emailTokenHash String? @db.VarChar(64)

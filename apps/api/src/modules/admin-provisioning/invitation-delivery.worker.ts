@@ -1,20 +1,19 @@
 import { ProtectedSnapshotsService } from "../protected-identity/protected-snapshots.service";
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { EmailProvider } from '../notifications/providers/email.provider';
-import { prepareIdentityDelivery, type IdentityMessage } from './identity-delivery';
-import { Interval } from '@nestjs/schedule';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { EmailProvider } from "../notifications/providers/email.provider";
 import {
-  AccountStatus,
-  NotificationStatus,
-  UserRole,
-} from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
+  prepareIdentityDelivery,
+  type IdentityMessage,
+} from "./identity-delivery";
+import { Interval } from "@nestjs/schedule";
+import { AccountStatus, NotificationStatus, UserRole } from "@prisma/client";
+import { PrismaService } from "../../prisma/prisma.service";
 import {
   generateActivationCode,
   hashActivationCredential,
-} from '../../shared/security/activation-code';
-import { SmsProvider } from '../notifications/providers/sms.provider';
+} from "../../shared/security/activation-code";
+import { SmsProvider } from "../notifications/providers/sms.provider";
 
 const ACTIVATION_VALIDITY_MS = 24 * 60 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
@@ -45,9 +44,9 @@ type ClaimedInvitation = {
 
 function gsm7BasicSanitize(value: string): string {
   return Array.from(value)
-    .map((character) => (GSM7_BASIC.includes(character) ? character : ' '))
-    .join('')
-    .replace(/\s+/g, ' ')
+    .map((character) => (GSM7_BASIC.includes(character) ? character : " "))
+    .join("")
+    .replace(/\s+/g, " ")
     .trim();
 }
 
@@ -55,7 +54,7 @@ function fitFacilityName(
   rawFacilityName: string,
   fixedSeptets: number,
 ): string {
-  const fallback = 'your estate';
+  const fallback = "your estate";
   const sanitized = gsm7BasicSanitize(rawFacilityName);
   const available = SINGLE_SMS_GSM7_SEPTETS - fixedSeptets;
 
@@ -68,8 +67,8 @@ function fitFacilityName(
     return candidate;
   }
 
-  const words = candidate.split(' ');
-  let fitted = '';
+  const words = candidate.split(" ");
+  let fitted = "";
 
   for (const word of words) {
     const next = fitted ? `${fitted} ${word}` : word;
@@ -85,19 +84,16 @@ function fitFacilityName(
 
   // Never emit a broken partial estate name. If even the first word cannot
   // fit, prefer the short neutral description.
-  return fallback.length <= available ? fallback : '';
+  return fallback.length <= available ? fallback : "";
 }
 
-function buildInvitationMessage(
-  facilityName: string,
-  code: string,
-): string {
+function buildInvitationMessage(facilityName: string, code: string): string {
   const displayCode = `${code.slice(0, 4)}-${code.slice(4)}`;
-  const prefix = 'OPA: ';
+  const prefix = "OPA: ";
   const afterName =
-    ' has added you to emergency protection.\n\n' +
+    " has added you to emergency protection.\n\n" +
     `Your code: ${displayCode}\n\n` +
-    'Open OPA and enter this code. Expires in 24 hours.';
+    "Open OPA and enter this code. Expires in 24 hours.";
 
   const fittedName = fitFacilityName(
     facilityName,
@@ -176,7 +172,7 @@ export class InvitationDeliveryWorker {
       data: {
         status: NotificationStatus.QUEUED,
         nextAttemptAt: new Date(),
-        lastError: 'Recovered stale sending attempt.',
+        lastError: "Recovered stale sending attempt.",
       },
     });
   }
@@ -195,7 +191,7 @@ export class InvitationDeliveryWorker {
           status: NotificationStatus.QUEUED,
           nextAttemptAt: { lte: now },
         },
-        orderBy: [{ nextAttemptAt: 'asc' }, { queuedAt: 'asc' }],
+        orderBy: [{ nextAttemptAt: "asc" }, { queuedAt: "asc" }],
       });
 
       if (!candidate) {
@@ -245,17 +241,36 @@ export class InvitationDeliveryWorker {
         return;
       }
 
-      if (delivery.purpose && delivery.purpose !== 'LEGACY_INVITATION') {
-        const identityMessage = await prepareIdentityDelivery(tx, delivery, this.config);
+      if (delivery.purpose && delivery.purpose !== "LEGACY_INVITATION") {
+        const identityMessage = await prepareIdentityDelivery(
+          tx,
+          delivery,
+          this.config,
+        );
         if (!identityMessage) {
-          await tx.accountInvitationDelivery.update({ where: { id: delivery.id }, data: { status: NotificationStatus.CANCELLED, lastError: 'Delivery no longer eligible.' } });
+          await tx.accountInvitationDelivery.update({
+            where: { id: delivery.id },
+            data: {
+              status: NotificationStatus.CANCELLED,
+              lastError: "Delivery no longer eligible.",
+            },
+          });
           return;
         }
-        claimedResult = { deliveryId: delivery.id, recipient: identityMessage.recipient, facilityName: '', attemptCount: delivery.attemptCount, code: '', identityMessage };
+        claimedResult = {
+          deliveryId: delivery.id,
+          recipient: identityMessage.recipient,
+          facilityName: "",
+          attemptCount: delivery.attemptCount,
+          code: "",
+          identityMessage,
+        };
         return;
       }
       if (
-        !delivery.user || !delivery.facility || !delivery.userId ||
+        !delivery.user ||
+        !delivery.facility ||
+        !delivery.userId ||
         !delivery.facility.isActive ||
         !delivery.user.isActive ||
         delivery.user.role !== UserRole.USER ||
@@ -267,7 +282,7 @@ export class InvitationDeliveryWorker {
           data: {
             status: NotificationStatus.FAILED,
             failedAt: now,
-            lastError: 'Resident is no longer eligible for activation.',
+            lastError: "Resident is no longer eligible for activation.",
           },
         });
         return;
@@ -304,18 +319,37 @@ export class InvitationDeliveryWorker {
     let response;
     try {
       const recipient = claimed.protectedSnapshotId
-        ? await this.snapshots.invitationRecipient(claimed.protectedSnapshotId, claimed.deliveryId, claimed.subjectUserId!)
+        ? await this.snapshots.invitationRecipient(
+            claimed.protectedSnapshotId,
+            claimed.deliveryId,
+            claimed.subjectUserId!,
+          )
         : claimed.recipient;
-      const request = claimed.identityMessage ?? { recipient, message: buildInvitationMessage(claimed.facilityName, claimed.code) };
-      const provider = claimed.identityMessage?.channel === 'EMAIL' ? this.emailProvider : this.smsProvider;
+      const request = claimed.identityMessage ?? {
+        recipient,
+        message: buildInvitationMessage(claimed.facilityName, claimed.code),
+      };
+      const provider =
+        claimed.identityMessage?.channel === "EMAIL"
+          ? this.emailProvider
+          : this.smsProvider;
       response = await provider.send(request);
     } catch {
-      response = { success: false, provider: 'INVITATION', error: 'Invitation dispatch unavailable.', messageId: undefined };
+      response = {
+        success: false,
+        provider: "INVITATION",
+        error: "Invitation dispatch unavailable.",
+        messageId: undefined,
+      };
     }
 
     if (response.success) {
-      await this.prisma.accountInvitationDelivery.update({
-        where: { id: claimed.deliveryId },
+      await this.prisma.accountInvitationDelivery.updateMany({
+        where: {
+          id: claimed.deliveryId,
+          status: NotificationStatus.SENDING,
+          attemptCount: claimed.attemptCount,
+        },
         data: {
           status: NotificationStatus.SENT,
           provider: response.provider,
@@ -328,13 +362,21 @@ export class InvitationDeliveryWorker {
       return;
     }
 
-    const error = response.error?.includes('InvalidPhoneNumber') ? 'InvalidPhoneNumber' : response.error?.includes('UserInBlacklist') ? 'UserInBlacklist' : 'Invitation dispatch unavailable.';
+    const error = response.error?.includes("InvalidPhoneNumber")
+      ? "InvalidPhoneNumber"
+      : response.error?.includes("UserInBlacklist")
+        ? "UserInBlacklist"
+        : "Invitation dispatch unavailable.";
     const terminal = this.isTerminalFailure(error);
     const exhausted = claimed.attemptCount >= MAX_ATTEMPTS;
 
     if (terminal || exhausted) {
-      await this.prisma.accountInvitationDelivery.update({
-        where: { id: claimed.deliveryId },
+      await this.prisma.accountInvitationDelivery.updateMany({
+        where: {
+          id: claimed.deliveryId,
+          status: NotificationStatus.SENDING,
+          attemptCount: claimed.attemptCount,
+        },
         data: {
           status: NotificationStatus.FAILED,
           provider: response.provider,
@@ -352,8 +394,12 @@ export class InvitationDeliveryWorker {
     );
     const delay = RETRY_DELAYS_MS[retryIndex] ?? RETRY_DELAYS_MS[0];
 
-    await this.prisma.accountInvitationDelivery.update({
-      where: { id: claimed.deliveryId },
+    await this.prisma.accountInvitationDelivery.updateMany({
+      where: {
+        id: claimed.deliveryId,
+        status: NotificationStatus.SENDING,
+        attemptCount: claimed.attemptCount,
+      },
       data: {
         status: NotificationStatus.QUEUED,
         provider: response.provider,
@@ -367,8 +413,7 @@ export class InvitationDeliveryWorker {
 
   private isTerminalFailure(error: string): boolean {
     return (
-      error.includes('InvalidPhoneNumber') ||
-      error.includes('UserInBlacklist')
+      error.includes("InvalidPhoneNumber") || error.includes("UserInBlacklist")
     );
   }
 }

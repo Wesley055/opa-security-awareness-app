@@ -342,7 +342,7 @@ describe("verification-first enrollment HTTP, signed JWT and PostgreSQL", () => 
     await post("/auth/enrollment/accept", existing).send(body).expect(200);
     expect(
       await prismaTest.administrativeAuditEvent.count({
-        where: { resourceId: r.requestId },
+        where: { resourceId: r.requestId, action: "ENROLLMENT_ACCEPTED" },
       }),
     ).toBe(1);
     expect(await prismaTest.user.count()).toBe(2);

@@ -1,14 +1,14 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { AccountStatus, UserRole } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
-import { PrismaService } from '../../prisma/prisma.service';
+import { Injectable, UnauthorizedException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { AccountStatus, UserRole } from "@prisma/client";
+import * as bcrypt from "bcrypt";
+import { PrismaService } from "../../prisma/prisma.service";
 import {
   hashActivationCredential,
   normalizeActivationCredential,
-} from '../../shared/security/activation-code';
-import { AuthService } from './auth.service';
-import type { ActivateProvisionedUserDto } from './dto/activate-provisioned-user.dto';
+} from "../../shared/security/activation-code";
+import { AuthService } from "./auth.service";
+import type { ActivateProvisionedUserDto } from "./dto/activate-provisioned-user.dto";
 
 /**
  * ONE MESSAGE FOR EVERY FAILURE.
@@ -23,7 +23,7 @@ import type { ActivateProvisionedUserDto } from './dto/activate-provisioned-user
  * token once existed, and distinguishing "already activated" would confirm
  * which seats have been claimed.
  */
-const ACTIVATION_FAILED = 'This activation link is not valid.';
+const ACTIVATION_FAILED = "This activation link is not valid.";
 
 /**
  * Claims a provisioned operator or resident account.
@@ -77,7 +77,7 @@ export class ActivationService {
     // write touching this user behind a hash computation.
     const passwordHash = await bcrypt.hash(
       dto.password,
-      this.config.getOrThrow<number>('BCRYPT_ROUNDS'),
+      this.config.getOrThrow<number>("BCRYPT_ROUNDS"),
     );
 
     const activated = await this.prisma.$transaction(async (tx) => {
@@ -110,13 +110,9 @@ export class ActivationService {
         !user ||
         !user.isActive ||
         user.accountStatus !== AccountStatus.PENDING_ACTIVATION ||
-        // Only institution-provisioned operators and residents may claim
-        // activation tokens. Publicly registered USER accounts are already
-        // ACTIVE and carry no activation token, so allowing USER here does
-        // not create a second registration path.
-        (user.role !== UserRole.FACILITY_ADMIN &&
-          user.role !== UserRole.FACILITY_OPERATOR &&
-          user.role !== UserRole.USER) ||
+        // Legacy resident compatibility only. Staff must complete both
+        // enrollment proofs; old staff activation secrets no longer grant access.
+        user.role !== UserRole.USER ||
         user.activationTokenHash !== tokenHash ||
         !user.activationExpiresAt ||
         user.activationExpiresAt <= now

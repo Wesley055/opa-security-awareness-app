@@ -260,8 +260,20 @@ model IncidentNotification {
   updatedAt      DateTime  @updatedAt
 
   @@index([incidentId, queuedAt])
+  @@index([incidentId, id])
   @@index([status, queuedAt])
   @@index([providerMessageId])
+  deliveryStatus DeliveryStatus @default(QUEUED)
+  firstAttemptAt DateTime?
+  providerAcceptedAt DateTime?
+  confirmedDeliveredAt DateTime?
+  failureCategory DeliveryFailureCategory?
+  deliveryAttempts DeliveryAttempt[]
+  deliveryEvents DeliveryStatusEvent[]
+  nextAttemptAt DateTime @default(now())
+  lastAttemptAt DateTime?
+  @@index([status, nextAttemptAt, queuedAt])
+
 }
 
 /// Durable outbox for one attempt to deliver an account invitation.
@@ -275,12 +287,13 @@ model IncidentNotification {
 /// time and discarded. A retry cannot recover the plaintext, so the worker
 /// ISSUES A FRESH CODE when it claims a row, storing the new hash and
 /// expiry and holding the plaintext only for the immediate provider call.
-/// An abandoned SENDING row is therefore safe to requeue: the next claim
+/// A confirmed retryable rejection permits another claim: the next claim
 /// mints another code and invalidates the one that never arrived. Expiry
 /// restarts with each issued code, so a resident whose first attempt failed
 /// still gets a full window from the message she actually receives.
 ///
-/// NO deliveredAt. Africa's Talking returning success proves the provider
+/// Delivery truth is now in confirmedDeliveredAt and the delivery ledger.
+/// LEGACY TRANSPORT FIELDS: no deliveredAt. Africa's Talking returning success proves the provider
 /// accepted the message, nothing more. SENT is the strongest state OPA can
 /// honestly assert until a delivery-receipt webhook exists.
 model AccountInvitationDelivery {
@@ -333,6 +346,14 @@ model AccountInvitationDelivery {
   @@unique([enrollmentId, channel])
   /// The worker's claim query: due QUEUED rows, oldest original queue time first.
   @@index([status, nextAttemptAt, queuedAt])
+  deliveryStatus DeliveryStatus @default(QUEUED)
+  firstAttemptAt DateTime?
+  providerAcceptedAt DateTime?
+  confirmedDeliveredAt DateTime?
+  failureCategory DeliveryFailureCategory?
+  deliveryAttempts DeliveryAttempt[]
+  deliveryEvents DeliveryStatusEvent[]
+
 }
 
 model Facility {
@@ -709,4 +730,107 @@ model IdentityResolutionAudit {
 
   @@index([tenantId, createdAt])
   @@index([actorUserId, createdAt])
+}
+
+// Delivery truth is separate from the legacy scheduling enum.
+enum DeliveryStatus {
+  QUEUED
+  ATTEMPTING
+  PROVIDER_ACCEPTED
+  DELIVERED
+  FAILED
+  UNKNOWN
+}
+
+enum DeliveryFailureCategory {
+  AUTHENTICATION
+  INVALID_RECIPIENT
+  RATE_LIMITED
+  PROVIDER_UNAVAILABLE
+  NETWORK
+  TIMEOUT
+  REJECTED
+  EXPIRED
+  UNKNOWN_PROVIDER_ERROR
+  INTERNAL_ERROR
+}
+
+model DeliveryAttempt {
+  id String @id @default(uuid()) @db.Uuid
+  incidentNotificationId String? @db.Uuid
+  incidentNotification IncidentNotification? @relation(fields: [incidentNotificationId], references: [id], onDelete: Restrict)
+  invitationDeliveryId String? @db.Uuid
+  invitationDelivery AccountInvitationDelivery? @relation(fields: [invitationDeliveryId], references: [id], onDelete: Restrict)
+  number Int
+  channel NotificationChannel
+  provider String @db.VarChar(32)
+  accountScope String @db.VarChar(128)
+  status DeliveryStatus
+  startedAt DateTime @default(now())
+  completedAt DateTime?
+  providerAcceptedAt DateTime?
+  deliveredAt DateTime?
+  failureCategory DeliveryFailureCategory?
+  retryable Boolean @default(false)
+  references ProviderReference[]
+  events DeliveryStatusEvent[]
+  @@unique([incidentNotificationId, number])
+  @@unique([invitationDeliveryId, number])
+  @@index([status, startedAt])
+}
+
+model ProviderReference {
+  id String @id @default(uuid()) @db.Uuid
+  attemptId String @db.Uuid
+  attempt DeliveryAttempt @relation(fields: [attemptId], references: [id], onDelete: Restrict)
+  provider String @db.VarChar(32)
+  accountScope String @db.VarChar(128)
+  messageId String @db.VarChar(256)
+  createdAt DateTime @default(now())
+  @@unique([provider, accountScope, messageId])
+  @@index([attemptId])
+}
+
+model DeliveryStatusEvent {
+  id String @id @default(uuid()) @db.Uuid
+  incidentNotificationId String? @db.Uuid
+  incidentNotification IncidentNotification? @relation(fields: [incidentNotificationId], references: [id], onDelete: Restrict)
+  invitationDeliveryId String? @db.Uuid
+  invitationDelivery AccountInvitationDelivery? @relation(fields: [invitationDeliveryId], references: [id], onDelete: Restrict)
+  attemptId String? @db.Uuid
+  attempt DeliveryAttempt? @relation(fields: [attemptId], references: [id], onDelete: Restrict)
+  previousStatus DeliveryStatus?
+  newStatus DeliveryStatus
+  source String @db.VarChar(32)
+  provider String? @db.VarChar(32)
+  reason String @db.VarChar(64)
+  failureCategory DeliveryFailureCategory?
+  receiptId String? @unique @db.Uuid
+  receipt ProviderDeliveryReceipt? @relation(fields: [receiptId], references: [id], onDelete: Restrict)
+  occurredAt DateTime
+  recordedAt DateTime @default(now())
+  @@index([incidentNotificationId, recordedAt, id])
+  @@index([invitationDeliveryId, recordedAt, id])
+  @@index([attemptId, recordedAt])
+}
+
+// Authenticated, normalized evidence only: no raw body, recipient or headers.
+model ProviderDeliveryReceipt {
+  id String @id @default(uuid()) @db.Uuid
+  provider String @db.VarChar(32)
+  accountScope String @db.VarChar(128)
+  eventId String @db.VarChar(256)
+  messageId String @db.VarChar(256)
+  status DeliveryStatus
+  failureCategory DeliveryFailureCategory?
+  eventType String @db.VarChar(64)
+  occurredAt DateTime
+  receivedAt DateTime @default(now())
+  processedAt DateTime?
+  nextReconcileAt DateTime @default(now())
+  reconcileCount Int @default(0)
+  event DeliveryStatusEvent?
+  @@unique([provider, accountScope, eventId])
+  @@index([processedAt, nextReconcileAt])
+  @@index([provider, accountScope, messageId])
 }

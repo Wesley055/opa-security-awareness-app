@@ -1,16 +1,16 @@
-'use client';
+"use client";
 
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { IncidentDetail } from '@/lib/operator-incident';
-import type { OperatorTrackingSnapshot } from '@/lib/operator-tracking-types';
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { IncidentDetail } from "@/lib/operator-incident";
+import type { OperatorTrackingSnapshot } from "@/lib/operator-tracking-types";
 import type {
   TimelineEvent,
   TimelineVerification,
-} from '@/lib/operator-timeline';
-import { viewerSessionFetch } from '@/lib/viewer-session-fetch';
-import { DeliveryConfirmation } from '@/components/console/delivery-confirmation';
-import { EvidenceAvailability } from '@/components/console/evidence-availability';
-import { IncidentTimeline } from './incident-timeline';
+} from "@/lib/operator-timeline";
+import { viewerSessionFetch } from "@/lib/viewer-session-fetch";
+import { DeliveryConfirmation } from "@/components/console/delivery-confirmation";
+import { EvidenceAvailability } from "@/components/console/evidence-availability";
+import { IncidentTimeline } from "./incident-timeline";
 
 /**
  * One incident, kept current. 14A-7.
@@ -46,24 +46,30 @@ type TrackingResponse = {
   error?: string;
 };
 
-type Status = 'live' | 'stale' | 'stopped';
-type TrackingHealth = 'live' | 'stale' | 'stopped';
+type Status = "live" | "stale" | "stopped";
+type TrackingHealth = "live" | "stale" | "stopped";
 
 function formatEnum(value: string): string {
   return value
-    .split('_')
+    .split("_")
     .filter(Boolean)
     .map((word) =>
       word.length <= 3 ? word : word.charAt(0) + word.slice(1).toLowerCase(),
     )
-    .join(' ');
+    .join(" ");
 }
 
 function formatCoords(lat: string | null, lng: string | null): string | null {
   if (!lat || !lng) return null;
   const a = Number(lat);
   const b = Number(lng);
-  if (!Number.isFinite(a) || !Number.isFinite(b) || Math.abs(a) > 90 || Math.abs(b) > 180) return null;
+  if (
+    !Number.isFinite(a) ||
+    !Number.isFinite(b) ||
+    Math.abs(a) > 90 ||
+    Math.abs(b) > 180
+  )
+    return null;
   return `${a.toFixed(5)}, ${b.toFixed(5)}`;
 }
 
@@ -71,14 +77,20 @@ function formatTrackingCoords(
   latitude: number,
   longitude: number,
 ): string | null {
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude) ||
+    Math.abs(latitude) > 90 ||
+    Math.abs(longitude) > 180
+  )
+    return null;
   return `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
 }
 
 function formatAge(from: string, serverTime: string): string {
   const then = new Date(from).getTime();
   const now = new Date(serverTime).getTime();
-  if (!Number.isFinite(then) || !Number.isFinite(now)) return '';
+  if (!Number.isFinite(then) || !Number.isFinite(now)) return "";
 
   const seconds = Math.max(0, Math.round((now - then) / 1000));
   if (seconds < 60) return `${seconds}s ago`;
@@ -98,16 +110,16 @@ function formatAge(from: string, serverTime: string): string {
  */
 function formatLocalDateTime(value: string): string {
   const d = new Date(value);
-  if (!Number.isFinite(d.getTime())) return '';
+  if (!Number.isFinite(d.getTime())) return "";
 
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    timeZoneName: 'short',
+  return new Intl.DateTimeFormat("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZoneName: "short",
   }).format(d);
 }
 
@@ -124,13 +136,21 @@ function displayVoicePhrase(value: string | null): string | null {
   return text.length > 200 ? `${text.slice(0, 200)}\u2026` : text;
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function Row({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="min-w-0 rounded-lg border border-line bg-panel-2/60 p-4">
       <dt className="font-mono text-xs uppercase tracking-widest text-muted">
         {label}
       </dt>
-      <dd className="mt-2 break-words text-sm leading-6 text-ink">{children}</dd>
+      <dd className="mt-2 break-words text-sm leading-6 text-ink">
+        {children}
+      </dd>
     </div>
   );
 }
@@ -153,10 +173,12 @@ export function IncidentDetailView({
 }) {
   const [incident, setIncident] = useState(initialIncident);
   const [serverTime, setServerTime] = useState(initialServerTime);
-  const [status, setStatus] = useState<Status>('live');
+  const [status, setStatus] = useState<Status>("live");
   const [notice, setNotice] = useState<string | null>(null);
 
-  const [timelineAvailable, setTimelineAvailable] = useState(initialTimelineAvailable);
+  const [timelineAvailable, setTimelineAvailable] = useState(
+    initialTimelineAvailable,
+  );
   const [timelineStale, setTimelineStale] = useState(!initialTimelineAvailable);
   const [timeline, setTimeline] = useState(initialTimeline);
   const [verification, setVerification] = useState(initialVerification);
@@ -166,14 +188,16 @@ export function IncidentDetailView({
    * must not falsely turn the entire incident header into "Not updating"
    * when incident detail itself is still healthy.
    */
-  const [tracking, setTracking] =
-    useState<OperatorTrackingSnapshot | null>(initialTracking);
+  const [tracking, setTracking] = useState<OperatorTrackingSnapshot | null>(
+    initialTracking,
+  );
 
-  const [trackingHealth, setTrackingHealth] =
-    useState<TrackingHealth>(initialTracking ? 'live' : 'stale');
+  const [trackingHealth, setTrackingHealth] = useState<TrackingHealth>(
+    initialTracking ? "live" : "stale",
+  );
 
   const [trackingNotice, setTrackingNotice] = useState<string | null>(
-    initialTracking ? null : 'Live tracking is temporarily unavailable.',
+    initialTracking ? null : "Live tracking is temporarily unavailable.",
   );
 
   /**
@@ -215,13 +239,19 @@ export function IncidentDetailView({
     )}/timeline`;
 
     try {
-      const response = await viewerSessionFetch(base, { cache: 'no-store' });
-      if (!response.ok) { setTimelineStale(true); return false; }
+      const response = await viewerSessionFetch(base, { cache: "no-store" });
+      if (!response.ok) {
+        setTimelineStale(true);
+        return false;
+      }
 
       const data = (await response.json()) as {
         events?: TimelineEvent[];
       };
-      if (!Array.isArray(data.events)) { setTimelineStale(true); return false; }
+      if (!Array.isArray(data.events)) {
+        setTimelineStale(true);
+        return false;
+      }
 
       if (stopped.current) return false;
       setTimeline(data.events);
@@ -234,8 +264,9 @@ export function IncidentDetailView({
 
       if (latest === lastSequence.current && verification !== null) return true;
 
-
-      const checked = await viewerSessionFetch(`${base}/verify`, { cache: 'no-store' });
+      const checked = await viewerSessionFetch(`${base}/verify`, {
+        cache: "no-store",
+      });
       if (!checked.ok) {
         // OPA does not know. NOT the same as a broken chain.
         setVerification(null);
@@ -245,7 +276,7 @@ export function IncidentDetailView({
       const body = (await checked.json()) as {
         verification?: TimelineVerification;
       };
-      if (typeof body.verification?.valid === 'boolean') {
+      if (typeof body.verification?.valid === "boolean") {
         setVerification(body.verification);
         lastSequence.current = latest;
         return true;
@@ -253,7 +284,8 @@ export function IncidentDetailView({
       setVerification(null);
       return false;
     } catch {
-      setTimelineStale(true); return false;
+      setTimelineStale(true);
+      return false;
     }
   }, [initialIncident.id, verification]);
 
@@ -274,43 +306,47 @@ export function IncidentDetailView({
     )}/tracking`;
 
     try {
-      const response = await viewerSessionFetch(url, { cache: 'no-store' });
+      const response = await viewerSessionFetch(url, { cache: "no-store" });
       if (stopped.current) return false;
-      if (response.status === 401) { stopped.current = true; setStatus('stopped'); setNotice('Your session ended. Sign in again.'); return false; }
+      if (response.status === 401) {
+        stopped.current = true;
+        setStatus("stopped");
+        setNotice("Your session ended. Sign in again.");
+        return false;
+      }
       if (response.status === 403 || response.status === 404) {
-
         trackingStopped.current = true;
         setTracking(null);
-        setTrackingHealth('stopped');
+        setTrackingHealth("stopped");
         setTrackingNotice(
-          'Live tracking is no longer available for this incident.',
+          "Live tracking is no longer available for this incident.",
         );
         return true;
       }
 
       if (!response.ok) {
-        setTrackingHealth('stale');
-        setTrackingNotice('Live tracking is temporarily unavailable.');
+        setTrackingHealth("stale");
+        setTrackingNotice("Live tracking is temporarily unavailable.");
         return true;
       }
 
       const body = (await response.json()) as TrackingResponse;
 
       if (!body.tracking) {
-        setTrackingHealth('stale');
-        setTrackingNotice('Live tracking is temporarily unavailable.');
+        setTrackingHealth("stale");
+        setTrackingNotice("Live tracking is temporarily unavailable.");
         return true;
       }
 
       setTracking(body.tracking);
-      setTrackingHealth('live');
+      setTrackingHealth("live");
       setTrackingNotice(null);
 
       return true;
     } catch {
       // Preserve the last known position. Unknown is not empty.
-      setTrackingHealth('stale');
-      setTrackingNotice('Live tracking is temporarily unavailable.');
+      setTrackingHealth("stale");
+      setTrackingNotice("Live tracking is temporarily unavailable.");
       return true;
     }
   }, [initialIncident.id]);
@@ -322,36 +358,39 @@ export function IncidentDetailView({
     const url = `/api/operator/incidents/${encodeURIComponent(initialIncident.id)}`;
 
     try {
-      const response = await viewerSessionFetch(url, { cache: 'no-store' });
+      const response = await viewerSessionFetch(url, { cache: "no-store" });
       if (stopped.current) return false;
-      if (response.status === 401) { stopped.current = true; setStatus('stopped'); setNotice('Your session ended. Sign in again.'); return false; }
+      if (response.status === 401) {
+        stopped.current = true;
+        setStatus("stopped");
+        setNotice("Your session ended. Sign in again.");
+        return false;
+      }
       if (response.status === 403 || response.status === 404) {
         stopped.current = true;
-        setStatus('stopped');
-        setNotice(
-          'This incident is no longer available to you.',
-        );
+        setStatus("stopped");
+        setNotice("This incident is no longer available to you.");
         return;
       }
 
       if (!response.ok) {
         // What is on screen stays. Only a 200 replaces it.
-        setStatus('stale');
-        setNotice('Updates are temporarily unavailable.');
+        setStatus("stale");
+        setNotice("Updates are temporarily unavailable.");
         return;
       }
 
       const data = (await response.json()) as DetailResponse;
 
       if (!data.incident?.id) {
-        setStatus('stale');
-        setNotice('Updates are temporarily unavailable.');
+        setStatus("stale");
+        setNotice("Updates are temporarily unavailable.");
         return;
       }
 
       setIncident(data.incident);
       if (data.serverTime) setServerTime(data.serverTime);
-      setStatus('live');
+      setStatus("live");
       setNotice(null);
 
       const trackingCanContinue = await refreshTracking();
@@ -362,21 +401,24 @@ export function IncidentDetailView({
       if (!timelineSettled.current) {
         const refreshed = await refreshTimeline();
 
-        if (refreshed && (data.incident.status === 'RESOLVED' ||
-            data.incident.status === 'CANCELLED')) {
+        if (
+          refreshed &&
+          (data.incident.status === "RESOLVED" ||
+            data.incident.status === "CANCELLED")
+        ) {
           timelineSettled.current = true;
         }
       }
     } catch {
-      setStatus('stale');
-      setNotice('Updates are temporarily unavailable.');
+      setStatus("stale");
+      setNotice("Updates are temporarily unavailable.");
     } finally {
       inFlight.current = false;
     }
   }, [initialIncident.id, refreshTimeline, refreshTracking]);
 
   useEffect(() => {
-    if (status === 'stopped') return;
+    if (status === "stopped") return;
 
     let timer: ReturnType<typeof setInterval> | null = null;
 
@@ -399,37 +441,42 @@ export function IncidentDetailView({
     };
 
     if (!document.hidden) start();
-    document.addEventListener('visibilitychange', onVisibility);
-    window.addEventListener('online', onVisibility);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("online", onVisibility);
 
     return () => {
       stop();
-      document.removeEventListener('visibilitychange', onVisibility);
-      window.removeEventListener('online', onVisibility);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("online", onVisibility);
     };
   }, [poll, status]);
 
-  if (status === 'stopped') return <section className="p-6 text-ink"><h1 className="text-xl font-bold">Incident unavailable</h1><p role="alert">{notice}</p><a href="/operator" className="mt-4 inline-flex min-h-11 items-center">Return to Command Center</a></section>;
+  if (status === "stopped")
+    return (
+      <section className="p-6 text-ink">
+        <h1 className="text-xl font-bold">Incident unavailable</h1>
+        <p role="alert">{notice}</p>
+        <a href="/operator" className="mt-4 inline-flex min-h-11 items-center">
+          Return to Command Center
+        </a>
+      </section>
+    );
   const name = incident.user
     ? `${incident.user.firstName} ${incident.user.lastName}`.trim()
-    : 'Unknown resident';
+    : "Unknown resident";
   const coords = formatCoords(incident.latitude, incident.longitude);
 
   const trackedCoords = tracking?.latest
-    ? formatTrackingCoords(
-        tracking.latest.latitude,
-        tracking.latest.longitude,
-      )
+    ? formatTrackingCoords(tracking.latest.latitude, tracking.latest.longitude)
     : null;
 
-  const trackedAge =
-    tracking?.lastFixReceivedAt
-      ? formatAge(tracking.lastFixReceivedAt, tracking.serverTime)
-      : null;
+  const trackedAge = tracking?.lastFixReceivedAt
+    ? formatAge(tracking.lastFixReceivedAt, tracking.serverTime)
+    : null;
 
   const phrase = displayVoicePhrase(incident.voicePhrase);
   const isClosed =
-    incident.status === 'RESOLVED' || incident.status === 'CANCELLED';
+    incident.status === "RESOLVED" || incident.status === "CANCELLED";
 
   return (
     <div className="space-y-8">
@@ -437,7 +484,7 @@ export function IncidentDetailView({
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
             <p className="font-mono text-xs uppercase tracking-widest text-muted">
-              {isClosed ? 'Incident record' : 'Active incident'}
+              {isClosed ? "Incident record" : "Active incident"}
             </p>
 
             <h1 className="mt-2 break-words font-display text-2xl font-bold tracking-tight text-ink sm:text-3xl">
@@ -446,11 +493,11 @@ export function IncidentDetailView({
 
             <span
               className={
-                incident.status === 'RESOLVED'
-                  ? 'mt-3 inline-flex rounded-full border border-success/30 bg-success/10 px-2.5 py-1 font-mono text-xs uppercase tracking-widest text-success'
-                  : incident.status === 'CANCELLED'
-                    ? 'mt-3 inline-flex rounded-full border border-line bg-panel-2 px-2.5 py-1 font-mono text-xs uppercase tracking-widest text-muted'
-                    : 'mt-3 inline-flex rounded-full border border-emergency/30 bg-emergency/10 px-2.5 py-1 font-mono text-xs uppercase tracking-widest text-emergency'
+                incident.status === "RESOLVED"
+                  ? "mt-3 inline-flex rounded-full border border-success/30 bg-success/10 px-2.5 py-1 font-mono text-xs uppercase tracking-widest text-success"
+                  : incident.status === "CANCELLED"
+                    ? "mt-3 inline-flex rounded-full border border-line bg-panel-2 px-2.5 py-1 font-mono text-xs uppercase tracking-widest text-muted"
+                    : "mt-3 inline-flex rounded-full border border-emergency/30 bg-emergency/10 px-2.5 py-1 font-mono text-xs uppercase tracking-widest text-emergency"
               }
             >
               {formatEnum(incident.status)}
@@ -459,166 +506,175 @@ export function IncidentDetailView({
 
           <span
             className={
-              status === 'live'
-                ? 'inline-flex w-fit rounded-full border border-protection/30 bg-protection/10 px-3 py-1 font-mono text-xs uppercase tracking-widest text-protection'
-                : 'inline-flex w-fit rounded-full border border-line bg-panel-2 px-3 py-1 font-mono text-xs uppercase tracking-widest text-muted'
+              status === "live"
+                ? "inline-flex w-fit rounded-full border border-protection/30 bg-protection/10 px-3 py-1 font-mono text-xs uppercase tracking-widest text-protection"
+                : "inline-flex w-fit rounded-full border border-line bg-panel-2 px-3 py-1 font-mono text-xs uppercase tracking-widest text-muted"
             }
           >
-            {status === 'live'
-              ? 'Live'
-              : status === 'stale'
-                ? 'Not updating'
-                : 'Stopped'}
+            {status === "live"
+              ? "Live"
+              : status === "stale"
+                ? "Not updating"
+                : "Stopped"}
           </span>
         </div>
 
-      <p className="mt-3 text-xs text-muted">Last successful update: {serverTime.replace('T', ' ').replace('Z', ' UTC')}</p>
-      <button type="button" onClick={() => void poll()} className="mt-3 min-h-11 rounded-md border border-line px-4 text-ink">Refresh incident</button>
-      {notice ? (
-        <p
-          role="status"
-          className="mt-4 rounded-lg border border-line bg-panel-2 px-4 py-3 text-sm text-ink"
-        >
-          {notice}
+        <p className="mt-3 text-xs text-muted">
+          Last successful update:{" "}
+          {serverTime.replace("T", " ").replace("Z", " UTC")}
         </p>
-      ) : null}
-
-        <dl className="mt-6 grid gap-3 md:grid-cols-2">
-        <Row label="Severity">Not provided by the service</Row>
-        <Row label="Triggered by">{formatEnum(incident.trigger)}</Row>
-
-        <Row label="Raised">
-          {formatAge(incident.createdAt, serverTime)}
-          <span
-            suppressHydrationWarning
-            className="ml-2 font-mono text-xs text-muted"
+        <button
+          type="button"
+          onClick={() => void poll()}
+          className="mt-3 min-h-11 rounded-md border border-line px-4 text-ink"
+        >
+          Refresh incident
+        </button>
+        {notice ? (
+          <p
+            role="status"
+            className="mt-4 rounded-lg border border-line bg-panel-2 px-4 py-3 text-sm text-ink"
           >
-            {formatLocalDateTime(incident.createdAt)}
-          </span>
-        </Row>
-
-        <Row label="Location">
-          {incident.address?.trim() ? (
-            <>
-              <span>{incident.address.trim()}</span>
-              {coords ? (
-                <span className="ml-2 font-mono text-xs text-muted">
-                  {coords}
-                </span>
-              ) : null}
-            </>
-          ) : coords ? (
-            <span className="font-mono">{coords}</span>
-          ) : (
-            <span className="text-muted">No usable position recorded.</span>
-          )}
-        </Row>
-
-        {incident.retriggerCount > 0 ? (
-          <Row label="Re-triggered">
-            {incident.retriggerCount}
-            {incident.retriggerCount === 1 ? ' time' : ' times'}
-          </Row>
+            {notice}
+          </p>
         ) : null}
 
-        {phrase ? <Row label="Voice phrase">{phrase}</Row> : null}
+        <dl className="mt-6 grid gap-3 md:grid-cols-2">
+          <Row label="Severity">Not provided by the service</Row>
+          <Row label="Triggered by">{formatEnum(incident.trigger)}</Row>
 
-        {/*
+          <Row label="Raised">
+            {formatAge(incident.createdAt, serverTime)}
+            <span
+              suppressHydrationWarning
+              className="ml-2 font-mono text-xs text-muted"
+            >
+              {formatLocalDateTime(incident.createdAt)}
+            </span>
+          </Row>
+
+          <Row label="Location">
+            {incident.address?.trim() ? (
+              <>
+                <span>{incident.address.trim()}</span>
+                {coords ? (
+                  <span className="ml-2 font-mono text-xs text-muted">
+                    {coords}
+                  </span>
+                ) : null}
+              </>
+            ) : coords ? (
+              <span className="font-mono">{coords}</span>
+            ) : (
+              <span className="text-muted">No usable position recorded.</span>
+            )}
+          </Row>
+
+          {incident.retriggerCount > 0 ? (
+            <Row label="Re-triggered">
+              {incident.retriggerCount}
+              {incident.retriggerCount === 1 ? " time" : " times"}
+            </Row>
+          ) : null}
+
+          {phrase ? <Row label="Voice phrase">{phrase}</Row> : null}
+
+          {/*
           14A-8b. The tracking projection carries session STATE, so this row
           may now say what the stream is doing. Freshness of a POSITION
           remains a separate judgement made against serverTime, which is why
           the tracked coordinate lives in its own row below.
         */}
-        <Row label="Location tracking">
-          {trackingHealth === 'stale' && trackingNotice ? (
-            <>
-              <span>{trackingNotice}</span>
+          <Row label="Location tracking">
+            {trackingHealth === "stale" && trackingNotice ? (
+              <>
+                <span>{trackingNotice}</span>
 
-              {tracking ? (
-                <span className="ml-2 text-muted">
-                  Last known state: {formatEnum(tracking.state)}.
+                {tracking ? (
+                  <span className="ml-2 text-muted">
+                    Last known state: {formatEnum(tracking.state)}.
+                  </span>
+                ) : null}
+              </>
+            ) : trackingHealth === "stopped" ? (
+              <span>{trackingNotice ?? "Location tracking has stopped."}</span>
+            ) : tracking ? (
+              <>
+                <span>
+                  {tracking.state === "RECEIVING"
+                    ? "Receiving location updates."
+                    : tracking.state === "SILENT"
+                      ? "Location stream is silent."
+                      : tracking.state === "ENDED"
+                        ? "Location tracking has ended."
+                        : tracking.state === "AWAITING_FIRST_FIX"
+                          ? "Waiting for the first tracked location."
+                          : "No location tracking session is linked to this incident."}
                 </span>
-              ) : null}
-            </>
-          ) : trackingHealth === 'stopped' ? (
-            <span>{trackingNotice ?? 'Location tracking has stopped.'}</span>
-          ) : tracking ? (
-            <>
-              <span>
-                {tracking.state === 'RECEIVING'
-                  ? 'Receiving location updates.'
-                  : tracking.state === 'SILENT'
-                    ? 'Location stream is silent.'
-                    : tracking.state === 'ENDED'
-                      ? 'Location tracking has ended.'
-                      : tracking.state === 'AWAITING_FIRST_FIX'
-                        ? 'Waiting for the first tracked location.'
-                        : 'No location tracking session is linked to this incident.'}
-              </span>
 
-              {trackedAge ? (
-                <span className="ml-2 text-muted">
-                  Last fix {trackedAge}.
-                </span>
-              ) : null}
-            </>
-          ) : (
-            'Live tracking is temporarily unavailable.'
-          )}
-        </Row>
+                {trackedAge ? (
+                  <span className="ml-2 text-muted">
+                    Last fix {trackedAge}.
+                  </span>
+                ) : null}
+              </>
+            ) : (
+              "Live tracking is temporarily unavailable."
+            )}
+          </Row>
 
-        {/*
+          {/*
           ACTIVATION IS NOT A FIX. When the phone has sent nothing, the API
           falls back to the immutable activation coordinate - and this says
           so rather than presenting it as a current position.
         */}
-        <Row label="Tracked location">
-          {tracking?.latest && trackedCoords ? (
-            <>
-              <span className="font-mono">{trackedCoords}</span>
-
-              <span className="ml-2 text-muted">
-                {tracking.latest.origin === 'TRACKED'
-                  ? `Latest ${formatEnum(tracking.latest.source)} fix`
-                  : 'Activation position fallback'}
-
-                {tracking.latest.sequence !== undefined
-                  ? ` · sequence ${tracking.latest.sequence}`
-                  : ''}
-              </span>
-            </>
-          ) : (
-            <span className="text-muted">
-              No usable tracked position is currently available.
-            </span>
-          )}
-        </Row>
-
-        {incident.status === 'RESOLVED' ? (
-          <Row label="Resolved">
-            {incident.resolvedAt ? (
+          <Row label="Tracked location">
+            {tracking?.latest && trackedCoords ? (
               <>
-                {formatAge(incident.resolvedAt, serverTime)}
-                {' · '}
-                <span suppressHydrationWarning>
-                  {formatLocalDateTime(incident.resolvedAt)}
+                <span className="font-mono">{trackedCoords}</span>
+
+                <span className="ml-2 text-muted">
+                  {tracking.latest.origin === "TRACKED"
+                    ? `Latest ${formatEnum(tracking.latest.source)} fix`
+                    : "Activation position fallback"}
+
+                  {tracking.latest.sequence !== undefined
+                    ? ` · sequence ${tracking.latest.sequence}`
+                    : ""}
                 </span>
               </>
             ) : (
-              'Marked resolved.'
+              <span className="text-muted">
+                No usable tracked position is currently available.
+              </span>
             )}
           </Row>
-        ) : null}
 
-        {incident.status === 'CANCELLED' ? (
-          // resolvedAt is deliberately null for a cancellation. Rendering an
-          // empty timestamp would look like missing data; the cancellation
-          // time lives on the timeline, which arrives in 14A-9.
-          <Row label="Cancelled">
-            The resident reported this activation as accidental.
-          </Row>
-        ) : null}
-      </dl>
+          {incident.status === "RESOLVED" ? (
+            <Row label="Resolved">
+              {incident.resolvedAt ? (
+                <>
+                  {formatAge(incident.resolvedAt, serverTime)}
+                  {" · "}
+                  <span suppressHydrationWarning>
+                    {formatLocalDateTime(incident.resolvedAt)}
+                  </span>
+                </>
+              ) : (
+                "Marked resolved."
+              )}
+            </Row>
+          ) : null}
+
+          {incident.status === "CANCELLED" ? (
+            // resolvedAt is deliberately null for a cancellation. Rendering an
+            // empty timestamp would look like missing data; the cancellation
+            // time lives on the timeline, which arrives in 14A-9.
+            <Row label="Cancelled">
+              The resident reported this activation as accidental.
+            </Row>
+          ) : null}
+        </dl>
 
         {isClosed ? (
           <p className="mt-6 max-w-prose rounded-lg border border-line bg-panel-2 px-4 py-3 text-sm text-muted">
@@ -628,10 +684,24 @@ export function IncidentDetailView({
         ) : null}
       </section>
 
-      <section className="rounded-xl border border-line bg-panel p-4 text-ink"><h2 className="text-xl font-bold">Incident actions</h2><p className="mt-2 text-sm text-muted">Operator acknowledgement and closure are not available. Closure is currently restricted to the incident owner.</p></section>
-      <DeliveryConfirmation />
+      <section className="rounded-xl border border-line bg-panel p-4 text-ink">
+        <h2 className="text-xl font-bold">Incident actions</h2>
+        <p className="mt-2 text-sm text-muted">
+          Operator acknowledgement and closure are not available. Closure is
+          currently restricted to the incident owner.
+        </p>
+      </section>
+      <DeliveryConfirmation
+        key={initialIncident.id}
+        incidentId={initialIncident.id}
+      />
       <EvidenceAvailability incidentId={incident.id} />
-      <IncidentTimeline events={timeline} verification={verification} available={timelineAvailable} stale={timelineStale} />
+      <IncidentTimeline
+        events={timeline}
+        verification={verification}
+        available={timelineAvailable}
+        stale={timelineStale}
+      />
     </div>
   );
 }

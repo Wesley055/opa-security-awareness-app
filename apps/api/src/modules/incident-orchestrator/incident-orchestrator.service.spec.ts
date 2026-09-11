@@ -1,18 +1,18 @@
-import { Test, TestingModule } from '@nestjs/testing';
+import { Test, type TestingModule } from "@nestjs/testing";
 
-import { EmergencyContactsService } from '../emergency-contacts/emergency-contacts.service';
-import { EmergencyDetectionService } from '../emergency-detection/emergency-detection.service';
-import { EmergencyIntelligenceService } from '../emergency-intelligence/emergency-intelligence.service';
-import { IncidentTimelineService } from '../incident-timeline/incident-timeline.service';
-import { IncidentsService } from '../incidents/incidents.service';
-import { PrismaService } from '../../prisma/prisma.service';
-import { IncidentAccessTokenService } from '../incident-access/incident-access-token.service';
-import { NotificationService } from '../notifications/notification.service';
-import { UsersService } from '../users/users.service';
-import { JourneySessionService } from '../journey/journey-session.service';
-import { IncidentOrchestratorService } from './incident-orchestrator.service';
+import { EmergencyContactsService } from "../emergency-contacts/emergency-contacts.service";
+import { EmergencyDetectionService } from "../emergency-detection/emergency-detection.service";
+import { EmergencyIntelligenceService } from "../emergency-intelligence/emergency-intelligence.service";
+import { IncidentTimelineService } from "../incident-timeline/incident-timeline.service";
+import { IncidentsService } from "../incidents/incidents.service";
+import { PrismaService } from "../../prisma/prisma.service";
+import { IncidentAccessTokenService } from "../incident-access/incident-access-token.service";
+import { NotificationService } from "../notifications/notification.service";
+import { UsersService } from "../users/users.service";
+import { JourneySessionService } from "../journey/journey-session.service";
+import { IncidentOrchestratorService } from "./incident-orchestrator.service";
 
-describe('IncidentOrchestratorService', () => {
+describe("IncidentOrchestratorService", () => {
   let service: IncidentOrchestratorService;
 
   const emergencyDetectionService = {
@@ -32,6 +32,7 @@ describe('IncidentOrchestratorService', () => {
   };
 
   const notificationService = {
+    queueMany: jest.fn((tx, args) => tx.incidentNotification.createMany(args)),
     sendEmergencyAlert: jest.fn(),
   };
 
@@ -72,16 +73,16 @@ describe('IncidentOrchestratorService', () => {
     );
     prisma.incidentNotification.createMany.mockResolvedValue({ count: 3 });
     prisma.incidentNotification.findMany.mockResolvedValue([
-      { contactId: 'contact-1', channel: 'SMS' },
-      { contactId: 'contact-1', channel: 'WHATSAPP' },
-      { contactId: 'contact-1', channel: 'EMAIL' },
+      { contactId: "contact-1", channel: "SMS" },
+      { contactId: "contact-1", channel: "WHATSAPP" },
+      { contactId: "contact-1", channel: "EMAIL" },
     ]);
     prisma.$executeRaw.mockResolvedValue(1);
     // A bare jest.fn() here returns undefined, and the create path then
     // throws a TypeError on journeySession.id in every activation test.
     // The shape matters, not just the mock.
     journeySessionService.resolveForActivation.mockResolvedValue({
-      id: 'journey-session-1',
+      id: "journey-session-1",
     });
     journeySessionService.recordActivationFix.mockResolvedValue({
       inserted: 1,
@@ -89,7 +90,7 @@ describe('IncidentOrchestratorService', () => {
       skippedAlreadyStored: 0,
       receivedAt: new Date(),
       tailSequence: 0,
-      tailHash: 'a'.repeat(64),
+      tailHash: "a".repeat(64),
     });
     journeySessionService.recordRetriggerFix.mockResolvedValue({
       inserted: 1,
@@ -97,15 +98,15 @@ describe('IncidentOrchestratorService', () => {
       skippedAlreadyStored: 0,
       receivedAt: new Date(),
       tailSequence: 1,
-      tailHash: 'b'.repeat(64),
-      sessionId: 'journey-session-1',
+      tailHash: "b".repeat(64),
+      sessionId: "journey-session-1",
       incidentRelinked: false,
     });
     // Default: no recent incident, so the normal creation path runs.
     prisma.incident.findFirst.mockResolvedValue(null);
     accessTokenService.issue.mockResolvedValue({
-      token: 'test-token-value',
-      record: { id: 'token-row-1' },
+      token: "test-token-value",
+      record: { id: "token-row-1" },
     });
 
     const module: TestingModule = await Test.createTestingModule({
@@ -159,84 +160,128 @@ describe('IncidentOrchestratorService', () => {
     );
   });
 
-  it.each([false, true])('activates without location or fake enrichment, retrigger=%s', async (retrigger) => {
-    emergencyDetectionService.evaluate.mockReturnValue({ outcome: { shouldActivate: true, isSilent: true } });
-    usersService.findById.mockResolvedValue({ id: 'user-1', firstName: 'Test', lastName: 'User' });
-    emergencyContactsService.listForUser.mockResolvedValue([{ id: 'contact-1', firstName: 'Contact', lastName: 'One', isActive: true, receivesEmergencySms: true, phoneNumber: '+2348012345678' }]);
-    const incident = { id: 'incident-1', createdAt: new Date(), journeySessionId: null, latitude: null, longitude: null, retriggerCount: 1 };
-    incidentsService.create.mockResolvedValue(incident);
-    prisma.incident.findFirst.mockResolvedValue(retrigger ? incident : null);
-    prisma.incident.update.mockResolvedValue(incident);
-    prisma.incidentNotification.findMany.mockResolvedValue([]);
-    const result = await service.createCoordinatedIncident('user-1', { triggerType: 'VOICE' as never, mode: 'SILENT' as never, detectedPhrase: 'HELP HELP' });
-    expect(result.status).toBe(retrigger ? 'INCIDENT_RETRIGGERED' : 'INCIDENT_ACTIVATED');
-    expect(result.intelligence).toBeNull();
-    expect(emergencyIntelligenceService.buildLocationIntelligence).not.toHaveBeenCalled();
-    expect(journeySessionService.recordActivationFix).not.toHaveBeenCalled();
-    expect(journeySessionService.recordRetriggerFix).not.toHaveBeenCalled();
-    expect(journeySessionService.resolveForActivation).not.toHaveBeenCalled();
-    expect(timelineService.recordEvent).not.toHaveBeenCalledWith(expect.objectContaining({ type: 'LOCATION_ATTACHED' }));
-    const notifications = prisma.incidentNotification.createMany.mock.calls[0]![0].data;
-    expect(notifications).toHaveLength(2);
-    for (const row of notifications) {
-      expect(row.status).toBe('QUEUED');
-      expect(row.payload.message).toContain('may be in danger');
-      expect(row.payload.message).toContain('Location unavailable');
-      expect(row.payload.message).not.toContain('maps.google');
-      expect(row.payload.message).not.toContain('undefined');
-    }
-    if (!retrigger) expect(incidentsService.create).toHaveBeenCalledWith('user-1', expect.objectContaining({ latitude: undefined, longitude: undefined }), prisma);
-  });
+  it.each([false, true])(
+    "activates without location or fake enrichment, retrigger=%s",
+    async (retrigger) => {
+      emergencyDetectionService.evaluate.mockReturnValue({
+        outcome: { shouldActivate: true, isSilent: true },
+      });
+      usersService.findById.mockResolvedValue({
+        id: "user-1",
+        firstName: "Test",
+        lastName: "User",
+      });
+      emergencyContactsService.listForUser.mockResolvedValue([
+        {
+          id: "contact-1",
+          firstName: "Contact",
+          lastName: "One",
+          isActive: true,
+          receivesEmergencySms: true,
+          phoneNumber: "+2348012345678",
+        },
+      ]);
+      const incident = {
+        id: "incident-1",
+        createdAt: new Date(),
+        journeySessionId: null,
+        latitude: null,
+        longitude: null,
+        retriggerCount: 1,
+      };
+      incidentsService.create.mockResolvedValue(incident);
+      prisma.incident.findFirst.mockResolvedValue(retrigger ? incident : null);
+      prisma.incident.update.mockResolvedValue(incident);
+      prisma.incidentNotification.findMany.mockResolvedValue([]);
+      const result = await service.createCoordinatedIncident("user-1", {
+        triggerType: "VOICE" as never,
+        mode: "SILENT" as never,
+        detectedPhrase: "HELP HELP",
+      });
+      expect(result.status).toBe(
+        retrigger ? "INCIDENT_RETRIGGERED" : "INCIDENT_ACTIVATED",
+      );
+      expect(result.intelligence).toBeNull();
+      expect(
+        emergencyIntelligenceService.buildLocationIntelligence,
+      ).not.toHaveBeenCalled();
+      expect(journeySessionService.recordActivationFix).not.toHaveBeenCalled();
+      expect(journeySessionService.recordRetriggerFix).not.toHaveBeenCalled();
+      expect(journeySessionService.resolveForActivation).not.toHaveBeenCalled();
+      expect(timelineService.recordEvent).not.toHaveBeenCalledWith(
+        expect.objectContaining({ type: "LOCATION_ATTACHED" }),
+      );
+      const notifications =
+        prisma.incidentNotification.createMany.mock.calls[0]![0].data;
+      expect(notifications).toHaveLength(2);
+      for (const row of notifications) {
+        expect(row.status).toBe("QUEUED");
+        expect(row.payload.message).toContain("may be in danger");
+        expect(row.payload.message).toContain("Location unavailable");
+        expect(row.payload.message).not.toContain("maps.google");
+        expect(row.payload.message).not.toContain("undefined");
+      }
+      if (!retrigger)
+        expect(incidentsService.create).toHaveBeenCalledWith(
+          "user-1",
+          expect.objectContaining({
+            latitude: undefined,
+            longitude: undefined,
+          }),
+          prisma,
+        );
+    },
+  );
 
-  it('should activate a coordinated incident and notify active contacts', async () => {
+  it("should activate a coordinated incident and notify active contacts", async () => {
     emergencyDetectionService.evaluate.mockReturnValue({
       outcome: {
         shouldActivate: true,
         requiresConfirmation: false,
         isSilent: true,
         confidenceScore: 75,
-        confidenceLevel: 'HIGH',
+        confidenceLevel: "HIGH",
       },
     });
 
     usersService.findById.mockResolvedValue({
-      id: 'user-123',
-      firstName: 'Test',
-      lastName: 'User',
+      id: "user-123",
+      firstName: "Test",
+      lastName: "User",
     });
 
     emergencyIntelligenceService.buildLocationIntelligence.mockResolvedValue({
       location: {
-        address: '12 Allen Avenue, Ikeja, Lagos',
-        crossStreet: 'Allen Avenue & Opebi Road',
+        address: "12 Allen Avenue, Ikeja, Lagos",
+        crossStreet: "Allen Avenue & Opebi Road",
       },
     });
 
     incidentsService.create.mockResolvedValue({
-      id: 'incident-123',
-      userId: 'user-123',
-      status: 'OPEN',
+      id: "incident-123",
+      userId: "user-123",
+      status: "OPEN",
     });
 
     timelineService.recordEvent.mockResolvedValue({});
 
     emergencyContactsService.listForUser.mockResolvedValue([
       {
-        id: 'contact-1',
-        firstName: 'Grace',
-        lastName: 'Wesley',
-        relationship: 'FAMILY',
-        phoneNumber: '+2348012345678',
-        email: 'grace@example.com',
+        id: "contact-1",
+        firstName: "Grace",
+        lastName: "Wesley",
+        relationship: "FAMILY",
+        phoneNumber: "+2348012345678",
+        email: "grace@example.com",
         isActive: true,
         receivesEmergencySms: true,
       },
       {
-        id: 'contact-2',
-        firstName: 'Inactive',
-        lastName: 'Contact',
-        relationship: 'FRIEND',
-        phoneNumber: '+2348099999999',
+        id: "contact-2",
+        firstName: "Inactive",
+        lastName: "Contact",
+        relationship: "FRIEND",
+        phoneNumber: "+2348099999999",
         email: null,
         isActive: false,
       },
@@ -244,41 +289,38 @@ describe('IncidentOrchestratorService', () => {
 
     notificationService.sendEmergencyAlert.mockResolvedValue({
       success: true,
-      provider: 'MockProvider',
-      messageId: 'message-123',
+      provider: "MockProvider",
+      messageId: "message-123",
     });
 
-    const result = await service.createCoordinatedIncident(
-      'user-123',
-      {
-        triggerType: 'VOICE' as never,
-        mode: 'SILENT' as never,
-        detectedPhrase: 'HELP HELP',
-        language: 'en-NG',
-        voiceConfidence: 0.96,
-        repetitionCount: 2,
-        userConfirmed: false,
-        cancellationReceived: false,
-        deviceInMotion: true,
-        isOffline: false,
-        confirmationSeconds: 5,
-        latitude: 6.6018,
-        longitude: 3.3515,
-        accuracy: 5,
-        speed: 18,
-        heading: 45,
-        altitude: 42,
-        batteryLevel: 72,
-        isCharging: false,
-        networkType: '4G',
-        timestamp: '2026-07-12T09:00:00.000Z',
-      },
-    );
+    const result = await service.createCoordinatedIncident("user-123", {
+      triggerType: "VOICE" as never,
+      mode: "SILENT" as never,
+      detectedPhrase: "HELP HELP",
+      language: "en-NG",
+      voiceConfidence: 0.96,
+      repetitionCount: 2,
+      userConfirmed: false,
+      cancellationReceived: false,
+      deviceInMotion: true,
+      isOffline: false,
+      confirmationSeconds: 5,
+      latitude: 6.6018,
+      longitude: 3.3515,
+      accuracy: 5,
+      speed: 18,
+      heading: 45,
+      altitude: 42,
+      batteryLevel: 72,
+      isCharging: false,
+      networkType: "4G",
+      timestamp: "2026-07-12T09:00:00.000Z",
+    });
 
-    expect(result.status).toBe('INCIDENT_ACTIVATED');
+    expect(result.status).toBe("INCIDENT_ACTIVATED");
     expect(result.notifications).toEqual({ queued: 3, dispatched: false });
     expect(result.coordination?.silentMode).toBe(true);
-    expect(result.incident?.id).toBe('incident-123');
+    expect(result.incident?.id).toBe("incident-123");
 
     expect(incidentsService.create).toHaveBeenCalledTimes(1);
     // The orchestrator only QUEUES: the dispatch worker sends. It must not
@@ -288,102 +330,96 @@ describe('IncidentOrchestratorService', () => {
     const createManyArgs =
       prisma.incidentNotification.createMany.mock.calls[0][0];
     expect(createManyArgs.data).toHaveLength(3);
-    expect(createManyArgs.data[0].status).toBe('QUEUED');
+    expect(createManyArgs.data[0].status).toBe("QUEUED");
     expect(createManyArgs.data[0].payload.version).toBe(1);
     expect(timelineService.recordEvent).toHaveBeenCalled();
   });
 
-  it('does not queue SMS for an active contact opted out of emergency SMS', async () => {
+  it("does not queue SMS for an active contact opted out of emergency SMS", async () => {
     emergencyDetectionService.evaluate.mockReturnValue({
       outcome: {
         shouldActivate: true,
         requiresConfirmation: false,
         isSilent: false,
         confidenceScore: 90,
-        confidenceLevel: 'HIGH',
+        confidenceLevel: "HIGH",
       },
     });
 
     usersService.findById.mockResolvedValue({
-      id: 'user-123',
-      firstName: 'Test',
-      lastName: 'User',
+      id: "user-123",
+      firstName: "Test",
+      lastName: "User",
     });
 
     emergencyIntelligenceService.buildLocationIntelligence.mockResolvedValue({
-      location: { address: '12 Allen Avenue, Ikeja, Lagos' },
+      location: { address: "12 Allen Avenue, Ikeja, Lagos" },
     });
 
     incidentsService.create.mockResolvedValue({
-      id: 'incident-sms-opt-out',
-      userId: 'user-123',
-      status: 'OPEN',
+      id: "incident-sms-opt-out",
+      userId: "user-123",
+      status: "OPEN",
     });
 
     timelineService.recordEvent.mockResolvedValue({});
 
     emergencyContactsService.listForUser.mockResolvedValue([
       {
-        id: 'contact-opt-out',
-        firstName: 'Test',
-        lastName: 'Contact',
-        relationship: 'FAMILY',
-        phoneNumber: '+2348012345678',
-        email: 'contact@example.com',
+        id: "contact-opt-out",
+        firstName: "Test",
+        lastName: "Contact",
+        relationship: "FAMILY",
+        phoneNumber: "+2348012345678",
+        email: "contact@example.com",
         isActive: true,
         receivesEmergencySms: false,
       },
     ]);
 
-    const result = await service.createCoordinatedIncident('user-123', {
-      triggerType: 'SOS_BUTTON' as never,
-      mode: 'IMMEDIATE' as never,
+    const result = await service.createCoordinatedIncident("user-123", {
+      triggerType: "SOS_BUTTON" as never,
+      mode: "IMMEDIATE" as never,
       latitude: 6.6018,
       longitude: 3.3515,
       userConfirmed: true,
     });
 
-    const createArgs =
-      prisma.incidentNotification.createMany.mock.calls[0][0];
+    const createArgs = prisma.incidentNotification.createMany.mock.calls[0][0];
 
     expect(createArgs.data).toHaveLength(2);
     expect(
-      createArgs.data.some(
-        (row: { channel: string }) => row.channel === 'SMS',
-      ),
+      createArgs.data.some((row: { channel: string }) => row.channel === "SMS"),
     ).toBe(false);
     expect(
       createArgs.data.map((row: { channel: string }) => row.channel),
-    ).toEqual(expect.arrayContaining(['WHATSAPP', 'EMAIL']));
+    ).toEqual(expect.arrayContaining(["WHATSAPP", "EMAIL"]));
 
     expect(result.notifications).toEqual({
       queued: 2,
       dispatched: false,
     });
   });
-  it('should not create an incident when detection does not activate', async () => {
+  it("should not create an incident when detection does not activate", async () => {
     emergencyDetectionService.evaluate.mockReturnValue({
       outcome: {
         shouldActivate: false,
         requiresConfirmation: false,
         isSilent: false,
         confidenceScore: 20,
-        confidenceLevel: 'LOW',
+        confidenceLevel: "LOW",
       },
     });
 
-    const result = await service.createCoordinatedIncident(
-      'user-123',
-      {
-        triggerType: 'VOICE' as never,
-        mode: 'IMMEDIATE' as never,
-        detectedPhrase: 'GOOD MORNING',
-        latitude: 6.6018,
-        longitude: 3.3515,
-      },
-    );
+    const result = await service.createCoordinatedIncident("user-123", {
+      triggerType: "VOICE" as never,
+      mode: "IMMEDIATE" as never,
+      detectedPhrase: "GOOD MORNING",
+      latitude: 6.6018,
+      longitude: 3.3515,
+    });
 
-    expect(result.status).toBe('NOT_ACTIVATED');
+    expect(result.status).toBe("NOT_ACTIVATED");
     expect(result.incident).toBeNull();
     expect(result.notifications).toEqual({ queued: 0, dispatched: false });
 
@@ -392,33 +428,30 @@ describe('IncidentOrchestratorService', () => {
     expect(timelineService.recordEvent).not.toHaveBeenCalled();
   });
 
-  it('should return confirmation required when the trigger needs confirmation', async () => {
+  it("should return confirmation required when the trigger needs confirmation", async () => {
     emergencyDetectionService.evaluate.mockReturnValue({
       outcome: {
         shouldActivate: false,
         requiresConfirmation: true,
         isSilent: false,
         confidenceScore: 55,
-        confidenceLevel: 'MEDIUM',
+        confidenceLevel: "MEDIUM",
       },
     });
 
-    const result = await service.createCoordinatedIncident(
-      'user-123',
-      {
-        triggerType: 'VOICE' as never,
-        mode: 'CONFIRMATION' as never,
-        detectedPhrase: 'HELP HELP',
-        latitude: 6.6018,
-        longitude: 3.3515,
-      },
-    );
+    const result = await service.createCoordinatedIncident("user-123", {
+      triggerType: "VOICE" as never,
+      mode: "CONFIRMATION" as never,
+      detectedPhrase: "HELP HELP",
+      latitude: 6.6018,
+      longitude: 3.3515,
+    });
 
-    expect(result.status).toBe('CONFIRMATION_REQUIRED');
+    expect(result.status).toBe("CONFIRMATION_REQUIRED");
     expect(result.incident).toBeNull();
   });
 
-  describe('SOS deduplication', () => {
+  describe("SOS deduplication", () => {
     const primeActivation = () => {
       emergencyDetectionService.evaluate.mockReturnValue({
         outcome: {
@@ -426,59 +459,59 @@ describe('IncidentOrchestratorService', () => {
           requiresConfirmation: false,
           isSilent: false,
           confidenceScore: 80,
-          confidenceLevel: 'HIGH',
+          confidenceLevel: "HIGH",
         },
       });
       usersService.findById.mockResolvedValue({
-        id: 'user-123',
-        firstName: 'Test',
-        lastName: 'User',
+        id: "user-123",
+        firstName: "Test",
+        lastName: "User",
       });
       emergencyIntelligenceService.buildLocationIntelligence.mockResolvedValue({
-        location: { address: '12 Allen Avenue, Ikeja, Lagos' },
+        location: { address: "12 Allen Avenue, Ikeja, Lagos" },
       });
       timelineService.recordEvent.mockResolvedValue({});
       emergencyContactsService.listForUser.mockResolvedValue([
         {
-          id: 'contact-1',
-          firstName: 'Grace',
-          lastName: 'Wesley',
-          relationship: 'FAMILY',
-          phoneNumber: '+2348012345678',
-          email: 'grace@example.com',
+          id: "contact-1",
+          firstName: "Grace",
+          lastName: "Wesley",
+          relationship: "FAMILY",
+          phoneNumber: "+2348012345678",
+          email: "grace@example.com",
           isActive: true,
-        receivesEmergencySms: true,
+          receivesEmergencySms: true,
         },
       ]);
     };
 
     const activationDto = {
-      triggerType: 'SOS_BUTTON' as never,
-      mode: 'IMMEDIATE' as never,
+      triggerType: "SOS_BUTTON" as never,
+      mode: "IMMEDIATE" as never,
       latitude: 6.6018,
       longitude: 3.3515,
       userConfirmed: true,
     };
 
-    it('creates a new incident when no recent incident exists', async () => {
+    it("creates a new incident when no recent incident exists", async () => {
       primeActivation();
       prisma.incident.findFirst.mockResolvedValue(null);
-    accessTokenService.issue.mockResolvedValue({
-      token: 'test-token-value',
-      record: { id: 'token-row-1' },
-    });
+      accessTokenService.issue.mockResolvedValue({
+        token: "test-token-value",
+        record: { id: "token-row-1" },
+      });
       incidentsService.create.mockResolvedValue({
-        id: 'incident-new',
+        id: "incident-new",
         createdAt: new Date(),
         retriggerCount: 0,
       });
 
       const result = await service.createCoordinatedIncident(
-        'user-123',
+        "user-123",
         activationDto,
       );
 
-      expect(result.status).toBe('INCIDENT_ACTIVATED');
+      expect(result.status).toBe("INCIDENT_ACTIVATED");
       expect(incidentsService.create).toHaveBeenCalledTimes(1);
       expect(prisma.incidentNotification.createMany).toHaveBeenCalledTimes(1);
       // The create path now calls incident.update exactly once, to link
@@ -486,23 +519,23 @@ describe('IncidentOrchestratorService', () => {
       // intent of this line: this is a creation, not a retrigger.
       expect(prisma.incident.update).toHaveBeenCalledTimes(1);
       const linkArgs = prisma.incident.update.mock.calls[0][0];
-      expect(linkArgs.data).toEqual({ journeySessionId: 'journey-session-1' });
+      expect(linkArgs.data).toEqual({ journeySessionId: "journey-session-1" });
     });
 
-    it('acquires a per-user advisory lock before checking for duplicates', async () => {
+    it("acquires a per-user advisory lock before checking for duplicates", async () => {
       primeActivation();
       prisma.incident.findFirst.mockResolvedValue(null);
-    accessTokenService.issue.mockResolvedValue({
-      token: 'test-token-value',
-      record: { id: 'token-row-1' },
-    });
+      accessTokenService.issue.mockResolvedValue({
+        token: "test-token-value",
+        record: { id: "token-row-1" },
+      });
       incidentsService.create.mockResolvedValue({
-        id: 'incident-new',
+        id: "incident-new",
         createdAt: new Date(),
         retriggerCount: 0,
       });
 
-      await service.createCoordinatedIncident('user-123', activationDto);
+      await service.createCoordinatedIncident("user-123", activationDto);
 
       expect(prisma.$executeRaw).toHaveBeenCalled();
       // Ordering is the property that matters: if the lookup ran first, two
@@ -513,10 +546,10 @@ describe('IncidentOrchestratorService', () => {
       expect(lockOrder).toBeLessThan(lookupOrder);
     });
 
-    it('returns the existing incident when one was triggered within the window', async () => {
+    it("returns the existing incident when one was triggered within the window", async () => {
       primeActivation();
       const existing = {
-        id: 'incident-existing',
+        id: "incident-existing",
         createdAt: new Date(Date.now() - 20_000),
         retriggerCount: 0,
       };
@@ -527,21 +560,21 @@ describe('IncidentOrchestratorService', () => {
       });
 
       const result = await service.createCoordinatedIncident(
-        'user-123',
+        "user-123",
         activationDto,
       );
 
-      expect(result.status).toBe('INCIDENT_RETRIGGERED');
-      expect(result.incident?.id).toBe('incident-existing');
+      expect(result.status).toBe("INCIDENT_RETRIGGERED");
+      expect(result.incident?.id).toBe("incident-existing");
       expect(result.deduplicated).toBe(true);
     });
 
-    it('returns the session selected by the retrigger writer', async () => {
+    it("returns the session selected by the retrigger writer", async () => {
       primeActivation();
       const existing = {
-        id: 'incident-existing',
-        userId: 'user-123',
-        journeySessionId: 'ended-session',
+        id: "incident-existing",
+        userId: "user-123",
+        journeySessionId: "ended-session",
         createdAt: new Date(Date.now() - 20_000),
         retriggerCount: 0,
       };
@@ -556,23 +589,23 @@ describe('IncidentOrchestratorService', () => {
         skippedAlreadyStored: 0,
         receivedAt: new Date(),
         tailSequence: 0,
-        tailHash: 'c'.repeat(64),
-        sessionId: 'fresh-session',
+        tailHash: "c".repeat(64),
+        sessionId: "fresh-session",
         incidentRelinked: true,
       });
 
       const result = await service.createCoordinatedIncident(
-        'user-123',
+        "user-123",
         activationDto,
       );
 
-      expect(result.incident?.journeySessionId).toBe('fresh-session');
+      expect(result.incident?.journeySessionId).toBe("fresh-session");
     });
 
-    it('does not create a second incident on retrigger', async () => {
+    it("does not create a second incident on retrigger", async () => {
       primeActivation();
       const existing = {
-        id: 'incident-existing',
+        id: "incident-existing",
         createdAt: new Date(Date.now() - 20_000),
         retriggerCount: 0,
       };
@@ -582,15 +615,15 @@ describe('IncidentOrchestratorService', () => {
         retriggerCount: 1,
       });
 
-      await service.createCoordinatedIncident('user-123', activationDto);
+      await service.createCoordinatedIncident("user-123", activationDto);
 
       expect(incidentsService.create).not.toHaveBeenCalled();
     });
 
-    it('does not queue duplicate notifications on retrigger', async () => {
+    it("does not queue duplicate notifications on retrigger", async () => {
       primeActivation();
       const existing = {
-        id: 'incident-existing',
+        id: "incident-existing",
         createdAt: new Date(Date.now() - 20_000),
         retriggerCount: 0,
       };
@@ -601,7 +634,7 @@ describe('IncidentOrchestratorService', () => {
       });
 
       const result = await service.createCoordinatedIncident(
-        'user-123',
+        "user-123",
         activationDto,
       );
 
@@ -609,19 +642,19 @@ describe('IncidentOrchestratorService', () => {
       expect(result.notifications).toEqual({ queued: 0, dispatched: false });
     });
 
-    it('attaches the current facility when retriggering an OPEN incident that has no facility', async () => {
+    it("attaches the current facility when retriggering an OPEN incident that has no facility", async () => {
       primeActivation();
 
       usersService.findById.mockResolvedValue({
-        id: 'user-123',
-        firstName: 'Test',
-        lastName: 'User',
-        facilityId: 'facility-123',
+        id: "user-123",
+        firstName: "Test",
+        lastName: "User",
+        facilityId: "facility-123",
       });
 
       const existing = {
-        id: 'incident-existing',
-        userId: 'user-123',
+        id: "incident-existing",
+        userId: "user-123",
         facilityId: null,
         createdAt: new Date(Date.now() - 20_000),
         retriggerCount: 0,
@@ -631,25 +664,25 @@ describe('IncidentOrchestratorService', () => {
       prisma.incidentNotification.findMany.mockResolvedValue([]);
       prisma.incident.update.mockResolvedValue({
         ...existing,
-        facilityId: 'facility-123',
+        facilityId: "facility-123",
         retriggerCount: 1,
       });
 
-      await service.createCoordinatedIncident('user-123', activationDto);
+      await service.createCoordinatedIncident("user-123", activationDto);
 
       const updateArgs = prisma.incident.update.mock.calls[0][0];
 
-      expect(updateArgs.where).toEqual({ id: 'incident-existing' });
-      expect(updateArgs.data.facilityId).toBe('facility-123');
+      expect(updateArgs.where).toEqual({ id: "incident-existing" });
+      expect(updateArgs.data.facilityId).toBe("facility-123");
     });
 
-    it('queues only newly eligible contact channels when retriggering an OPEN incident', async () => {
+    it("queues only newly eligible contact channels when retriggering an OPEN incident", async () => {
       primeActivation();
 
       const existing = {
-        id: 'incident-existing',
-        userId: 'user-123',
-        facilityId: 'facility-123',
+        id: "incident-existing",
+        userId: "user-123",
+        facilityId: "facility-123",
         createdAt: new Date(Date.now() - 20_000),
         retriggerCount: 0,
       };
@@ -657,8 +690,8 @@ describe('IncidentOrchestratorService', () => {
       prisma.incident.findFirst.mockResolvedValue(existing);
       prisma.incidentNotification.findMany.mockResolvedValue([
         {
-          contactId: 'contact-1',
-          channel: 'SMS',
+          contactId: "contact-1",
+          channel: "SMS",
         },
       ]);
 
@@ -668,12 +701,12 @@ describe('IncidentOrchestratorService', () => {
       });
 
       accessTokenService.issue.mockResolvedValue({
-        token: 'retrigger-token-value',
-        record: { id: 'token-row-retrigger-1' },
+        token: "retrigger-token-value",
+        record: { id: "token-row-retrigger-1" },
       });
 
       const result = await service.createCoordinatedIncident(
-        'user-123',
+        "user-123",
         activationDto,
       );
 
@@ -686,22 +719,21 @@ describe('IncidentOrchestratorService', () => {
       expect(createArgs.data).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            incidentId: 'incident-existing',
-            contactId: 'contact-1',
-            channel: 'WHATSAPP',
+            incidentId: "incident-existing",
+            contactId: "contact-1",
+            channel: "WHATSAPP",
           }),
           expect.objectContaining({
-            incidentId: 'incident-existing',
-            contactId: 'contact-1',
-            channel: 'EMAIL',
+            incidentId: "incident-existing",
+            contactId: "contact-1",
+            channel: "EMAIL",
           }),
         ]),
       );
 
       expect(
         createArgs.data.some(
-          (row: { channel: string }) =>
-            row.channel === 'SMS',
+          (row: { channel: string }) => row.channel === "SMS",
         ),
       ).toBe(false);
 
@@ -711,26 +743,26 @@ describe('IncidentOrchestratorService', () => {
       });
     });
 
-    it('does not recreate SMS on retrigger for a contact opted out of emergency SMS', async () => {
+    it("does not recreate SMS on retrigger for a contact opted out of emergency SMS", async () => {
       primeActivation();
 
       emergencyContactsService.listForUser.mockResolvedValue([
         {
-          id: 'contact-1',
-          firstName: 'Grace',
-          lastName: 'Wesley',
-          relationship: 'FAMILY',
-          phoneNumber: '+2348012345678',
-          email: 'grace@example.com',
+          id: "contact-1",
+          firstName: "Grace",
+          lastName: "Wesley",
+          relationship: "FAMILY",
+          phoneNumber: "+2348012345678",
+          email: "grace@example.com",
           isActive: true,
           receivesEmergencySms: false,
         },
       ]);
 
       const existing = {
-        id: 'incident-existing',
-        userId: 'user-123',
-        facilityId: 'facility-123',
+        id: "incident-existing",
+        userId: "user-123",
+        facilityId: "facility-123",
         createdAt: new Date(Date.now() - 20_000),
         retriggerCount: 0,
       };
@@ -743,7 +775,7 @@ describe('IncidentOrchestratorService', () => {
       });
 
       const result = await service.createCoordinatedIncident(
-        'user-123',
+        "user-123",
         activationDto,
       );
 
@@ -756,26 +788,26 @@ describe('IncidentOrchestratorService', () => {
 
       expect(
         createArgs.data.some(
-          (row: { channel: string }) => row.channel === 'SMS',
+          (row: { channel: string }) => row.channel === "SMS",
         ),
       ).toBe(false);
 
       expect(
         createArgs.data.map((row: { channel: string }) => row.channel),
-      ).toEqual(expect.arrayContaining(['WHATSAPP', 'EMAIL']));
+      ).toEqual(expect.arrayContaining(["WHATSAPP", "EMAIL"]));
 
       expect(result.notifications).toEqual({
         queued: 2,
         dispatched: false,
       });
     });
-    it('does not queue duplicate contact channels on retrigger', async () => {
+    it("does not queue duplicate contact channels on retrigger", async () => {
       primeActivation();
 
       const existing = {
-        id: 'incident-existing',
-        userId: 'user-123',
-        facilityId: 'facility-123',
+        id: "incident-existing",
+        userId: "user-123",
+        facilityId: "facility-123",
         createdAt: new Date(Date.now() - 20_000),
         retriggerCount: 0,
       };
@@ -783,16 +815,16 @@ describe('IncidentOrchestratorService', () => {
       prisma.incident.findFirst.mockResolvedValue(existing);
       prisma.incidentNotification.findMany.mockResolvedValue([
         {
-          contactId: 'contact-1',
-          channel: 'SMS',
+          contactId: "contact-1",
+          channel: "SMS",
         },
         {
-          contactId: 'contact-1',
-          channel: 'WHATSAPP',
+          contactId: "contact-1",
+          channel: "WHATSAPP",
         },
         {
-          contactId: 'contact-1',
-          channel: 'EMAIL',
+          contactId: "contact-1",
+          channel: "EMAIL",
         },
       ]);
 
@@ -802,7 +834,7 @@ describe('IncidentOrchestratorService', () => {
       });
 
       const result = await service.createCoordinatedIncident(
-        'user-123',
+        "user-123",
         activationDto,
       );
 
@@ -812,10 +844,10 @@ describe('IncidentOrchestratorService', () => {
         dispatched: false,
       });
     });
-    it('increments retriggerCount and updates lastTriggeredAt', async () => {
+    it("increments retriggerCount and updates lastTriggeredAt", async () => {
       primeActivation();
       const existing = {
-        id: 'incident-existing',
+        id: "incident-existing",
         createdAt: new Date(Date.now() - 20_000),
         retriggerCount: 2,
       };
@@ -826,21 +858,21 @@ describe('IncidentOrchestratorService', () => {
       });
 
       const result = await service.createCoordinatedIncident(
-        'user-123',
+        "user-123",
         activationDto,
       );
 
       const updateArgs = prisma.incident.update.mock.calls[0][0];
-      expect(updateArgs.where).toEqual({ id: 'incident-existing' });
+      expect(updateArgs.where).toEqual({ id: "incident-existing" });
       expect(updateArgs.data.retriggerCount).toEqual({ increment: 1 });
       expect(updateArgs.data.lastTriggeredAt).toBeInstanceOf(Date);
       expect(result.retriggerCount).toBe(3);
     });
 
-    it('does NOT overwrite the incident origin coordinates on retrigger', async () => {
+    it("does NOT overwrite the incident origin coordinates on retrigger", async () => {
       primeActivation();
       const existing = {
-        id: 'incident-existing',
+        id: "incident-existing",
         createdAt: new Date(Date.now() - 20_000),
         retriggerCount: 0,
       };
@@ -850,7 +882,7 @@ describe('IncidentOrchestratorService', () => {
         retriggerCount: 1,
       });
 
-      await service.createCoordinatedIncident('user-123', {
+      await service.createCoordinatedIncident("user-123", {
         ...activationDto,
         latitude: 9.9999,
         longitude: 9.9999,
@@ -859,14 +891,14 @@ describe('IncidentOrchestratorService', () => {
       const updateArgs = prisma.incident.update.mock.calls[0][0];
       // The origin is where the emergency began (e.g. where an abduction
       // started). New positions belong on the timeline, not smeared over it.
-      expect(updateArgs.data).not.toHaveProperty('latitude');
-      expect(updateArgs.data).not.toHaveProperty('longitude');
+      expect(updateArgs.data).not.toHaveProperty("latitude");
+      expect(updateArgs.data).not.toHaveProperty("longitude");
     });
 
-    it('records exactly one SOS_RETRIGGERED timeline event with the new position', async () => {
+    it("records exactly one SOS_RETRIGGERED timeline event with the new position", async () => {
       primeActivation();
       const existing = {
-        id: 'incident-existing',
+        id: "incident-existing",
         createdAt: new Date(Date.now() - 20_000),
         retriggerCount: 0,
       };
@@ -876,7 +908,7 @@ describe('IncidentOrchestratorService', () => {
         retriggerCount: 1,
       });
 
-      await service.createCoordinatedIncident('user-123', {
+      await service.createCoordinatedIncident("user-123", {
         ...activationDto,
         latitude: 7.1234,
         longitude: 4.5678,
@@ -884,7 +916,7 @@ describe('IncidentOrchestratorService', () => {
 
       const retriggerEvents = timelineService.recordEvent.mock.calls.filter(
         (call: unknown[]) =>
-          (call[0] as { type: string }).type === 'SOS_RETRIGGERED',
+          (call[0] as { type: string }).type === "SOS_RETRIGGERED",
       );
       expect(retriggerEvents).toHaveLength(1);
 
@@ -892,7 +924,7 @@ describe('IncidentOrchestratorService', () => {
         incidentId: string;
         payload: Record<string, unknown>;
       };
-      expect(event.incidentId).toBe('incident-existing');
+      expect(event.incidentId).toBe("incident-existing");
       expect(event.payload).toEqual(
         expect.objectContaining({
           triggerMethod: activationDto.triggerType,
@@ -905,40 +937,40 @@ describe('IncidentOrchestratorService', () => {
       );
     });
 
-    it('scopes the active-incident lookup to the triggering user and OPEN incidents', async () => {
+    it("scopes the active-incident lookup to the triggering user and OPEN incidents", async () => {
       primeActivation();
       prisma.incident.findFirst.mockResolvedValue(null);
-    accessTokenService.issue.mockResolvedValue({
-      token: 'test-token-value',
-      record: { id: 'token-row-1' },
-    });
+      accessTokenService.issue.mockResolvedValue({
+        token: "test-token-value",
+        record: { id: "token-row-1" },
+      });
       incidentsService.create.mockResolvedValue({
-        id: 'incident-new',
+        id: "incident-new",
         createdAt: new Date(),
         retriggerCount: 0,
       });
 
-      await service.createCoordinatedIncident('user-123', activationDto);
+      await service.createCoordinatedIncident("user-123", activationDto);
 
       const findArgs = prisma.incident.findFirst.mock.calls[0][0];
       expect(findArgs.where).toEqual({
-        userId: 'user-123',
-        status: 'OPEN',
+        userId: "user-123",
+        status: "OPEN",
       });
       expect(findArgs.orderBy).toEqual([
-        { lastTriggeredAt: 'desc' },
-        { createdAt: 'desc' },
-        { id: 'desc' },
+        { lastTriggeredAt: "desc" },
+        { createdAt: "desc" },
+        { id: "desc" },
       ]);
     });
 
-    it('reuses an OPEN incident regardless of how long ago it was triggered', async () => {
+    it("reuses an OPEN incident regardless of how long ago it was triggered", async () => {
       primeActivation();
 
       const existing = {
-        id: 'incident-existing',
-        userId: 'user-123',
-        journeySessionId: 'journey-session-1',
+        id: "incident-existing",
+        userId: "user-123",
+        journeySessionId: "journey-session-1",
         createdAt: new Date(Date.now() - 86_400_000),
         lastTriggeredAt: new Date(Date.now() - 86_400_000),
         retriggerCount: 0,
@@ -952,12 +984,12 @@ describe('IncidentOrchestratorService', () => {
       });
 
       const result = await service.createCoordinatedIncident(
-        'user-123',
+        "user-123",
         activationDto,
       );
 
-      expect(result.status).toBe('INCIDENT_RETRIGGERED');
-      expect(result.incident?.id).toBe('incident-existing');
+      expect(result.status).toBe("INCIDENT_RETRIGGERED");
+      expect(result.incident?.id).toBe("incident-existing");
       expect(result.deduplicated).toBe(true);
       expect(incidentsService.create).not.toHaveBeenCalled();
       expect(prisma.incidentNotification.createMany).not.toHaveBeenCalled();

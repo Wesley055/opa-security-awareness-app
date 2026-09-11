@@ -2,28 +2,28 @@ import type {
   NotificationProvider,
   NotificationRequest,
   NotificationResponse,
-} from './notification-provider.interface';
+} from "./notification-provider.interface";
 
 export class SmsProvider implements NotificationProvider {
   /** Guards the one-time mode log below. Process-wide, deliberately. */
   private static modeLogged = false;
 
-  readonly providerName = 'SMS';
+  readonly providerName = "SMS";
 
-  async send(
-    request: NotificationRequest,
-  ): Promise<NotificationResponse> {
+  async send(request: NotificationRequest): Promise<NotificationResponse> {
     const apiKey = process.env.AFRICASTALKING_API_KEY;
     const username = process.env.AFRICASTALKING_USERNAME;
 
     if (!apiKey || !username) {
       console.warn(
-        '[SmsProvider] SMS provider not configured.',
+        `[SmsProvider] AFRICASTALKING_API_KEY/USERNAME not set — nothing sent`,
       );
       return {
         success: false,
         provider: this.providerName,
-        error: 'SMS provider not configured',
+        error: "SMS provider not configured",
+        failureCategory: "AUTHENTICATION",
+        retryable: false,
       };
     }
 
@@ -37,14 +37,16 @@ export class SmsProvider implements NotificationProvider {
     // unless the environment is recorded alongside the result.
     if (!SmsProvider.modeLogged) {
       SmsProvider.modeLogged = true;
-      const mode = username === 'sandbox' ? 'SANDBOX (simulator - NOTHING IS DELIVERED)' : 'PRODUCTION';
+      const mode =
+        username === "sandbox"
+          ? "SANDBOX (simulator - NOTHING IS DELIVERED)"
+          : "PRODUCTION";
       console.log(`[SmsProvider] mode=${mode}`);
     }
 
     try {
-      // Keep the optional provider SDK lazy-loaded inside the existing failure boundary.
       // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const AfricasTalking = require('africastalking');
+      const AfricasTalking = require("africastalking");
       const sms = AfricasTalking({ apiKey, username }).SMS;
 
       const result = await sms.send({
@@ -71,19 +73,34 @@ export class SmsProvider implements NotificationProvider {
       // string, a missing status, an empty Recipients array or a malformed
       // response ALL return success:false. An unknown provider state must
       // never become a successful delivery record.
-      if (recipient?.status !== 'Success') {
-        const reported = ['Failed', 'InsufficientBalance', 'UserInBlacklist', 'CouldNotSend', 'InvalidPhoneNumber'].includes(recipient?.status ?? '') ? recipient!.status! : 'UnknownProviderStatus';
-        console.warn(
-          `[SmsProvider] Not accepted: ${reported}`,
-        );
+      if (recipient?.status !== "Success") {
+        const reported = recipient?.status ?? "no recipient status returned";
+        const known = [
+          "Failed",
+          "InsufficientBalance",
+          "UserInBlacklist",
+          "CouldNotSend",
+          "InvalidPhoneNumber",
+        ].includes(reported);
+        console.warn(`[SmsProvider] Acceptance not established`);
         return {
           success: false,
           provider: this.providerName,
           messageId: recipient?.messageId,
-          // The provider's own word, preserved. notification.service.ts
-          // writes this to IncidentNotification.lastError, so the reason is
-          // recoverable per notification rather than only from a log line.
-          error: `Africa's Talking status: ${reported}`,
+          failureCategory:
+            reported === "InvalidPhoneNumber"
+              ? "INVALID_RECIPIENT"
+              : reported === "UserInBlacklist"
+                ? "REJECTED"
+                : reported === "InsufficientBalance"
+                  ? "AUTHENTICATION"
+                  : reported === "CouldNotSend"
+                    ? "PROVIDER_UNAVAILABLE"
+                    : "UNKNOWN_PROVIDER_ERROR",
+          uncertain: !known,
+          retryable: reported === "CouldNotSend",
+          // Bounded diagnostic; the ledger stores the neutral category.
+          error: `Africa's Talking status: ${known ? reported : "UNKNOWN_PROVIDER_ERROR"}`,
         };
       }
 
@@ -100,11 +117,14 @@ export class SmsProvider implements NotificationProvider {
         messageId: recipient.messageId,
       };
     } catch {
-      console.error('[SmsProvider] Send failed.');
+      console.error("[SmsProvider] Send outcome uncertain");
       return {
         success: false,
         provider: this.providerName,
-        error: 'SMS transport failed',
+        error: "SMS outcome uncertain",
+        uncertain: true,
+        failureCategory: "NETWORK",
+        retryable: false,
       };
     }
   }

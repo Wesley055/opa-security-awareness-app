@@ -1,5 +1,5 @@
-import { NotificationDispatchWorker } from '../notifications/notification-dispatch.worker';
-import { InvitationDeliveryWorker } from '../admin-provisioning/invitation-delivery.worker';
+import { NotificationDispatchWorker } from "../notifications/notification-dispatch.worker";
+import { InvitationDeliveryWorker } from "../admin-provisioning/invitation-delivery.worker";
 import { Logger } from "@nestjs/common";
 import type { ArgumentsHost } from "@nestjs/common";
 import type { Response } from "express";
@@ -117,27 +117,61 @@ describe("ordinary logging PII boundaries", () => {
     }
   });
 
-  it('omits raw failures from both worker tick logs', async () => {
-    const spy = jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
-    const failed = jest.fn().mockRejectedValue(new Error('private@example.test Authorization=secret cookie=secret'));
+  it("omits raw failures from both worker tick logs", async () => {
+    const spy = jest
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => undefined);
+    const failed = jest
+      .fn()
+      .mockRejectedValue(
+        new Error("private@example.test Authorization=secret cookie=secret"),
+      );
     try {
-      await new NotificationDispatchWorker({ incidentNotification: { findFirst: failed } } as never, {} as never).tick();
-      await new InvitationDeliveryWorker({ accountInvitationDelivery: { updateMany: failed } } as never, {} as never, {} as never, {} as never, {} as never).tick();
+      await new NotificationDispatchWorker(
+        { incidentNotification: { findFirst: failed } } as never,
+        {} as never,
+      ).tick();
+      await new InvitationDeliveryWorker(
+        { accountInvitationDelivery: { updateMany: failed } } as never,
+        {} as never,
+        {} as never,
+        {} as never,
+        {} as never,
+      ).tick();
       expect(spy).toHaveBeenCalledTimes(2);
-      expect(JSON.stringify(spy.mock.calls)).not.toContain('private@example.test');
-      expect(JSON.stringify(spy.mock.calls)).not.toContain('secret');
-    } finally { spy.mockRestore(); }
+      expect(JSON.stringify(spy.mock.calls)).not.toContain(
+        "private@example.test",
+      );
+      expect(JSON.stringify(spy.mock.calls)).not.toContain("secret");
+    } finally {
+      spy.mockRestore();
+    }
   });
-  it('sanitizes email transport exceptions without returning provider secrets', async () => {
-    const previousKey = process.env.RESEND_API_KEY, previousFrom = process.env.RESEND_FROM_ADDRESS;
-    process.env.RESEND_API_KEY = 'test-only'; process.env.RESEND_FROM_ADDRESS = 'test@example.test';
-    const fetch = jest.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('private@example.test Bearer secret'));
+  it("sanitizes email transport exceptions without returning provider secrets", async () => {
+    const previousKey = process.env.RESEND_API_KEY,
+      previousFrom = process.env.RESEND_FROM_ADDRESS;
+    process.env.RESEND_API_KEY = "test-only";
+    process.env.RESEND_FROM_ADDRESS = "test@example.test";
+    const fetch = jest
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("private@example.test Bearer secret"));
     try {
-      expect(await new EmailProvider().send({ recipient: pii, message: 'secret' })).toEqual({ success: false, provider: 'Email', error: 'Email transport failed' });
+      expect(
+        await new EmailProvider().send({ recipient: pii, message: "secret" }),
+      ).toEqual({
+        success: false,
+        provider: "Email",
+        error: "Email outcome uncertain",
+        uncertain: true,
+        failureCategory: "NETWORK",
+        retryable: false,
+      });
     } finally {
       fetch.mockRestore();
-      if (previousKey === undefined) delete process.env.RESEND_API_KEY; else process.env.RESEND_API_KEY=previousKey;
-      if (previousFrom === undefined) delete process.env.RESEND_FROM_ADDRESS; else process.env.RESEND_FROM_ADDRESS=previousFrom;
+      if (previousKey === undefined) delete process.env.RESEND_API_KEY;
+      else process.env.RESEND_API_KEY = previousKey;
+      if (previousFrom === undefined) delete process.env.RESEND_FROM_ADDRESS;
+      else process.env.RESEND_FROM_ADDRESS = previousFrom;
     }
   });
 });

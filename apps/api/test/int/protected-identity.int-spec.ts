@@ -71,10 +71,24 @@ beforeEach(async () => {
   const subject = await createUser();
   actorId = actor.id;
   subjectId = subject.id;
-  tenantId = (await prismaTest.facility.create({ data: { name: "PII test facility", type: "OTHER" } })).id;
-  foreignTenantId = (await prismaTest.facility.create({ data: { name: "PII test facility", type: "OTHER" } })).id;
-  await prismaTest.user.updateMany({ where: { id: { in: [actorId, subjectId] } }, data: { facilityId: tenantId } });
-  await prismaTest.user.update({ where: { id: actorId }, data: { role: "FACILITY_ADMIN" } });
+  tenantId = (
+    await prismaTest.facility.create({
+      data: { name: "PII test facility", type: "OTHER" },
+    })
+  ).id;
+  foreignTenantId = (
+    await prismaTest.facility.create({
+      data: { name: "PII test facility", type: "OTHER" },
+    })
+  ).id;
+  await prismaTest.user.updateMany({
+    where: { id: { in: [actorId, subjectId] } },
+    data: { facilityId: tenantId },
+  });
+  await prismaTest.user.update({
+    where: { id: actorId },
+    data: { role: "FACILITY_ADMIN" },
+  });
   await prismaTest.identityAccessGrant.createMany({
     data: ["WRITE", "READ_MASKED", "LOOKUP", "RESOLVE", "DELIVERY"].map(
       (permission) => ({
@@ -135,14 +149,29 @@ describe("protected identity real PostgreSQL and authenticated HTTP", () => {
     ).toEqual([{ id: identityId, kind: "EMAIL", value: "[protected]" }]);
   });
   it("audits every concurrent reveal with distinct durable records", async () => {
-    const values = await Promise.all(Array.from({ length: 8 }, () => service.resolve(actorId, tenantId, identityId, "SUPPORT_CASE", caseReference)));
+    const values = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        service.resolve(
+          actorId,
+          tenantId,
+          identityId,
+          "SUPPORT_CASE",
+          caseReference,
+        ),
+      ),
+    );
     expect(values).toEqual(Array(8).fill("private.person@example.test"));
-    const audits = await prismaTest.identityResolutionAudit.findMany({ where: { identifierId: identityId } });
+    const audits = await prismaTest.identityResolutionAudit.findMany({
+      where: { identifierId: identityId },
+    });
     expect(audits).toHaveLength(8);
-    expect(new Set(audits.map(audit => audit.id)).size).toBe(8);
+    expect(new Set(audits.map((audit) => audit.id)).size).toBe(8);
   });
   it("denies interactive resolution after an actor loses their institutional role", async () => {
-    await prismaTest.user.update({ where: { id: actorId }, data: { role: "USER" } });
+    await prismaTest.user.update({
+      where: { id: actorId },
+      data: { role: "USER" },
+    });
     await resolve(tenantId, identityId).expect(404);
   });
   it("returns masked API output and no-store headers", async () => {
@@ -185,7 +214,10 @@ describe("protected identity real PostgreSQL and authenticated HTTP", () => {
     expect(await prismaTest.identityResolutionAudit.count()).toBe(0);
   });
   it("makes foreign and missing references indistinguishable", async () => {
-    await prismaTest.user.update({ where: { id: actorId }, data: { facilityId: foreignTenantId } });
+    await prismaTest.user.update({
+      where: { id: actorId },
+      data: { facilityId: foreignTenantId },
+    });
     const foreign = await resolve(foreignTenantId, identityId).expect(404);
     const absent = await resolve(tenantId, randomUUID()).expect(404);
     expect(foreign.body).toEqual(absent.body);
@@ -316,7 +348,10 @@ describe("protected recipient snapshot cutover and real workers", () => {
     const incident =
       (await prismaTest.incident.findFirst({ where: { userId: subjectId } })) ??
       (await createIncident(subjectId));
-    await prismaTest.incident.update({ where: { id: incident.id }, data: { facilityId: tenantId } });
+    await prismaTest.incident.update({
+      where: { id: incident.id },
+      data: { facilityId: tenantId },
+    });
     return prismaTest.incidentNotification.create({
       data: {
         incidentId: incident.id,
@@ -426,7 +461,10 @@ describe("protected recipient snapshot cutover and real workers", () => {
   });
   it("rejects source ownership from another tenant without inferring facility scope", async () => {
     const source = await invitation();
-    await prismaTest.user.update({ where: { id: actorId }, data: { facilityId: foreignTenantId } });
+    await prismaTest.user.update({
+      where: { id: actorId },
+      data: { facilityId: foreignTenantId },
+    });
     await prismaTest.identityAccessGrant.create({
       data: {
         tenantId: foreignTenantId,
@@ -514,7 +552,7 @@ describe("protected recipient snapshot cutover and real workers", () => {
     );
     const stored = await prismaTest.incidentNotification.update({
       where: { id: source.id },
-      data: { status: "SENDING" },
+      data: { status: "QUEUED" },
     });
     expect(stored.payload).toBeNull();
     expect(stored.contactName).toBe("[protected]");
@@ -553,7 +591,7 @@ describe("protected recipient snapshot cutover and real workers", () => {
     );
     await prismaTest.incidentNotification.update({
       where: { id: source.id },
-      data: { status: "SENDING" },
+      data: { status: "QUEUED" },
     });
     const send = jest.fn();
     // Fail the transaction's real INSERT, not a root-client delegate that the transaction never calls.
@@ -570,7 +608,7 @@ describe("protected recipient snapshot cutover and real workers", () => {
     }
     await prismaTest.incidentNotification.update({
       where: { id: source.id },
-      data: { status: "SENDING" },
+      data: { status: "QUEUED" },
     });
     jest
       .spyOn(crypto, "open")
@@ -583,7 +621,7 @@ describe("protected recipient snapshot cutover and real workers", () => {
           where: { id: source.id },
         })
       ).lastError,
-    ).toBe("Protected snapshot unavailable.");
+    ).toBe("INTERNAL_ERROR");
   });
   it("rejects copied snapshot references without a plaintext fallback", async () => {
     const first = await notification();
@@ -602,7 +640,7 @@ describe("protected recipient snapshot cutover and real workers", () => {
     await prismaTest.incidentNotification.update({
       where: { id: second.id },
       data: {
-        status: "SENDING",
+        status: "QUEUED",
         protectedSnapshotId: stored.protectedSnapshotId,
         recipient: "[protected]",
         contactName: "[protected]",

@@ -22,8 +22,22 @@ export class ProtectedSnapshotsService {
     private readonly identities: ProtectedIdentityService,
   ) {}
 
-  private deliveryActor(): string {
-    const actor = process.env.PII_DELIVERY_ACTOR_USER_ID;
+  private deliveryActor(tenantId: string): string {
+    let actor = process.env.PII_DELIVERY_ACTOR_USER_ID;
+    if (process.env.PII_DELIVERY_ACTORS_JSON) {
+      try {
+        const values: unknown = JSON.parse(
+          process.env.PII_DELIVERY_ACTORS_JSON,
+        );
+        if (!values || typeof values !== "object" || Array.isArray(values))
+          throw failed();
+        const selected = (values as Record<string, unknown>)[tenantId];
+        if (typeof selected !== "string") throw failed();
+        actor = selected;
+      } catch {
+        throw failed();
+      }
+    }
     if (!actor || !/^[0-9a-f-]{36}$/i.test(actor)) throw failed();
     return actor;
   }
@@ -55,13 +69,21 @@ export class ProtectedSnapshotsService {
         kind === "NOTIFICATION_SNAPSHOT"
           ? await tx.incidentNotification.findUnique({
               where: { id: sourceId },
-              include: { incident: { select: { userId: true, facilityId: true } } },
+              include: {
+                incident: { select: { userId: true, facilityId: true } },
+              },
             })
           : null;
       const source = invitation ?? notification;
       const subjectUserId = invitation?.userId ?? notification?.incident.userId;
       if (!source || !subjectUserId) throw missing();
-      if (invitation ? invitation.facilityId !== tenantId || invitation.purpose !== "LEGACY_INVITATION" : notification?.incident.facilityId !== tenantId) throw missing();
+      if (
+        invitation
+          ? invitation.facilityId !== tenantId ||
+            invitation.purpose !== "LEGACY_INVITATION"
+          : notification?.incident.facilityId !== tenantId
+      )
+        throw missing();
       const membership = await tx.user.findFirst({
         where: {
           facilityId: tenantId,
@@ -108,11 +130,15 @@ export class ProtectedSnapshotsService {
       await this.identities.authorize(
         tx,
         tenantId,
-        this.deliveryActor(),
+        this.deliveryActor(tenantId),
         "DELIVERY",
       );
       const snapshot = invitation
-        ? { version: 1, recipient: invitation.recipient, legacyLastError: invitation.lastError }
+        ? {
+            version: 1,
+            recipient: invitation.recipient,
+            legacyLastError: invitation.lastError,
+          }
         : {
             version: 1,
             contactName: notification!.contactName,
@@ -157,6 +183,44 @@ export class ProtectedSnapshotsService {
     });
   }
 
+  /** Creates no competing crypto or tenant authority. Called inside the outbox transaction. */
+  async notificationData(
+    tx: Prisma.TransactionClient,
+    data: Prisma.IncidentNotificationCreateManyInput,
+  ): Promise<Prisma.IncidentNotificationCreateManyInput> {
+    const incident = await tx.incident.findUniqueOrThrow({
+      where: { id: data.incidentId },
+      select: { userId: true, facilityId: true },
+    });
+    // Personal accounts have no institutional Protected Identity tenant or grant.
+    if (!incident.facilityId) return data;
+    if (!data.id || !isNotificationPayloadV1(data.payload)) throw failed();
+    const actor = this.deliveryActor(incident.facilityId);
+    await this.identities.authorize(tx, incident.facilityId, actor, "DELIVERY");
+    const row = await this.identities.protectInTransaction(
+      tx,
+      actor,
+      {
+        tenantId: incident.facilityId,
+        subjectUserId: incident.userId,
+        sourceId: data.id,
+        kind: "NOTIFICATION_SNAPSHOT",
+      },
+      JSON.stringify({
+        version: 1,
+        contactName: data.contactName,
+        payload: data.payload,
+      }),
+    );
+    return {
+      ...data,
+      recipient: "[protected]",
+      contactName: "[protected]",
+      payload: Prisma.DbNull,
+      protectedSnapshotId: row.id,
+    };
+  }
+
   private async resolve(
     snapshotId: string,
     sourceId: string,
@@ -171,7 +235,7 @@ export class ProtectedSnapshotsService {
     if (!row) throw missing();
     const expected = { tenantId: row.tenantId, subjectUserId, sourceId, kind };
     const plaintext = await this.identities.resolve(
-      this.deliveryActor(),
+      this.deliveryActor(row.tenantId),
       row.tenantId,
       snapshotId,
       "DELIVERY",

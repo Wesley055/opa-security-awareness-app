@@ -5,17 +5,17 @@ import {
   HttpException,
   HttpStatus,
   Logger,
-} from '@nestjs/common';
-import type { Response } from 'express';
-import type { CorrelatedRequest } from '../middleware/correlation-id.middleware';
+} from "@nestjs/common";
+import type { Response } from "express";
+import type { CorrelatedRequest } from "../middleware/correlation-id.middleware";
 import {
   redactSensitivePath,
   redactSensitiveTrackingUrls,
-} from '../middleware/request-logging.middleware';
+} from "../middleware/request-logging.middleware";
 
 @Catch()
 export class GlobalExceptionFilter implements ExceptionFilter {
-  private readonly logger = new Logger('Exceptions');
+  private readonly logger = new Logger("Exceptions");
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const context = host.switchToHttp();
@@ -28,35 +28,41 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         : HttpStatus.INTERNAL_SERVER_ERROR;
 
     const exceptionResponse =
-      exception instanceof HttpException
-        ? exception.getResponse()
-        : null;
+      exception instanceof HttpException ? exception.getResponse() : null;
 
     const message =
-      typeof exceptionResponse === 'string'
+      typeof exceptionResponse === "string"
         ? exceptionResponse
-        : typeof exceptionResponse === 'object' &&
+        : typeof exceptionResponse === "object" &&
             exceptionResponse !== null &&
-            'message' in exceptionResponse
+            "message" in exceptionResponse
           ? (exceptionResponse as { message: string | string[] }).message
           : status === HttpStatus.INTERNAL_SERVER_ERROR
-            ? 'Internal server error'
-            : 'Request failed';
+            ? "Internal server error"
+            : "Request failed";
 
     const safePath = redactSensitivePath(request.originalUrl);
 
-    const safeMessage = Array.isArray(message)
-      ? message.map((entry) => redactSensitiveTrackingUrls(entry))
-      : redactSensitiveTrackingUrls(message);
+    const isReceipt = request.originalUrl
+      .split("?")[0]
+      ?.includes("/notifications/provider-receipts/");
+    const safeMessage = isReceipt
+      ? "Delivery receipt request failed"
+      : Array.isArray(message)
+        ? message.map((entry) => redactSensitiveTrackingUrls(entry))
+        : redactSensitiveTrackingUrls(message);
 
     this.logger.error(
       JSON.stringify({
-        event: 'http_error',
+        event: "http_error",
         correlationId: request.correlationId,
         method: request.method,
-        path: typeof request.route?.path === 'string' ? request.route.path : '[unmatched]',
+        path:
+          typeof request.route?.path === "string"
+            ? request.route.path
+            : "[unmatched]",
         statusCode: status,
-        message: 'Request failed.',
+        message: "Request failed.",
         timestamp: new Date().toISOString(),
       }),
     );

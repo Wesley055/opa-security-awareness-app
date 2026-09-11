@@ -2,15 +2,13 @@ import type {
   NotificationProvider,
   NotificationRequest,
   NotificationResponse,
-} from './notification-provider.interface';
+} from "./notification-provider.interface";
 
 export class PushProvider implements NotificationProvider {
-  readonly providerName = 'Push';
+  readonly providerName = "Push";
 
-  async send(
-    _request: NotificationRequest,
-  ): Promise<NotificationResponse> {
-    void _request;
+  async send(request: NotificationRequest): Promise<NotificationResponse> {
+    void request;
     // ADR-015 SECTION 6b: A PROVIDER THAT CANNOT DELIVER MUST RETURN
     // FAILURE. This channel is not implemented - no API is called and
     // no message leaves this process.
@@ -24,14 +22,14 @@ export class PushProvider implements NotificationProvider {
     //
     // NO messageId IS RETURNED. An invented identifier for a message
     // that does not exist is as untrue as the success flag was.
-    console.warn(
-      `[PushProvider] NOT IMPLEMENTED - nothing sent`,
-    );
+    console.warn(`[PushProvider] NOT IMPLEMENTED - nothing sent`);
 
     return {
       success: false,
+      failureCategory: "INTERNAL_ERROR",
+      retryable: false,
       provider: this.providerName,
-      error: 'Push provider not implemented',
+      error: "Push provider not implemented",
     };
   }
 }

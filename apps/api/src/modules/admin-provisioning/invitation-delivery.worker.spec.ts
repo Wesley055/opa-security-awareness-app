@@ -10,6 +10,8 @@ describe("InvitationDeliveryWorker", () => {
       findUnique: jest.fn(),
       update: jest.fn(),
     },
+    deliveryAttempt: { update: jest.fn() },
+    deliveryStatusEvent: { create: jest.fn() },
     user: {
       update: jest.fn(),
     },
@@ -19,6 +21,12 @@ describe("InvitationDeliveryWorker", () => {
     send: jest.fn(),
   };
 
+  const ledger = {
+    claim: jest.fn(),
+    complete: jest.fn(),
+    recoverStale: jest.fn(),
+    rejectInTransaction: jest.fn(),
+  };
   let worker: InvitationDeliveryWorker;
 
   const dueDelivery = {
@@ -55,6 +63,7 @@ describe("InvitationDeliveryWorker", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    ledger.claim.mockResolvedValue(null);
 
     prisma.$transaction.mockImplementation(
       async (callback: (tx: typeof prisma) => unknown) => callback(prisma),
@@ -69,6 +78,7 @@ describe("InvitationDeliveryWorker", () => {
       { send: jest.fn() } as never,
       {} as never,
       {} as never,
+      ledger as never,
     );
   });
 
@@ -99,6 +109,10 @@ describe("InvitationDeliveryWorker", () => {
       .mockResolvedValueOnce({ count: 1 }); // optimistic claim
 
     prisma.accountInvitationDelivery.findUnique.mockResolvedValue(delivery);
+    ledger.claim.mockResolvedValueOnce({
+      id: "attempt-1",
+      provider: "AFRICASTALKING",
+    });
     prisma.user.update.mockResolvedValue({ id: "resident-1" });
   }
 
@@ -130,20 +144,10 @@ describe("InvitationDeliveryWorker", () => {
     );
     expect(request.message.length).toBeLessThanOrEqual(160);
 
-    expect(prisma.accountInvitationDelivery.updateMany).toHaveBeenCalledWith({
-      where: {
-        id: "delivery-1",
-        status: NotificationStatus.SENDING,
-        attemptCount: expect.any(Number),
-      },
-      data: expect.objectContaining({
-        status: NotificationStatus.SENT,
-        provider: "SMS",
-        providerMessageId: "provider-1",
-        sentAt: expect.any(Date),
-        failedAt: null,
-        lastError: null,
-      }),
+    expect(ledger.complete).toHaveBeenCalledWith("attempt-1", {
+      success: true,
+      provider: "SMS",
+      messageId: "provider-1",
     });
   });
 
@@ -171,101 +175,38 @@ describe("InvitationDeliveryWorker", () => {
     expect(message).not.toMatch(/Extens[^i]/);
   });
 
-  it("requeues a retryable provider failure with backoff", async () => {
-    await queueOneClaim();
-
-    smsProvider.send.mockResolvedValue({
+  it.each([
+    {
       success: false,
       provider: "SMS",
-      error: "temporary network error",
-    });
-
-    await worker.tick();
-
-    expect(prisma.accountInvitationDelivery.updateMany).toHaveBeenCalledWith({
-      where: {
-        id: "delivery-1",
-        status: NotificationStatus.SENDING,
-        attemptCount: expect.any(Number),
-      },
-      data: expect.objectContaining({
-        status: NotificationStatus.QUEUED,
-        provider: "SMS",
-        nextAttemptAt: expect.any(Date),
-        failedAt: null,
-        lastError: "Invitation dispatch unavailable.",
-      }),
-    });
-  });
-
-  it("fails immediately for an invalid phone response", async () => {
-    await queueOneClaim();
-
-    smsProvider.send.mockResolvedValue({
+      failureCategory: "RATE_LIMITED",
+      retryable: true,
+    },
+    {
       success: false,
       provider: "SMS",
-      error: "Africa's Talking status: InvalidPhoneNumber",
-    });
-
-    await worker.tick();
-
-    expect(prisma.accountInvitationDelivery.updateMany).toHaveBeenCalledWith({
-      where: {
-        id: "delivery-1",
-        status: NotificationStatus.SENDING,
-        attemptCount: expect.any(Number),
-      },
-      data: expect.objectContaining({
-        status: NotificationStatus.FAILED,
-        failedAt: expect.any(Date),
-        lastError: "InvalidPhoneNumber",
-      }),
-    });
-  });
-
-  it("fails after the fifth unsuccessful attempt instead of requeueing forever", async () => {
-    await queueOneClaim({ attemptCount: 5 });
-
-    smsProvider.send.mockResolvedValue({
+      failureCategory: "INVALID_RECIPIENT",
+      retryable: false,
+    },
+    {
       success: false,
       provider: "SMS",
-      error: "temporary network error",
-    });
-
+      failureCategory: "NETWORK",
+      uncertain: true,
+      retryable: false,
+    },
+  ])(
+    "forwards classified outcomes to the fenced ledger: %j",
+    async (response) => {
+      await queueOneClaim();
+      smsProvider.send.mockResolvedValue(response);
+      await worker.tick();
+      expect(ledger.complete).toHaveBeenCalledWith("attempt-1", response);
+    },
+  );
+  it("runs auditable stale-attempt recovery before claiming work", async () => {
     await worker.tick();
-
-    expect(prisma.accountInvitationDelivery.updateMany).toHaveBeenCalledWith({
-      where: {
-        id: "delivery-1",
-        status: NotificationStatus.SENDING,
-        attemptCount: expect.any(Number),
-      },
-      data: expect.objectContaining({
-        status: NotificationStatus.FAILED,
-        failedAt: expect.any(Date),
-        lastError: "Invitation dispatch unavailable.",
-      }),
-    });
-  });
-
-  it("recovers stale SENDING rows before claiming new work", async () => {
-    prisma.accountInvitationDelivery.updateMany.mockResolvedValueOnce({
-      count: 1,
-    });
-
-    await worker.tick();
-
-    expect(prisma.accountInvitationDelivery.updateMany).toHaveBeenCalledWith({
-      where: {
-        status: NotificationStatus.SENDING,
-        lastAttemptAt: { lte: expect.any(Date) },
-      },
-      data: {
-        status: NotificationStatus.QUEUED,
-        nextAttemptAt: expect.any(Date),
-        lastError: "Recovered stale sending attempt.",
-      },
-    });
+    expect(ledger.recoverStale).toHaveBeenCalledTimes(1);
   });
 
   it("fails a claimed row without sending when resident eligibility changed", async () => {
@@ -284,6 +225,8 @@ describe("InvitationDeliveryWorker", () => {
       where: { id: "delivery-1" },
       data: {
         status: NotificationStatus.FAILED,
+        deliveryStatus: "FAILED",
+        failureCategory: "REJECTED",
         failedAt: expect.any(Date),
         lastError: "Resident is no longer eligible for activation.",
       },

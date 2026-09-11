@@ -1,3 +1,5 @@
+import { DeliveryLedgerService } from "../notifications/delivery-ledger.service";
+import { dispatchWithEvidence } from "../notifications/delivery-dispatch";
 import { ProtectedSnapshotsService } from "../protected-identity/protected-snapshots.service";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -16,15 +18,7 @@ import {
 import { SmsProvider } from "../notifications/providers/sms.provider";
 
 const ACTIVATION_VALIDITY_MS = 24 * 60 * 60 * 1000;
-const MAX_ATTEMPTS = 5;
-const STALE_SENDING_MS = 5 * 60 * 1000;
 const SINGLE_SMS_GSM7_SEPTETS = 160;
-const RETRY_DELAYS_MS = [
-  60 * 1000,
-  5 * 60 * 1000,
-  15 * 60 * 1000,
-  60 * 60 * 1000,
-] as const;
 
 // We deliberately emit only the GSM-7 BASIC alphabet here. Extension-table
 // characters are avoided, so every emitted character costs one septet.
@@ -33,6 +27,7 @@ const GSM7_BASIC =
 
 type ClaimedInvitation = {
   deliveryId: string;
+  attemptId: string;
   recipient: string;
   facilityName: string;
   attemptCount: number;
@@ -117,6 +112,9 @@ export class InvitationDeliveryWorker {
     private readonly emailProvider: EmailProvider,
     private readonly config: ConfigService,
     private readonly snapshots: ProtectedSnapshotsService,
+    private readonly ledger: DeliveryLedgerService = new DeliveryLedgerService(
+      prisma,
+    ),
   ) {}
 
   @Interval(2000)
@@ -127,7 +125,7 @@ export class InvitationDeliveryWorker {
 
     this.running = true;
     try {
-      await this.recoverStaleSending();
+      await this.ledger.recoverStale();
 
       let processed = 0;
       for (let i = 0; i < this.batchSize; i += 1) {
@@ -153,31 +151,6 @@ export class InvitationDeliveryWorker {
   }
 
   /**
-   * A process can die after claiming a row. Requeue stale ownership so the
-   * invitation is not stranded forever. A later claim rotates the activation
-   * code before sending again.
-   *
-   * If the previous process died after provider acceptance but before SENT
-   * was recorded, a retry can produce a second SMS. Transport is therefore
-   * at-least-once, not exactly-once.
-   */
-  private async recoverStaleSending(): Promise<void> {
-    const staleBefore = new Date(Date.now() - STALE_SENDING_MS);
-
-    await this.prisma.accountInvitationDelivery.updateMany({
-      where: {
-        status: NotificationStatus.SENDING,
-        lastAttemptAt: { lte: staleBefore },
-      },
-      data: {
-        status: NotificationStatus.QUEUED,
-        nextAttemptAt: new Date(),
-        lastError: "Recovered stale sending attempt.",
-      },
-    });
-  }
-
-  /**
    * Claim one due row and mint its credential in the SAME transaction.
    * Plaintext exists only in worker memory.
    */
@@ -190,6 +163,7 @@ export class InvitationDeliveryWorker {
         where: {
           status: NotificationStatus.QUEUED,
           nextAttemptAt: { lte: now },
+          attemptCount: { lt: 5 },
         },
         orderBy: [{ nextAttemptAt: "asc" }, { queuedAt: "asc" }],
       });
@@ -202,24 +176,11 @@ export class InvitationDeliveryWorker {
         await tx.$queryRaw`SELECT id FROM "EnrollmentRequest" WHERE id = ${candidate.enrollmentId}::uuid FOR UPDATE`;
       }
 
-      const claim = await tx.accountInvitationDelivery.updateMany({
-        where: {
-          id: candidate.id,
-          status: NotificationStatus.QUEUED,
-          nextAttemptAt: { lte: now },
-        },
-        data: {
-          status: NotificationStatus.SENDING,
-          attemptCount: { increment: 1 },
-          lastAttemptAt: now,
-          failedAt: null,
-          lastError: null,
-        },
+      const attempt = await this.ledger.claim(tx, {
+        kind: "invitation",
+        id: candidate.id,
       });
-
-      if (claim.count !== 1) {
-        return;
-      }
+      if (!attempt) return;
 
       const delivery = await tx.accountInvitationDelivery.findUnique({
         where: { id: candidate.id },
@@ -252,13 +213,22 @@ export class InvitationDeliveryWorker {
             where: { id: delivery.id },
             data: {
               status: NotificationStatus.CANCELLED,
+              deliveryStatus: "FAILED",
+              failureCategory: "REJECTED",
+              failedAt: now,
               lastError: "Delivery no longer eligible.",
             },
           });
+          await this.ledger.rejectInTransaction(
+            tx,
+            attempt,
+            "RECIPIENT_INELIGIBLE",
+          );
           return;
         }
         claimedResult = {
           deliveryId: delivery.id,
+          attemptId: attempt.id,
           recipient: identityMessage.recipient,
           facilityName: "",
           attemptCount: delivery.attemptCount,
@@ -281,10 +251,17 @@ export class InvitationDeliveryWorker {
           where: { id: delivery.id },
           data: {
             status: NotificationStatus.FAILED,
+            deliveryStatus: "FAILED",
+            failureCategory: "REJECTED",
             failedAt: now,
             lastError: "Resident is no longer eligible for activation.",
           },
         });
+        await this.ledger.rejectInTransaction(
+          tx,
+          attempt,
+          "RECIPIENT_INELIGIBLE",
+        );
         return;
       }
 
@@ -303,6 +280,7 @@ export class InvitationDeliveryWorker {
 
       claimedResult = {
         deliveryId: delivery.id,
+        attemptId: attempt.id,
         recipient: delivery.recipient,
         protectedSnapshotId: delivery.protectedSnapshotId,
         subjectUserId: delivery.userId,
@@ -316,7 +294,11 @@ export class InvitationDeliveryWorker {
   }
 
   private async dispatch(claimed: ClaimedInvitation): Promise<void> {
-    let response;
+    const provider =
+      claimed.identityMessage?.channel === "EMAIL"
+        ? this.emailProvider
+        : this.smsProvider;
+    let request;
     try {
       const recipient = claimed.protectedSnapshotId
         ? await this.snapshots.invitationRecipient(
@@ -325,95 +307,23 @@ export class InvitationDeliveryWorker {
             claimed.subjectUserId!,
           )
         : claimed.recipient;
-      const request = claimed.identityMessage ?? {
+      request = claimed.identityMessage ?? {
         recipient,
         message: buildInvitationMessage(claimed.facilityName, claimed.code),
       };
-      const provider =
-        claimed.identityMessage?.channel === "EMAIL"
-          ? this.emailProvider
-          : this.smsProvider;
-      response = await provider.send(request);
     } catch {
-      response = {
+      await this.ledger.complete(claimed.attemptId, {
         success: false,
-        provider: "INVITATION",
-        error: "Invitation dispatch unavailable.",
-        messageId: undefined,
-      };
-    }
-
-    if (response.success) {
-      await this.prisma.accountInvitationDelivery.updateMany({
-        where: {
-          id: claimed.deliveryId,
-          status: NotificationStatus.SENDING,
-          attemptCount: claimed.attemptCount,
-        },
-        data: {
-          status: NotificationStatus.SENT,
-          provider: response.provider,
-          providerMessageId: response.messageId,
-          sentAt: new Date(),
-          failedAt: null,
-          lastError: null,
-        },
+        provider: provider.providerName,
+        failureCategory: "INTERNAL_ERROR",
+        retryable: false,
       });
       return;
     }
-
-    const error = response.error?.includes("InvalidPhoneNumber")
-      ? "InvalidPhoneNumber"
-      : response.error?.includes("UserInBlacklist")
-        ? "UserInBlacklist"
-        : "Invitation dispatch unavailable.";
-    const terminal = this.isTerminalFailure(error);
-    const exhausted = claimed.attemptCount >= MAX_ATTEMPTS;
-
-    if (terminal || exhausted) {
-      await this.prisma.accountInvitationDelivery.updateMany({
-        where: {
-          id: claimed.deliveryId,
-          status: NotificationStatus.SENDING,
-          attemptCount: claimed.attemptCount,
-        },
-        data: {
-          status: NotificationStatus.FAILED,
-          provider: response.provider,
-          providerMessageId: response.messageId,
-          failedAt: new Date(),
-          lastError: error,
-        },
-      });
-      return;
-    }
-
-    const retryIndex = Math.min(
-      claimed.attemptCount - 1,
-      RETRY_DELAYS_MS.length - 1,
-    );
-    const delay = RETRY_DELAYS_MS[retryIndex] ?? RETRY_DELAYS_MS[0];
-
-    await this.prisma.accountInvitationDelivery.updateMany({
-      where: {
-        id: claimed.deliveryId,
-        status: NotificationStatus.SENDING,
-        attemptCount: claimed.attemptCount,
-      },
-      data: {
-        status: NotificationStatus.QUEUED,
-        provider: response.provider,
-        providerMessageId: response.messageId,
-        nextAttemptAt: new Date(Date.now() + delay),
-        failedAt: null,
-        lastError: error,
-      },
-    });
-  }
-
-  private isTerminalFailure(error: string): boolean {
-    return (
-      error.includes("InvalidPhoneNumber") || error.includes("UserInBlacklist")
+    await dispatchWithEvidence(
+      provider.providerName,
+      () => provider.send(request),
+      (response) => this.ledger.complete(claimed.attemptId, response),
     );
   }
 }

@@ -1,13 +1,6 @@
-import {
-  Injectable,
-  Logger,
-  NestMiddleware,
-} from '@nestjs/common';
-import type {
-  NextFunction,
-  Response,
-} from 'express';
-import type { CorrelatedRequest } from './correlation-id.middleware';
+import { Injectable, Logger, NestMiddleware } from "@nestjs/common";
+import type { NextFunction, Response } from "express";
+import type { CorrelatedRequest } from "./correlation-id.middleware";
 
 /**
  * URL segments that are credentials, not identifiers.
@@ -19,9 +12,12 @@ import type { CorrelatedRequest } from './correlation-id.middleware';
  *
  * Each entry redacts everything after the given prefix.
  */
-const SENSITIVE_PATH_PREFIXES = ['/public/tracking/'];
+const SENSITIVE_PATH_PREFIXES = [
+  "/public/tracking/",
+  "/notifications/provider-receipts/",
+];
 
-const REDACTED = '<redacted>';
+const REDACTED = "<redacted>";
 
 /**
  * Replace credential-bearing path segments before anything is written out.
@@ -34,7 +30,7 @@ export function redactSensitivePath(originalUrl: string): string {
       return `${prefix}${REDACTED}`;
     }
   }
-  return originalUrl.split(/[?#]/, 1)[0] ?? '/';
+  return originalUrl.split(/[?#]/, 1)[0] ?? "/";
 }
 
 /**
@@ -66,7 +62,7 @@ export function redactSensitiveTrackingUrls(value: string): string {
 
 @Injectable()
 export class RequestLoggingMiddleware implements NestMiddleware {
-  private readonly logger = new Logger('HTTP');
+  private readonly logger = new Logger("HTTP");
 
   use(
     request: CorrelatedRequest,
@@ -75,15 +71,18 @@ export class RequestLoggingMiddleware implements NestMiddleware {
   ): void {
     const startedAt = Date.now();
 
-    response.on('finish', () => {
+    response.on("finish", () => {
       const durationMs = Date.now() - startedAt;
 
       this.logger.log(
         JSON.stringify({
-          event: 'http_request',
+          event: "http_request",
           correlationId: request.correlationId,
           method: request.method,
-          path: typeof request.route?.path === 'string' ? request.route.path : '[unmatched]',
+          path:
+            typeof request.route?.path === "string"
+              ? request.route.path
+              : "[unmatched]",
           statusCode: response.statusCode,
           durationMs,
           timestamp: new Date().toISOString(),

@@ -1,3 +1,5 @@
+import type { NotificationResponse } from "../../src/modules/notifications/providers/notification-provider.interface";
+import { DeliveryLedgerService } from "../../src/modules/notifications/delivery-ledger.service";
 import type { INestApplication } from "@nestjs/common";
 import { ValidationPipe } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
@@ -24,14 +26,22 @@ import { AdminProvisioningService } from "../../src/modules/admin-provisioning/a
 import { InvitationDeliveryWorker } from "../../src/modules/admin-provisioning/invitation-delivery.worker";
 import { hashActivationCredential } from "../../src/shared/security/activation-code";
 
-const config = new ConfigService({
+const testSettings = {
   JWT_ACCESS_SECRET: "enrollment-integration-secret-only-32",
   JWT_REFRESH_SECRET: "enrollment-integration-refresh-only-32",
   JWT_ACCESS_EXPIRES_IN: "15m",
   JWT_REFRESH_EXPIRES_IN: "30d",
   BCRYPT_ROUNDS: 4,
   ENROLLMENT_ENCRYPTION_KEY: "ab".repeat(32),
-});
+};
+const config = new ConfigService(testSettings);
+// Isolate the HTTP fixture from developer .env values; ConfigService v3 otherwise
+// gives process.env strings priority over these explicitly typed test settings.
+jest
+  .spyOn(config, "get")
+  .mockImplementation(
+    (key) => testSettings[key as keyof typeof testSettings] as never,
+  );
 const jwt = new JwtService();
 const input = (): EnrollmentIdentity => ({
   email: randomUUID() + "@example.test",
@@ -48,7 +58,10 @@ describe("verification-first enrollment HTTP, signed JWT and PostgreSQL", () => 
   let facility: string, other: string, admin: User, existing: User;
   const messages: Array<{ recipient: string; message: string }> = [];
   const send = jest.fn(
-    async (value: { recipient: string; message: string }) => {
+    async (value: {
+      recipient: string;
+      message: string;
+    }): Promise<NotificationResponse> => {
       messages.push(value);
       return { success: true, provider: "test-local" };
     },
@@ -357,13 +370,23 @@ describe("verification-first enrollment HTTP, signed JWT and PostgreSQL", () => 
       ),
     ).toBe(true);
   });
-  it('allows an authenticated unassigned account to accept without creating a duplicate account', async () => {
-    await prismaTest.user.update({where:{id:existing.id},data:{facilityId:null}});
-    const r=await service.request(existing,randomUUID(),facility,admin.id),dto=await proofs(r);
-    const v=await service.verify(dto);
-    expect(v.status).toBe('AUTHENTICATION_REQUIRED');
-    await service.accept(existing.id,{requestId:r.requestId,acceptanceToken:('acceptanceToken' in v ? v.acceptanceToken : '')!});
-    expect((await prismaTest.user.findUniqueOrThrow({where:{id:existing.id}})).facilityId).toBe(facility);
+  it("allows an authenticated unassigned account to accept without creating a duplicate account", async () => {
+    await prismaTest.user.update({
+      where: { id: existing.id },
+      data: { facilityId: null },
+    });
+    const r = await service.request(existing, randomUUID(), facility, admin.id),
+      dto = await proofs(r);
+    const v = await service.verify(dto);
+    expect(v.status).toBe("AUTHENTICATION_REQUIRED");
+    await service.accept(existing.id, {
+      requestId: r.requestId,
+      acceptanceToken: ("acceptanceToken" in v ? v.acceptanceToken : "")!,
+    });
+    expect(
+      (await prismaTest.user.findUniqueOrThrow({ where: { id: existing.id } }))
+        .facilityId,
+    ).toBe(facility);
     expect(await prismaTest.user.count()).toBe(2);
   });
   it("refuses cross-tenant transfer even after proofs and authenticated acceptance", async () => {
@@ -455,7 +478,12 @@ describe("verification-first enrollment HTTP, signed JWT and PostgreSQL", () => 
   );
   it("provider failure cannot change accepted response or expose status; retries recover", async () => {
     const r = await service.request(input(), randomUUID());
-    send.mockResolvedValueOnce({ success: false, provider: "test-local" });
+    send.mockResolvedValueOnce({
+      success: false,
+      provider: "test-local",
+      failureCategory: "RATE_LIMITED",
+      retryable: true,
+    });
     await worker.tick();
     const retry = await prismaTest.accountInvitationDelivery.findFirstOrThrow({
       where: { enrollmentId: r.requestId, status: "QUEUED" },
@@ -496,31 +524,38 @@ describe("verification-first enrollment HTTP, signed JWT and PostgreSQL", () => 
       ).verifiedAt,
     ).toBeNull();
   });
-  it("recovers a stale SENDING enrollment attempt and rotates its credential", async () => {
+  it("records an abandoned enrollment attempt as UNKNOWN without resending or rotating credentials", async () => {
     const r = await service.request(input(), randomUUID());
     const delivery =
       await prismaTest.accountInvitationDelivery.findFirstOrThrow({
         where: { enrollmentId: r.requestId, channel: "EMAIL" },
       });
-    await prismaTest.accountInvitationDelivery.update({
-      where: { id: delivery.id },
-      data: { status: "SENDING", attemptCount: 1, lastAttemptAt: new Date(0) },
+    const ledger = new DeliveryLedgerService(prismaTest as never);
+    const attempt = await prismaTest.$transaction((tx) =>
+      ledger.claim(tx, { kind: "invitation", id: delivery.id }),
+    );
+    expect(attempt).not.toBeNull();
+    await prismaTest.deliveryAttempt.update({
+      where: { id: attempt!.id },
+      data: { startedAt: new Date(0) },
+    });
+    const before = await prismaTest.enrollmentRequest.findUniqueOrThrow({
+      where: { id: r.requestId },
     });
     await worker.tick();
-    expect(
-      (
-        await prismaTest.accountInvitationDelivery.findUniqueOrThrow({
-          where: { id: delivery.id },
-        })
-      ).status,
-    ).toBe("SENT");
+    const row = await prismaTest.accountInvitationDelivery.findUniqueOrThrow({
+      where: { id: delivery.id },
+    });
+    expect(row.status).toBe("FAILED");
+    expect(row.deliveryStatus).toBe("UNKNOWN");
+    expect(row.attemptCount).toBe(1);
     expect(
       (
         await prismaTest.enrollmentRequest.findUniqueOrThrow({
           where: { id: r.requestId },
         })
       ).emailTokenHash,
-    ).toMatch(/^[a-f0-9]{64}$/);
+    ).toBe(before.emailTokenHash);
   });
   it("reset intake queues identical encrypted work and token creation happens only in worker", async () => {
     const resets = app.get(PasswordResetService);

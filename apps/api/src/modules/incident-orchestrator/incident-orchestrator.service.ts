@@ -1,33 +1,38 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { IncidentStatus, IncidentTrigger, NotificationStatus } from '@prisma/client';
-import { EmergencyContactsService } from '../emergency-contacts/emergency-contacts.service';
+import { Injectable, NotFoundException } from "@nestjs/common";
 import {
-  EmergencyTriggerType,
-} from '../emergency-detection/dto/trigger-request.dto';
-import { EmergencyDetectionService } from '../emergency-detection/emergency-detection.service';
-import { EmergencyIntelligenceService } from '../emergency-intelligence/emergency-intelligence.service';
-import { IncidentTimelineService } from '../incident-timeline/incident-timeline.service';
-import { IncidentsService } from '../incidents/incidents.service';
-import {
-  NotificationChannel,
-} from '../notifications/dto/send-notification.dto';
-import { NotificationService } from '../notifications/notification.service';
+  IncidentStatus,
+  IncidentTrigger,
+  NotificationStatus,
+} from "@prisma/client";
+import { EmergencyContactsService } from "../emergency-contacts/emergency-contacts.service";
+import { EmergencyTriggerType } from "../emergency-detection/dto/trigger-request.dto";
+import { EmergencyDetectionService } from "../emergency-detection/emergency-detection.service";
+import { EmergencyIntelligenceService } from "../emergency-intelligence/emergency-intelligence.service";
+import { IncidentTimelineService } from "../incident-timeline/incident-timeline.service";
+import { IncidentsService } from "../incidents/incidents.service";
+import { NotificationChannel } from "../notifications/dto/send-notification.dto";
+import { NotificationService } from "../notifications/notification.service";
 import {
   buildNotificationPayload,
   buildTrackingUrl,
-} from '../notifications/notification-payload';
-import { UsersService } from '../users/users.service';
-import { randomUUID } from 'crypto';
-import { PrismaService } from '../../prisma/prisma.service';
-import { IncidentAccessTokenService } from '../incident-access/incident-access-token.service';
-import { JourneySessionService } from '../journey/journey-session.service';
-import type { CreateIncidentRequestDto } from './dto/create-incident-request.dto';
+} from "../notifications/notification-payload";
+import { UsersService } from "../users/users.service";
+import { randomUUID } from "crypto";
+import { PrismaService } from "../../prisma/prisma.service";
+import { IncidentAccessTokenService } from "../incident-access/incident-access-token.service";
+import { JourneySessionService } from "../journey/journey-session.service";
+import type { CreateIncidentRequestDto } from "./dto/create-incident-request.dto";
 
 export interface NotificationTaskResult {
   contactId: string;
   contactName: string;
   channel: NotificationChannel;
-  result: { success: boolean; provider?: string; messageId?: string; error?: string };
+  result: {
+    success: boolean;
+    provider?: string;
+    messageId?: string;
+    error?: string;
+  };
 }
 
 @Injectable()
@@ -67,8 +72,8 @@ export class IncidentOrchestratorService {
     if (!detection.outcome.shouldActivate) {
       return {
         status: detection.outcome.requiresConfirmation
-          ? 'CONFIRMATION_REQUIRED'
-          : 'NOT_ACTIVATED',
+          ? "CONFIRMATION_REQUIRED"
+          : "NOT_ACTIVATED",
         detection,
         incident: null,
         intelligence: null,
@@ -78,34 +83,32 @@ export class IncidentOrchestratorService {
 
     const user = await this.usersService.findById(userId);
     if (!user) {
-      throw new NotFoundException('User not found for this incident.');
+      throw new NotFoundException("User not found for this incident.");
     }
     const personName = `${user.firstName} ${user.lastName}`.trim();
 
-    const hasLocation = dto.latitude !== undefined && dto.longitude !== undefined;
+    const hasLocation =
+      dto.latitude !== undefined && dto.longitude !== undefined;
     const intelligence = hasLocation
       ? await this.emergencyIntelligenceService.buildLocationIntelligence({
-        latitude: dto.latitude!,
-        longitude: dto.longitude!,
-        accuracy: dto.accuracy,
-        speed: dto.speed,
-        heading: dto.heading,
-        altitude: dto.altitude,
-        batteryLevel: dto.batteryLevel,
-        isCharging: dto.isCharging,
-        networkType: dto.networkType,
-        language: dto.language,
-        timestamp: dto.timestamp,
-      })
+          latitude: dto.latitude!,
+          longitude: dto.longitude!,
+          accuracy: dto.accuracy,
+          speed: dto.speed,
+          heading: dto.heading,
+          altitude: dto.altitude,
+          batteryLevel: dto.batteryLevel,
+          isCharging: dto.isCharging,
+          networkType: dto.networkType,
+          language: dto.language,
+          timestamp: dto.timestamp,
+        })
       : null;
 
     // Load and filter contacts BEFORE the transaction so we can build the
     // durable notification rows in memory (no network/IO inside the tx).
-    const contacts =
-      await this.emergencyContactsService.listForUser(userId);
-    const activeContacts = contacts.filter(
-      (contact) => contact.isActive,
-    );
+    const contacts = await this.emergencyContactsService.listForUser(userId);
+    const activeContacts = contacts.filter((contact) => contact.isActive);
 
     // Pre-generate a UUID per notification row so, after commit, each
     // synchronous send can update its EXACT row (race-safe, no matching).
@@ -165,7 +168,7 @@ export class IncidentOrchestratorService {
     // provider is replaced with a real integration.
     const locationSummary = hasLocation
       ? `https://maps.google.com/?q=${dto.latitude},${dto.longitude}`
-      : 'Location unavailable';
+      : "Location unavailable";
 
     // Durable-intent write: incident + QUEUED notification rows commit
     // atomically. If this commits, notifications will not be lost even if
@@ -212,9 +215,9 @@ export class IncidentOrchestratorService {
         // Deterministic while legacy data is being reconciled. Once the
         // database invariant is installed, at most one row can match.
         orderBy: [
-          { lastTriggeredAt: 'desc' },
-          { createdAt: 'desc' },
-          { id: 'desc' },
+          { lastTriggeredAt: "desc" },
+          { createdAt: "desc" },
+          { id: "desc" },
         ],
       });
 
@@ -241,41 +244,39 @@ export class IncidentOrchestratorService {
           data: {
             lastTriggeredAt: retriggeredAt,
             retriggerCount: { increment: 1 },
-            ...(shouldAttachFacility
-              ? { facilityId: user.facilityId }
-              : {}),
+            ...(shouldAttachFacility ? { facilityId: user.facilityId } : {}),
           },
         });
 
         // Reconcile contacts added after activation. Any existing row -
         // including FAILED - counts as an existing intent; provider retry
         // is the dispatch worker's concern, not the orchestrator's.
-        const existingNotifications =
-          await tx.incidentNotification.findMany({
-            where: { incidentId: recent.id, contactId: { not: null } },
-            select: { contactId: true, channel: true },
-          });
+        const existingNotifications = await tx.incidentNotification.findMany({
+          where: { incidentId: recent.id, contactId: { not: null } },
+          select: { contactId: true, channel: true },
+        });
 
         const existingKeys = new Set(
-          existingNotifications.map(
-            (n) => n.contactId + ':' + n.channel,
-          ),
+          existingNotifications.map((n) => n.contactId + ":" + n.channel),
         );
 
         const missingNotificationRows = notificationRows.filter(
-          (row) => !existingKeys.has(row.contactId + ':' + row.channel),
+          (row) => !existingKeys.has(row.contactId + ":" + row.channel),
         );
 
         let retriggerTrackingUrl: string | null = null;
 
         if (missingNotificationRows.length > 0) {
-          const { token: retriggerToken } =
-            await this.accessTokenService.issue(recent.id, undefined, tx);
+          const { token: retriggerToken } = await this.accessTokenService.issue(
+            recent.id,
+            undefined,
+            tx,
+          );
 
           const issuedTrackingUrl = buildTrackingUrl(retriggerToken);
           retriggerTrackingUrl = issuedTrackingUrl;
 
-          await tx.incidentNotification.createMany({
+          await this.notificationService.queueMany(tx, {
             data: missingNotificationRows.map((row) => ({
               id: row.id,
               incidentId: recent.id,
@@ -305,22 +306,23 @@ export class IncidentOrchestratorService {
         // incident.journeySessionId is null.
         const retriggerFix = hasLocation
           ? await this.journeySessionService.recordRetriggerFix(tx, {
-            incident: updated,
-            latitude: dto.latitude!,
-            longitude: dto.longitude!,
-            accuracy: dto.accuracy,
-            speed: dto.speed,
-            heading: dto.heading,
-            batteryLevel: dto.batteryLevel,
-            isCharging: dto.isCharging,
-            recordedAt,
-          })
+              incident: updated,
+              latitude: dto.latitude!,
+              longitude: dto.longitude!,
+              accuracy: dto.accuracy,
+              speed: dto.speed,
+              heading: dto.heading,
+              batteryLevel: dto.batteryLevel,
+              isCharging: dto.isCharging,
+              recordedAt,
+            })
           : null;
 
         return {
           incident: {
             ...updated,
-            journeySessionId: retriggerFix?.sessionId ?? updated.journeySessionId,
+            journeySessionId:
+              retriggerFix?.sessionId ?? updated.journeySessionId,
           },
           deduplicated: true as const,
           retriggeredAt,
@@ -386,7 +388,7 @@ export class IncidentOrchestratorService {
       );
       const incidentTrackingUrl = buildTrackingUrl(trackingToken);
 
-      await tx.incidentNotification.createMany({
+      await this.notificationService.queueMany(tx, {
         data: notificationRows.map((row) => ({
           id: row.id,
           incidentId: created.id,
@@ -425,8 +427,8 @@ export class IncidentOrchestratorService {
 
       await this.timelineService.recordEvent({
         incidentId: incident.id,
-        type: 'SOS_RETRIGGERED',
-        source: 'INCIDENT_ORCHESTRATOR',
+        type: "SOS_RETRIGGERED",
+        source: "INCIDENT_ORCHESTRATOR",
         actorUserId: userId,
         payload: {
           triggerMethod: dto.triggerType,
@@ -439,7 +441,7 @@ export class IncidentOrchestratorService {
       });
 
       return {
-        status: 'INCIDENT_RETRIGGERED',
+        status: "INCIDENT_RETRIGGERED",
         incident,
         detection,
         intelligence,
@@ -464,8 +466,8 @@ export class IncidentOrchestratorService {
 
     await this.timelineService.recordEvent({
       incidentId: incident.id,
-      type: 'INCIDENT_CREATED',
-      source: 'INCIDENT_ORCHESTRATOR',
+      type: "INCIDENT_CREATED",
+      source: "INCIDENT_ORCHESTRATOR",
       actorUserId: userId,
       payload: {
         trigger: dto.triggerType,
@@ -477,8 +479,8 @@ export class IncidentOrchestratorService {
     if (hasLocation) {
       await this.timelineService.recordEvent({
         incidentId: incident.id,
-        type: 'LOCATION_ATTACHED',
-        source: 'INCIDENT_ORCHESTRATOR',
+        type: "LOCATION_ATTACHED",
+        source: "INCIDENT_ORCHESTRATOR",
         actorUserId: userId,
         payload: {
           latitude: dto.latitude!,
@@ -498,8 +500,8 @@ export class IncidentOrchestratorService {
     // as the emergency intent is durably persisted.
     await this.timelineService.recordEvent({
       incidentId: incident.id,
-      type: 'NOTIFICATIONS_QUEUED',
-      source: 'INCIDENT_ORCHESTRATOR',
+      type: "NOTIFICATIONS_QUEUED",
+      source: "INCIDENT_ORCHESTRATOR",
       actorUserId: userId,
       payload: {
         queued: notificationRows.length,
@@ -507,7 +509,7 @@ export class IncidentOrchestratorService {
     });
 
     return {
-      status: 'INCIDENT_ACTIVATED',
+      status: "INCIDENT_ACTIVATED",
       incident,
       detection,
       intelligence,

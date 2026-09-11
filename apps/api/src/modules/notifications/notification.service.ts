@@ -1,42 +1,37 @@
-import { ProtectedSnapshotsService } from '../protected-identity/protected-snapshots.service';
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-  Optional,
-} from '@nestjs/common';
+import { randomUUID } from "crypto";
+import type { Prisma } from "@prisma/client";
+import { ProtectedSnapshotsService } from "../protected-identity/protected-snapshots.service";
+import { Optional } from "@nestjs/common";
+import { dispatchWithEvidence } from "./delivery-dispatch";
+import { DeliveryLedgerService } from "./delivery-ledger.service";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import {
   NotificationChannel as PrismaNotificationChannel,
   NotificationStatus,
-} from '@prisma/client';
+} from "@prisma/client";
 
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from "../../prisma/prisma.service";
 import {
-  buildEmergencyMessage,
+  buildNotificationPayload,
   isNotificationPayloadV1,
-} from './notification-payload';
+} from "./notification-payload";
 import {
   NotificationChannel,
   SendNotificationDto,
-} from './dto/send-notification.dto';
-import { EmailProvider } from './providers/email.provider';
+} from "./dto/send-notification.dto";
+import { EmailProvider } from "./providers/email.provider";
 import type {
   NotificationProvider,
   NotificationResponse,
-} from './providers/notification-provider.interface';
-import { PushProvider } from './providers/push.provider';
-import { SmsProvider } from './providers/sms.provider';
-import { VoiceProvider } from './providers/voice.provider';
-import { WhatsAppProvider } from './providers/whatsapp.provider';
+} from "./providers/notification-provider.interface";
+import { PushProvider } from "./providers/push.provider";
+import { SmsProvider } from "./providers/sms.provider";
+import { VoiceProvider } from "./providers/voice.provider";
+import { WhatsAppProvider } from "./providers/whatsapp.provider";
 
 @Injectable()
 export class NotificationService {
-  private readonly providers: Record<
-    NotificationChannel,
-    NotificationProvider
-  >;
-
-  private readonly logger = new Logger(NotificationService.name);
+  private readonly providers: Record<NotificationChannel, NotificationProvider>;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -46,6 +41,9 @@ export class NotificationService {
     private readonly emailProvider: EmailProvider,
     private readonly voiceProvider: VoiceProvider,
     @Optional() private readonly protectedSnapshots?: ProtectedSnapshotsService,
+    private readonly ledger: DeliveryLedgerService = new DeliveryLedgerService(
+      prisma,
+    ),
   ) {
     this.providers = {
       [NotificationChannel.SMS]: this.smsProvider,
@@ -56,9 +54,20 @@ export class NotificationService {
     };
   }
 
-  async send(
-    dto: SendNotificationDto,
-  ): Promise<NotificationResponse> {
+  async queueMany(
+    tx: Prisma.TransactionClient,
+    args: Prisma.IncidentNotificationCreateManyArgs,
+  ) {
+    const values = Array.isArray(args.data) ? args.data : [args.data];
+    if (!this.protectedSnapshots)
+      throw new BadRequestException("Protected outbox unavailable.");
+    const data = [];
+    for (const value of values)
+      data.push(await this.protectedSnapshots.notificationData(tx, value));
+    return tx.incidentNotification.createMany({ ...args, data });
+  }
+
+  async send(dto: SendNotificationDto): Promise<NotificationResponse> {
     const provider = this.providers[dto.channel];
 
     if (!provider) {
@@ -71,15 +80,11 @@ export class NotificationService {
     const message = dto.message.trim();
 
     if (!recipient) {
-      throw new BadRequestException(
-        'Notification recipient cannot be empty.',
-      );
+      throw new BadRequestException("Notification recipient cannot be empty.");
     }
 
     if (!message) {
-      throw new BadRequestException(
-        'Notification message cannot be empty.',
-      );
+      throw new BadRequestException("Notification message cannot be empty.");
     }
 
     return provider.send({
@@ -101,85 +106,34 @@ export class NotificationService {
     location: string;
     trackingUrl: string;
   }): Promise<NotificationResponse> {
-    const message = buildEmergencyMessage({
-      personName: params.personName,
-      location: params.location,
-      trackingUrl: params.trackingUrl,
-    });
-
-      // If the orchestrator pre-created a durable QUEUED row (outbox
-      // pattern), update THAT row to SENDING instead of creating a second
-      // one. Falls back to create() for any legacy caller without an id.
-      const notification = params.notificationId
-        ? await this.prisma.incidentNotification.update({
-            where: { id: params.notificationId },
+    const notification = params.notificationId
+      ? { id: params.notificationId }
+      : await this.prisma.$transaction(async (tx) => {
+          const id = randomUUID();
+          await this.queueMany(tx, {
             data: {
-              status: NotificationStatus.SENDING,
-              attemptCount: { increment: 1 },
-            },
-          })
-        : await this.prisma.incidentNotification.create({
-            data: {
+              id,
               incidentId: params.incidentId,
               contactId: params.contactId,
               contactName: params.contactName.trim(),
               contactType: params.contactType.trim(),
               recipient: params.recipient.trim(),
               channel: this.toPrismaChannel(params.channel),
-              status: NotificationStatus.SENDING,
-              attemptCount: 1,
+              status: NotificationStatus.QUEUED,
+              payload: buildNotificationPayload(params),
             },
           });
-
-    try {
-      const result = await this.send({
-        channel: params.channel,
-        recipient: params.recipient,
-        subject: 'OPA Emergency Alert',
-        message,
-      });
-
-      if (result.success) {
-        await this.prisma.incidentNotification.update({
-          where: { id: notification.id },
-          data: {
-            status: NotificationStatus.SENT,
-            provider: result.provider,
-            providerMessageId: result.messageId,
-            sentAt: new Date(),
-            failedAt: null,
-            lastError: null,
-          },
+          return { id };
         });
-      } else {
-        await this.prisma.incidentNotification.update({
-          where: { id: notification.id },
-          data: {
-            status: NotificationStatus.FAILED,
-            provider: result.provider,
-            providerMessageId: result.messageId,
-            failedAt: new Date(),
-            lastError:
-              this.getResponseError(result) ??
-              'Notification provider reported failure.',
-          },
-        });
+    return (
+      (await this.dispatchNotification(notification.id)) ?? {
+        success: false,
+        provider: "OPA",
+        error: "Notification was not claimable",
+        failureCategory: "INTERNAL_ERROR",
+        retryable: false,
       }
-
-      return result;
-    } catch {
-      await this.prisma.incidentNotification.update({
-        where: { id: notification.id },
-        data: {
-          status: NotificationStatus.FAILED,
-          failedAt: new Date(),
-          lastError:
-            'Notification transport failed.',
-        },
-      });
-
-      throw new BadRequestException('Notification transport failed.');
-    }
+    );
   }
 
   private toPrismaChannel(
@@ -208,127 +162,70 @@ export class NotificationService {
     }
   }
 
-  private getResponseError(
-    result: NotificationResponse,
-  ): string | undefined {
-    if (
-      'error' in result &&
-      typeof result.error === 'string'
-    ) {
-      return 'Notification provider reported failure.';
-    }
-
-    return undefined;
-  }
-
-  /**
-   * Dispatch a notification row that the worker has ALREADY claimed.
-   *
-   * Contract (Phase 2c-2):
-   *  - The row must already be SENDING (claimNextQueued did the atomic
-   *    QUEUED -> SENDING transition and the attemptCount increment).
-   *  - This method NEVER creates a row and NEVER increments attemptCount.
-   *  - Everything needed to deliver is read from the durable payload, so no
-   *    Incident/User lookups happen here.
-   *  - It does not rethrow: a failing notification is marked FAILED and the
-   *    caller (the worker batch loop) continues with the next row.
-   */
+  /** The durable claim and attempt identity fence every provider send. */
   async dispatchNotification(
     notificationId: string,
   ): Promise<NotificationResponse | null> {
-    const notification =
-      await this.prisma.incidentNotification.findUnique({
-        where: { id: notificationId },
-      });
-
-    if (!notification) {
-      this.logger.warn(
-        `dispatchNotification: notification ${notificationId} not found.`,
-      );
-      return null;
-    }
-
-    if (notification.status !== NotificationStatus.SENDING) {
-      this.logger.warn(
-        `dispatchNotification: ${notificationId} is ${notification.status}, expected SENDING. Skipping.`,
-      );
-      return null;
-    }
-
-    let durablePayload: unknown = notification.payload;
-    if (notification.protectedSnapshotId) {
+    const attempt = await this.ledger.claimIncident(notificationId);
+    if (!attempt) return null;
+    const notification = await this.prisma.incidentNotification.findUnique({
+      where: { id: notificationId },
+      include: { incident: { select: { facilityId: true } } },
+    });
+    let durablePayload: unknown = notification?.payload;
+    if (notification?.protectedSnapshotId) {
       try {
         if (!this.protectedSnapshots) throw new Error();
-        durablePayload = await this.protectedSnapshots.notificationPayload(notification.protectedSnapshotId, notification.id);
+        durablePayload = await this.protectedSnapshots.notificationPayload(
+          notification.protectedSnapshotId,
+          notification.id,
+        );
       } catch {
-        await this.prisma.incidentNotification.update({ where: { id: notificationId }, data: { status: NotificationStatus.FAILED, failedAt: new Date(), lastError: 'Protected snapshot unavailable.' } });
-        return null;
+        const failure: NotificationResponse = {
+          success: false,
+          provider: attempt.provider,
+          failureCategory: "INTERNAL_ERROR",
+          retryable: false,
+        };
+        await this.ledger.complete(attempt.id, failure);
+        return failure;
       }
     }
-    if (!isNotificationPayloadV1(durablePayload)) {
-      await this.prisma.incidentNotification.update({
-        where: { id: notificationId },
-        data: {
-          status: NotificationStatus.FAILED,
-          failedAt: new Date(),
-          lastError: 'Missing or unsupported notification payload.',
-        },
-      });
-      this.logger.error(
-        `dispatchNotification: ${notificationId} has no dispatchable payload.`,
+    let result: NotificationResponse;
+    if (
+      !notification ||
+      (notification.incident?.facilityId &&
+        !notification.protectedSnapshotId) ||
+      !isNotificationPayloadV1(durablePayload) ||
+      notification.channel !== durablePayload.channel ||
+      (!notification.protectedSnapshotId &&
+        notification.recipient.trim() !== durablePayload.recipient.trim()) ||
+      !durablePayload.recipient.trim() ||
+      !durablePayload.message.trim()
+    ) {
+      result = {
+        success: false,
+        provider: attempt.provider,
+        failureCategory: "INTERNAL_ERROR",
+        retryable: false,
+      };
+    } else {
+      const payload = durablePayload;
+      return dispatchWithEvidence(
+        attempt.provider,
+        () =>
+          this.send({
+            channel: payload.channel,
+            recipient: payload.recipient,
+            subject: payload.subject,
+            message: payload.message,
+          }),
+        (response) => this.ledger.complete(attempt.id, response),
       );
-      return null;
     }
-
-    const payload = durablePayload;
-
-    try {
-      const result = await this.send({
-        channel: payload.channel,
-        recipient: payload.recipient,
-        subject: payload.subject,
-        message: payload.message,
-      });
-
-      if (result.success) {
-        await this.prisma.incidentNotification.update({
-          where: { id: notificationId },
-          data: {
-            status: NotificationStatus.SENT,
-            provider: result.provider,
-            providerMessageId: result.messageId,
-            sentAt: new Date(),
-            failedAt: null,
-            lastError: null,
-          },
-        });
-      } else {
-        await this.prisma.incidentNotification.update({
-          where: { id: notificationId },
-          data: {
-            status: NotificationStatus.FAILED,
-            provider: result.provider,
-            providerMessageId: result.messageId,
-            failedAt: new Date(),
-            lastError:
-              this.getResponseError(result) ??
-              'Notification provider reported failure.',
-          },
-        });
-      }
-
-      return result;
-    } catch {
-      await this.prisma.incidentNotification.update({
-        where: { id: notificationId },
-        data: {
-          status: NotificationStatus.FAILED,
-          failedAt: new Date(),
-          lastError:
-            'Notification transport failed.',
-        },
-      });
-      return null;
-    }
+    // Persistence failures propagate. Never turn a failed database write into
+    // a claim that the provider rejected a message it may have accepted.
+    await this.ledger.complete(attempt.id, result);
+    return result;
   }
 }

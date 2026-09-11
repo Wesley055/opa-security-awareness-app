@@ -1,3 +1,4 @@
+import type { DeliveryFailureCategory } from "@prisma/client";
 export interface NotificationRequest {
   recipient: string;
   subject?: string;
@@ -9,12 +10,13 @@ export interface NotificationResponse {
   provider: string;
   messageId?: string;
   error?: string;
+  failureCategory?: DeliveryFailureCategory;
+  retryable?: boolean;
+  uncertain?: boolean;
 }
 
 export interface NotificationProvider {
   readonly providerName: string;
 
-  send(
-    request: NotificationRequest,
-  ): Promise<NotificationResponse>;
+  send(request: NotificationRequest): Promise<NotificationResponse>;
 }

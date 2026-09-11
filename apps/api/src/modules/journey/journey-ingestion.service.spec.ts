@@ -1,4 +1,5 @@
-import { Test, TestingModule } from '@nestjs/testing';
+import { Test } from '@nestjs/testing';
+import type { TestingModule } from '@nestjs/testing';
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JourneySessionService } from './journey-session.service';
@@ -120,7 +121,12 @@ describe('JourneyIngestionService', () => {
     $transaction: jest.fn(),
     // startSession takes the lifecycle lock before its existence check.
     $executeRaw: jest.fn(),
-    journeySession: { findUnique: jest.fn(), findFirst: jest.fn() },
+    $queryRaw: jest.fn().mockImplementation(async () => [{ now: new Date() }]),
+    journeySession: {
+      findUnique: jest.fn(),
+      findFirst: jest.fn(),
+      create: jest.fn(),
+    },
   };
 
   const openSession = {
@@ -153,6 +159,19 @@ describe('JourneyIngestionService', () => {
     );
     prisma.journeySession.findUnique.mockResolvedValue(openSession);
     prisma.journeySession.findFirst.mockResolvedValue(null);
+    prisma.journeySession.create.mockResolvedValue({
+      id: SESSION,
+      userId: USER,
+      status: 'STARTED',
+      purpose: 'SAFEWALK',
+      startedAt: new Date(),
+      lastFixReceivedAt: null,
+      destinationLabel: 'Destination',
+      destinationLatitude: null,
+      destinationLongitude: null,
+      expectedArrivalAt: null,
+      arrivalGraceMinutes: 5,
+    });
     prisma.$executeRaw.mockResolvedValue(1);
     emergencyIntelligenceSnapshotService.refreshFromCommittedFix.mockResolvedValue(true);
     journeySessionService.recordTrackedFixes.mockResolvedValue({
@@ -440,6 +459,94 @@ describe('JourneyIngestionService', () => {
       lastFixReceivedAt: null,
     };
 
+    it('refuses a SAFEWALK start when a non-SAFEWALK session is already open', async () => {
+      prisma.journeySession.findFirst.mockResolvedValue({ id: SESSION });
+      journeySessionService.resolveForActivation.mockResolvedValue({
+        ...stored,
+        purpose: 'MANUAL',
+      });
+
+      await expect(
+        service.startSession(
+          USER,
+          {
+            purpose: 'SAFEWALK',
+            destinationLabel: 'Lekki Phase 1 Gate',
+            destinationLatitude: 6.4474,
+            destinationLongitude: 3.4721,
+            expectedArrivalAt: new Date(
+              Date.now() + 30 * 60 * 1000,
+            ).toISOString(),
+          } as never,
+        ),
+      ).rejects.toThrow(ConflictException);
+
+      expect(prisma.journeySession.create).not.toHaveBeenCalled();
+    });
+    it('rejects a new SAFEWALK session with incomplete planning metadata', async () => {
+      await expect(
+        service.startSession(
+          USER,
+          {
+            purpose: 'SAFEWALK',
+            destinationLabel: 'Lekki Phase 1 Gate',
+          } as never,
+        ),
+      ).rejects.toThrow(
+        'SafeWalk requires destinationLabel, destinationLatitude, destinationLongitude, and expectedArrivalAt.',
+      );
+
+      expect(prisma.journeySession.create).not.toHaveBeenCalled();
+    });
+
+    it('rejects a new SAFEWALK session with a non-future ETA', async () => {
+      await expect(
+        service.startSession(
+          USER,
+          {
+            purpose: 'SAFEWALK',
+            destinationLabel: 'Lekki Phase 1 Gate',
+            destinationLatitude: 6.4474,
+            destinationLongitude: 3.4721,
+            expectedArrivalAt: new Date(Date.now() - 60_000).toISOString(),
+          } as never,
+        ),
+      ).rejects.toThrow('SafeWalk expectedArrivalAt must be in the future.');
+
+      expect(prisma.journeySession.create).not.toHaveBeenCalled();
+    });
+    it('creates a SAFEWALK session with destination and arrival metadata', async () => {
+      const expectedArrivalAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+      await service.startSession(
+        USER,
+        {
+          purpose: 'SAFEWALK',
+          destinationLabel: 'Lekki Phase 1 Gate',
+          destinationLatitude: 6.4474,
+          destinationLongitude: 3.4721,
+          expectedArrivalAt,
+        } as never,
+      );
+
+      expect(prisma.journeySession.create).toHaveBeenCalledWith({
+        data: {
+          userId: USER,
+          purpose: 'SAFEWALK',
+          destinationLabel: 'Lekki Phase 1 Gate',
+          safeWalkCreateKey: undefined,
+          safeWalkAudits: { create: { actorUserId: USER, eventKey: expect.stringMatching(/^create:/), kind: 'STARTED', reasonCode: 'OWNER_STARTED_PRIVATE_JOURNEY' } },
+          destinationLatitude: 6.4474,
+          destinationLongitude: 3.4721,
+          expectedArrivalAt: new Date(expectedArrivalAt),
+          arrivalGraceMinutes: 5,
+          safeWalkEscalation: { create: {
+            checkDueAt: new Date(new Date(expectedArrivalAt).getTime() + 5 * 60_000),
+            guardianDueAt: new Date(new Date(expectedArrivalAt).getTime() + 8 * 60_000),
+          } },
+        },
+      });
+    });
     it('returns the resolved session in wire shape', async () => {
       journeySessionService.resolveForActivation.mockResolvedValue(stored);
 
@@ -460,18 +567,22 @@ describe('JourneyIngestionService', () => {
       expect(args[2]).toBe('MANUAL');
     });
 
-    it('passes a requested purpose through', async () => {
-      journeySessionService.resolveForActivation.mockResolvedValue(stored);
+    it('passes a requested non-SafeWalk purpose through', async () => {
+      journeySessionService.resolveForActivation.mockResolvedValue({
+        ...stored,
+        purpose: 'SYSTEM_TEST',
+      });
 
-      await service.startSession(USER, { purpose: 'SAFEWALK' } as never);
+      await service.startSession(USER, { purpose: 'SYSTEM_TEST' } as never);
 
       const args = journeySessionService.resolveForActivation.mock.calls[0];
-      expect(args[2]).toBe('SAFEWALK');
+      expect(args[2]).toBe('SYSTEM_TEST');
     });
 
     // The honest signal that a reuse happened: what comes back is what is
     // STORED, not what was asked for.
     it('returns the stored purpose, not the requested one', async () => {
+      prisma.journeySession.findFirst.mockResolvedValue({ id: SESSION });
       journeySessionService.resolveForActivation.mockResolvedValue({
         ...stored,
         purpose: 'INCIDENT',
@@ -518,5 +629,30 @@ describe('JourneyIngestionService', () => {
 
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe('SafeWalk untrusted planning metadata', () => {
+  it.each([
+    { destinationLabel: null }, { destinationLatitude: null },
+    { destinationLongitude: null }, { expectedArrivalAt: null },
+    { destinationLabel: '   ' }, { destinationLatitude: NaN },
+    { destinationLatitude: 91 }, { destinationLongitude: Infinity },
+    { destinationLongitude: -181 }, { expectedArrivalAt: 'invalid' },
+    { expectedArrivalAt: '2099-01-01' },
+    { expectedArrivalAt: '2099-01-01T12:00:00' },
+  ])('rejects invalid metadata before persistence: %j', async (override) => {
+    const tx = {
+      $executeRaw: jest.fn(), $transaction: jest.fn(),
+      journeySession: { findFirst: jest.fn().mockResolvedValue(null), create: jest.fn() },
+    };
+    tx.$transaction.mockImplementation((fn) => fn(tx));
+    const service = new JourneyIngestionService(tx as never, {} as never, {} as never);
+    await expect(service.startSession('owner', {
+      purpose: 'SAFEWALK', destinationLabel: 'Home',
+      destinationLatitude: 6.5, destinationLongitude: 3.4,
+      expectedArrivalAt: '2099-01-01T12:00:00Z', ...override,
+    } as never)).rejects.toBeInstanceOf(BadRequestException);
+    expect(tx.journeySession.create).not.toHaveBeenCalled();
   });
 });

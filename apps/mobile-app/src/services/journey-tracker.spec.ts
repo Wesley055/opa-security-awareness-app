@@ -1,3 +1,4 @@
+import type * as JourneyTrackerModule from './journey-tracker';
 import { isForegroundExecutionAllowed } from './foreground-execution';
 jest.mock('./foreground-execution', () => ({ isForegroundExecutionAllowed: jest.fn(() => true) }));
 import * as Location from 'expo-location';
@@ -227,7 +228,7 @@ describe('journey-tracker lifecycle', () => {
       evictionDiagnostic: null,
     });
 
-    stopTracking();
+    void stopTracking();
     expect(remove).toHaveBeenCalledTimes(1);
   });
 
@@ -240,7 +241,7 @@ describe('journey-tracker lifecycle', () => {
 
     expect(trackerDebugState().captureSequence).toBe(7);
 
-    stopTracking();
+    void stopTracking();
   });
 
   it('posts ONLY TrackedFix keys - queueId and sessionId never reach the wire', async () => {
@@ -275,7 +276,7 @@ describe('journey-tracker lifecycle', () => {
       'speed',
     ]);
 
-    stopTracking();
+    void stopTracking();
   });
 
   it('stops the cycle and records a fault on a delete shortfall', async () => {
@@ -306,7 +307,7 @@ describe('journey-tracker lifecycle', () => {
     // category never clears - or occupies - the other.
     expect(trackerDebugState().durabilityFault).toBeNull();
 
-    stopTracking();
+    void stopTracking();
   });
 
   it('applies deferred eviction after the replay cycle', async () => {
@@ -326,7 +327,7 @@ describe('journey-tracker lifecycle', () => {
     expect(store.trimToDepth).toHaveBeenCalledWith(7200);
     expect(trackerDebugState().durableQueued).toBe(600);
 
-    stopTracking();
+    void stopTracking();
   });
 
   it('fails closed when the durable queue cannot be opened', async () => {
@@ -378,7 +379,7 @@ describe('journey-tracker lifecycle', () => {
       expect(store.deleteAcknowledged).not.toHaveBeenCalled();
       expect(trackerDebugState().durabilityFault).toBeNull();
 
-      stopTracking();
+      void stopTracking();
     },
   );
 
@@ -394,7 +395,7 @@ describe('journey-tracker lifecycle', () => {
     expect(trackerDebugState().replayFault).toBeNull();
     expect(store.deleteAcknowledged).not.toHaveBeenCalled();
 
-    stopTracking();
+    void stopTracking();
   });
 
   it('suppresses steady-state trim while a replay fault is set', async () => {
@@ -408,7 +409,7 @@ describe('journey-tracker lifecycle', () => {
 
     expect(store.trimToDepth).not.toHaveBeenCalled();
 
-    stopTracking();
+    void stopTracking();
   });
 
   it('clears the replay fault when a later cycle receives a 2xx', async () => {
@@ -429,7 +430,7 @@ describe('journey-tracker lifecycle', () => {
     expect(trackerDebugState().replayFault).toBeNull();
     expect(store.trimToDepth).toHaveBeenCalledWith(7200);
 
-    stopTracking();
+    void stopTracking();
   });
 
   it('raises the enqueue bound to the emergency ceiling while faulted', async () => {
@@ -458,7 +459,7 @@ describe('journey-tracker lifecycle', () => {
       }),
     );
 
-    stopTracking();
+    void stopTracking();
   });
 
   it('records an emergency eviction diagnostic without touching either fault', async () => {
@@ -492,7 +493,7 @@ describe('journey-tracker lifecycle', () => {
     expect(trackerDebugState().replayFault).toMatchObject({ kind: 'HTTP_409' });
     expect(trackerDebugState().durabilityFault).toBeNull();
 
-    stopTracking();
+    void stopTracking();
   });
 
   it('does not replay or trim when another context owns the durable replay lease', async () => {
@@ -532,7 +533,7 @@ describe('journey-tracker lifecycle', () => {
      */
     expect(store.releaseReplayLease).not.toHaveBeenCalled();
 
-    stopTracking();
+    void stopTracking();
   });
   it('a second flush exits while the first is still pending', async () => {
     const store = replayingStore();
@@ -574,7 +575,7 @@ describe('journey-tracker lifecycle', () => {
     expect(store.nextReplaySession).toHaveBeenCalledTimes(1);
     expect(store.listOldestForSession).toHaveBeenCalledTimes(1);
 
-    stopTracking();
+    void stopTracking();
   });
 
   it('a capture during a HEALTHY flush defers eviction at the ordinary bound', async () => {
@@ -622,7 +623,7 @@ describe('journey-tracker lifecycle', () => {
     releasePost?.();
     await inFlight;
 
-    stopTracking();
+    void stopTracking();
   });
 
   it('a capture during a FAULTED flush enforces the ceiling and never defers', async () => {
@@ -683,7 +684,7 @@ describe('journey-tracker lifecycle', () => {
     releasePost?.();
     await inFlight;
 
-    stopTracking();
+    void stopTracking();
   });
 
   it('posts historical queued fixes under their owning replay session, not the current tracker session', async () => {
@@ -740,7 +741,7 @@ describe('journey-tracker lifecycle', () => {
       expect.any(Number),
     );
 
-    stopTracking();
+    void stopTracking();
   });
 });
 
@@ -801,8 +802,7 @@ describe('journey-tracker module reset', () => {
       // goes through the module registry isolateModulesAsync just reset,
       // which is what this test needs anyway. The `typeof import(...)` is
       // a TYPE position and is erased at compile time.
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const fresh = require('./journey-tracker') as typeof import('./journey-tracker');
+      const fresh = jest.requireActual<typeof JourneyTrackerModule>('./journey-tracker');
 
       await fresh.startTracking();
 
@@ -814,7 +814,7 @@ describe('journey-tracker module reset', () => {
       expect(state.replayFault).toBeNull();
       expect(state.evictionDiagnostic).toBeNull();
 
-      fresh.stopTracking();
+      void fresh.stopTracking();
       fresh.resetTrackerStateForTests();
     });
   });
@@ -828,5 +828,34 @@ describe('foreground-only tracking bootstrap', () => {
     expect(mockedPost).not.toHaveBeenCalled();
     expect(mockedLocation.startLocationUpdatesAsync).not.toHaveBeenCalled();
     expect(mockedLocation.watchPositionAsync).not.toHaveBeenCalled();
+  });
+});
+
+describe('SafeWalk session binding', () => {
+  it('does not let a stopped permission request disable a newer walk', async () => {
+    let release!: (value: never) => void;
+    mockedLocation.getForegroundPermissionsAsync.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+    const oldStart = startTracking({ existingSessionId: 'old-walk' });
+    await stopTracking();
+    mockedLocation.getForegroundPermissionsAsync.mockResolvedValue({ granted: true } as never);
+    mockedLocation.watchPositionAsync.mockResolvedValue({ remove: jest.fn() });
+    mockedOpenStore.mockResolvedValue(storeMock());
+    await startTracking({ existingSessionId: 'new-walk' });
+    release({ granted: false } as never);
+    await oldStart;
+    expect(trackerDebugState().sessionId).toBe('new-walk');
+    expect(trackerDebugState().running).toBe(true);
+    await stopTracking('old-walk');
+    expect(trackerDebugState().running).toBe(true);
+    await stopTracking();
+  });
+  it('binds capture to an existing SafeWalk without creating or acquiring another session', async () => {
+    mockedLocation.getForegroundPermissionsAsync.mockResolvedValue({ granted: true } as never);
+    mockedLocation.watchPositionAsync.mockResolvedValue({ remove: jest.fn() });
+    mockedOpenStore.mockResolvedValue(storeMock());
+    await startTracking({ existingSessionId: 'safewalk-existing' });
+    expect(trackerDebugState().sessionId).toBe('safewalk-existing');
+    expect(mockedPost.mock.calls.some(call => call[0] === '/journey/sessions')).toBe(false);
+    await stopTracking();
   });
 });

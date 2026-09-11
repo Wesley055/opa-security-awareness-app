@@ -73,15 +73,22 @@ export class IncidentTrackingService {
 
     const sessionId = incident.journeySessionId;
 
-    const [session, latestFix, newestRoutePoints, emergencyIntelligenceSnapshot] =
+    const session = await this.prisma.journeySession.findUnique({
+      where: { id: sessionId },
+      select: { status: true, lastFixReceivedAt: true, purpose: true, safeWalkEmergencyAt: true },
+    });
+    if (session === null) {
+      throw new NotFoundException('Journey session not found.');
+    }
+    const privateJourney = session.purpose === 'SAFEWALK';
+    const visibleFrom = session.safeWalkEmergencyAt && session.safeWalkEmergencyAt > incident.createdAt ? session.safeWalkEmergencyAt : incident.createdAt;
+    // Buffered personal fixes received after SOS are still personal history.
+    const visibility = privateJourney
+      ? { recordedAt: { gte: visibleFrom }, receivedAt: { gte: visibleFrom } }
+      : {};
+
+    const [latestFix, newestRoutePoints, emergencyIntelligenceSnapshot] =
       await Promise.all([
-      this.prisma.journeySession.findUnique({
-        where: { id: sessionId },
-        select: {
-          status: true,
-          lastFixReceivedAt: true,
-        },
-      }),
 
       /*
        * Reuse the established public-tracking newest-fix rule.
@@ -94,6 +101,7 @@ export class IncidentTrackingService {
       this.prisma.journeyLocationFix.findFirst({
         where: {
           journeySessionId: sessionId,
+          ...visibility,
           latitude: { not: null },
           longitude: { not: null },
         },
@@ -121,6 +129,7 @@ export class IncidentTrackingService {
       this.prisma.journeyLocationFix.findMany({
         where: {
           journeySessionId: sessionId,
+          ...visibility,
           latitude: { not: null },
           longitude: { not: null },
         },
@@ -139,7 +148,7 @@ export class IncidentTrackingService {
         },
       }),
 
-      this.prisma.emergencyIntelligenceSnapshot.findUnique({
+      privateJourney ? Promise.resolve(null) : this.prisma.emergencyIntelligenceSnapshot.findUnique({
         where: { journeySessionId: sessionId },
         select: {
           sourceFixSequence: true,
@@ -220,10 +229,13 @@ export class IncidentTrackingService {
             payload: emergencyIntelligenceSnapshot.payload,
           };
 
+    const visibleSession = privateJourney
+      ? { ...session, lastFixReceivedAt: latestFix?.receivedAt ?? null }
+      : session;
     return {
-      state: deriveTrackingState(session, serverTime),
+      state: deriveTrackingState(visibleSession, serverTime),
       lastFixReceivedAt:
-        session.lastFixReceivedAt?.toISOString() ?? null,
+        visibleSession.lastFixReceivedAt?.toISOString() ?? null,
       latest,
       points,
       movement,

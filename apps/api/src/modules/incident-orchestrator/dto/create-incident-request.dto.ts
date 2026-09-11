@@ -1,4 +1,5 @@
 import {
+  IsUUID,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -17,6 +18,10 @@ import {
 } from '../../emergency-detection/dto/trigger-request.dto';
 
 export class CreateIncidentRequestDto {
+  @IsOptional()
+  @IsUUID('4')
+  safeWalkSessionId?: string;
+
   /*
    * Emergency detection
    */

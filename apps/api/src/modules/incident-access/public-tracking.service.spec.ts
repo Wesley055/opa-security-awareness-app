@@ -328,3 +328,25 @@ describe('PublicTrackingService', () => {
     });
   });
 });
+
+describe('Private SafeWalk family incident visibility', () => {
+  it('does not reveal a buffered pre-emergency personal fix', async () => {
+    const createdAt = new Date('2026-09-09T01:00:00Z');
+    const prisma = { incident: { findUnique: jest.fn().mockResolvedValue({
+      status: 'OPEN', latitude: 6.5, longitude: 3.4, createdAt,
+      user: { firstName: 'Example', lastName: 'User' }, retriggerCount: 0,
+      journeySession: { purpose: 'SAFEWALK', status: 'ACTIVE', lastFixReceivedAt: createdAt,
+        fixes: [{ latitude: 8, longitude: 9, source: 'background',
+          recordedAt: new Date(createdAt.getTime() - 60_000),
+          receivedAt: new Date(createdAt.getTime() + 60_000) }] },
+    }) } };
+    const tokens = {
+      resolve: jest.fn().mockResolvedValue({ status: 'VALID', token: { id: 'token', incidentId: 'incident' } }),
+      recordAccess: jest.fn(),
+    };
+    const result = await new PublicTrackingService(prisma as never, tokens as never).getSnapshot('secret');
+    expect(result.incident).toEqual(expect.objectContaining({
+      location: expect.objectContaining({ latitude: 6.5, longitude: 3.4, origin: 'ACTIVATION' }),
+    }));
+  });
+});

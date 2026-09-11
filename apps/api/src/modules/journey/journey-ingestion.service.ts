@@ -1,4 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import {
+  ServiceUnavailableException,
   BadRequestException,
   ConflictException,
   Injectable,
@@ -9,6 +11,7 @@ import {
 import { JourneyPurpose, JourneySessionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JourneySessionService } from './journey-session.service';
+import { deadlines, dbTime } from './safewalk-policy';
 import { EmergencyIntelligenceSnapshotService } from '../emergency-intelligence/emergency-intelligence-snapshot.service';
 import type {
   InsertFixesResult,
@@ -156,6 +159,7 @@ export class JourneyIngestionService {
   ): Promise<JourneySessionDto> {
     // MANUAL, not INCIDENT: a session the app opened is not an emergency.
     const purpose = dto.purpose ?? JourneyPurpose.MANUAL;
+    if (purpose === JourneyPurpose.SAFEWALK && process.env.NODE_ENV === "production" && process.env.SAFEWALK_ESCALATION_ENABLED !== "true") throw new ServiceUnavailableException("SafeWalk is not enabled.");
 
     return this.prisma.$transaction(async (tx) => {
       // Take the SAME lifecycle lock resolveForActivation takes, before
@@ -165,6 +169,10 @@ export class JourneyIngestionService {
       // the orchestrator does exactly this on its create path.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
 
+      if (purpose === JourneyPurpose.SAFEWALK && dto.safeWalkCreateKey) {
+        const previous = await tx.journeySession.findUnique({ where: { userId_safeWalkCreateKey: { userId, safeWalkCreateKey: dto.safeWalkCreateKey } } });
+        if (previous) return { sessionId: previous.id, status: previous.status, purpose: previous.purpose, startedAt: previous.startedAt.toISOString(), lastFixReceivedAt: previous.lastFixReceivedAt?.toISOString() ?? null, reused: true };
+      }
       const existing = await tx.journeySession.findFirst({
         where: {
           userId,
@@ -175,11 +183,85 @@ export class JourneyIngestionService {
         select: { id: true },
       });
 
-      const session = await this.journeySessionService.resolveForActivation(
-        tx,
-        userId,
-        purpose,
-      );
+      let session;
+
+      if (existing !== null) {
+        session = await this.journeySessionService.resolveForActivation(
+          tx,
+          userId,
+          purpose,
+        );
+
+        if (purpose === JourneyPurpose.SAFEWALK && dto.safeWalkCreateKey && session.safeWalkCreateKey !== dto.safeWalkCreateKey) throw new ConflictException("Another journey is already active. Resume it before starting a new journey.");
+        if (
+          purpose === JourneyPurpose.SAFEWALK &&
+          session.purpose !== JourneyPurpose.SAFEWALK &&
+          session.purpose !== JourneyPurpose.INCIDENT
+        ) {
+          throw new ConflictException(
+            'SafeWalk cannot start while a non-SafeWalk journey session is already open.',
+          );
+        }
+      } else if (purpose === JourneyPurpose.SAFEWALK) {
+        if (
+          dto.destinationLabel == null ||
+          dto.destinationLatitude == null ||
+          dto.destinationLongitude == null ||
+          dto.expectedArrivalAt == null
+        ) {
+          throw new BadRequestException(
+            'SafeWalk requires destinationLabel, destinationLatitude, destinationLongitude, and expectedArrivalAt.',
+          );
+        }
+
+        if (
+          typeof dto.destinationLabel !== 'string' ||
+          dto.destinationLabel.trim().length === 0 ||
+          dto.destinationLabel.length > 256 ||
+          !Number.isFinite(dto.destinationLatitude) ||
+          Math.abs(dto.destinationLatitude) > 90 ||
+          !Number.isFinite(dto.destinationLongitude) ||
+          Math.abs(dto.destinationLongitude) > 180
+        ) {
+          throw new BadRequestException('SafeWalk destination is invalid.');
+        }
+
+        const expectedArrivalAt = new Date(dto.expectedArrivalAt);
+        if (
+          typeof dto.expectedArrivalAt !== 'string' ||
+          !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(dto.expectedArrivalAt) ||
+          !Number.isFinite(expectedArrivalAt.getTime())
+        ) {
+          throw new BadRequestException('SafeWalk expectedArrivalAt must include a valid time and timezone.');
+        }
+
+        if (expectedArrivalAt.getTime() <= (await dbTime(tx)).getTime()) {
+          throw new BadRequestException(
+            'SafeWalk expectedArrivalAt must be in the future.',
+          );
+        }
+
+        session = await tx.journeySession.create({
+          data: {
+            userId,
+            purpose: JourneyPurpose.SAFEWALK,
+            safeWalkCreateKey: dto.safeWalkCreateKey,
+            safeWalkAudits: { create: { actorUserId: userId, eventKey: "create:" + userId + ":" + (dto.safeWalkCreateKey ?? randomUUID()), kind: "STARTED", reasonCode: "OWNER_STARTED_PRIVATE_JOURNEY" } },
+            destinationLabel: dto.destinationLabel,
+            destinationLatitude: dto.destinationLatitude,
+            destinationLongitude: dto.destinationLongitude,
+            expectedArrivalAt,
+            arrivalGraceMinutes: 5,
+            safeWalkEscalation: { create: deadlines(expectedArrivalAt) },
+          },
+        });
+      } else {
+        session = await this.journeySessionService.resolveForActivation(
+          tx,
+          userId,
+          purpose,
+        );
+      }
 
       return {
         sessionId: session.id,

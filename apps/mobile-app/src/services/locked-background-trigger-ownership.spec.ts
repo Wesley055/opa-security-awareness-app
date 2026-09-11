@@ -1,13 +1,14 @@
+jest.mock('./safewalk', () => ({ startSafeWalkReconciliation: jest.fn(() => jest.fn()), useSafeWalk: (select: (state: { journey: null }) => unknown) => select({ journey: null }) }));
 /** Set OPA_TEST_FROZEN_VC19=1 to execute the shipped vc19 modules from Git in memory.
  * This keeps the candidate production edits untouched and tests the physical-release baseline.
  * Native persistence/order and real claim concurrency are covered by ProtectionExecutionBoundaryTest
  * and ProtectionPendingTriggerClaimPolicyTest; JS mocks model only the native bridge contract.
  */
 function mockFrozen(relative: string) {
-  const path = require('path');
-  const ts = require('typescript');
+  const path = jest.requireActual('path');
+  const ts = jest.requireActual('typescript');
   const filename = path.resolve(__dirname, '../..', relative);
-  const source = require('child_process').execFileSync('git', [
+  const source = jest.requireActual('child_process').execFileSync('git', [
     '-c', 'safe.directory=C:/Projects/OPA-notif-02', 'show',
     `0fff37ab815f83abe449bf079441f9a4321c3745:apps/mobile-app/${relative}`,
   ], { cwd: path.resolve(__dirname, '../..'), encoding: 'utf8' });
@@ -16,6 +17,7 @@ function mockFrozen(relative: string) {
     target: ts.ScriptTarget.ES2019, esModuleInterop: true,
   } }).outputText;
   const module = { exports: {} };
+  // eslint-disable-next-line @typescript-eslint/no-require-imports -- Frozen module evaluation must resolve the test registry, including mocks.
   const localRequire = (name: string) => require(name.startsWith('.') ? path.resolve(path.dirname(filename), name) : name);
   new Function('require', 'module', 'exports', '__filename', '__dirname', code)(localRequire, module, module.exports, filename, path.dirname(filename));
   return module.exports;
@@ -45,14 +47,14 @@ jest.mock('expo-notifications', () => ({ IosAuthorizationStatus: { PROVISIONAL: 
 jest.mock('expo-location', () => ({ Accuracy: { High: 4 }, getForegroundPermissionsAsync: jest.fn(), getCurrentPositionAsync: jest.fn(), requestForegroundPermissionsAsync: jest.fn(), requestBackgroundPermissionsAsync: jest.fn() }));
 jest.mock('../../modules/opa-protection', () => ({ claimPendingOpaProtectionTrigger: jest.fn(), releasePendingOpaProtectionTrigger: jest.fn(), acknowledgeClaimedOpaProtectionTrigger: jest.fn(), addOpaVoiceTriggerListener: jest.fn(() => ({ remove: jest.fn() })), configureOpaVoiceProvider: jest.fn(), startOpaProtectionService: jest.fn(), stopOpaProtectionService: jest.fn(), isOpaForegroundEligible: jest.fn() }));
 jest.mock('../store/authStore', () => ({ useAuthStore: () => ({ isAuthenticated: true, isLoading: false, checkAuth: jest.fn() }) }));
-jest.mock('../store/activeIncidentStore', () => ({ useActiveIncidentStore: Object.assign((select: any) => select({ activeIncident: null }), { getState: () => ({ setActiveIncident: jest.fn() }) }) }));
+jest.mock('../store/activeIncidentStore', () => ({ useActiveIncidentStore: Object.assign((select: (state: { activeIncident: null }) => unknown) => select({ activeIncident: null }), { getState: () => ({ setActiveIncident: jest.fn() }) }) }));
 jest.mock('./active-incident-reconciliation', () => ({ startActiveIncidentReconciliation: () => jest.fn() }));
 jest.mock('./picovoice-porcupine-provider', () => ({ PicovoicePorcupineProvider: jest.fn() }));
 jest.mock('./journey-tracker', () => ({ startTracking: jest.fn(), stopTracking: jest.fn() }));
 jest.mock('./api', () => ({ api: { post: jest.fn() }, backgroundApi: { post: jest.fn() } }));
 const voice = { id: 'voice', type: 'VOICE', timestamp: 1000, provider: 'picovoice_porcupine', phrase: 'HELP HELP' };
 const sos = { id: 'sos', type: 'SOS_BUTTON', timestamp: 2000 };
-let queue: any[], owner: any, token: number, cleanups: (() => void)[];
+let queue: (typeof voice | typeof sos)[], owner: ((typeof voice | typeof sos) & { claimToken: string }) | null, token: number, cleanups: (() => void)[];
 let successfulOwners: string[], interactiveAllowed: boolean;
 const claim = native.claimPendingOpaProtectionTrigger as jest.Mock;
 const ack = native.acknowledgeClaimedOpaProtectionTrigger as jest.Mock;
@@ -82,14 +84,14 @@ beforeEach(() => {
   claim.mockImplementation(async (ownerId) => {
     if (owner || !queue.length) return null;
     successfulOwners.push(ownerId);
-    owner = { ...queue[0], claimToken: `token-${++token}` }; return owner;
+    owner = { ...queue[0]!, claimToken: `token-${++token}` }; return owner;
   });
   ack.mockImplementation(async (id, t) => {
-    if (owner?.id !== id || owner.claimToken !== t || queue[0]?.id !== id) return false;
+    if (!owner || owner.id !== id || owner.claimToken !== t || queue[0]?.id !== id) return false;
     queue.shift(); owner = null; return true;
   });
   release.mockImplementation(async (id, t) => {
-    if (owner?.id !== id || owner.claimToken !== t) return false;
+    if (!owner || owner.id !== id || owner.claimToken !== t) return false;
     owner = null; return true;
   });
 });
@@ -222,7 +224,7 @@ it('React-owned locationless VOICE ACKs and unblocks the following SOS', async (
   expect(ack.mock.calls).toEqual([['voice', 'token-1'], ['sos', 'token-2']]);
 });
 it('an interactive location caller that is already locked cannot open permission UI', async () => {
-  await require('./emergency-location').acquireEmergencyLocation();
+  await jest.requireMock('./emergency-location').acquireEmergencyLocation();
   expect(Location.getForegroundPermissionsAsync).toHaveBeenCalledTimes(1);
   expect(Location.requestForegroundPermissionsAsync).not.toHaveBeenCalled();
 });

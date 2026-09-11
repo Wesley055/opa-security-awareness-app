@@ -152,3 +152,19 @@ describe('EmergencyIntelligenceSnapshotService', () => {
     ).resolves.toBe(false);
   });
 });
+describe('SafeWalk analytics isolation', () => {
+  it('does not call a provider or persist a snapshot for a private SafeWalk fix', async () => {
+    const prisma = {
+      journeyLocationFix: { findUnique: jest.fn().mockResolvedValue({
+        redactedAt: null, latitude: 6.5, longitude: 3.4,
+        journeySession: { purpose: 'SAFEWALK', redactedAt: null },
+      }) },
+      $executeRaw: jest.fn(),
+    };
+    const provider = { buildLocationIntelligence: jest.fn() };
+    const service = new EmergencyIntelligenceSnapshotService(prisma as never, provider as never);
+    expect(await service.refreshFromCommittedFix('private', 1)).toBe(false);
+    expect(provider.buildLocationIntelligence).not.toHaveBeenCalled();
+    expect(prisma.$executeRaw).not.toHaveBeenCalled();
+  });
+});

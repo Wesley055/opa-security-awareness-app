@@ -1,3 +1,4 @@
+jest.mock('../config/api-config', () => ({ API_BASE_URL: 'https://opa.example.test' }));
 import { AppState, type AppStateStatus } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { api, backgroundApi } from './api';

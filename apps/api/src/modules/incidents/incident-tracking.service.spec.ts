@@ -340,3 +340,30 @@ describe('IncidentTrackingService.getTracking', () => {
     expect(result.latest!.longitude).toBe(-96.81032);
   });
 });
+describe('Private SafeWalk incident visibility', () => {
+  it('restricts route and latest fixes to post-incident capture and receipt, and withholds analytics', async () => {
+    const createdAt = new Date('2026-09-09T01:00:00Z');
+    const prisma = {
+      incident: { findUnique: jest.fn().mockResolvedValue({
+        latitude: 6.5, longitude: 3.4, createdAt, journeySessionId: 'private',
+      }) },
+      journeySession: { findUnique: jest.fn().mockResolvedValue({
+        purpose: 'SAFEWALK', status: 'ACTIVE', lastFixReceivedAt: null,
+      }) },
+      journeyLocationFix: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      emergencyIntelligenceSnapshot: { findUnique: jest.fn() },
+    };
+    const result = await new IncidentTrackingService(prisma as never).getTracking('incident');
+    for (const method of [prisma.journeyLocationFix.findFirst, prisma.journeyLocationFix.findMany]) {
+      expect(method.mock.calls[0][0].where).toEqual(expect.objectContaining({
+        recordedAt: { gte: createdAt }, receivedAt: { gte: createdAt },
+      }));
+    }
+    expect(prisma.emergencyIntelligenceSnapshot.findUnique).not.toHaveBeenCalled();
+    expect(result.latest!.origin).toBe('ACTIVATION');
+    expect(result.emergencyIntelligence).toBeNull();
+  });
+});

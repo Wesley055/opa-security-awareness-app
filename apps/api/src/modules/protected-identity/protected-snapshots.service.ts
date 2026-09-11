@@ -221,6 +221,23 @@ export class ProtectedSnapshotsService {
     };
   }
 
+  async safeWalkRecipientData(tx: Prisma.TransactionClient, noticeId: string, recipientUserId: string) {
+    const user = await tx.user.findUniqueOrThrow({ where: { id: recipientUserId }, select: { email: true, facilityId: true } });
+    if (!user.facilityId) return { recipient: user.email, protectedSnapshotId: null };
+    const actor = this.deliveryActor(user.facilityId);
+    await this.identities.authorize(tx, user.facilityId, actor, "DELIVERY");
+    const row = await this.identities.protectInTransaction(tx, actor, { tenantId: user.facilityId, subjectUserId: recipientUserId, sourceId: noticeId, kind: "NOTIFICATION_SNAPSHOT" }, JSON.stringify({ version: 1, recipient: user.email }));
+    return { recipient: "[protected]", protectedSnapshotId: row.id };
+  }
+
+  async safeWalkRecipient(snapshotId: string, noticeId: string, recipientUserId: string): Promise<string> {
+    const row = await this.prisma.safeWalkNotice.findFirst({ where: { id: noticeId, recipientUserId, protectedSnapshotId: snapshotId } });
+    if (!row) throw missing();
+    const value = await this.resolve(snapshotId, noticeId, recipientUserId, "NOTIFICATION_SNAPSHOT");
+    if (value.version !== 1 || typeof value.recipient !== "string" || !value.recipient.trim()) throw failed();
+    return value.recipient;
+  }
+
   private async resolve(
     snapshotId: string,
     sourceId: string,

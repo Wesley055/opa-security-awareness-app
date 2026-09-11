@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
 import {
   Body,
   Controller,
+  Get,
   Param,
   ParseUUIDPipe,
   Post,
@@ -17,6 +19,7 @@ import { IngestFixesDto } from './dto/ingest-fixes.dto';
 // VALUE import, same reason as above.
 import { StartSessionDto } from './dto/start-session.dto';
 import { JourneyIngestionService } from './journey-ingestion.service';
+import { SafeWalkService } from './safewalk.service';
 
 type AuthenticatedRequest = Request & { user: JwtPayload };
 
@@ -25,12 +28,22 @@ type AuthenticatedRequest = Request & { user: JwtPayload };
 export class JourneyController {
   constructor(
     private readonly journeyIngestionService: JourneyIngestionService,
+    private readonly safeWalkService: SafeWalkService,
   ) {}
 
   /**
    * Idempotent. Returns the active session, creating one only if the
    * caller has none. Safe to call on every app launch.
    */
+  @Post('safewalk/create-key')
+  createSafeWalkKey() { return { key: randomUUID() }; }
+
+  @Get('safewalk/active')
+  activeSafeWalk(@Req() request: AuthenticatedRequest) { return this.safeWalkService.active(request.user.sub); }
+
+  @Post('sessions/:sessionId/cancel-safewalk')
+  cancelSafeWalk(@Req() request: AuthenticatedRequest, @Param('sessionId', new ParseUUIDPipe({ version: '4' })) sessionId: string) { return this.safeWalkService.cancel(request.user.sub, sessionId); }
+
   @Post('sessions')
   startSession(
     @Req() request: AuthenticatedRequest,
@@ -55,6 +68,30 @@ export class JourneyController {
     sessionId: string,
   ) {
     return this.journeyIngestionService.endSession(request.user.sub, sessionId);
+  }
+
+  @Get('sessions/:sessionId/safewalk')
+  safeWalkStatus(
+    @Req() request: AuthenticatedRequest,
+    @Param('sessionId', new ParseUUIDPipe({ version: '4' })) sessionId: string,
+  ) {
+    return this.safeWalkService.getStatus(request.user.sub, sessionId);
+  }
+
+  @Post('sessions/:sessionId/confirm-safety')
+  confirmSafety(
+    @Req() request: AuthenticatedRequest,
+    @Param('sessionId', new ParseUUIDPipe({ version: '4' })) sessionId: string,
+  ) {
+    return this.safeWalkService.confirm(request.user.sub, sessionId, 'SAFETY');
+  }
+
+  @Post('sessions/:sessionId/confirm-arrival')
+  confirmArrival(
+    @Req() request: AuthenticatedRequest,
+    @Param('sessionId', new ParseUUIDPipe({ version: '4' })) sessionId: string,
+  ) {
+    return this.safeWalkService.confirm(request.user.sub, sessionId, 'ARRIVAL');
   }
 
   @Post('fixes')

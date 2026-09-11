@@ -1,4 +1,14 @@
-import { IsIn, IsOptional } from 'class-validator';
+import {
+  IsIn,
+  IsUUID,
+  IsISO8601,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Length,
+  Max,
+  Min,
+} from 'class-validator';
 import { JourneyPurpose } from '@prisma/client';
 import type { JourneySessionStatus } from '@prisma/client';
 
@@ -8,8 +18,6 @@ import type { JourneySessionStatus } from '@prisma/client';
  * INCIDENT is excluded deliberately: it belongs to the orchestrator, which
  * sets it when an emergency creates the session. GUARDIAN is excluded
  * because no product exists behind it - see ADR-009.
- *
- * purpose is a TAG. Nothing in 10B may branch on it.
  */
 export const CLIENT_PURPOSES = [
   JourneyPurpose.MANUAL,
@@ -19,8 +27,33 @@ export const CLIENT_PURPOSES = [
 
 export class StartSessionDto {
   @IsOptional()
+  @IsUUID("4")
+  safeWalkCreateKey?: string;
+
+  @IsOptional()
   @IsIn(CLIENT_PURPOSES)
   purpose?: (typeof CLIENT_PURPOSES)[number];
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 256)
+  destinationLabel?: string;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  destinationLatitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  destinationLongitude?: number;
+
+  @IsOptional()
+  @IsISO8601()
+  expectedArrivalAt?: string;
 }
 
 /**

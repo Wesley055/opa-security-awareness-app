@@ -54,6 +54,8 @@ export class PublicTrackingService {
         journeySession: {
           select: {
             status: true,
+            purpose: true,
+            safeWalkEmergencyAt: true,
             lastFixReceivedAt: true,
             fixes: {
               take: 1,
@@ -84,6 +86,7 @@ export class PublicTrackingService {
                 latitude: true,
                 longitude: true,
                 recordedAt: true,
+                receivedAt: true,
                 source: true,
               },
             },
@@ -139,12 +142,16 @@ export class PublicTrackingService {
     const now = new Date();
     const session = details.journeySession;
     const newestFix = session?.fixes[0];
+    const visibleFrom = session?.safeWalkEmergencyAt && session.safeWalkEmergencyAt > details.createdAt ? session.safeWalkEmergencyAt : details.createdAt;
 
     // Redaction nulls the coordinates deliberately (they are the erasure
     // mechanism), so a redacted fix must NOT overwrite the origin with
     // nulls. Falling back to the incident row is the honest answer.
     const usableFix =
       newestFix !== undefined &&
+      (session?.purpose !== 'SAFEWALK' ||
+        (newestFix.recordedAt >= visibleFrom &&
+          newestFix.receivedAt >= visibleFrom)) &&
       newestFix.latitude !== null &&
       newestFix.longitude !== null
         ? newestFix
@@ -167,14 +174,19 @@ export class PublicTrackingService {
           }
           : null;
 
+    // Personal history must not leak through the communication timestamp either.
+    const visibleSession = session?.purpose === 'SAFEWALK'
+      ? { ...session, lastFixReceivedAt: usableFix?.receivedAt ?? null }
+      : session;
+
     // Omitted entirely when there is no session. See the DTO comment.
     const tracking =
       session === null || session === undefined
         ? undefined
         : {
-            state: deriveTrackingState(session, now),
+            state: deriveTrackingState(visibleSession!, now),
             lastFixReceivedAt:
-              session.lastFixReceivedAt?.toISOString() ?? null,
+              visibleSession?.lastFixReceivedAt?.toISOString() ?? null,
           };
 
     return {

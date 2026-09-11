@@ -121,6 +121,7 @@ export default function HomeScreen() {
   if (isLoading) {
     return (
       <View style={styles.container}>
+
         <Text style={styles.text}>Loading...</Text>
       </View>
     );
@@ -129,6 +130,7 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <Text style={styles.logo}>OPA</Text>
+      <TouchableOpacity accessibilityRole="button" onPress={() => router.push('/safewalk')} style={{ padding: 16 }}><Text style={{ color: '#fff', fontSize: 18 }}>SafeWalk · Private journey</Text></TouchableOpacity>
 
       <Text style={styles.welcome}>
         Welcome, {user?.firstName ?? 'there'}
@@ -198,7 +200,7 @@ export default function HomeScreen() {
 
         <TouchableOpacity
           style={styles.button}
-          onPress={() => logout()}
+          onPress={() => { void logout(); }}
         >
           <Text style={styles.buttonText}>
             Log out

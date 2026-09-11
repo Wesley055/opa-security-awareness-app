@@ -50,7 +50,6 @@ import {
   ACTIVE_INCIDENT_QUEUE_DEPTH,
   cleanNonNegative,
   type TrackedFix,
-  type TrackedFixSource,
 } from './journey-fix-contract';
 import { bootstrapJourneyQueueStore } from './journey-queue-store';
 import type {
@@ -113,6 +112,12 @@ export const cleanHeading = (
 
 let running = false;
 let generation = 0;
+let backgroundTransition: Promise<unknown> = Promise.resolve();
+function serializeBackground<T>(work: () => Promise<T>): Promise<T> {
+  const next = backgroundTransition.then(work, work);
+  backgroundTransition = next.catch(() => undefined);
+  return next;
+}
 let sessionId: string | null = null;
 let subscription: Location.LocationSubscription | null = null;
 let flushTimer: ReturnType<typeof setInterval> | null = null;
@@ -695,7 +700,7 @@ async function flush(forSession: string): Promise<void> {
  * not less: a long-lived subscription gives a stale async result many more
  * chances to land after a stop.
  */
-export async function startTracking(): Promise<void> {
+export async function startTracking(options?: { existingSessionId: string }): Promise<void> {
   if (!isForegroundExecutionAllowed()) return;
   if (running) {
     log('already running - ignoring start');
@@ -710,6 +715,7 @@ export async function startTracking(): Promise<void> {
   // only reads it. Requesting again would put a second dialog in front of
   // someone who has just pressed a panic button.
   const permission = await Location.getForegroundPermissionsAsync();
+  if (!running || gen !== generation) return;
   if (!permission.granted) {
     log('foreground location not granted - not tracking');
     running = false;
@@ -718,6 +724,7 @@ export async function startTracking(): Promise<void> {
 
   if (!isForegroundExecutionAllowed()) { running = false; return; }
   const durable = await initializeDurableQueue();
+  if (!running || gen !== generation) return;
   if (!durable) {
     running = false;
     return;
@@ -729,7 +736,7 @@ export async function startTracking(): Promise<void> {
   }
 
   if (!isForegroundExecutionAllowed()) { running = false; return; }
-  const id = await acquireSession();
+  const id = options?.existingSessionId ?? await acquireSession();
   if (!id) {
     running = false;
     return;
@@ -752,12 +759,16 @@ export async function startTracking(): Promise<void> {
   // so two readings of the same position produce two DIFFERENT keys and
   // INSERT OR IGNORE cannot collapse them. Duplicate history in an
   // emergency record is worse than a slightly slower cadence.
-  const backgroundStarted = await startBackgroundCapture(id);
+  const backgroundStarted = await serializeBackground(async () => {
+    if (!running || gen !== generation) return false;
+    return startBackgroundCapture(id);
+  });
+  if (!running || gen !== generation) return;
 
   if (!backgroundStarted) {
     if (!isForegroundExecutionAllowed()) { running = false; return; }
     try {
-      subscription = await Location.watchPositionAsync(
+      const newSubscription = await Location.watchPositionAsync(
         {
           accuracy: Location.Accuracy.High,
           timeInterval: TIME_INTERVAL_MS,
@@ -770,8 +781,11 @@ export async function startTracking(): Promise<void> {
           enqueue(position, id);
         },
       );
+      if (!running || gen !== generation) { newSubscription.remove(); return; }
+      subscription = newSubscription;
     } catch (err: unknown) {
       log('watchPositionAsync failed', err);
+      if (gen !== generation) return;
       running = false;
       sessionId = null;
       return;
@@ -835,9 +849,9 @@ async function startBackgroundCapture(forSession: string): Promise<boolean> {
         // being throttled, and a person being tracked during an emergency
         // has a right to see that it is happening.
         foregroundService: {
-          notificationTitle: 'OPA emergency alert active',
+          notificationTitle: 'OPA journey tracking active',
           notificationBody:
-            'Your location is being shared with your emergency contacts.',
+            'Saving location updates for your active journey.',
           notificationColor: '#D92D20',
         },
         pausesUpdatesAutomatically: false,
@@ -852,7 +866,9 @@ async function startBackgroundCapture(forSession: string): Promise<boolean> {
     // The key is cleared so a half-registered task cannot write fixes the
     // foreground watcher is also capturing.
     log('background capture unavailable - foreground only', err);
-    void SecureStore.deleteItemAsync(BACKGROUND_SESSION_KEY);
+    await SecureStore.deleteItemAsync(BACKGROUND_SESSION_KEY).catch(() => {
+      log('failed to clear an unavailable background capture session');
+    });
     return false;
   }
 }
@@ -891,7 +907,8 @@ async function stopBackgroundCapture(): Promise<void> {
  * Attempts one final best-effort flush. Rows that never got a 2xx stay in
  * SQLite and are replayed after the next start.
  */
-export async function stopTracking(): Promise<void> {
+export async function stopTracking(expectedSessionId?: string): Promise<void> {
+  if (expectedSessionId && running && sessionId !== expectedSessionId) return;
   const hadLocalTracking = running || subscription !== null || flushTimer !== null;
   const finalSession = sessionId;
 
@@ -916,7 +933,7 @@ export async function stopTracking(): Promise<void> {
   // This MUST run even when local module state is idle. TaskManager and
   // SecureStore survive JS-context restarts, so a cold-start logout can have
   // no local subscription while a stale background task still exists.
-  await stopBackgroundCapture();
+  await serializeBackground(stopBackgroundCapture);
 
   if (!hadLocalTracking && finalSession === null) {
     return;

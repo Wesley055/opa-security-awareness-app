@@ -54,6 +54,7 @@ describe("IncidentOrchestratorService", () => {
   };
 
   const prisma = {
+    journeySession: { findFirst: jest.fn().mockResolvedValue(null) },
     $transaction: jest.fn(),
     $executeRaw: jest.fn(),
     incident: {

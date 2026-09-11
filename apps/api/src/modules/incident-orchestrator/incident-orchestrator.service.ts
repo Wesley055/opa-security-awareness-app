@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { settleSafeWalk, lockJourney, dbTime } from "../journey/safewalk-policy";
+import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import {
   IncidentStatus,
   IncidentTrigger,
@@ -196,6 +197,24 @@ export class IncidentOrchestratorService {
       // block each other.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
 
+      const safeWalk = await tx.journeySession.findFirst({ where: { ...(dto.safeWalkSessionId ? { id: dto.safeWalkSessionId } : { status: { in: ['STARTED', 'ACTIVE'] } }), userId, purpose: 'SAFEWALK', redactedAt: null } });
+      if (dto.safeWalkSessionId && !safeWalk) throw new NotFoundException('Journey session not found.');
+      if (safeWalk && !safeWalk.safeWalkEmergencyIncidentId && safeWalk.status === 'ENDED') throw new ConflictException('Journey has ended.');
+      if (dto.safeWalkSessionId && safeWalk?.safeWalkEmergencyIncidentId) {
+        const previous = await tx.incident.findFirst({ where: { id: safeWalk.safeWalkEmergencyIncidentId, userId } });
+        if (!previous) throw new NotFoundException('Incident not found.');
+        return { safeWalkReplay: true, incident: previous, deduplicated: true as const, retriggeredAt: safeWalk.safeWalkEmergencyAt, trackingUrl: null, notificationsQueued: 0, facilityReconciled: false };
+      }
+      const linkSafeWalk = async (incidentId: string) => {
+        if (!safeWalk || safeWalk.safeWalkEmergencyIncidentId) return;
+        await lockJourney(tx, userId, safeWalk.id);
+        const occurredAt = await dbTime(tx);
+        await tx.incident.update({ where: { id: incidentId }, data: { journeySessionId: safeWalk.id } });
+        await tx.journeySession.update({ where: { id: safeWalk.id }, data: { safeWalkEmergencyIncidentId: incidentId, safeWalkEmergencyAt: occurredAt } });
+        await settleSafeWalk(tx, safeWalk.id, occurredAt, 'CLOSED', userId);
+        await tx.safeWalkAudit.create({ data: { sessionId: safeWalk.id, actorUserId: userId, eventKey: safeWalk.id + ':emergency', kind: 'EMERGENCY_AUTHORIZED', reasonCode: dto.safeWalkSessionId ? 'OWNER_EXPLICIT_EMERGENCY_V1' : 'EXISTING_SOS_POLICY_V1', occurredAt } });
+      };
+
       // D11: the device clock is advisory. A missing or unparseable
       // dto.timestamp must not fail the emergency, so it falls back to the
       // server clock HERE, at the orchestrator boundary, so the journey
@@ -318,11 +337,12 @@ export class IncidentOrchestratorService {
             })
           : null;
 
+        await linkSafeWalk(updated.id);
         return {
           incident: {
             ...updated,
             journeySessionId:
-              retriggerFix?.sessionId ?? updated.journeySessionId,
+              safeWalk?.id ?? retriggerFix?.sessionId ?? updated.journeySessionId,
           },
           deduplicated: true as const,
           retriggeredAt,
@@ -375,6 +395,8 @@ export class IncidentOrchestratorService {
         });
       }
 
+      await linkSafeWalk(created.id);
+
       // The tracking URL needs the new incident id, so it is built here.
       // Pure string work - no IO inside the transaction.
       // Issue the capability token the tracking link will carry, inside the
@@ -410,7 +432,7 @@ export class IncidentOrchestratorService {
       });
 
       return {
-        incident: created,
+        incident: safeWalk ? { ...created, journeySessionId: safeWalk.id } : created,
         deduplicated: false as const,
         retriggeredAt: null,
         trackingUrl: incidentTrackingUrl,
@@ -418,6 +440,7 @@ export class IncidentOrchestratorService {
     });
 
     const incident = activation.incident;
+    if ("safeWalkReplay" in activation) return { status: "INCIDENT_LINKED", incident, deduplicated: true, notifications: { queued: 0, dispatched: false } };
 
     if (activation.deduplicated) {
       const retriggeredAt = activation.retriggeredAt ?? new Date();

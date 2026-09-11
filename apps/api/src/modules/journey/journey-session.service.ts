@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { Injectable } from '@nestjs/common';
+import { ConflictException, Injectable } from '@nestjs/common';
 import {
   JourneyPurpose,
   JourneySessionEndReason,
@@ -8,6 +8,7 @@ import {
   type Prisma,
 } from '@prisma/client';
 import { canonicalChainEnvelope } from './canonical-chain';
+import { settleSafeWalk } from './safewalk-policy';
 import { canonicalFixPayload } from './canonical-fix';
 
 /** Values permitted by JourneyLocationFix.source (VarChar(32)). */
@@ -174,6 +175,8 @@ export class JourneySessionService {
       return { session, alreadyEnded: true };
     }
 
+    if (session.purpose === JourneyPurpose.SAFEWALK && reason === JourneySessionEndReason.USER_ENDED && await tx.incident.findFirst({ where: { journeySessionId: sessionId, status: { in: ['OPEN', 'ACKNOWLEDGED'] } }, select: { id: true } })) throw new ConflictException('Resolve the active emergency before ending the journey.');
+
     // D3: the clock comes from the DATABASE, truncated at the source. endedAt
     // is timestamp(3) and PostgreSQL ROUNDS on store, so an untruncated
     // microsecond tail would be stored as a different millisecond than the
@@ -199,6 +202,10 @@ export class JourneySessionService {
         endedReason: reason,
       },
     });
+
+    if (session.purpose === JourneyPurpose.SAFEWALK) {
+      await settleSafeWalk(tx, sessionId, clockRow.ended_at, 'CLOSED', userId);
+    }
 
     // The incident, if any, is deliberately UNTOUCHED. Ending a journey is a
     // telemetry event, not an incident outcome. ADR-008 is explicit that

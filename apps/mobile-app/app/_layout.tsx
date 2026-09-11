@@ -1,3 +1,6 @@
+import { useSafeWalk } from '../src/services/safewalk';
+import { Alert } from 'react-native';
+import { startSafeWalkReconciliation } from '../src/services/safewalk';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as Notifications from 'expo-notifications';
 import { AppState, Platform } from 'react-native';
@@ -46,11 +49,20 @@ export default function RootLayout() {
    * allowed only after the authenticated state is known.
    */
   const pendingLockScreenSosRef = useRef(false);
+  const safeWalkJourney = useSafeWalk(state => state.journey);
+  const lastSafeWalkPrompt = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isAuthenticated) { lastSafeWalkPrompt.current = null; return; }
+    if (appState !== 'active' || safeWalkJourney?.safeWalkEscalation?.state !== 'CHECK_REQUIRED' || lastSafeWalkPrompt.current === safeWalkJourney.id) return;
+    lastSafeWalkPrompt.current = safeWalkJourney.id;
+    Alert.alert('SafeWalk safety check', 'Your expected arrival has passed. Open SafeWalk to confirm your safety.', [{ text: 'Open SafeWalk', onPress: () => router.push('/safewalk') }]);
+  }, [isAuthenticated, appState, safeWalkJourney?.id, safeWalkJourney?.safeWalkEscalation?.state, router]);
 
   useEffect(() => startActiveIncidentReconciliation(), []);
+  useEffect(() => startSafeWalkReconciliation(), []);
 
   useEffect(() => {
-    checkAuth();
+    void checkAuth();
   }, []);
 
   /*

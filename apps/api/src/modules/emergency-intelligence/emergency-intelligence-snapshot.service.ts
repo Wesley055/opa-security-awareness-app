@@ -44,11 +44,16 @@ export class EmergencyIntelligenceSnapshotService {
         recordedAt: true,
         receivedAt: true,
         redactedAt: true,
+        journeySession: { select: { purpose: true, redactedAt: true } },
       },
     });
 
     if (
       sourceFix === null ||
+      // No SafeWalk processing grant exists yet. Even an attached incident
+      // does not authorize analytics over the private journey by default.
+      sourceFix.journeySession?.purpose === 'SAFEWALK' ||
+      sourceFix.journeySession?.redactedAt != null ||
       sourceFix.redactedAt !== null ||
       sourceFix.latitude === null ||
       sourceFix.longitude === null
@@ -101,6 +106,12 @@ export class EmergencyIntelligenceSnapshotService {
         AND source."redactedAt" IS NULL
         AND source."latitude" IS NOT NULL
         AND source."longitude" IS NOT NULL
+        AND EXISTS (
+          SELECT 1 FROM "JourneySession" AS session
+          WHERE session."id" = source."journeySessionId"
+            AND session."purpose" <> 'SAFEWALK'
+            AND session."redactedAt" IS NULL
+        )
       ON CONFLICT ("journeySessionId") DO UPDATE
       SET
         "sourceFixSequence" = EXCLUDED."sourceFixSequence",

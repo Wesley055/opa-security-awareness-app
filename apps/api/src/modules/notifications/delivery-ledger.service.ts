@@ -16,7 +16,7 @@ import {
 } from "./delivery-policy";
 import type { NotificationResponse } from "./providers/notification-provider.interface";
 
-export type DeliveryOwner = { kind: "incident" | "invitation"; id: string };
+export type DeliveryOwner = { kind: "incident" | "invitation" | "safewalk"; id: string };
 type Tx = Prisma.TransactionClient;
 type Projection = {
   deliveryStatus?: DeliveryStatus;
@@ -40,18 +40,24 @@ export class DeliveryLedgerService {
   constructor(private readonly prisma: PrismaService) {}
 
   private ownerFields(owner: DeliveryOwner) {
+    if (owner.kind === "safewalk") return { safeWalkNoticeId: owner.id };
     return owner.kind === "incident"
       ? { incidentNotificationId: owner.id }
       : { invitationDeliveryId: owner.id };
   }
 
   private owner(attempt: DeliveryAttempt): DeliveryOwner {
+    if (attempt.safeWalkNoticeId) return { kind: "safewalk", id: attempt.safeWalkNoticeId };
     return attempt.incidentNotificationId
       ? { kind: "incident", id: attempt.incidentNotificationId }
       : { kind: "invitation", id: attempt.invitationDeliveryId! };
   }
 
   private async lock(tx: Tx, owner: DeliveryOwner) {
+    if (owner.kind === "safewalk") {
+      await tx.$queryRaw`SELECT id FROM "SafeWalkNotice" WHERE id = ${owner.id}::uuid FOR UPDATE`;
+      return tx.safeWalkNotice.findUnique({ where: { id: owner.id } });
+    }
     // All writers lock the authoritative parent before attempts or receipts.
     if (owner.kind === "incident") {
       await tx.$queryRaw`SELECT id FROM "IncidentNotification" WHERE id = ${owner.id}::uuid FOR UPDATE`;
@@ -62,6 +68,7 @@ export class DeliveryLedgerService {
   }
 
   private async project(tx: Tx, owner: DeliveryOwner, data: Projection) {
+    if (owner.kind === "safewalk") { await tx.safeWalkNotice.update({ where: { id: owner.id }, data }); return; }
     if (owner.kind === "incident") {
       await tx.incidentNotification.update({ where: { id: owner.id }, data });
     } else {

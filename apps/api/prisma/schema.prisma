@@ -124,6 +124,9 @@ model User {
   emergencyContacts   EmergencyContact[]
   journeySessions     JourneySession[]
   passwordResetTokens PasswordResetToken[]
+  safeWalkGuardianCodes SafeWalkGuardianCode[]
+  safeWalkGuardianGrants SafeWalkGuardianGrant[]
+  safeWalkNotices SafeWalkNotice[]
 
   facilityId String?   @db.Uuid
   facility   Facility? @relation("FacilityStaff", fields: [facilityId], references: [id])
@@ -476,6 +479,10 @@ enum JourneyRedactionReason {
 /// a session with no incident, and an incident can begin part-way through one.
 /// Sequencing, hashing, concurrency and redaction rules are in ADR-009.
 model JourneySession {
+  safeWalkCreateKey String? @db.Uuid
+  safeWalkEmergencyIncidentId String? @db.Uuid
+  safeWalkEmergencyAt DateTime?
+
   id     String @id @default(uuid()) @db.Uuid
   userId String @db.Uuid
   user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -495,6 +502,16 @@ model JourneySession {
   /// session.
   lastFixReceivedAt DateTime?
 
+  // SafeWalk journey planning metadata.
+  // Nullable so existing INCIDENT/MANUAL/SYSTEM_TEST sessions remain valid.
+  destinationLabel      String?   @db.VarChar(256)
+  destinationLatitude   Decimal?  @db.Decimal(9, 6)
+  destinationLongitude  Decimal?  @db.Decimal(9, 6)
+  expectedArrivalAt     DateTime?
+  arrivalGraceMinutes   Int?
+  safetyConfirmedAt     DateTime?
+  arrivalConfirmedAt    DateTime?
+
   /// Opaque device identifier. TODO: becomes a relation to a Device model
   /// when one exists. Do not let this accrete unstructured meaning.
   deviceId String? @db.VarChar(128)
@@ -510,6 +527,12 @@ model JourneySession {
   incidents                     Incident[]
   emergencyIntelligenceSnapshot EmergencyIntelligenceSnapshot?
 
+  guardianGrants SafeWalkGuardianGrant[]
+  safeWalkEscalation SafeWalkEscalation?
+  safeWalkNotices SafeWalkNotice[]
+  safeWalkAudits SafeWalkAudit[]
+  @@unique([id, userId])
+  @@unique([userId, safeWalkCreateKey])
   @@index([userId, status, startedAt])
   @@index([status, lastFixReceivedAt])
 }
@@ -758,6 +781,8 @@ enum DeliveryFailureCategory {
 }
 
 model DeliveryAttempt {
+  safeWalkNoticeId String? @db.Uuid
+  safeWalkNotice SafeWalkNotice? @relation(fields: [safeWalkNoticeId], references: [id], onDelete: Restrict)
   id String @id @default(uuid()) @db.Uuid
   incidentNotificationId String? @db.Uuid
   incidentNotification IncidentNotification? @relation(fields: [incidentNotificationId], references: [id], onDelete: Restrict)
@@ -778,6 +803,7 @@ model DeliveryAttempt {
   events DeliveryStatusEvent[]
   @@unique([incidentNotificationId, number])
   @@unique([invitationDeliveryId, number])
+  @@unique([safeWalkNoticeId, number])
   @@index([status, startedAt])
 }
 
@@ -794,6 +820,8 @@ model ProviderReference {
 }
 
 model DeliveryStatusEvent {
+  safeWalkNoticeId String? @db.Uuid
+  safeWalkNotice SafeWalkNotice? @relation(fields: [safeWalkNoticeId], references: [id], onDelete: Restrict)
   id String @id @default(uuid()) @db.Uuid
   incidentNotificationId String? @db.Uuid
   incidentNotification IncidentNotification? @relation(fields: [incidentNotificationId], references: [id], onDelete: Restrict)
@@ -813,6 +841,7 @@ model DeliveryStatusEvent {
   recordedAt DateTime @default(now())
   @@index([incidentNotificationId, recordedAt, id])
   @@index([invitationDeliveryId, recordedAt, id])
+  @@index([safeWalkNoticeId, recordedAt, id])
   @@index([attemptId, recordedAt])
 }
 
@@ -918,4 +947,116 @@ model SsoAuditEvent {
   configurationRevision Int?
   createdAt DateTime @default(now())
   @@index([facilityId, createdAt])
+}
+
+enum SafeWalkEscalationState {
+  SCHEDULED
+  CHECK_REQUIRED
+  ESCALATED
+  SATISFIED
+  CLOSED
+}
+
+enum SafeWalkNoticeKind {
+  OWNER_CHECK
+  GUARDIAN_OVERDUE
+}
+
+/// Authenticated recipient pairing; raw credentials are returned once only.
+model SafeWalkGuardianCode {
+  id                   String   @id @default(uuid()) @db.Uuid
+  userId               String   @db.Uuid
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  codeHash             String   @unique @db.VarChar(64)
+  createdAt            DateTime @default(now())
+  expiresAt            DateTime
+  consumedAt           DateTime?
+  consumedForSessionId String?  @db.Uuid
+  @@index([userId, expiresAt])
+}
+
+model SafeWalkGuardianGrant {
+  id              String @id @default(uuid()) @db.Uuid
+  sessionId       String @db.Uuid
+  ownerUserId     String @db.Uuid
+  session         JourneySession @relation(fields: [sessionId, ownerUserId], references: [id, userId], onDelete: Restrict)
+  guardianUserId  String @db.Uuid
+  guardian        User @relation(fields: [guardianUserId], references: [id], onDelete: Restrict)
+  /// Existing facility boundary snapshot, NOT a tenant identifier.
+  facilityScopeId String? @db.Uuid
+  policyVersion   String @default("safewalk-status-v1") @db.VarChar(64)
+  grantedAt       DateTime @default(now())
+  revokedAt       DateTime?
+  notices         SafeWalkNotice[]
+  @@unique([sessionId, guardianUserId])
+  @@index([guardianUserId, revokedAt])
+}
+
+model SafeWalkEscalation {
+  sessionId          String @id @db.Uuid
+  session            JourneySession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  state              SafeWalkEscalationState @default(SCHEDULED)
+  checkDueAt         DateTime
+  guardianDueAt      DateTime
+  checkRequiredAt    DateTime?
+  /// At least three minutes after actual durable prompt availability.
+  responseDueAt      DateTime?
+  escalatedAt DateTime?
+  settledAt          DateTime?
+  policyVersion      String @default("safewalk-eta-v1") @db.VarChar(64)
+  @@index([state, checkDueAt])
+  @@index([state, responseDueAt])
+}
+
+model SafeWalkNotice {
+  channel NotificationChannel @default(EMAIL)
+  status NotificationStatus @default(QUEUED)
+  deliveryStatus DeliveryStatus @default(QUEUED)
+  recipient String?
+  protectedSnapshotId String? @db.Uuid
+  attemptCount Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  firstAttemptAt DateTime?
+  lastAttemptAt DateTime?
+  providerAcceptedAt DateTime?
+  confirmedDeliveredAt DateTime?
+  failureCategory DeliveryFailureCategory?
+  provider String?
+  providerMessageId String?
+  sentAt DateTime?
+  failedAt DateTime?
+  lastError String?
+  attempts DeliveryAttempt[]
+  deliveryEvents DeliveryStatusEvent[]
+
+  id              String @id @default(uuid()) @db.Uuid
+  sessionId       String @db.Uuid
+  session         JourneySession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  recipientUserId String @db.Uuid
+  recipientAccount User @relation(fields: [recipientUserId], references: [id], onDelete: Restrict)
+  grantId         String? @db.Uuid
+  grant           SafeWalkGuardianGrant? @relation(fields: [grantId], references: [id], onDelete: Restrict)
+  kind            SafeWalkNoticeKind
+  message         String @db.VarChar(512)
+  policyVersion   String @default("safewalk-eta-v1") @db.VarChar(64)
+  reasonCode      String @db.VarChar(64)
+  availableAt     DateTime @default(now())
+  acknowledgedAt  DateTime?
+  cancelledAt     DateTime?
+  /// One logical inbox notification per recipient per journey/check cycle.
+  @@unique([sessionId, recipientUserId, kind])
+  @@index([recipientUserId, availableAt])
+}
+
+model SafeWalkAudit {
+  id          String @id @default(uuid()) @db.Uuid
+  sessionId   String @db.Uuid
+  session     JourneySession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  actorUserId String? @db.Uuid
+  grantId     String? @db.Uuid
+  eventKey    String @unique @db.VarChar(128)
+  kind        String @db.VarChar(64)
+  reasonCode  String @db.VarChar(64)
+  occurredAt  DateTime @default(now())
+  @@index([sessionId, occurredAt])
 }

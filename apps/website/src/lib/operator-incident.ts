@@ -108,16 +108,8 @@ export async function fetchIncidentDetail(
   }
 
   if (response.status === 403) {
-    let message = 'You do not have access to this incident.';
+    const message = 'You do not have access to this incident.';
 
-    try {
-      const body = (await response.json()) as { message?: string };
-      if (typeof body.message === 'string' && body.message) {
-        message = body.message;
-      }
-    } catch {
-      // A 403 with an unreadable body is still a 403.
-    }
 
     return { state: 'FORBIDDEN', message };
   }

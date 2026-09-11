@@ -7,6 +7,9 @@ import type {
   TimelineEvent,
   TimelineVerification,
 } from '@/lib/operator-timeline';
+import { viewerSessionFetch } from '@/lib/viewer-session-fetch';
+import { DeliveryConfirmation } from '@/components/console/delivery-confirmation';
+import { EvidenceAvailability } from '@/components/console/evidence-availability';
 import { IncidentTimeline } from './incident-timeline';
 
 /**
@@ -60,7 +63,7 @@ function formatCoords(lat: string | null, lng: string | null): string | null {
   if (!lat || !lng) return null;
   const a = Number(lat);
   const b = Number(lng);
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  if (!Number.isFinite(a) || !Number.isFinite(b) || Math.abs(a) > 90 || Math.abs(b) > 180) return null;
   return `${a.toFixed(5)}, ${b.toFixed(5)}`;
 }
 
@@ -68,7 +71,7 @@ function formatTrackingCoords(
   latitude: number,
   longitude: number,
 ): string | null {
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
   return `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`;
 }
 
@@ -138,7 +141,9 @@ export function IncidentDetailView({
   initialTracking,
   initialTimeline,
   initialVerification,
+  initialTimelineAvailable = true,
 }: {
+  initialTimelineAvailable?: boolean;
   initialIncident: IncidentDetail;
   initialServerTime: string;
   initialTracking: OperatorTrackingSnapshot | null;
@@ -151,6 +156,8 @@ export function IncidentDetailView({
   const [status, setStatus] = useState<Status>('live');
   const [notice, setNotice] = useState<string | null>(null);
 
+  const [timelineAvailable, setTimelineAvailable] = useState(initialTimelineAvailable);
+  const [timelineStale, setTimelineStale] = useState(!initialTimelineAvailable);
   const [timeline, setTimeline] = useState(initialTimeline);
   const [verification, setVerification] = useState(initialVerification);
 
@@ -187,10 +194,7 @@ export function IncidentDetailView({
    * a resolution is appended by the same operation that makes the
    * status terminal - stopping the moment status flips would miss it.
    */
-  const timelineSettled = useRef(
-    initialIncident.status === 'RESOLVED' ||
-      initialIncident.status === 'CANCELLED',
-  );
+  const timelineSettled = useRef(false);
 
   const inFlight = useRef(false);
   const stopped = useRef(false);
@@ -203,10 +207,7 @@ export function IncidentDetailView({
   /**
    * Refetch the timeline, and verification ONLY if it grew.
    *
-   * A failure here is silent by design: the detail poll owns the
-   * stale indicator, and a timeline that could not be refreshed is
-   * still the last thing OPA knew. Replacing it with nothing would
-   * claim an incident has no history.
+   * Timeline freshness is independent from the detail and tracking polls.
    */
   const refreshTimeline = useCallback(async () => {
     const base = `/api/operator/incidents/${encodeURIComponent(
@@ -214,28 +215,31 @@ export function IncidentDetailView({
     )}/timeline`;
 
     try {
-      const response = await fetch(base, { cache: 'no-store' });
-      if (!response.ok) return;
+      const response = await viewerSessionFetch(base, { cache: 'no-store' });
+      if (!response.ok) { setTimelineStale(true); return false; }
 
       const data = (await response.json()) as {
         events?: TimelineEvent[];
       };
-      if (!Array.isArray(data.events)) return;
+      if (!Array.isArray(data.events)) { setTimelineStale(true); return false; }
 
+      if (stopped.current) return false;
       setTimeline(data.events);
+      setTimelineAvailable(true);
+      setTimelineStale(false);
 
       const latest = data.events.length
         ? data.events[data.events.length - 1].sequence
         : 0;
 
-      if (latest === lastSequence.current) return;
-      lastSequence.current = latest;
+      if (latest === lastSequence.current && verification !== null) return true;
 
-      const checked = await fetch(`${base}/verify`, { cache: 'no-store' });
+
+      const checked = await viewerSessionFetch(`${base}/verify`, { cache: 'no-store' });
       if (!checked.ok) {
         // OPA does not know. NOT the same as a broken chain.
         setVerification(null);
-        return;
+        return false;
       }
 
       const body = (await checked.json()) as {
@@ -243,11 +247,15 @@ export function IncidentDetailView({
       };
       if (typeof body.verification?.valid === 'boolean') {
         setVerification(body.verification);
+        lastSequence.current = latest;
+        return true;
       }
+      setVerification(null);
+      return false;
     } catch {
-      // Keep what is on screen.
+      setTimelineStale(true); return false;
     }
-  }, [initialIncident.id]);
+  }, [initialIncident.id, verification]);
 
   /**
    * Refresh tracking inside the SAME lifecycle tick as incident detail.
@@ -266,35 +274,16 @@ export function IncidentDetailView({
     )}/tracking`;
 
     try {
-      let response = await fetch(url, { cache: 'no-store' });
-
-      if (response.status === 401) {
-        const rotated = await fetch('/api/operator/refresh', {
-          method: 'POST',
-        });
-
-        if (rotated.status === 401) {
-          stopped.current = true;
-          window.location.href = '/operator/login?reason=session-ended';
-          return false;
-        }
-
-        if (!rotated.ok) {
-          setTrackingHealth('stale');
-          setTrackingNotice('Live tracking is temporarily unavailable.');
-          return true;
-        }
-
-        response = await fetch(url, { cache: 'no-store' });
-      }
-
+      const response = await viewerSessionFetch(url, { cache: 'no-store' });
+      if (stopped.current) return false;
+      if (response.status === 401) { stopped.current = true; setStatus('stopped'); setNotice('Your session ended. Sign in again.'); return false; }
       if (response.status === 403 || response.status === 404) {
-        const body = (await response.json().catch(() => ({}))) as TrackingResponse;
 
         trackingStopped.current = true;
+        setTracking(null);
         setTrackingHealth('stopped');
         setTrackingNotice(
-          body.error ?? 'Live tracking is no longer available for this incident.',
+          'Live tracking is no longer available for this incident.',
         );
         return true;
       }
@@ -333,32 +322,14 @@ export function IncidentDetailView({
     const url = `/api/operator/incidents/${encodeURIComponent(initialIncident.id)}`;
 
     try {
-      let response = await fetch(url, { cache: 'no-store' });
-
-      if (response.status === 401) {
-        const rotated = await fetch('/api/operator/refresh', { method: 'POST' });
-
-        if (rotated.status === 401) {
-          stopped.current = true;
-          window.location.href = '/operator/login?reason=session-ended';
-          return;
-        }
-
-        if (!rotated.ok) {
-          setStatus('stale');
-          setNotice('Updates are temporarily unavailable.');
-          return;
-        }
-
-        response = await fetch(url, { cache: 'no-store' });
-      }
-
+      const response = await viewerSessionFetch(url, { cache: 'no-store' });
+      if (stopped.current) return false;
+      if (response.status === 401) { stopped.current = true; setStatus('stopped'); setNotice('Your session ended. Sign in again.'); return false; }
       if (response.status === 403 || response.status === 404) {
-        const body = (await response.json().catch(() => ({}))) as DetailResponse;
         stopped.current = true;
         setStatus('stopped');
         setNotice(
-          body.error ?? 'This incident is no longer available to you.',
+          'This incident is no longer available to you.',
         );
         return;
       }
@@ -389,10 +360,10 @@ export function IncidentDetailView({
       // Same tick, same lifecycle state. A failed timeline fetch leaves
       // what is on screen alone - only a 200 replaces it.
       if (!timelineSettled.current) {
-        await refreshTimeline();
+        const refreshed = await refreshTimeline();
 
-        if (data.incident.status === 'RESOLVED' ||
-            data.incident.status === 'CANCELLED') {
+        if (refreshed && (data.incident.status === 'RESOLVED' ||
+            data.incident.status === 'CANCELLED')) {
           timelineSettled.current = true;
         }
       }
@@ -429,13 +400,16 @@ export function IncidentDetailView({
 
     if (!document.hidden) start();
     document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('online', onVisibility);
 
     return () => {
       stop();
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('online', onVisibility);
     };
   }, [poll, status]);
 
+  if (status === 'stopped') return <section className="p-6 text-ink"><h1 className="text-xl font-bold">Incident unavailable</h1><p role="alert">{notice}</p><a href="/operator" className="mt-4 inline-flex min-h-11 items-center">Return to Command Center</a></section>;
   const name = incident.user
     ? `${incident.user.firstName} ${incident.user.lastName}`.trim()
     : 'Unknown resident';
@@ -498,6 +472,8 @@ export function IncidentDetailView({
           </span>
         </div>
 
+      <p className="mt-3 text-xs text-muted">Last successful update: {serverTime.replace('T', ' ').replace('Z', ' UTC')}</p>
+      <button type="button" onClick={() => void poll()} className="mt-3 min-h-11 rounded-md border border-line px-4 text-ink">Refresh incident</button>
       {notice ? (
         <p
           role="status"
@@ -508,6 +484,7 @@ export function IncidentDetailView({
       ) : null}
 
         <dl className="mt-6 grid gap-3 md:grid-cols-2">
+        <Row label="Severity">Not provided by the service</Row>
         <Row label="Triggered by">{formatEnum(incident.trigger)}</Row>
 
         <Row label="Raised">
@@ -651,7 +628,10 @@ export function IncidentDetailView({
         ) : null}
       </section>
 
-      <IncidentTimeline events={timeline} verification={verification} />
+      <section className="rounded-xl border border-line bg-panel p-4 text-ink"><h2 className="text-xl font-bold">Incident actions</h2><p className="mt-2 text-sm text-muted">Operator acknowledgement and closure are not available. Closure is currently restricted to the incident owner.</p></section>
+      <DeliveryConfirmation />
+      <EvidenceAvailability incidentId={incident.id} />
+      <IncidentTimeline events={timeline} verification={verification} available={timelineAvailable} stale={timelineStale} />
     </div>
   );
 }

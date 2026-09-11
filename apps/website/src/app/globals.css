@@ -25,3 +25,6 @@
   --font-sans: var(--font-plex-sans);
   --font-mono: var(--font-plex-mono);
 }
+
+/* Console controls keep a visible keyboard focus, including secondary actions. */
+:where(button, a, input, select, textarea, summary):focus-visible { outline: 2px solid var(--color-protection, #168f89); outline-offset: 3px; }

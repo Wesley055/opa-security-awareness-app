@@ -145,7 +145,7 @@ describe('ResidentManagement', () => {
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/operator/residents/resident-1/invitation',
-        { cache: 'no-store' },
+        expect.objectContaining({ cache: 'no-store', signal: expect.any(AbortSignal) }),
       ),
     );
 
@@ -223,7 +223,7 @@ describe('ResidentManagement', () => {
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
         '/api/operator/residents/resident-1/invitation/resend',
-        { method: 'POST' },
+        expect.objectContaining({ method: 'POST', signal: expect.any(AbortSignal) }),
       ),
     );
 

@@ -55,7 +55,7 @@ describe('OperatorShellLayout role-aware Viewer navigation', () => {
 
     render(await OperatorShellLayout({ children: <div>body</div> }));
 
-    expect(screen.getByText('Viewer')).toBeTruthy();
+    expect(screen.getByText('Command Center')).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Residents' })).toHaveAttribute(
       'href',
       '/operator/residents',
@@ -100,5 +100,6 @@ describe('OperatorShellLayout role-aware Viewer navigation', () => {
     expect(screen.queryByRole('link', { name: 'Incidents' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Members' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Residents' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'Super Admin' })).toHaveAttribute('href', '/super-admin');
   });
 });

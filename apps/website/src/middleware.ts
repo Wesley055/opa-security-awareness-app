@@ -13,7 +13,7 @@ import type { NextRequest } from 'next/server';
 export function middleware(request: NextRequest) {
   const response = NextResponse.next();
 
-  if (request.nextUrl.pathname.startsWith('/i/')) {
+  if (request.nextUrl.pathname.startsWith('/i/') || request.nextUrl.pathname.startsWith('/operator')) {
     // A shared cache must never hold one person's emergency.
     response.headers.set('Cache-Control', 'no-store, private');
     // Without this, following any outbound link from the page would hand the
@@ -27,5 +27,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/i/:path*'],
+  matcher: ['/i/:path*', '/operator/:path*'],
 };

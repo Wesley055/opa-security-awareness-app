@@ -68,7 +68,7 @@ function formatCoords(lat: string | null, lng: string | null): string | null {
   const a = Number(lat);
   const b = Number(lng);
 
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
+  if (!Number.isFinite(a) || !Number.isFinite(b) || Math.abs(a) > 90 || Math.abs(b) > 180) return null;
 
   return `${a.toFixed(5)}, ${b.toFixed(5)}`;
 }
@@ -179,7 +179,10 @@ export function IncidentQueue({
   const stopped = useRef(false);
 
   const applyPage = useCallback((data: QueueResponse) => {
-    const fresh = data.incidents ?? [];
+    if (!Array.isArray(data.incidents) || typeof data.serverTime !== 'string') {
+      setStatus('stale'); setNotice('Updates are temporarily unavailable.'); return;
+    }
+    const fresh = data.incidents;
     const freshHasMore = Boolean(data.hasMore);
 
     // Impossible contract: the server cannot truthfully say there are more
@@ -206,41 +209,17 @@ export function IncidentQueue({
     inFlight.current = true;
 
     try {
-      let response = await fetch('/api/operator/incidents', {
-        cache: 'no-store',
-      });
-
+      const response = await viewerSessionFetch('/api/operator/incidents', { cache: 'no-store' });
+      if (stopped.current) return;
       if (response.status === 401) {
-        // 14A-3's POST exists for exactly this. One attempt, one retry.
-        const rotated = await fetch('/api/operator/refresh', {
-          method: 'POST',
-        });
-
-        if (rotated.status === 401) {
-          // Navigation is not instant; the interval can fire during it.
-          stopped.current = true;
-          window.location.href = '/operator/login?reason=session-ended';
-          return;
-        }
-
-        if (!rotated.ok) {
-          setStatus('stale');
-          setNotice('Updates are temporarily unavailable.');
-          return;
-        }
-
-        response = await fetch('/api/operator/incidents', {
-          cache: 'no-store',
-        });
+        stopped.current = true; setStatus('stopped'); setNotice('Your session ended. Sign in again.'); return;
       }
-
       if (response.status === 403) {
-        const body = (await response.json().catch(() => ({}))) as QueueResponse;
         // Ref first, and synchronously: the interval may fire again before
         // the state change tears it down.
         stopped.current = true;
         setStatus('stopped');
-        setNotice(body.error ?? 'This account can no longer read this queue.');
+        setNotice('This account can no longer read this queue.');
         return;
       }
 
@@ -288,10 +267,12 @@ export function IncidentQueue({
 
     if (!document.hidden) start();
     document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('online', onVisibility);
 
     return () => {
       stop();
       document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('online', onVisibility);
     };
   }, [poll, status]);
 
@@ -307,15 +288,14 @@ export function IncidentQueue({
 
       if (response.status === 401) {
         stopped.current = true;
-        window.location.href = '/operator/login?reason=session-ended';
+        setStatus('stopped'); setNotice('Your session ended. Sign in again.');
         return;
       }
 
       if (response.status === 403) {
-        const body = (await response.json().catch(() => ({}))) as QueueResponse;
         stopped.current = true;
         setStatus('stopped');
-        setNotice(body.error ?? 'This account can no longer read this queue.');
+        setNotice('This account can no longer read this queue.');
         return;
       }
 
@@ -324,6 +304,7 @@ export function IncidentQueue({
         return;
       }
 
+      if (stopped.current) return;
       const data = (await response.json()) as QueueResponse;
       const page = data.incidents ?? [];
 
@@ -340,6 +321,7 @@ export function IncidentQueue({
     }
   }, [nextCursor, loadingMore]);
 
+  if (status === 'stopped') return <section className="p-6 text-ink"><h1 className="text-2xl font-bold">Active incidents unavailable</h1><p role="alert">{notice}</p><a href="/operator/login?reason=session-ended" className="mt-4 inline-flex min-h-11 items-center">Sign in again</a></section>;
   return (
     <section className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -357,6 +339,9 @@ export function IncidentQueue({
         </span>
       </div>
 
+      <p className="mt-3 text-xs text-muted">Last successful update: <time dateTime={serverTime}>{serverTime.replace('T', ' ').replace('Z', ' UTC')}</time></p>
+      <button type="button" onClick={() => void poll()} className="mt-3 min-h-11 rounded-md border border-line px-4 text-ink">Refresh queue</button>
+      {hasMore ? <p className="mt-2 text-sm text-muted">Additional incidents are available. Previously loaded older rows may have changed; refresh the page to recheck the full queue.</p> : null}
       {notice ? (
         <p
           role="status"
@@ -370,7 +355,7 @@ export function IncidentQueue({
         // #184 - AN EMPTY QUEUE IS NOT A BROKEN QUEUE. Say so, rather than
         // leaving a blank panel an operator has to interpret.
         <p className="mt-6 rounded-lg border border-line bg-panel px-4 py-5 text-sm text-muted sm:px-5">
-          No active incidents. New emergencies appear here automatically.
+          {status === 'live' ? 'No active incidents. New emergencies appear here automatically.' : 'Current incident activity is unknown. Retry to check for active incidents.'}
         </p>
       ) : (
         <ul className="mt-6 grid gap-3">
@@ -407,7 +392,8 @@ export function IncidentQueue({
 
                 {where ? (
                   <p className="mt-3 break-all rounded-md border border-line bg-panel-2/50 px-3 py-2 font-mono text-xs text-muted">{where}</p>
-                ) : null}
+                ) : <p className="mt-3 text-sm text-muted">Location unavailable</p>}
+                <p className="mt-2 text-xs text-muted">Severity: not provided by the service</p>
                 </Link>
               </li>
             );

@@ -82,17 +82,8 @@ export async function fetchOperatorMembership(): Promise<MembershipResult> {
   }
 
   if (response.status === 403) {
-    let message = 'This account cannot read this facility membership.';
+    const message = 'This account cannot read this facility membership.';
 
-    try {
-      const body = (await response.json()) as { message?: string };
-
-      if (typeof body.message === 'string' && body.message.trim()) {
-        message = body.message;
-      }
-    } catch {
-      // A 403 with an unreadable body remains a 403.
-    }
 
     return {
       state: 'FORBIDDEN',

@@ -1,3 +1,4 @@
+import { ContextBoundary } from '@/components/console/context-boundary';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { getOperatorContext } from '@/lib/operator-context';
@@ -30,7 +31,7 @@ export default async function OperatorShellLayout({
   const isFacilityOperator = role === 'FACILITY_OPERATOR';
 
   const notice =
-    result.state === 'NO_FACILITY'
+    result.state === 'NO_FACILITY' && role !== 'ADMIN'
       ? 'This account has no facility assigned. Ask an administrator to assign one.'
       : result.state === 'UNAVAILABLE'
         ? 'Facility context is temporarily unavailable. Your session is still active.'
@@ -38,13 +39,14 @@ export default async function OperatorShellLayout({
 
   return (
     <div className="flex min-h-full flex-col bg-base">
+      <a href="#console-main" className="sr-only focus:not-sr-only focus:p-3">Skip to main content</a>
       <header className="sticky top-0 z-50 border-b border-line bg-base/90 backdrop-blur">
         <div className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:flex-row lg:items-start lg:justify-between lg:gap-8 lg:px-8">
           <div>
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <span className="font-display text-lg font-bold text-ink">OPA</span>
               <span className="font-mono text-xs uppercase tracking-widest text-protection">
-                Viewer
+                Command Center
               </span>
             </div>
 
@@ -61,10 +63,10 @@ export default async function OperatorShellLayout({
           </div>
 
           <div className="flex flex-wrap items-center gap-2 sm:gap-3 lg:justify-end">
-            {(isFacilityAdmin || isFacilityOperator) ? (
+            {(isFacilityAdmin || isFacilityOperator || role === 'ADMIN') ? (
               <nav
                 aria-label="Facility Viewer"
-                className="order-first flex w-full items-center gap-1 rounded-lg border border-line bg-panel p-1 sm:order-none sm:w-auto"
+                className="order-first flex w-full flex-wrap items-center gap-1 rounded-lg border border-line bg-panel p-1 sm:order-none sm:w-auto"
               >
                 {isFacilityOperator ? (
                   <>
@@ -91,6 +93,8 @@ export default async function OperatorShellLayout({
                     Residents
                   </Link>
                 ) : null}
+                {role === 'ADMIN' ? <Link href="/super-admin" className="min-h-10 rounded-md px-3 py-2 text-sm text-ink">Super Admin</Link> : null}
+                <Link href="/operator/reports" className="min-h-10 rounded-md px-3 py-2 text-sm text-muted">Reports / Analytics</Link>
               </nav>
             ) : null}
 
@@ -119,7 +123,7 @@ export default async function OperatorShellLayout({
         </p>
       ) : null}
 
-      <main className="flex-1">{children}</main>
+      <main id="console-main" tabIndex={-1} className="flex-1"><ContextBoundary key={context ? context.userId + ':' + context.facility.id + ':' + role : role ?? 'unavailable'} initialScope={context ? context.userId + ':' + context.facility.id + ':' + role : null}>{children}</ContextBoundary></main>
     </div>
   );
 }

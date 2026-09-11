@@ -1,3 +1,4 @@
+import { RetryButton } from '@/components/console/retry-button';
 ﻿import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { getSessionState } from '@/lib/operator-session';
@@ -54,6 +55,7 @@ export default async function OperatorHomePage() {
     redirect('/operator/residents');
   }
 
+  if ((context.state === 'READY' ? context.context.role : context.state === 'NO_FACILITY' ? context.role : null) === 'ADMIN') redirect('/super-admin');
   const queue = await fetchOperatorQueue();
 
   if (queue.state === 'REJECTED') {
@@ -81,14 +83,16 @@ export default async function OperatorHomePage() {
         </h1>
         <p className="mt-4 max-w-prose text-sm text-ink">
           The queue is temporarily unavailable. This page does not know
-          whether there are active incidents right now. Reload in a moment.
+          whether there are active incidents right now. Use Retry to fetch current information.
         </p>
+        <RetryButton />
       </section>
     );
   }
 
   return (
     <IncidentQueue
+      key={context.state === 'READY' ? context.context.facility.id : 'unavailable'}
       initialIncidents={queue.incidents}
       initialNextCursor={queue.nextCursor}
       initialHasMore={queue.hasMore}

@@ -1,0 +1,20 @@
+// @vitest-environment node
+import {createHash} from 'node:crypto';
+import {beforeEach,afterEach,expect,it,vi} from 'vitest';
+vi.mock('server-only',()=>({}));
+const mocks=vi.hoisted(()=>({token:vi.fn(),api:vi.fn()}));
+vi.mock('./operator-session',()=>({apiUrl:()=> 'https://api.example.test',getAccessToken:mocks.token}));
+vi.mock('./console-api',()=>({consoleApi:mocks.api,object:(x:unknown)=>!!x&&typeof x==='object'&&!Array.isArray(x)}));
+import {safeEvidenceUrl,reviewEvidence} from './evidence-review';
+const bytes=Buffer.from('verified fixture content');
+const grant=()=> 'https://opatest.blob.core.windows.net/private/object?sp=r&sig=private-secret&se='+encodeURIComponent(new Date(Date.now()+300000).toISOString());
+beforeEach(()=>{mocks.token.mockResolvedValue('server-token');mocks.api.mockResolvedValue({status:200,data:[{id:'e1',status:'STORED',sha256:createHash('sha256').update(bytes).digest('hex'),sizeBytes:String(bytes.length),mimeType:'text/plain',storageKey:'private/object'}]});});
+afterEach(()=>vi.unstubAllGlobals());
+it('allows only short-lived read-only Azure grants',()=>{expect(safeEvidenceUrl(grant())).not.toBeNull();for(const url of ['http://opatest.blob.core.windows.net/x','https://opatest.blob.core.windows.net.evil.test/x',grant().replace('sp=r','sp=rw'),grant().replace('opatest.blob.core.windows.net','localhost'),grant().replace('https://','https://user:pass@'),grant().replace(/se=.*/,'se=2000-01-01'),grant().replace(/se=.*/,'se=2099-01-01')])expect(safeEvidenceUrl(url)).toBeNull();});
+it('verifies bytes before release and never exposes the grant or storage key',async()=>{const fetcher=vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(grant()))).mockResolvedValueOnce(new Response(bytes));vi.stubGlobal('fetch',fetcher);const response=await reviewEvidence('i1','e1');expect(response.status).toBe(200);expect(response.headers.get('x-opa-evidence-integrity')).toBe('matches-recorded-sha256');expect(await response.text()).toBe(bytes.toString());expect(JSON.stringify([...response.headers])).not.toMatch(/private-secret|object/);expect(fetcher.mock.calls[1][1].headers).toBeUndefined();expect(fetcher.mock.calls[1][1].redirect).toBe('error');});
+it('withholds a same-size file with a different digest',async()=>{vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(new Response(grant())).mockResolvedValueOnce(new Response(Buffer.alloc(bytes.length))));const response=await reviewEvidence('i1','e1');expect(response.status).toBe(409);expect(await response.text()).toContain('not released');});
+it('stops oversized content before release',async()=>{vi.stubGlobal('fetch',vi.fn().mockResolvedValueOnce(new Response(grant())).mockResolvedValueOnce(new Response(Buffer.alloc(bytes.length+1))));expect((await reviewEvidence('i1','e1')).status).toBe(413);});
+it('rechecks authorization before downloading storage',async()=>{const fetcher=vi.fn().mockResolvedValue(new Response('upstream sensitive error',{status:403}));vi.stubGlobal('fetch',fetcher);const response=await reviewEvidence('i1','e1');expect(response.status).toBe(403);expect(fetcher).toHaveBeenCalledTimes(1);expect(await response.text()).not.toContain('sensitive');});
+it('rejects expired grants without contacting storage',async()=>{const fetcher=vi.fn().mockResolvedValue(new Response(grant().replace(/se=.*/,'se=2000-01-01')));vi.stubGlobal('fetch',fetcher);expect((await reviewEvidence('i1','e1')).status).toBe(410);expect(fetcher).toHaveBeenCalledTimes(1);});
+it('does not call the API after session expiry',async()=>{mocks.token.mockResolvedValue(null);expect((await reviewEvidence('i1','e1')).status).toBe(401);expect(mocks.api).not.toHaveBeenCalled();});
+it('refuses metadata without a recorded integrity digest',async()=>{mocks.api.mockResolvedValue({status:200,data:[{id:'e1',status:'STORED'}]});expect((await reviewEvidence('i1','e1')).status).toBe(503);});

@@ -45,6 +45,7 @@ export async function GET() {
       NextResponse.json({
         ok: true,
         operator: {
+          userId: context.userId,
           firstName: context.firstName,
           lastName: context.lastName,
           role: context.role,

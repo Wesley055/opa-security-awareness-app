@@ -38,14 +38,6 @@ export type OperatorFacility = {
   /** Raw enum, e.g. SECURITY_PROVIDER. Formatting is the caller's business. */
   type: string;
   isActive: boolean;
-  /**
-   * CARRIED BUT NOT DISPLAYED by the 14A-5 header, deliberately. The header
-   * answers "which facility am I monitoring", not "what is this facility's
-   * commercial standing". OPA Demo Estate is isVerified FALSE in production,
-   * and an "Unverified" badge above a live emergency queue would imply the
-   * estate is unauthorised, which is not what the flag means. It is kept
-   * here so a later policy decision has the truth available.
-   */
   isVerified: boolean;
 };
 

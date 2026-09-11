@@ -178,7 +178,11 @@ function IntegrityBanner({
 export function IncidentTimeline({
   events,
   verification,
+  available = true,
+  stale = false,
 }: {
+  available?: boolean;
+  stale?: boolean;
   events: TimelineEvent[];
   /** null means OPA could not check - NOT that the chain is broken. */
   verification: TimelineVerification | null;
@@ -214,7 +218,8 @@ export function IncidentTimeline({
         </div>
       ) : null}
 
-      {events.length === 0 ? (
+      {stale ? <p role="status" className="mt-4 text-sm text-muted">Timeline updates are unavailable. History may be incomplete or stale.</p> : null}
+      {!available ? <p className="mt-4 text-sm text-muted">Timeline could not be loaded.</p> : events.length === 0 ? (
         <p className="mt-6 text-sm text-muted">
           No timeline entries have been recorded for this incident.
         </p>
@@ -243,6 +248,7 @@ export function IncidentTimeline({
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-ink">
                     {label(event.type)}
+                    <span className="ml-2 text-xs text-muted">Source: {event.source}</span>
                   </p>
 
                   {line ? (

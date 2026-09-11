@@ -254,7 +254,7 @@ export function ResidentManagement({ initialResult }: { initialResult: InitialRe
           <button
             type="button"
             onClick={() => { setShowAdd((value) => !value); setShowBulk(false); }}
-            className="min-h-10 rounded-md bg-protection px-4 py-2 text-sm font-bold text-white transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-protection"
+            className="min-h-10 rounded-md bg-protection px-4 py-2 text-sm font-bold text-base transition hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-protection"
           >
             Add resident
           </button>
@@ -296,7 +296,7 @@ export function ResidentManagement({ initialResult }: { initialResult: InitialRe
             ))}
           </div>
           <div className="mt-4 flex justify-end">
-            <button disabled={busy} className="min-h-10 rounded-md bg-protection px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+            <button disabled={busy} className="min-h-10 rounded-md bg-protection px-4 py-2 text-sm font-bold text-base disabled:opacity-50">
               {busy ? 'Adding...' : 'Request enrollment'}
             </button>
           </div>
@@ -310,16 +310,17 @@ export function ResidentManagement({ initialResult }: { initialResult: InitialRe
             One resident per line: First name, Last name, Email, Phone number. Maximum 200.
           </p>
           <textarea
+            aria-label="Residents to invite"
             required
             rows={7}
             value={bulkText}
             onChange={(event) => setBulkText(event.target.value)}
-            placeholder="Ada, Okafor, ada@example.com, +2348012345678"
+            placeholder="First name, Last name, Email, Phone number"
             className="mt-4 w-full rounded-md border border-line bg-base px-3 py-2 font-mono text-sm text-ink outline-none focus:border-protection focus:ring-2 focus:ring-protection/30"
           />
           <div className="mt-3 flex items-center justify-between gap-4">
             <span className="text-xs text-muted">{parsedBulk.length} row(s)</span>
-            <button disabled={busy} className="min-h-10 rounded-md bg-protection px-4 py-2 text-sm font-bold text-white disabled:opacity-50">
+            <button disabled={busy} className="min-h-10 rounded-md bg-protection px-4 py-2 text-sm font-bold text-base disabled:opacity-50">
               {busy ? 'Adding...' : 'Add residents'}
             </button>
           </div>

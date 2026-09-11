@@ -2,6 +2,7 @@ import { act, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { IncidentDetail } from '@/lib/operator-incident';
 import type { OperatorTrackingSnapshot } from '@/lib/operator-tracking-types';
+vi.mock('@/components/console/evidence-availability', () => ({ EvidenceAvailability: () => null }));
 import { IncidentDetailView } from './incident-detail';
 
 vi.mock('./incident-timeline', () => ({

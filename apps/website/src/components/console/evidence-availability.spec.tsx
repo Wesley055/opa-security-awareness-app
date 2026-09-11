@@ -1,0 +1,4 @@
+import { render,screen } from '@testing-library/react';import { afterEach,expect,it,vi } from 'vitest';import { EvidenceAvailability } from './evidence-availability';
+afterEach(()=>vi.unstubAllGlobals());
+it('distinguishes confirmed empty evidence from an outage',async()=>{vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response(JSON.stringify({evidence:[]}))));render(<EvidenceAvailability incidentId="id"/>);expect(await screen.findByText('No evidence has been recorded.')).toBeTruthy();});
+it('shows retry and unknown availability on outage',async()=>{vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response(null,{status:503})));render(<EvidenceAvailability incidentId="id"/>);expect(await screen.findByText('Evidence could not be checked. Availability is unknown.')).toBeTruthy();expect(screen.getByRole('button',{name:'Refresh evidence'})).toBeEnabled();});

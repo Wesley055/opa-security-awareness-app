@@ -28,9 +28,9 @@ describe('viewerSessionFetch', () => {
     const result = await viewerSessionFetch('/api/operator/residents', init);
 
     expect(result.status).toBe(200);
-    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/operator/residents', init);
-    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/operator/refresh', { method: 'POST' });
-    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/operator/residents', init);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/operator/residents', { ...init, signal: expect.any(AbortSignal) });
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/operator/refresh', { method: 'POST', signal: expect.any(AbortSignal) });
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/operator/residents', { ...init, signal: expect.any(AbortSignal) });
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 

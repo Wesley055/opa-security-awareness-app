@@ -1,3 +1,4 @@
+import { RetryButton } from '@/components/console/retry-button';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
@@ -129,8 +130,9 @@ export default async function IncidentDetailPage({
         <h1 className="font-display text-2xl font-bold text-ink">Incident</h1>
         <p className="mt-3 max-w-prose text-sm text-ink">
           This incident is temporarily unavailable. This page does not know
-          its current state. Reload in a moment.
+          its current state. Use Retry to fetch current information.
         </p>
+        <RetryButton />
       </Frame>
     );
   }
@@ -152,6 +154,7 @@ export default async function IncidentDetailPage({
         initialTracking={
           tracking.state === 'READY' ? tracking.tracking : null
         }
+        initialTimelineAvailable={timeline.state === 'READY'}
         initialTimeline={timeline.state === 'READY' ? timeline.events : []}
         initialVerification={
           verified.state === 'READY' ? verified.verification : null

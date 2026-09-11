@@ -1,3 +1,6 @@
+'use client';
+import { useState } from 'react';
+import { RetryButton } from '@/components/console/retry-button';
 import type {
   MembershipResult,
   OperatorMember,
@@ -10,7 +13,7 @@ function MemberRow({ member }: { member: OperatorMember }) {
     <li className="rounded-lg border border-line bg-panel-2 px-4 py-3.5">
       <p className="font-display font-bold text-ink">
         {name || 'Unnamed member'}
-      </p>
+      </p><details className="mt-2 text-sm text-muted"><summary className="min-h-10 cursor-pointer">Membership details</summary><p>Role: {member.role.replaceAll('_', ' ')}</p><p>Enrollment: {member.accountStatus.replaceAll('_', ' ')}</p><p>{member.isActive ? 'Active account' : 'Inactive account'}</p></details>
     </li>
   );
 }
@@ -51,21 +54,13 @@ function MemberGroup({
   );
 }
 
-/**
- * Facility membership is reference information, not part of the live queue.
- *
- * It has no polling timer and no client state. Reloading /operator/members
- * obtains a fresh server-rendered roster.
- *
- * isActive, accountStatus and facility.isVerified are deliberately not shown:
- * they are provisioning/standing facts, not the answer to "who belongs to
- * this facility?"
- */
 export function FacilityMembership({
   result,
 }: {
   result: MembershipResult;
 }) {
+  const [search, setSearch] = useState('');
+  const matches = (member: OperatorMember) => (member.firstName + ' ' + member.lastName).toLowerCase().includes(search.trim().toLowerCase());
   if (result.state === 'FORBIDDEN') {
     return (
       <section className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8 lg:py-10">
@@ -91,6 +86,7 @@ export function FacilityMembership({
           Membership is temporarily unavailable. This page does not know
           whether the roster has changed.
         </p>
+        <RetryButton />
       </section>
     );
   }
@@ -119,17 +115,18 @@ export function FacilityMembership({
         </p>
       </header>
 
+      <label className="mt-5 block text-sm text-ink">Search members by name<input type="search" value={search} onChange={event => setSearch(event.target.value)} className="ml-3 min-h-11 rounded-md border border-line bg-panel px-3" /></label><RetryButton />
       <div className="mt-8 grid gap-4 lg:grid-cols-2">
         <MemberGroup
           title="Operators"
-          members={membership.operators}
-          emptyMessage="No operators are currently assigned."
+          members={membership.operators.filter(matches)}
+          emptyMessage={search ? "No operators match your search." : "No operators are currently assigned."}
         />
 
         <MemberGroup
           title="Residents"
-          members={membership.residents}
-          emptyMessage="No residents are currently assigned."
+          members={membership.residents.filter(matches)}
+          emptyMessage={search ? "No residents match your search." : "No residents are currently assigned."}
         />
       </div>
     </div>

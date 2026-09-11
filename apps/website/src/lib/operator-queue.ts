@@ -113,16 +113,8 @@ export async function fetchOperatorQueue(options?: {
   }
 
   if (response.status === 403) {
-    let message = 'This account can no longer access this queue.';
+    const message = 'This account can no longer access this queue.';
 
-    try {
-      const body = (await response.json()) as { message?: string };
-      if (typeof body.message === 'string' && body.message) {
-        message = body.message;
-      }
-    } catch {
-      // Keep the default. A 403 with an unreadable body is still a 403.
-    }
 
     return { state: 'FORBIDDEN', message };
   }

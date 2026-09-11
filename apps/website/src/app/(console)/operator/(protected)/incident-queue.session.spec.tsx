@@ -47,17 +47,17 @@ describe('IncidentQueue session recovery', () => {
     expect(fetchMock).toHaveBeenNthCalledWith(
       1,
       '/api/operator/incidents?cursor=cursor-2',
-      { cache: 'no-store' },
+      { cache: 'no-store', signal: expect.any(AbortSignal) },
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       '/api/operator/refresh',
-      { method: 'POST' },
+      { method: 'POST', signal: expect.any(AbortSignal) },
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
       '/api/operator/incidents?cursor=cursor-2',
-      { cache: 'no-store' },
+      { cache: 'no-store', signal: expect.any(AbortSignal) },
     );
   });
 });

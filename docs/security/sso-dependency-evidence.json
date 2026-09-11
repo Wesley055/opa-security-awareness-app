@@ -1,0 +1,253 @@
+{
+  "auditExitCode": 1,
+  "totals": {
+    "vulnerabilities": {
+      "info": 0,
+      "low": 4,
+      "moderate": 14,
+      "high": 18,
+      "critical": 1,
+      "total": 37
+    },
+    "dependencies": {
+      "prod": 332,
+      "dev": 574,
+      "optional": 5,
+      "peer": 0,
+      "peerOptional": 0,
+      "total": 905
+    }
+  },
+  "ssoFindings": {},
+  "licenses": [
+    {
+      "name": "openid-client",
+      "version": "6.8.8",
+      "license": "MIT",
+      "path": "node_modules\\openid-client"
+    },
+    {
+      "name": "jose",
+      "version": "6.2.12",
+      "license": "MIT",
+      "path": "node_modules\\jose"
+    },
+    {
+      "name": "oauth4webapi",
+      "version": "3.8.8",
+      "license": "MIT",
+      "path": "node_modules\\oauth4webapi"
+    },
+    {
+      "name": "@node-saml/node-saml",
+      "version": "5.1.0",
+      "license": "MIT",
+      "path": "node_modules\\@node-saml\\node-saml"
+    },
+    {
+      "name": "@types/debug",
+      "version": "4.1.13",
+      "license": "MIT",
+      "path": "node_modules\\@types\\debug"
+    },
+    {
+      "name": "@types/ms",
+      "version": "2.1.0",
+      "license": "MIT",
+      "path": "node_modules\\@types\\ms"
+    },
+    {
+      "name": "@types/qs",
+      "version": "6.15.1",
+      "license": "MIT",
+      "path": "node_modules\\@types\\qs"
+    },
+    {
+      "name": "@types/xml-encryption",
+      "version": "1.2.4",
+      "license": "MIT",
+      "path": "node_modules\\@types\\xml-encryption"
+    },
+    {
+      "name": "@types/node",
+      "version": "22.20.1",
+      "license": "MIT",
+      "path": "node_modules\\@types\\node"
+    },
+    {
+      "name": "undici-types",
+      "version": "6.21.0",
+      "license": "MIT",
+      "path": "node_modules\\undici-types"
+    },
+    {
+      "name": "@types/xml2js",
+      "version": "0.4.14",
+      "license": "MIT",
+      "path": "node_modules\\@types\\xml2js"
+    },
+    {
+      "name": "@xmldom/is-dom-node",
+      "version": "1.0.1",
+      "license": "MIT",
+      "path": "node_modules\\@xmldom\\is-dom-node"
+    },
+    {
+      "name": "@xmldom/xmldom",
+      "version": "0.8.15",
+      "license": "MIT",
+      "path": "node_modules\\@xmldom\\xmldom"
+    },
+    {
+      "name": "debug",
+      "version": "4.4.3",
+      "license": "MIT",
+      "path": "node_modules\\debug"
+    },
+    {
+      "name": "ms",
+      "version": "2.1.3",
+      "license": "MIT",
+      "path": "node_modules\\ms"
+    },
+    {
+      "name": "xml-crypto",
+      "version": "6.1.2",
+      "license": "MIT",
+      "path": "node_modules\\xml-crypto"
+    },
+    {
+      "name": "xpath",
+      "version": "0.0.33",
+      "license": "MIT",
+      "path": "node_modules\\xml-crypto\\node_modules\\xpath"
+    },
+    {
+      "name": "xml-encryption",
+      "version": "3.1.0",
+      "license": "MIT",
+      "path": "node_modules\\xml-encryption"
+    },
+    {
+      "name": "escape-html",
+      "version": "1.0.3",
+      "license": "MIT",
+      "path": "node_modules\\escape-html"
+    },
+    {
+      "name": "xpath",
+      "version": "0.0.32",
+      "license": "MIT",
+      "path": "node_modules\\xml-encryption\\node_modules\\xpath"
+    },
+    {
+      "name": "xml2js",
+      "version": "0.6.2",
+      "license": "MIT",
+      "path": "node_modules\\xml2js"
+    },
+    {
+      "name": "sax",
+      "version": "1.6.1",
+      "license": "BlueOak-1.0.0",
+      "path": "node_modules\\sax"
+    },
+    {
+      "name": "xmlbuilder",
+      "version": "11.0.1",
+      "license": "MIT",
+      "path": "node_modules\\xml2js\\node_modules\\xmlbuilder"
+    },
+    {
+      "name": "xmlbuilder",
+      "version": "15.1.1",
+      "license": "MIT",
+      "path": "node_modules\\xmlbuilder"
+    },
+    {
+      "name": "xpath",
+      "version": "0.0.34",
+      "license": "MIT",
+      "path": "node_modules\\xpath"
+    }
+  ],
+  "added": [
+    {
+      "path": "node_modules/@node-saml/node-saml",
+      "version": "5.1.0"
+    },
+    {
+      "path": "node_modules/@types/debug",
+      "version": "4.1.13"
+    },
+    {
+      "path": "node_modules/@types/ms",
+      "version": "2.1.0"
+    },
+    {
+      "path": "node_modules/@types/xml-encryption",
+      "version": "1.2.4"
+    },
+    {
+      "path": "node_modules/@types/xml2js",
+      "version": "0.4.14"
+    },
+    {
+      "path": "node_modules/@xmldom/is-dom-node",
+      "version": "1.0.1"
+    },
+    {
+      "path": "node_modules/@xmldom/xmldom",
+      "version": "0.8.15"
+    },
+    {
+      "path": "node_modules/jose",
+      "version": "6.2.12"
+    },
+    {
+      "path": "node_modules/oauth4webapi",
+      "version": "3.8.8"
+    },
+    {
+      "path": "node_modules/openid-client",
+      "version": "6.8.8"
+    },
+    {
+      "path": "node_modules/sax",
+      "version": "1.6.1"
+    },
+    {
+      "path": "node_modules/xml-crypto",
+      "version": "6.1.2"
+    },
+    {
+      "path": "node_modules/xml-crypto/node_modules/xpath",
+      "version": "0.0.33"
+    },
+    {
+      "path": "node_modules/xml-encryption",
+      "version": "3.1.0"
+    },
+    {
+      "path": "node_modules/xml-encryption/node_modules/xpath",
+      "version": "0.0.32"
+    },
+    {
+      "path": "node_modules/xml2js",
+      "version": "0.6.2"
+    },
+    {
+      "path": "node_modules/xml2js/node_modules/xmlbuilder",
+      "version": "11.0.1"
+    },
+    {
+      "path": "node_modules/xmlbuilder",
+      "version": "15.1.1"
+    },
+    {
+      "path": "node_modules/xpath",
+      "version": "0.0.34"
+    }
+  ],
+  "changedExistingVersions": []
+}

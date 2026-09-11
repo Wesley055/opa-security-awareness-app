@@ -40,15 +40,7 @@ jobs:
         run: npm run build --workspace apps/api
 
       - name: Assemble standalone deploy folder
-        run: |
-          mkdir deploy
-          cp -r apps/api/dist deploy/dist
-          cp -r apps/api/prisma deploy/prisma
-          cp apps/api/package.json deploy/package.json
-          cd deploy
-          npm install --include=dev --no-package-lock
-          npx prisma generate
-          npm prune --omit=dev
+        run: npm run artifact:production
 
       - name: Upload deployment artifact
         uses: actions/upload-artifact@v4

@@ -1,4 +1,5 @@
 import { ProtectedIdentityModule } from './modules/protected-identity/protected-identity.module';
+import { SsoModule } from './modules/sso/sso.module';
 import {
   MiddlewareConsumer,
   Module,
@@ -45,6 +46,7 @@ import { RequestLoggingMiddleware } from './shared/middleware/request-logging.mi
     HealthModule,
     AdminProvisioningModule,
     AuthModule,
+    SsoModule,
     UsersModule,
     IncidentsModule,
     EmergencyContactsModule,

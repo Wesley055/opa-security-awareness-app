@@ -17,9 +17,13 @@ const config: Config = {
   rootDir: '.',
   testRegex: '.*\\.int-spec\\.ts$',
   transform: {
-    '^.+\\.(t|j)s$': 'ts-jest',
+    '^.+\\.ts$': 'ts-jest',
+    '^.+\\.js$': '<rootDir>/test/esm-transformer.cjs',
   },
   testEnvironment: 'node',
+  transformIgnorePatterns: [
+    'node_modules[/\\\\](?!(openid-client|oauth4webapi|jose)[/\\\\])',
+  ],
   globalSetup: '<rootDir>/test/int/global-setup.ts',
   setupFilesAfterEnv: ['<rootDir>/test/int/setup-after-env.ts'],
   maxWorkers: 1,

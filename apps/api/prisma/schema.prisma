@@ -82,6 +82,7 @@ enum EvidenceStatus {
 }
 
 model User {
+  ssoIdentities SsoExternalIdentity[]
   identityGrants IdentityAccessGrant[] @relation("IdentityGrantActor")
   protectedIdentifiers ProtectedIdentifier[] @relation("ProtectedIdentitySubject")
   id           String   @id @default(uuid()) @db.Uuid
@@ -357,6 +358,7 @@ model AccountInvitationDelivery {
 }
 
 model Facility {
+  ssoConfigurations SsoConfiguration[]
   identityGrants IdentityAccessGrant[]
   protectedIdentifiers ProtectedIdentifier[]
   id          String       @id @default(uuid()) @db.Uuid
@@ -833,4 +835,87 @@ model ProviderDeliveryReceipt {
   @@unique([provider, accountScope, eventId])
   @@index([processedAt, nextReconcileAt])
   @@index([provider, accountScope, messageId])
+}
+
+model SsoConfiguration {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String @db.Uuid
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  providerType String @db.VarChar(8)
+  issuer String @db.VarChar(2048)
+  audience String @db.VarChar(2048)
+  revision Int @default(1)
+  enabled Boolean @default(false)
+  trust Json
+  secret Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  identities SsoExternalIdentity[]
+  transactions SsoTransaction[]
+  @@unique([id, facilityId])
+  @@index([facilityId, enabled])
+}
+
+model SsoExternalIdentity {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String @db.Uuid
+  configurationId String @db.Uuid
+  configuration SsoConfiguration @relation(fields: [configurationId, facilityId], references: [id, facilityId], onDelete: Restrict)
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  identityDigest String @db.VarChar(64)
+  identityCiphertext Json
+  enabled Boolean @default(true)
+  linkedAt DateTime @default(now())
+  unlinkedAt DateTime?
+  @@unique([configurationId, identityDigest])
+  @@index([userId, enabled])
+}
+
+model SsoTransaction {
+  id String @id @default(uuid()) @db.Uuid
+  configurationId String @db.Uuid
+  facilityId String @db.Uuid
+  configuration SsoConfiguration @relation(fields: [configurationId, facilityId], references: [id, facilityId], onDelete: Restrict)
+  configurationRevision Int
+  purpose String @db.VarChar(8)
+  stateHash String @unique @db.VarChar(64)
+  browserBindingHash String @db.VarChar(64)
+  nonceHash String? @db.VarChar(64)
+  nonce Json?
+  pkceVerifier Json?
+  requestId String? @unique @db.VarChar(128)
+  targetUserId String? @db.Uuid
+  credentialVersion Int?
+  reauthenticatedAt DateTime?
+  linkSessionHash String? @db.VarChar(64)
+  verifiedProof Json?
+  verifiedAt DateTime?
+  consumedAt DateTime?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  @@index([expiresAt])
+}
+
+model SsoReplay {
+  // Protocol + exact issuer + identifier hashed by the adapter/completion service.
+  key String @id @db.VarChar(64)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([expiresAt])
+}
+
+model SsoAuditEvent {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String? @db.Uuid
+  configurationId String? @db.Uuid
+  actorUserId String? @db.Uuid
+  targetUserId String? @db.Uuid
+  mappingId String? @db.Uuid
+  transactionId String? @db.Uuid
+  action String @db.VarChar(64)
+  outcome String @db.VarChar(8)
+  configurationRevision Int?
+  createdAt DateTime @default(now())
+  @@index([facilityId, createdAt])
 }

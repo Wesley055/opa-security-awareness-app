@@ -16,7 +16,10 @@ import {
 } from "./delivery-policy";
 import type { NotificationResponse } from "./providers/notification-provider.interface";
 
-export type DeliveryOwner = { kind: "incident" | "invitation" | "safewalk"; id: string };
+export type DeliveryOwner = {
+  kind: "incident" | "invitation" | "safewalk";
+  id: string;
+};
 type Tx = Prisma.TransactionClient;
 type Projection = {
   deliveryStatus?: DeliveryStatus;
@@ -47,7 +50,8 @@ export class DeliveryLedgerService {
   }
 
   private owner(attempt: DeliveryAttempt): DeliveryOwner {
-    if (attempt.safeWalkNoticeId) return { kind: "safewalk", id: attempt.safeWalkNoticeId };
+    if (attempt.safeWalkNoticeId)
+      return { kind: "safewalk", id: attempt.safeWalkNoticeId };
     return attempt.incidentNotificationId
       ? { kind: "incident", id: attempt.incidentNotificationId }
       : { kind: "invitation", id: attempt.invitationDeliveryId! };
@@ -68,7 +72,10 @@ export class DeliveryLedgerService {
   }
 
   private async project(tx: Tx, owner: DeliveryOwner, data: Projection) {
-    if (owner.kind === "safewalk") { await tx.safeWalkNotice.update({ where: { id: owner.id }, data }); return; }
+    if (owner.kind === "safewalk") {
+      await tx.safeWalkNotice.update({ where: { id: owner.id }, data });
+      return;
+    }
     if (owner.kind === "incident") {
       await tx.incidentNotification.update({ where: { id: owner.id }, data });
     } else {
@@ -245,7 +252,10 @@ export class DeliveryLedgerService {
               ? "REQUEST_ACCEPTED"
               : observed === "UNKNOWN"
                 ? "OUTCOME_UNCERTAIN"
-                : "REQUEST_FAILED",
+                : response.error ===
+                    "Environment notification policy denied send"
+                  ? "ENVIRONMENT_POLICY_DENIED"
+                  : "REQUEST_FAILED",
           failureCategory: failure,
           occurredAt: now,
         },

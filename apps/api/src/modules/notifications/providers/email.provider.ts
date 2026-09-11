@@ -1,3 +1,4 @@
+import { outboundDenial } from "../outbound-environment";
 import { httpFailure } from "../delivery-policy";
 import type {
   NotificationProvider,
@@ -9,6 +10,8 @@ export class EmailProvider implements NotificationProvider {
   readonly providerName = "Email";
 
   async send(request: NotificationRequest): Promise<NotificationResponse> {
+    const denied = await outboundDenial("EMAIL", request.recipient);
+    if (denied) return denied;
     const apiKey = process.env.RESEND_API_KEY;
     const fromAddress = process.env.RESEND_FROM_ADDRESS;
 

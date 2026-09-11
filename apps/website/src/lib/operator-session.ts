@@ -1,5 +1,6 @@
-import 'server-only';
-import { cookies } from 'next/headers';
+import { environmentApiUrl } from "@/lib/environment-api";
+import "server-only";
+import { cookies } from "next/headers";
 
 /**
  * Operator session, held entirely in httpOnly cookies.
@@ -14,8 +15,8 @@ import { cookies } from 'next/headers';
  * so it gets at least the same protection.
  */
 
-const ACCESS_COOKIE = 'opa_operator_access';
-const REFRESH_COOKIE = 'opa_operator_refresh';
+const ACCESS_COOKIE = "opa_operator_access";
+const REFRESH_COOKIE = "opa_operator_refresh";
 
 /**
  * Matches the API's JWT_ACCESS_EXPIRES_IN default of 15m, so the browser
@@ -28,7 +29,7 @@ const ACCESS_MAX_AGE_SECONDS = 15 * 60;
 /** Matches JWT_REFRESH_EXPIRES_IN default of 30d. */
 const REFRESH_MAX_AGE_SECONDS = 30 * 24 * 60 * 60;
 
-const API_URL = process.env.OPA_API_URL;
+const API_URL = environmentApiUrl();
 
 export type OperatorTokens = {
   accessToken: string;
@@ -51,21 +52,21 @@ export function apiUrl(): string | null {
  */
 export async function setOperatorSession(tokens: OperatorTokens) {
   const store = await cookies();
-  const secure = process.env.NODE_ENV === 'production';
+  const secure = process.env.NODE_ENV === "production";
 
   store.set(ACCESS_COOKIE, tokens.accessToken, {
     httpOnly: true,
     secure,
-    sameSite: 'strict',
-    path: '/',
+    sameSite: "strict",
+    path: "/",
     maxAge: ACCESS_MAX_AGE_SECONDS,
   });
 
   store.set(REFRESH_COOKIE, tokens.refreshToken, {
     httpOnly: true,
     secure,
-    sameSite: 'strict',
-    path: '/',
+    sameSite: "strict",
+    path: "/",
     maxAge: REFRESH_MAX_AGE_SECONDS,
   });
 }
@@ -114,16 +115,16 @@ export async function hasOperatorSession(): Promise<boolean> {
  * As with hasOperatorSession, this is NOT a claim that anything is VALID.
  * Only the API can say that. This reports which cookies exist.
  */
-export type OperatorSessionState = 'active' | 'refreshable' | 'none';
+export type OperatorSessionState = "active" | "refreshable" | "none";
 
 export async function getSessionState(): Promise<OperatorSessionState> {
   if (await getAccessToken()) {
-    return 'active';
+    return "active";
   }
 
   if (await getRefreshToken()) {
-    return 'refreshable';
+    return "refreshable";
   }
 
-  return 'none';
+  return "none";
 }

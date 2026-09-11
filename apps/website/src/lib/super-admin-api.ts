@@ -1,3 +1,4 @@
+import { environmentApiUrl } from "@/lib/environment-api";
 import "server-only";
 import { adminAccess } from "./super-admin-session";
 
@@ -12,7 +13,7 @@ export async function upstream(
   body?: unknown,
   idempotencyKey?: string,
 ) {
-  const base = process.env.OPA_API_URL;
+  const base = environmentApiUrl();
   if (!base) throw new AdminFailure(503);
   let response: Response;
   try {

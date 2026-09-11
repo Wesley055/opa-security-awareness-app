@@ -1,14 +1,15 @@
-import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { Prisma } from '@prisma/client';
+import { Injectable } from "@nestjs/common";
+import { assertSsoEnabled, assertSsoBinding } from "./sso-environment";
+import { ConfigService } from "@nestjs/config";
+import { Prisma } from "@prisma/client";
 import type {
   SsoConfiguration as ConfigRow,
   SsoTransaction as TransactionRow,
-} from '@prisma/client';
-import { randomUUID, X509Certificate } from 'crypto';
-import * as bcrypt from 'bcrypt';
-import { PrismaService } from '../../prisma/prisma.service';
-import { AuthService } from '../auth/auth.service';
+} from "@prisma/client";
+import { randomUUID, X509Certificate } from "crypto";
+import * as bcrypt from "bcrypt";
+import { PrismaService } from "../../prisma/prisma.service";
+import { AuthService } from "../auth/auth.service";
 import type {
   ExternalIdentityKey,
   LoginTransaction,
@@ -16,7 +17,7 @@ import type {
   SecretReference,
   SsoConfiguration,
   VerifiedAssertion,
-} from './sso.contracts';
+} from "./sso.contracts";
 import {
   authorizeLink,
   authorizeMappedIdentity,
@@ -26,20 +27,20 @@ import {
   replayKey,
   SsoDenied,
   validateAssertion,
-} from './sso.policy';
-import { OidcProtocolVerifier } from './oidc-protocol-verifier';
-import { SamlProtocolVerifier } from './saml-protocol-verifier';
-import { approvedHttps } from './sso-network';
-import { SsoSecrets } from './sso-secrets';
-import { verifySsoCallback } from './sso.callback';
+} from "./sso.policy";
+import { OidcProtocolVerifier } from "./oidc-protocol-verifier";
+import { SamlProtocolVerifier } from "./saml-protocol-verifier";
+import { approvedHttps } from "./sso-network";
+import { SsoSecrets } from "./sso-secrets";
+import { verifySsoCallback } from "./sso.callback";
 
 type Actor = { id: string; credentialVersion: number; token: string };
 export interface ConfigurationInput {
-  providerType: 'OIDC' | 'SAML2';
+  providerType: "OIDC" | "SAML2";
   issuer: string;
   audience: string;
   enabled: boolean;
-  trust: SsoConfiguration['trust'];
+  trust: SsoConfiguration["trust"];
   clientSecret?: string;
   expectedRevision?: number;
 }
@@ -58,7 +59,18 @@ export class SsoService {
     private readonly saml: SamlProtocolVerifier,
   ) {}
   private configuration(row: ConfigRow): SsoConfiguration {
-    const origin = this.env.getOrThrow<string>('SSO_WEB_ORIGIN');
+    assertSsoEnabled();
+    const secretRef = ref(row.secret);
+    assertSsoBinding(
+      {
+        providerType: row.providerType,
+        issuer: row.issuer,
+        audience: row.audience,
+        trust: row.trust,
+      },
+      secretRef ? this.secrets.open(secretRef, "config:" + row.id) : undefined,
+    );
+    const origin = this.env.getOrThrow<string>("SSO_WEB_ORIGIN");
     const parsed = approvedHttps(origin);
     if (parsed.origin !== origin) throw new SsoDenied();
     return {
@@ -66,12 +78,12 @@ export class SsoService {
       organizationId: row.facilityId,
       revision: row.revision,
       enabled: row.enabled,
-      providerType: row.providerType as 'OIDC' | 'SAML2',
+      providerType: row.providerType as "OIDC" | "SAML2",
       issuer: row.issuer,
       audience: row.audience,
-      callbackUrl: origin + '/api/sso/callback',
-      trust: row.trust as unknown as SsoConfiguration['trust'],
-      trustMetadataReference: row.id + ':' + row.revision,
+      callbackUrl: origin + "/api/sso/callback",
+      trust: row.trust as unknown as SsoConfiguration["trust"],
+      trustMetadataReference: row.id + ":" + row.revision,
       secret: ref(row.secret),
       jit: { enabled: false },
     };
@@ -82,7 +94,7 @@ export class SsoService {
       organizationId: row.facilityId,
       configurationId: row.configurationId,
       configurationRevision: row.configurationRevision,
-      purpose: row.purpose as 'login' | 'link',
+      purpose: row.purpose as "login" | "link",
       targetUserId: row.targetUserId ?? undefined,
       stateHash: row.stateHash,
       browserBindingHash: row.browserBindingHash,
@@ -109,11 +121,11 @@ export class SsoService {
     const user = await tx.user.findUnique({ where: { id: actor.id } });
     if (
       !user?.isActive ||
-      user.accountStatus !== 'ACTIVE' ||
+      user.accountStatus !== "ACTIVE" ||
       user.credentialVersion !== actor.credentialVersion ||
       (admin &&
-        user.role !== 'ADMIN' &&
-        !(user.role === 'FACILITY_ADMIN' && user.facilityId === facilityId))
+        user.role !== "ADMIN" &&
+        !(user.role === "FACILITY_ADMIN" && user.facilityId === facilityId))
     )
       throw new SsoDenied();
     return user;
@@ -132,20 +144,21 @@ export class SsoService {
       userId,
       organizationId: facilityId,
       userActive: user?.isActive === true,
-      accountActivated: user?.accountStatus === 'ACTIVE',
+      accountActivated: user?.accountStatus === "ACTIVE",
       organizationActive: facility?.isActive === true,
       membershipActive: user?.facilityId === facilityId && user.isActive,
       operatorSuspended: user?.isActive !== true,
       credentialVersion: user?.credentialVersion ?? -1,
-      opaRole: user?.role ?? '',
-      platformSuperAdmin: user?.role === 'ADMIN',
+      opaRole: user?.role ?? "",
+      platformSuperAdmin: user?.role === "ADMIN",
     };
     if (!user) throw new SsoDenied();
     return { user, auth };
   }
   private validateTrust(input: ConfigurationInput) {
+    if (input.enabled) assertSsoBinding(input, input.clientSecret);
     if (
-      !['OIDC', 'SAML2'].includes(input.providerType) ||
+      !["OIDC", "SAML2"].includes(input.providerType) ||
       !input.issuer ||
       input.issuer.length > 2048 ||
       !input.audience ||
@@ -153,11 +166,11 @@ export class SsoService {
     )
       throw new SsoDenied();
     approvedHttps(input.trust.authorizationEndpoint);
-    if (input.providerType === 'OIDC') {
+    if (input.providerType === "OIDC") {
       const issuer = approvedHttps(input.issuer);
       if (issuer.search) throw new SsoDenied();
       const expected =
-        issuer.href.replace(/\/$/, '') + '/.well-known/openid-configuration';
+        issuer.href.replace(/\/$/, "") + "/.well-known/openid-configuration";
       if (
         input.trust.discoveryUrl !== expected ||
         !input.trust.tokenEndpoint ||
@@ -175,7 +188,7 @@ export class SsoService {
       for (const value of input.trust.certificates) {
         const cert = new X509Certificate(value);
         if (
-          cert.publicKey.asymmetricKeyType !== 'rsa' ||
+          cert.publicKey.asymmetricKeyType !== "rsa" ||
           (cert.publicKey.asymmetricKeyDetails?.modulusLength ?? 0) < 2048 ||
           Date.parse(cert.validTo) <= Date.now() ||
           Date.parse(cert.validFrom) > Date.now()
@@ -211,8 +224,8 @@ export class SsoService {
           actorUserId: actor.id,
           facilityId,
           configurationId: id,
-          action: 'CONFIGURATION_CHANGE_DENIED',
-          outcome: 'denied',
+          action: "CONFIGURATION_CHANGE_DENIED",
+          outcome: "denied",
         },
       });
       throw new SsoDenied();
@@ -251,21 +264,21 @@ export class SsoService {
       // Identity namespace is immutable. A different issuer/client requires a new configuration.
       const secret = input.clientSecret
         ? json(
-            this.secrets.seal(input.clientSecret, 'config:' + configurationId),
+            this.secrets.seal(input.clientSecret, "config:" + configurationId),
           )
         : current?.secret;
-      if (input.providerType === 'OIDC' && !secret) throw new SsoDenied();
+      if (input.providerType === "OIDC" && !secret) throw new SsoDenied();
       if (current) {
         const users = await tx.ssoExternalIdentity.findMany({
           where: { configurationId, enabled: true },
           select: { userId: true },
-          distinct: ['userId'],
-          orderBy: { userId: 'asc' },
+          distinct: ["userId"],
+          orderBy: { userId: "asc" },
         });
         for (const { userId } of users) {
           const user = await this.lockUser(tx, userId);
           // A historic tenant link cannot grant authority over a platform administrator.
-          if (user && user.role !== 'ADMIN')
+          if (user && user.role !== "ADMIN")
             await tx.user.update({
               where: { id: userId },
               data: { credentialVersion: { increment: 1 } },
@@ -296,10 +309,10 @@ export class SsoService {
           actorUserId: actor.id,
           action: current
             ? input.enabled
-              ? 'CONFIGURATION_UPDATED'
-              : 'CONFIGURATION_DISABLED'
-            : 'CONFIGURATION_CREATED',
-          outcome: 'success',
+              ? "CONFIGURATION_UPDATED"
+              : "CONFIGURATION_DISABLED"
+            : "CONFIGURATION_CREATED",
+          outcome: "success",
           configurationRevision: row.revision,
         },
       });
@@ -309,8 +322,8 @@ export class SsoService {
             facilityId,
             configurationId,
             actorUserId: actor.id,
-            action: 'SESSIONS_REVOKED',
-            outcome: 'success',
+            action: "SESSIONS_REVOKED",
+            outcome: "success",
             configurationRevision: row.revision,
           },
         });
@@ -325,7 +338,7 @@ export class SsoService {
       return (
         await tx.ssoConfiguration.findMany({
           where: { facilityId },
-          orderBy: { id: 'asc' },
+          orderBy: { id: "asc" },
           take: 100,
         })
       ).map((row) => this.publicConfig(row));
@@ -336,12 +349,13 @@ export class SsoService {
       await this.actor(tx, actor, facilityId, true);
       return tx.ssoAuditEvent.findMany({
         where: { facilityId },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         take: 100,
       });
     });
   }
   async initiate(configurationId: string, actor?: Actor, password?: string) {
+    assertSsoEnabled();
     const material = createCorrelationMaterial();
     const id = randomUUID();
     const saved = await this.prisma.$transaction(async (tx) => {
@@ -375,12 +389,12 @@ export class SsoService {
           configurationId,
           providerType: config.providerType,
           issuer: config.issuer,
-          subject: 'pending',
-          subjectFormat: 'pending',
+          subject: "pending",
+          subjectFormat: "pending",
         };
         authorizeMappedIdentity(
           pending,
-          { ...pending, id: 'pending', userId: user.id, enabled: true },
+          { ...pending, id: "pending", userId: user.id, enabled: true },
           auth,
         );
         credentialVersion = user.credentialVersion;
@@ -395,18 +409,18 @@ export class SsoService {
           configurationId,
           facilityId: row.facilityId,
           configurationRevision: row.revision,
-          purpose: actor ? 'link' : 'login',
+          purpose: actor ? "link" : "login",
           stateHash: digest(material.state),
           browserBindingHash: digest(material.browserBinding),
-          ...(config.providerType === 'OIDC'
+          ...(config.providerType === "OIDC"
             ? {
                 nonceHash: digest(material.nonce),
-                nonce: json(this.secrets.seal(material.nonce, 'nonce:' + id)),
+                nonce: json(this.secrets.seal(material.nonce, "nonce:" + id)),
                 pkceVerifier: json(
-                  this.secrets.seal(material.pkceVerifier, 'pkce:' + id),
+                  this.secrets.seal(material.pkceVerifier, "pkce:" + id),
                 ),
               }
-            : { requestId: '_' + randomUUID() }),
+            : { requestId: "_" + randomUUID() }),
           ...(actor
             ? {
                 targetUserId: actor.id,
@@ -421,7 +435,7 @@ export class SsoService {
       return { config, transaction: this.transaction(transaction) };
     });
     const verifier =
-      saved.config.providerType === 'OIDC' ? this.oidc : this.saml;
+      saved.config.providerType === "OIDC" ? this.oidc : this.saml;
     const url = await verifier.initiate(
       saved.config,
       saved.transaction,
@@ -457,12 +471,12 @@ export class SsoService {
         config,
         transaction,
         { ...input, rawResponse },
-        config.providerType === 'OIDC' ? this.oidc : this.saml,
+        config.providerType === "OIDC" ? this.oidc : this.saml,
       );
-      if (transaction.purpose === 'link' && !actor) {
+      if (transaction.purpose === "link" && !actor) {
         const proof = this.secrets.seal(
           JSON.stringify({ assertion, identity }),
-          'proof:' + transaction.id,
+          "proof:" + transaction.id,
         );
         await this.prisma.$transaction(async (tx) => {
           await tx.$queryRaw`SELECT id FROM "SsoConfiguration" WHERE id=${config!.id}::uuid FOR SHARE`;
@@ -497,8 +511,8 @@ export class SsoService {
           transactionId: id,
           facilityId: config?.organizationId,
           configurationId: config?.id,
-          action: 'AUTHENTICATION_FAILED',
-          outcome: 'denied',
+          action: "AUTHENTICATION_FAILED",
+          outcome: "denied",
         },
       });
       throw new SsoDenied();
@@ -539,7 +553,7 @@ export class SsoService {
         },
       });
       const userId =
-        transaction.purpose === 'link' ? pending.targetUserId : mapping?.userId;
+        transaction.purpose === "link" ? pending.targetUserId : mapping?.userId;
       if (!userId) throw new SsoDenied(); // No JIT and no email fallback.
       const { user, auth } = await this.membership(
         tx,
@@ -550,13 +564,13 @@ export class SsoService {
         ? (JSON.parse(
             this.secrets.open(
               mapping.identityCiphertext as unknown as SecretReference,
-              'identity:' + mapping.id,
+              "identity:" + mapping.id,
             ),
           ) as ExternalIdentityKey)
         : null;
       if (stored && identityKey(stored) !== identityKey(identity))
         throw new SsoDenied();
-      if (transaction.purpose === 'link') {
+      if (transaction.purpose === "link") {
         if (
           !actor ||
           actor.id !== userId ||
@@ -605,13 +619,13 @@ export class SsoService {
       await tx.ssoReplay.create({
         data: { key: replayKey(assertion), expiresAt },
       });
-      if (assertion.providerType === 'SAML2') {
+      if (assertion.providerType === "SAML2") {
         if (!assertion.samlResponseId) throw new SsoDenied();
         await tx.ssoReplay.create({
           data: {
             key: digest(
               JSON.stringify([
-                'SAML2_RESPONSE',
+                "SAML2_RESPONSE",
                 assertion.issuer,
                 assertion.samlResponseId,
               ]),
@@ -630,7 +644,7 @@ export class SsoService {
         },
       });
       let mappingId = mapping?.id;
-      if (transaction.purpose === 'link') {
+      if (transaction.purpose === "link") {
         mappingId = randomUUID();
         await tx.ssoExternalIdentity.create({
           data: {
@@ -642,7 +656,7 @@ export class SsoService {
             identityCiphertext: json(
               this.secrets.seal(
                 JSON.stringify(identity),
-                'identity:' + mappingId,
+                "identity:" + mappingId,
               ),
             ),
           },
@@ -658,13 +672,13 @@ export class SsoService {
           actorUserId: actor?.id,
           mappingId,
           action:
-            transaction.purpose === 'link'
-              ? 'IDENTITY_LINKED'
-              : 'AUTHENTICATION_SUCCEEDED',
-          outcome: 'success',
+            transaction.purpose === "link"
+              ? "IDENTITY_LINKED"
+              : "AUTHENTICATION_SUCCEEDED",
+          outcome: "success",
         },
       });
-      return transaction.purpose === 'link'
+      return transaction.purpose === "link"
         ? { linked: true }
         : this.auth.issueTokens(user);
     });
@@ -677,7 +691,7 @@ export class SsoService {
       if (
         !pending?.verifiedProof ||
         !pending.verifiedAt ||
-        pending.purpose !== 'link' ||
+        pending.purpose !== "link" ||
         pending.consumedAt ||
         pending.browserBindingHash !== digest(browserBinding) ||
         pending.targetUserId !== actor.id
@@ -690,7 +704,7 @@ export class SsoService {
       const proof = JSON.parse(
         this.secrets.open(
           pending.verifiedProof as unknown as SecretReference,
-          'proof:' + id,
+          "proof:" + id,
         ),
       ) as { assertion: VerifiedAssertion; identity: ExternalIdentityKey };
       return await this.complete(
@@ -705,8 +719,8 @@ export class SsoService {
         data: {
           transactionId: id,
           actorUserId: actor.id,
-          action: 'IDENTITY_LINK_FAILED',
-          outcome: 'denied',
+          action: "IDENTITY_LINK_FAILED",
+          outcome: "denied",
         },
       });
       throw new SsoDenied();
@@ -720,8 +734,8 @@ export class SsoService {
         data: {
           actorUserId: actor.id,
           mappingId,
-          action: 'IDENTITY_UNLINK_DENIED',
-          outcome: 'denied',
+          action: "IDENTITY_UNLINK_DENIED",
+          outcome: "denied",
         },
       });
       throw new SsoDenied();
@@ -755,7 +769,7 @@ export class SsoService {
         where: { id: actor.id },
         data: { credentialVersion: { increment: 1 } },
       });
-      for (const action of ['IDENTITY_UNLINKED', 'SESSIONS_REVOKED'])
+      for (const action of ["IDENTITY_UNLINKED", "SESSIONS_REVOKED"])
         await tx.ssoAuditEvent.create({
           data: {
             facilityId: mapping.facilityId,
@@ -764,7 +778,7 @@ export class SsoService {
             targetUserId: actor.id,
             mappingId,
             action,
-            outcome: 'success',
+            outcome: "success",
           },
         });
       return { unlinked: true, reauthenticationRequired: true };

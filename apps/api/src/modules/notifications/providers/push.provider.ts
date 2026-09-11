@@ -1,3 +1,4 @@
+import { outboundDenial } from "../outbound-environment";
 import type {
   NotificationProvider,
   NotificationRequest,
@@ -8,6 +9,8 @@ export class PushProvider implements NotificationProvider {
   readonly providerName = "Push";
 
   async send(request: NotificationRequest): Promise<NotificationResponse> {
+    const denied = await outboundDenial("PUSH", request.recipient);
+    if (denied) return denied;
     void request;
     // ADR-015 SECTION 6b: A PROVIDER THAT CANNOT DELIVER MUST RETURN
     // FAILURE. This channel is not implemented - no API is called and

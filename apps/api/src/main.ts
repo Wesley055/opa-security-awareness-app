@@ -3,10 +3,12 @@ import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 
-import { AppModule } from "./app.module";
+import { initializeEnvironment } from "./shared/config/environment";
 import { GlobalExceptionFilter } from "./shared/filters/global-exception.filter";
 
 async function bootstrap(): Promise<void> {
+  await initializeEnvironment();
+  const { AppModule } = await import("./app.module");
   const app = await NestFactory.create(AppModule, { bodyParser: false });
   app.use(
     json({
@@ -64,4 +66,9 @@ async function bootstrap(): Promise<void> {
   await app.listen(process.env.PORT || 3000);
 }
 
-void bootstrap();
+void bootstrap().catch(() => {
+  console.error(
+    "OPA startup rejected; review environment and migration preflight",
+  );
+  process.exitCode = 1;
+});

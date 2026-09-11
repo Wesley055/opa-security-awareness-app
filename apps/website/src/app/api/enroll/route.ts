@@ -1,3 +1,4 @@
+import { environmentApiUrl } from "@/lib/environment-api";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
@@ -11,7 +12,7 @@ function json(body: unknown, status = 200) {
 export async function POST(request: Request) {
   if (request.headers.get("origin") !== new URL(request.url).origin)
     return json({ error: "Request unavailable." }, 403);
-  const base = process.env.OPA_API_URL;
+  const base = environmentApiUrl();
   if (!base) return json({ error: "Enrollment unavailable." }, 503);
   try {
     const body = await request.json();

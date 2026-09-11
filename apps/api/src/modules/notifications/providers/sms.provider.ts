@@ -1,3 +1,4 @@
+import { outboundDenial } from "../outbound-environment";
 import type {
   NotificationProvider,
   NotificationRequest,
@@ -11,6 +12,8 @@ export class SmsProvider implements NotificationProvider {
   readonly providerName = "SMS";
 
   async send(request: NotificationRequest): Promise<NotificationResponse> {
+    const denied = await outboundDenial("SMS", request.recipient);
+    if (denied) return denied;
     const apiKey = process.env.AFRICASTALKING_API_KEY;
     const username = process.env.AFRICASTALKING_USERNAME;
 

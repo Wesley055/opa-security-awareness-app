@@ -1,4 +1,5 @@
-import 'server-only';
+import { environmentApiUrl } from "@/lib/environment-api";
+import "server-only";
 
 /**
  * Server-side client for the incident tracking API.
@@ -11,7 +12,7 @@ import 'server-only';
 
 export type PublicIncidentSnapshot = {
   personName: string;
-  status: 'OPEN';
+  status: "OPEN";
   triggeredAt: string;
   location: {
     latitude: number;
@@ -25,7 +26,7 @@ export type PublicIncidentSnapshot = {
      * ACTIVATION means the immutable origin of the emergency, which
      * ADR-005 refuses to overwrite. TRACKED means the position moved on.
      */
-    origin: 'ACTIVATION' | 'TRACKED';
+    origin: "ACTIVATION" | "TRACKED";
   } | null;
   /**
    * ABSENT, not null, for any incident with no journey session - which is
@@ -38,7 +39,7 @@ export type PublicIncidentSnapshot = {
      * The SESSION, not the fix. Staleness of a POSITION is a rendering
      * judgement made from serverTime - deliberately not a state here.
      */
-    state: 'AWAITING_FIRST_FIX' | 'RECEIVING' | 'SILENT' | 'ENDED';
+    state: "AWAITING_FIRST_FIX" | "RECEIVING" | "SILENT" | "ENDED";
     /** SERVER clock of the newest fix. Silence is measured from this. */
     lastFixReceivedAt: string | null;
   };
@@ -48,7 +49,7 @@ export type PublicIncidentSnapshot = {
 
 export type ClosedIncident = {
   personName: string;
-  status: 'RESOLVED';
+  status: "RESOLVED";
   triggeredAt: string;
   resolvedAt: string | null;
 };
@@ -59,18 +60,18 @@ export type TrackingResult =
   // serverTime - location.capturedAt, both server values, with the
   // browser clock never entering the comparison.
   | {
-      state: 'VALID';
+      state: "VALID";
       incident: PublicIncidentSnapshot;
       serverTime: string;
     }
-  | { state: 'EXPIRED'; incident: null }
-  | { state: 'REVOKED'; incident: null }
-  | { state: 'INCIDENT_CLOSED'; incident: ClosedIncident }
-  | { state: 'NOT_FOUND'; incident: null }
+  | { state: "EXPIRED"; incident: null }
+  | { state: "REVOKED"; incident: null }
+  | { state: "INCIDENT_CLOSED"; incident: ClosedIncident }
+  | { state: "NOT_FOUND"; incident: null }
   /** The API could not be reached. Distinct from any answer it might give. */
-  | { state: 'UNAVAILABLE'; incident: null };
+  | { state: "UNAVAILABLE"; incident: null };
 
-const API_URL = process.env.OPA_API_URL;
+const API_URL = environmentApiUrl();
 
 /**
  * Fetch an incident snapshot by capability token.
@@ -81,15 +82,15 @@ const API_URL = process.env.OPA_API_URL;
 export async function fetchTracking(token: string): Promise<TrackingResult> {
   if (!API_URL) {
     // Fail loudly in development rather than silently showing "unavailable".
-    console.error('OPA_API_URL is not configured.');
-    return { state: 'UNAVAILABLE', incident: null };
+    console.error("OPA_API_URL is not configured.");
+    return { state: "UNAVAILABLE", incident: null };
   }
 
   try {
     const response = await fetch(
       `${API_URL}/public/tracking/${encodeURIComponent(token)}`,
       {
-        cache: 'no-store',
+        cache: "no-store",
         // An emergency page must not hang indefinitely on a slow API.
         signal: AbortSignal.timeout(8000),
       },
@@ -99,16 +100,16 @@ export async function fetchTracking(token: string): Promise<TrackingResult> {
     // state that tells a family member what actually happened.
     if (!response.ok && ![404, 410].includes(response.status)) {
       console.error(`Tracking API returned ${response.status}`);
-      return { state: 'UNAVAILABLE', incident: null };
+      return { state: "UNAVAILABLE", incident: null };
     }
 
     return (await response.json()) as TrackingResult;
   } catch (error) {
     // Never log the token: it is a working link to someone's emergency.
     console.error(
-      'Tracking API request failed:',
-      error instanceof Error ? error.message : 'unknown error',
+      "Tracking API request failed:",
+      error instanceof Error ? error.message : "unknown error",
     );
-    return { state: 'UNAVAILABLE', incident: null };
+    return { state: "UNAVAILABLE", incident: null };
   }
 }

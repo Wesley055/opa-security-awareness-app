@@ -1,4 +1,4 @@
-import Constants from 'expo-constants';
+import Constants from "expo-constants";
 
 /**
  * Where the OPA API lives, resolved rather than hardcoded.
@@ -25,7 +25,7 @@ const DEFAULT_API_PORT = 3000;
 
 function readExtra(): Record<string, unknown> {
   const extra = Constants.expoConfig?.extra;
-  return typeof extra === 'object' && extra !== null
+  return typeof extra === "object" && extra !== null
     ? (extra as Record<string, unknown>)
     : {};
 }
@@ -42,31 +42,46 @@ function hostFromMetro(): string | null {
     (Constants.expoGoConfig as { debuggerHost?: string } | undefined)
       ?.debuggerHost;
 
-  if (typeof hostUri !== 'string' || hostUri.length === 0) {
+  if (typeof hostUri !== "string" || hostUri.length === 0) {
     return null;
   }
 
-  const host = hostUri.split(':')[0];
+  const host = hostUri.split(":")[0];
   return host !== undefined && host.length > 0 ? host : null;
 }
 
 export function resolveApiBaseUrl(): string {
   const extra = readExtra();
+  const environment = extra.environment;
+  if (!["development", "staging", "production"].includes(String(environment)))
+    throw new Error("Explicit OPA environment required");
 
   const explicit = extra.apiBaseUrl;
-  if (typeof explicit === 'string' && explicit.length > 0) {
-    return explicit.replace(/\/+$/, '');
+  if (typeof explicit === "string" && explicit.length > 0) {
+    if (environment !== "development") {
+      const url = new URL(explicit);
+      if (
+        url.protocol !== "https:" ||
+        url.origin !== explicit ||
+        extra.endpointEnvironment !== environment ||
+        extra.verifiedApiOrigin !== explicit
+      )
+        throw new Error("OPA endpoint environment mismatch");
+    }
+    return explicit.replace(/\/+$/, "");
   }
 
+  if (environment !== "development")
+    throw new Error("Hosted OPA API endpoint required");
   const host = hostFromMetro();
   if (host !== null) {
     const port =
-      typeof extra.apiPort === 'number' ? extra.apiPort : DEFAULT_API_PORT;
+      typeof extra.apiPort === "number" ? extra.apiPort : DEFAULT_API_PORT;
     return `http://${host}:${port}`;
   }
 
   throw new Error(
-    'OPA API base URL could not be resolved. Set expo.extra.apiBaseUrl in app.json for a standalone build, or run through Expo so the Metro host can be used.',
+    "OPA API base URL could not be resolved. Set expo.extra.apiBaseUrl in app.json for a standalone build, or run through Expo so the Metro host can be used.",
   );
 }
 

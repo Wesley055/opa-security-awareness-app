@@ -1,0 +1,26 @@
+# Preparation only: intentionally outside .github/workflows and inactive.
+# Install after approval and runner/environment protection setup.
+name: OPA staging migration chain
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: opa-staging-migrations
+  cancel-in-progress: false
+jobs:
+  migrate:
+    environment: staging
+    runs-on: [self-hosted, opa-staging]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+      - run: npm ci
+      - run: npm run prisma:generate --workspace apps/api
+      - run: npm run build --workspace apps/api
+      # Runner injects approved staging settings, migration-role DATABASE_URL,
+      # OPA_ENVIRONMENT=staging and signed purpose=migration manifest from its
+      # staging-only Key Vault identity. Never load a production environment.
+      - run: node apps/api/scripts/staging-migrate.cjs

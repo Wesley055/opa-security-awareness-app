@@ -1060,3 +1060,9 @@ model SafeWalkAudit {
   occurredAt  DateTime @default(now())
   @@index([sessionId, occurredAt])
 }
+
+/// Durable shared staging test budgets. No recipient PII.
+model StagingNotificationBudget {
+  key String @id
+  count Int @default(0)
+}

@@ -9,8 +9,9 @@
         "buildType": "apk"
       },
       "env": {
-        "OPA_API_BASE_URL": "https://opa-api-production-g4f6cxdyanfbaub0.southafricanorth-01.azurewebsites.net"
-      }
+        "OPA_ENVIRONMENT": "staging"
+      },
+      "environment": "preview"
     },
     "production": {
       "distribution": "store",
@@ -18,7 +19,17 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "OPA_API_BASE_URL": "https://opa-api-production-g4f6cxdyanfbaub0.southafricanorth-01.azurewebsites.net"
+        "OPA_API_BASE_URL": "https://opa-api-production-g4f6cxdyanfbaub0.southafricanorth-01.azurewebsites.net",
+        "OPA_ENVIRONMENT": "production"
+      },
+      "environment": "production"
+    },
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "environment": "development",
+      "env": {
+        "OPA_ENVIRONMENT": "development"
       }
     }
   }

@@ -1,3 +1,4 @@
+import { ActivationMode, TriggerMode } from './dto/trigger-request.dto';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import type { TriggerRequestDto } from './dto/trigger-request.dto';
 import { ConfidenceProvider } from './providers/confidence.provider';
@@ -61,8 +62,9 @@ export class EmergencyDetectionService {
     });
 
     const silent = this.silentProvider.evaluate({
-      mode: dto.mode,
-      silentProfileEnabled: profile.silentMode,
+      mode: dto.activationMode === undefined ? dto.mode : dto.activationMode === ActivationMode.SILENT ? TriggerMode.SILENT : TriggerMode.IMMEDIATE,
+      // Only explicit device input enables this mode; profiles cannot remotely enable it.
+      silentProfileEnabled: false,
       screenLocked: true,
       concealActivation: true,
     });
@@ -88,7 +90,7 @@ export class EmergencyDetectionService {
       outcome: {
         shouldActivate: decision.shouldActivate,
         requiresConfirmation: decision.requiresConfirmation,
-        isSilent: silent.isSilent || decision.isSilent,
+        isSilent: dto.activationMode === undefined ? silent.isSilent || decision.isSilent : silent.isSilent,
         confidenceScore: confidence.score,
         confidenceLevel: confidence.level,
       },

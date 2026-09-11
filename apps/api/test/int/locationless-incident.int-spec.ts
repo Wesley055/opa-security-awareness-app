@@ -65,10 +65,48 @@ function services() {
     tokens,
     journey,
   );
-  return { orchestrator, intelligence, provider, notifications, tokens };
+  return { orchestrator, intelligence, provider, notifications, tokens, timeline, incidents };
 }
 
 describe("locationless incident production persistence", () => {
+  it('cold locked SOS atomically returns one canonical session before a GPS fix', async () => {
+    const user = await createUser();
+    const s = services();
+    const request: CreateIncidentRequestDto = { triggerType: 'SOS_BUTTON' as never, mode: 'CONFIRMATION' as never, activationMode: 'SILENT' as never, activationSource: 'LOCK_SCREEN' as never, userConfirmed: true };
+    const results = await Promise.all([s.orchestrator.createCoordinatedIncident(user.id, request), s.orchestrator.createCoordinatedIncident(user.id, request)]);
+    const incident = await prismaTest.incident.findUniqueOrThrow({ where: { id: results[0].incident!.id } });
+    expect(incident.status).toBe('OPEN');
+    expect(incident.journeySessionId).not.toBeNull();
+    for (const result of results) expect(result.incident?.journeySessionId).toBe(incident.journeySessionId);
+    expect(await prismaTest.journeySession.count({ where: { userId: user.id } })).toBe(1);
+    expect(await prismaTest.journeyLocationFix.count({ where: { journeySessionId: incident.journeySessionId! } })).toBe(0);
+    expect(await s.timeline.verifyChain(incident.id)).toEqual({ valid: true });
+    await s.incidents.resolve(incident.id, user.id, { reason: 'USER_SAFE' });
+    expect((await prismaTest.journeySession.findUniqueOrThrow({ where: { id: incident.journeySessionId! } })).status).toBe('ENDED');
+  });
+
+  it.each(['STANDARD', 'SILENT'] as const)('persists explicit %s provenance atomically, deduplicates, and resolves the same lifecycle', async mode => {
+    const user = await createUser();
+    await prismaTest.emergencyContact.create({ data: { userId: user.id, firstName: 'Test', lastName: 'Recipient', relationship: 'FAMILY', phoneNumber: '+2348000000000', receivesEmergencySms: true } });
+    const s = services();
+    const request: CreateIncidentRequestDto = { triggerType: 'SOS_BUTTON' as never, mode: 'CONFIRMATION' as never, activationMode: mode as never, activationSource: 'MANUAL' as never, userConfirmed: true };
+    const results = await Promise.all([s.orchestrator.createCoordinatedIncident(user.id, request), s.orchestrator.createCoordinatedIncident(user.id, request)]);
+    expect(new Set(results.map(result => result.incident!.id)).size).toBe(1);
+    const id = results[0].incident!.id;
+    const incident = await prismaTest.incident.findUniqueOrThrow({ where: { id } });
+    expect(incident).toMatchObject({ status: 'OPEN', trigger: 'SOS_BUTTON', userId: user.id, metadata: { activationMode: mode, activationSource: 'MANUAL', presentationMode: mode } });
+    const audits = await prismaTest.incidentTimelineEvent.findMany({ where: { incidentId: id, type: 'ACTIVATION_RECORDED' } });
+    expect(audits).toHaveLength(2);
+    for (const audit of audits) expect(audit.payload).toMatchObject({ activationMode: mode, activationSource: 'MANUAL' });
+    expect(await s.timeline.verifyChain(id)).toEqual({ valid: true });
+    const queued = await prismaTest.incidentNotification.findMany({ where: { incidentId: id } });
+    expect(queued).toHaveLength(2);
+    for (const row of queued) expect(JSON.stringify(row.payload)).not.toContain('activationMode');
+    await s.incidents.resolve(id, user.id, { reason: 'USER_SAFE' });
+    expect((await prismaTest.incident.findUniqueOrThrow({ where: { id } })).status).toBe('RESOLVED');
+    expect(await s.timeline.verifyChain(id)).toEqual({ valid: true });
+  });
+
   it("creates a real emergency, dispatches notifications, and later records a real location", async () => {
     const user = await createUser();
     await prismaTest.emergencyContact.create({

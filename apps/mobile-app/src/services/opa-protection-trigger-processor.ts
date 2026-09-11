@@ -8,6 +8,7 @@ export interface OpaProtectionTrigger {
   id: string;
   type: OpaProtectionTriggerType;
   timestamp: number;
+  activationMode?: 'SILENT' | 'STANDARD';
   phrase?: string | null;
   provider?: string | null;
 }
@@ -63,6 +64,7 @@ export async function processOpaProtectionTrigger(
 
     disposition =
       await dependencies.processVoiceTrigger({
+        ...(event.activationMode ? { activationMode: event.activationMode } : {}),
         phrase: event.phrase,
         confidence: null,
         timestamp: event.timestamp,

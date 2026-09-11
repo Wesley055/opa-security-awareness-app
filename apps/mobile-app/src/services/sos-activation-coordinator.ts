@@ -1,3 +1,4 @@
+import { getSosActivationMode, incidentPresentationMode, type ActivationMode } from './silent-sos';
 import { cleanNonNegative } from './journey-fix-contract';
 import {
   acquireEmergencyLocation,
@@ -17,6 +18,7 @@ export type SosActivationStatus =
 export interface SosActivationResult {
   status: SosActivationStatus;
   incidentId?: string;
+  activationMode?: ActivationMode;
   notifications?: {
     queued: number;
     dispatched: boolean;
@@ -32,7 +34,7 @@ export interface SosActivationResult {
  * preserves the existing mobile SOS audit semantics and userConfirmed
  * records that the user explicitly initiated the request.
  */
-export async function activateFromSosTrigger():
+export async function activateFromSosTrigger(activationMode: ActivationMode = getSosActivationMode()):
 Promise<SosActivationResult> {
   let restricted = !isForegroundExecutionAllowed();
   const location = await acquireEmergencyLocation();
@@ -49,6 +51,8 @@ Promise<SosActivationResult> {
     await (restricted ? backgroundApi : api).post('/incident-orchestrator/activate', {
       triggerType: 'SOS_BUTTON',
       mode: 'CONFIRMATION',
+      activationMode,
+      activationSource: 'LOCK_SCREEN',
       userConfirmed: true,
       latitude: location.fix.latitude,
       longitude: location.fix.longitude,
@@ -70,6 +74,7 @@ Promise<SosActivationResult> {
     return {
       status: data.status,
       incidentId: data.incident?.id,
+      activationMode: incidentPresentationMode(data.incident, activationMode),
       notifications: data.notifications,
     };
   }

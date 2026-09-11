@@ -1,3 +1,4 @@
+jest.mock('./emergency-tracking', () => ({ rememberEmergencyTracking: jest.fn(), reconcileEmergencyTracking: async () => undefined }));
 jest.mock('./foreground-execution', () => ({ isForegroundExecutionAllowed: () => false }));
 jest.mock('./sos-activation-coordinator', () => ({ activateFromSosTrigger: jest.fn() }));
 jest.mock('../store/activeIncidentStore', () => ({ useActiveIncidentStore: { getState: () => ({ setActiveIncident: jest.fn() }) } }));

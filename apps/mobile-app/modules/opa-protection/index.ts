@@ -28,6 +28,7 @@ export interface OpaNativeProtectionTrigger {
   id: string;
   type: OpaNativeProtectionTriggerType;
   timestamp: number;
+  activationMode?: 'SILENT' | 'STANDARD';
   phrase?: string | null;
   provider?: string | null;
 }
@@ -61,7 +62,13 @@ interface OpaProtectionEvents {
 }
 
 type OpaProtectionNativeModule = {
+  getEmergencyTrackingIncident(): string | null;
+  rememberEmergencyTrackingIncidentAsync(incidentId: string): Promise<void>;
+  beginEmergencyLocationAsync(incidentId: string): Promise<void>;
+  endEmergencyTrackingAsync(expected: string | null): Promise<void>;
   isForegroundEligible(): boolean;
+  getSosActivationMode(): 'SILENT' | 'STANDARD';
+  setSosActivationModeAsync(mode: 'SILENT' | 'STANDARD'): Promise<void>;
   configureVoiceProviderAsync(
     enabled: boolean,
     provider: string,
@@ -102,6 +109,8 @@ type OpaProtectionNativeModule = {
     listener: OpaProtectionEvents[EventName],
   ): EventSubscription;
 };
+
+export const emergencyTrackingNative = () => nativeModule;
 
 const nativeModule =
   requireNativeModule<OpaProtectionNativeModule>(
@@ -241,4 +250,11 @@ export function addOpaVoiceTriggerListener(
 /** Actual unlocked/resumed Activity eligibility, not merely a live React tree. */
 export function isOpaForegroundEligible(): boolean {
   return nativeModule.isForegroundEligible();
+}
+
+export function getNativeSosActivationMode(): 'SILENT' | 'STANDARD' {
+  return nativeModule.getSosActivationMode();
+}
+export function setNativeSosActivationMode(mode: 'SILENT' | 'STANDARD'): Promise<void> {
+  return nativeModule.setSosActivationModeAsync(mode);
 }

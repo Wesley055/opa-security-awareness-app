@@ -14,10 +14,21 @@ import {
 } from 'class-validator';
 import {
   EmergencyTriggerType,
+  ActivationMode,
+  ActivationSource,
   TriggerMode,
 } from '../../emergency-detection/dto/trigger-request.dto';
 
 export class CreateIncidentRequestDto {
+  @IsOptional()
+  @IsEnum(ActivationMode)
+  activationMode?: ActivationMode;
+
+  // Client-reported provenance, never an authorization input.
+  @IsOptional()
+  @IsEnum(ActivationSource)
+  activationSource?: ActivationSource;
+
   @IsOptional()
   @IsUUID('4')
   safeWalkSessionId?: string;

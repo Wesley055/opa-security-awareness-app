@@ -52,7 +52,7 @@ export class IncidentsService {
     private readonly journeySessions: JourneySessionService,
   ) {}
 
-  async create(userId: string, dto: CreateIncidentDto, tx?: Prisma.TransactionClient) {
+  async create(userId: string, dto: CreateIncidentDto, tx?: Prisma.TransactionClient, provenance?: { activationMode: string; activationSource: string }) {
     if (
       dto.trigger === IncidentTrigger.VOICE_HELP_HELP &&
       dto.voicePhrase?.toUpperCase() !== 'HELP HELP'
@@ -94,6 +94,7 @@ export class IncidentsService {
           // the legacy time-window filter and has not been converged.
           lastTriggeredAt: new Date(),
           metadata: {
+            ...(provenance ? { ...provenance, presentationMode: provenance.activationMode } : {}),
             redisDispatchPrepared: true,
             notificationFanoutPrepared: true,
           },

@@ -1,3 +1,4 @@
+import { getSosActivationMode, incidentPresentationMode } from '../src/services/silent-sos';
 import { isForegroundExecutionAllowed } from '../src/services/foreground-execution';
 import { cleanNonNegative } from '../src/services/journey-fix-contract';
 import {
@@ -47,6 +48,8 @@ interface FixedLocation {
 
 export default function SosScreen() {
   const activeIncident = useActiveIncidentStore((state) => state.activeIncident);
+  const [activationMode] = useState(() => activeIncident?.activationMode ?? getSosActivationMode());
+  const silent = activationMode === 'SILENT';
   const setActiveIncident = useActiveIncidentStore((state) => state.setActiveIncident);
   const clearActiveIncident = useActiveIncidentStore((state) => state.clearActiveIncident);
   const [screenState, setScreenState] = useState<ScreenState>(
@@ -208,22 +211,23 @@ export default function SosScreen() {
       const { data } = await api.post('/incident-orchestrator/activate', {
         triggerType: 'SOS_BUTTON',
         mode: 'CONFIRMATION',
+        activationMode,
+        activationSource: 'MANUAL',
         userConfirmed: true,
         latitude: locationRef.current.latitude,
         longitude: locationRef.current.longitude,
         accuracy: cleanNonNegative(locationRef.current.accuracy),
       });
+      if (!['INCIDENT_ACTIVATED', 'INCIDENT_RETRIGGERED'].includes(data?.status) || !data?.incident?.id) {
+        throw new Error('Emergency activation was not confirmed.');
+      }
+      // Preserve success even if the user left while the network request completed.
+      setActiveIncident({ id: data.incident.id, status: 'OPEN', activationMode: incidentPresentationMode(data.incident, activationMode), notifications: data.notifications });
+      void startTracking().catch(() => console.log('[sos] tracking bootstrap unavailable'));
       if (!mountedRef.current) return;
       setResult(data);
-      if (data?.incident?.id) {
-        setActiveIncident({
-          id: data.incident.id,
-          status: 'OPEN',
-          notifications: data.notifications,
-        });
-      }
       setScreenState('activated');
-      void startTracking();
+      if (silent) router.replace('/');
     } catch (err: unknown) {
       if (!mountedRef.current) return;
       const responseMessage =
@@ -240,7 +244,7 @@ export default function SosScreen() {
     } finally {
       activatingRef.current = false;
     }
-  }, []);
+  }, [activationMode, silent, acquireLocation, setActiveIncident]);
 
   useEffect(() => {
     if (screenState !== 'countdown') return;
@@ -277,6 +281,7 @@ export default function SosScreen() {
         await api.patch(`/incidents/${incidentId}/${action}`, {
           reason: action === 'resolve' ? 'USER_SAFE' : 'FALSE_ALARM',
         });
+        console.log(action === 'resolve' ? '[OPA-TRACKING] USER_SAFE_RESOLVED' : '[OPA-TRACKING] FALSE_ALARM_ACCEPTED');
         await stopTracking();
         clearActiveIncident();
         if (!mountedRef.current) return;
@@ -364,11 +369,11 @@ export default function SosScreen() {
     return (
       <View style={styles.container}>
         <Text style={styles.countdownLabel}>Activating SOS in</Text>
-        <Text style={styles.countdownNumber}>{secondsLeft}</Text>
+        <Text style={silent ? styles.statusText : styles.countdownNumber}>{secondsLeft}</Text>
         <Text style={styles.countdownSub}>
           Your emergency contacts will be notified with your location.
         </Text>
-        <TouchableOpacity style={styles.cancelButton} onPress={handleCancel}>
+        <TouchableOpacity touchSoundDisabled={silent} style={styles.cancelButton} onPress={handleCancel}>
           <Text style={styles.cancelButtonText}>Cancel</Text>
         </TouchableOpacity>
       </View>
@@ -390,15 +395,15 @@ export default function SosScreen() {
         <Text style={styles.errorTitle}>Something went wrong</Text>
         <Text style={styles.errorMessage}>{errorMessage}</Text>
         {permissionBlocked ? (
-          <TouchableOpacity style={styles.retryButton} onPress={handleOpenSettings}>
+          <TouchableOpacity touchSoundDisabled={silent} style={styles.retryButton} onPress={handleOpenSettings}>
             <Text style={styles.retryButtonText}>Open Settings</Text>
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+          <TouchableOpacity touchSoundDisabled={silent} style={styles.retryButton} onPress={handleRetry}>
             <Text style={styles.retryButtonText}>Try Again</Text>
           </TouchableOpacity>
         )}
-        <TouchableOpacity onPress={() => router.back()}>
+        <TouchableOpacity touchSoundDisabled={silent} onPress={() => router.back()}>
           <Text style={styles.backLink}>Back</Text>
         </TouchableOpacity>
       </View>
@@ -408,8 +413,8 @@ export default function SosScreen() {
   // activated
   return (
     <View style={styles.container}>
-      <Text style={styles.activatedIcon}>OPA</Text>
-      <Text style={styles.activatedTitle}>Emergency Activated</Text>
+      {!silent ? <Text style={styles.activatedIcon}>OPA</Text> : null}
+      <Text style={styles.activatedTitle}>{silent ? 'Safety controls' : 'Emergency Activated'}</Text>
       {/*
         Status distinguishes a first activation from a retrigger. The raw
         notification count is intentionally not presented as an alert count
@@ -439,7 +444,7 @@ export default function SosScreen() {
       */}
       {result?.incident?.id ? (
         <>
-          <TouchableOpacity
+          <TouchableOpacity touchSoundDisabled={silent}
             style={[styles.safeButton, closing && styles.buttonDisabled]}
             disabled={closing}
             onPress={() => confirmClose('resolve')}
@@ -449,7 +454,7 @@ export default function SosScreen() {
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity
+          <TouchableOpacity touchSoundDisabled={silent}
             style={[styles.falseAlarmButton, closing && styles.buttonDisabled]}
             disabled={closing}
             onPress={() => confirmClose('cancel')}
@@ -467,7 +472,7 @@ export default function SosScreen() {
         bury it. Kept because a user may want to put the phone down while
         the emergency continues.
       */}
-      <TouchableOpacity onPress={() => router.replace('/')}>
+      <TouchableOpacity touchSoundDisabled={silent} onPress={() => router.replace('/')}>
         <Text style={styles.backLink}>Done - keep the emergency active</Text>
       </TouchableOpacity>
     </View>

@@ -29,6 +29,7 @@ internal object ProtectionTriggerBridgePayload {
             }
         }
 
+        trigger.activationMode?.let { payload["activationMode"] = it }
         return payload
     }
 }

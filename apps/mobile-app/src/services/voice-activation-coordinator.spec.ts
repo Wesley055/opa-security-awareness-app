@@ -1,3 +1,4 @@
+jest.mock('./emergency-tracking', () => ({ rememberEmergencyTracking: jest.fn(), bootstrapEmergencyTracking: jest.fn(), reconcileEmergencyTracking: async () => undefined }));
 jest.mock('./foreground-execution', () => ({ isForegroundExecutionAllowed: () => true }));
 import { api, backgroundApi } from './api';
 import {
@@ -84,6 +85,7 @@ describe('voice-activation-coordinator', () => {
       activateFromVoiceTrigger(voiceEvent),
     ).resolves.toEqual({
       status: 'INCIDENT_ACTIVATED',
+      activationMode: 'STANDARD',
       incidentId: 'incident-voice-123',
     });
 
@@ -93,7 +95,7 @@ describe('voice-activation-coordinator', () => {
       '/incident-orchestrator/activate',
       expect.objectContaining({
         triggerType: 'VOICE',
-        mode: 'SILENT',
+        mode: 'IMMEDIATE', activationMode: 'STANDARD', activationSource: 'VOICE',
         detectedPhrase: 'HELP HELP',
         userConfirmed: false,
         latitude: 6.5244,
@@ -195,6 +197,7 @@ describe('voice-activation-coordinator', () => {
       activateFromVoiceTrigger(voiceEvent),
     ).resolves.toEqual({
       status: 'INCIDENT_RETRIGGERED',
+      activationMode: 'STANDARD',
       incidentId: 'incident-voice-existing',
       notifications: {
         queued: 0,
@@ -219,7 +222,7 @@ describe('headless voice activation', () => {
       await expect(activateFromVoiceTrigger(voiceEvent, 'headless')).resolves.toMatchObject({ status });
       expect(backgroundApi.post).toHaveBeenCalledTimes(1);
       expect(backgroundApi.post).toHaveBeenCalledWith('/incident-orchestrator/activate', {
-        triggerType: 'VOICE', mode: 'SILENT', detectedPhrase: 'HELP HELP', language: 'en-NG',
+        triggerType: 'VOICE', mode: 'IMMEDIATE', activationMode: 'STANDARD', activationSource: 'VOICE', detectedPhrase: 'HELP HELP', language: 'en-NG',
         voiceConfidence: undefined, repetitionCount: 1, userConfirmed: false,
         latitude: 6.5, longitude: 3.3, accuracy: 8, timestamp: new Date(voiceEvent.timestamp).toISOString(),
       });

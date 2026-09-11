@@ -1,3 +1,4 @@
+import { getSosActivationMode, incidentPresentationMode, type ActivationMode } from './silent-sos';
 import { backgroundApi } from './api';
 import {
   acquireEmergencyLocationWithoutPermissionRequest,
@@ -17,40 +18,38 @@ export type HeadlessSosActivationResult =
   | {
       status: 'INCIDENT_ACTIVATED' | 'INCIDENT_RETRIGGERED';
       incidentId: string;
+      activationMode?: ActivationMode;
+      journeySessionId?: string;
       notifications: NotificationDispatchResult;
     }
   | {
       status: string;
       incidentId?: string;
+      activationMode?: ActivationMode;
+      journeySessionId?: string;
       notifications?: NotificationDispatchResult;
     };
 
-export async function activateFromHeadlessSosTrigger():
+export async function activateFromHeadlessSosTrigger(activationMode: ActivationMode = getSosActivationMode()):
 Promise<HeadlessSosActivationResult> {
   const location =
-    await acquireEmergencyLocationWithoutPermissionRequest();
+    await acquireEmergencyLocationWithoutPermissionRequest().catch(() => ({ ok: false as const, reason: 'LOCATION_UNAVAILABLE' as const }));
 
-  if (!location.ok) {
-    return {
-      status: 'LOCATION_UNAVAILABLE',
-      locationFailure: location.reason,
-    };
-  }
-
-  const { fix } = location;
+  // Explicit locked SOS must not wait for a GPS fix to create the emergency.
 
   const { data } = await backgroundApi.post(
     '/incident-orchestrator/activate',
     {
       triggerType: 'SOS_BUTTON',
       mode: 'CONFIRMATION',
+      activationMode,
+      activationSource: 'LOCK_SCREEN',
       userConfirmed: true,
-      latitude: fix.latitude,
-      longitude: fix.longitude,
-      accuracy:
-        typeof fix.accuracy === 'number'
-          ? fix.accuracy
-          : undefined,
+      ...(location.ok ? {
+        latitude: location.fix.latitude,
+        longitude: location.fix.longitude,
+        accuracy: typeof location.fix.accuracy === 'number' ? location.fix.accuracy : undefined,
+      } : {}),
     },
   );
 
@@ -83,6 +82,8 @@ Promise<HeadlessSosActivationResult> {
     return {
       status,
       incidentId,
+      ...(typeof data.incident?.journeySessionId === 'string' ? { journeySessionId: data.incident.journeySessionId } : {}),
+      activationMode: incidentPresentationMode(data.incident, activationMode),
       notifications,
     };
   }

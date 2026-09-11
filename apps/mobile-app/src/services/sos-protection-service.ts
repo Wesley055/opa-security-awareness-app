@@ -20,13 +20,14 @@ Promise<SosTriggerProcessingDisposition> {
     const result = await activateFromSosTrigger();
 
     if (
-      result.status === 'INCIDENT_ACTIVATED' &&
+      (result.status === 'INCIDENT_ACTIVATED' || result.status === 'INCIDENT_RETRIGGERED') &&
       result.incidentId
     ) {
       useActiveIncidentStore.getState().setActiveIncident({
         id: result.incidentId,
         status: 'OPEN',
         notifications: result.notifications,
+        ...(result.activationMode ? { activationMode: result.activationMode } : {}),
       });
     }
 

@@ -1,3 +1,4 @@
+import { getSosActivationMode, incidentPresentationMode } from './silent-sos';
 import { create } from 'zustand';
 import { AppState } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
@@ -86,10 +87,10 @@ export async function escalateSafeWalk() {
   const owner = currentUser();
   const journey = useSafeWalk.getState().journey;
   if (!owner || !journey) throw new Error('Refresh your journey before escalating.');
-  const { data } = await api.post('/incident-orchestrator/activate', { triggerType: 'SOS_BUTTON', mode: 'CONFIRMATION', userConfirmed: true, safeWalkSessionId: journey.id });
+  const { data } = await api.post('/incident-orchestrator/activate', { triggerType: 'SOS_BUTTON', mode: 'CONFIRMATION', activationMode: getSosActivationMode(), activationSource: 'SAFEWALK_EXPLICIT', userConfirmed: true, safeWalkSessionId: journey.id });
   if (owner !== currentUser()) throw new Error('Your account changed. Sign in to the original account to verify emergency status.');
   if (!data?.incident?.id) throw new Error('Emergency activation was not confirmed. Retry or use SOS.');
-  if (['OPEN', 'ACKNOWLEDGED'].includes(data.incident.status)) useActiveIncidentStore.getState().setActiveIncident({ id: data.incident.id, status: 'OPEN', notifications: data.notifications });
+  if (['OPEN', 'ACKNOWLEDGED'].includes(data.incident.status)) useActiveIncidentStore.getState().setActiveIncident({ id: data.incident.id, status: 'OPEN', activationMode: incidentPresentationMode(data.incident), notifications: data.notifications });
   await refreshSafeWalk();
   return data.incident.id as string;
 }

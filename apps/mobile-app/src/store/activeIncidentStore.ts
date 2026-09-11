@@ -1,15 +1,18 @@
+import { incidentPresentationMode, type ActivationMode } from '../services/silent-sos';
 import { create } from 'zustand';
 import { backgroundApi } from '../services/api';
 
 export interface ActiveIncident {
   id: string;
   status: 'OPEN';
+  activationMode?: ActivationMode;
   notifications?: { queued: number; dispatched: boolean };
 }
 
 interface IncidentListItem {
   id: string;
   status: string;
+  metadata?: unknown;
 }
 
 interface ActiveIncidentState {
@@ -45,7 +48,7 @@ export const useActiveIncidentStore = create<ActiveIncidentState>((set, get) => 
       const { data } = await backgroundApi.get<IncidentListItem[]>('/incidents');
       const open = data.find((incident) => incident.status === 'OPEN') ?? null;
       const active: ActiveIncident | null = open
-        ? { id: open.id, status: 'OPEN' }
+        ? { id: open.id, status: 'OPEN', ...(open.metadata ? { activationMode: incidentPresentationMode(open) } : {}) }
         : null;
       // Never resurrect an ended incident or erase a newer local activation.
       if (isCurrent() && startedRevision === revision && currentRequest === requestId) {

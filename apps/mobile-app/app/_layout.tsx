@@ -326,6 +326,7 @@ export default function RootLayout() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="(auth)/login" />
       <Stack.Screen name="index" />
+      <Stack.Screen name="sos" options={{ animation: 'none' }} />
     </Stack>
   );
 }

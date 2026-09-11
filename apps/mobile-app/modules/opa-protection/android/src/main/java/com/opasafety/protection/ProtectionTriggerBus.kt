@@ -41,6 +41,7 @@ internal data class ProtectionEmergencyTrigger(
     val timestamp: Long,
     val phrase: String? = null,
     val provider: String? = null,
+    val activationMode: String? = null,
 )
 
 /**
@@ -82,11 +83,13 @@ internal object ProtectionTriggerBus {
         context: Context,
         trigger: ProtectionEmergencyTrigger,
     ): ProtectionTriggerQueuePolicy.EnqueueStatus {
+        // Freeze the local choice before durable enqueue; retries never re-read consent.
+        val captured = trigger.copy(activationMode = ProtectionActivationModeStore.read(context))
         return publishDurably(
-            trigger,
-            persist = { ProtectionPendingTriggerStore.save(context, trigger) },
-            wake = { status -> OpaProtectionHeadlessService.requestWake(context, trigger.type, status) },
-            deliver = { synchronized(this) { listener }?.invoke(trigger) },
+            captured,
+            persist = { ProtectionPendingTriggerStore.save(context, captured) },
+            wake = { status -> OpaProtectionHeadlessService.requestWake(context, captured.type, status) },
+            deliver = { synchronized(this) { listener }?.invoke(captured) },
         )
     }
 

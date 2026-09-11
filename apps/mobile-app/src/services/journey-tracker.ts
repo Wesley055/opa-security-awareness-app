@@ -1,4 +1,6 @@
 import { isForegroundExecutionAllowed } from './foreground-execution';
+import { authSessionEpoch } from './auth-session-epoch';
+import { nativeEmergencyTracking } from './emergency-tracking-native';
 /**
  * Journey fix sender - Sprint 10B item 9b.
  *
@@ -700,9 +702,23 @@ async function flush(forSession: string): Promise<void> {
  * not less: a long-lived subscription gives a stale async result many more
  * chances to land after a stop.
  */
-export async function startTracking(options?: { existingSessionId: string }): Promise<void> {
-  if (!isForegroundExecutionAllowed()) return;
+export async function startTracking(options?: { existingSessionId: string; emergencyIncidentId?: string }): Promise<void> {
+  const attempt = generation + 1;
+  try {
+    await startTrackingAttempt(options);
+  } catch (error) {
+    if (generation === attempt) { running = false; sessionId = null; }
+    throw error;
+  }
+}
+
+async function startTrackingAttempt(options?: { existingSessionId: string; emergencyIncidentId?: string }): Promise<void> {
+  const emergency = options?.emergencyIncidentId;
+  const epoch = authSessionEpoch();
+  const eligible = () => epoch === authSessionEpoch() && (Boolean(emergency) || isForegroundExecutionAllowed());
+  if (!eligible()) return;
   if (running) {
+    log(isForegroundExecutionAllowed() ? '[OPA-TRACKING] RESUME_ADOPTED' : '[OPA-TRACKING] EXISTING_TRACKER_ADOPTED');
     log('already running - ignoring start');
     return;
   }
@@ -722,7 +738,7 @@ export async function startTracking(options?: { existingSessionId: string }): Pr
     return;
   }
 
-  if (!isForegroundExecutionAllowed()) { running = false; return; }
+  if (!eligible()) { running = false; return; }
   const durable = await initializeDurableQueue();
   if (!running || gen !== generation) return;
   if (!durable) {
@@ -735,7 +751,7 @@ export async function startTracking(options?: { existingSessionId: string }): Pr
     return;
   }
 
-  if (!isForegroundExecutionAllowed()) { running = false; return; }
+  if (!eligible()) { running = false; return; }
   const id = options?.existingSessionId ?? await acquireSession();
   if (!id) {
     running = false;
@@ -745,7 +761,7 @@ export async function startTracking(options?: { existingSessionId: string }): Pr
     log('stopped while acquiring the session');
     return;
   }
-  if (!isForegroundExecutionAllowed()) { running = false; return; }
+  if (!eligible()) { running = false; return; }
   sessionId = id;
 
   // Set BEFORE subscribing, so the cached fix that arrives immediately
@@ -761,12 +777,13 @@ export async function startTracking(options?: { existingSessionId: string }): Pr
   // emergency record is worse than a slightly slower cadence.
   const backgroundStarted = await serializeBackground(async () => {
     if (!running || gen !== generation) return false;
-    return startBackgroundCapture(id);
+    return startBackgroundCapture(id, emergency, eligible);
   });
   if (!running || gen !== generation) return;
 
   if (!backgroundStarted) {
-    if (!isForegroundExecutionAllowed()) { running = false; return; }
+    if (emergency) { running = false; sessionId = null; throw new Error('Emergency background capture deferred'); }
+    if (!eligible()) { running = false; return; }
     try {
       const newSubscription = await Location.watchPositionAsync(
         {
@@ -797,7 +814,7 @@ export async function startTracking(options?: { existingSessionId: string }): Pr
     subscription = null;
     return;
   }
-  flushTimer = setInterval(() => {
+  if (isForegroundExecutionAllowed()) flushTimer = setInterval(() => {
     if (sessionId) {
       void flush(sessionId);
     }
@@ -813,7 +830,9 @@ export async function startTracking(options?: { existingSessionId: string }): Pr
  * Runtime permission requests belong to a foreground React UI boundary
  * where the required prominent disclosure can be shown first.
  *
- * New capture is bootstrapped only from an unlocked foreground lifecycle.
+ * Ordinary capture starts from the unlocked foreground lifecycle. Emergency
+ * recovery uses the already-running native protection location FGS and its durable
+ * incident obligation, with background permission already granted.
  * It only reads the existing permission state. If background permission has not
  * already been granted, tracking safely degrades to the foreground watcher
  * without blocking SOS activation.
@@ -821,7 +840,7 @@ export async function startTracking(options?: { existingSessionId: string }): Pr
  * The session id goes to SecureStore because the task runs in a separate JS
  * context that cannot see this module's variables.
  */
-async function startBackgroundCapture(forSession: string): Promise<boolean> {
+async function startBackgroundCapture(forSession: string, emergencyIncidentId?: string, eligible: () => boolean = isForegroundExecutionAllowed): Promise<boolean> {
   try {
     const background = await Location.getBackgroundPermissionsAsync();
 
@@ -830,7 +849,13 @@ async function startBackgroundCapture(forSession: string): Promise<boolean> {
       return false;
     }
 
-    if (!isForegroundExecutionAllowed()) return false;
+    const nativeOwned = Boolean(emergencyIncidentId);
+    if (emergencyIncidentId) {
+      const native = nativeEmergencyTracking();
+      if (!native) return false;
+      await native.beginEmergencyLocationAsync(emergencyIncidentId);
+    } else if (!isForegroundExecutionAllowed()) return false;
+    if (!eligible()) return false;
     await SecureStore.setItemAsync(BACKGROUND_SESSION_KEY, forSession);
 
     const already = await TaskManager.isTaskRegisteredAsync(
@@ -838,7 +863,7 @@ async function startBackgroundCapture(forSession: string): Promise<boolean> {
     );
 
     if (!already) {
-      if (!isForegroundExecutionAllowed()) return false;
+      if (!eligible()) return false;
       await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
         accuracy: Location.Accuracy.High,
         timeInterval: TIME_INTERVAL_MS,
@@ -848,17 +873,18 @@ async function startBackgroundCapture(forSession: string): Promise<boolean> {
         // looks like. The persistent notification is the price of not
         // being throttled, and a person being tracked during an emergency
         // has a right to see that it is happening.
-        foregroundService: {
+        foregroundService: nativeOwned ? undefined : {
           notificationTitle: 'OPA journey tracking active',
           notificationBody:
             'Saving location updates for your active journey.',
-          notificationColor: '#D92D20',
+          notificationColor: '#52606D',
         },
         pausesUpdatesAutomatically: false,
         showsBackgroundLocationIndicator: true,
       });
     }
 
+    if (!eligible()) { await stopBackgroundCapture(emergencyIncidentId); return false; }
     log('background capture OWNS this session: ' + forSession);
     return true;
   } catch (err: unknown) {
@@ -880,7 +906,13 @@ async function startBackgroundCapture(forSession: string): Promise<boolean> {
  * let a late OS delivery attach to a closed incident, and leaving the task
  * registered would keep the notification on screen after the emergency ends.
  */
-async function stopBackgroundCapture(): Promise<void> {
+async function stopBackgroundCapture(expectedIncidentId?: string): Promise<void> {
+  if (expectedIncidentId && nativeEmergencyTracking()?.getEmergencyTrackingIncident() !== expectedIncidentId) return;
+  try {
+    await nativeEmergencyTracking()?.endEmergencyTrackingAsync(expectedIncidentId ?? null);
+  } catch {
+    log('[OPA-TRACKING] native stop deferred');
+  }
   try {
     await SecureStore.deleteItemAsync(BACKGROUND_SESSION_KEY);
   } catch (err: unknown) {
@@ -907,7 +939,8 @@ async function stopBackgroundCapture(): Promise<void> {
  * Attempts one final best-effort flush. Rows that never got a 2xx stay in
  * SQLite and are replayed after the next start.
  */
-export async function stopTracking(expectedSessionId?: string): Promise<void> {
+export async function stopTracking(expectedSessionId?: string, expectedIncidentId?: string): Promise<void> {
+  if (expectedIncidentId && nativeEmergencyTracking()?.getEmergencyTrackingIncident() !== expectedIncidentId) return;
   if (expectedSessionId && running && sessionId !== expectedSessionId) return;
   const hadLocalTracking = running || subscription !== null || flushTimer !== null;
   const finalSession = sessionId;
@@ -933,7 +966,7 @@ export async function stopTracking(expectedSessionId?: string): Promise<void> {
   // This MUST run even when local module state is idle. TaskManager and
   // SecureStore survive JS-context restarts, so a cold-start logout can have
   // no local subscription while a stale background task still exists.
-  await serializeBackground(stopBackgroundCapture);
+  await serializeBackground(() => stopBackgroundCapture(expectedIncidentId));
 
   if (!hadLocalTracking && finalSession === null) {
     return;

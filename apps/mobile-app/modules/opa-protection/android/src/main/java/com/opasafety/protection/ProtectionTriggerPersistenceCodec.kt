@@ -64,6 +64,7 @@ internal object ProtectionTriggerPersistenceCodec {
                 item.put("provider", trigger.provider)
             }
 
+            trigger.activationMode?.let { item.put("activationMode", it) }
             array.put(item)
         }
 
@@ -115,6 +116,7 @@ internal object ProtectionTriggerPersistenceCodec {
             timestamp = item.optLong("timestamp", 0L),
             phrase = phrase,
             provider = provider,
+            activationMode = item.optString("activationMode", "").takeIf { it == "SILENT" || it == "STANDARD" },
         )
     }
 }

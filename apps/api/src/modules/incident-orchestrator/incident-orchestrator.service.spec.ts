@@ -230,6 +230,7 @@ describe("IncidentOrchestratorService", () => {
             longitude: undefined,
           }),
           prisma,
+          { activationMode: "SILENT", activationSource: "VOICE" },
         );
     },
   );

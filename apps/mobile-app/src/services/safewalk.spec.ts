@@ -1,3 +1,5 @@
+import { getSosActivationMode } from './silent-sos';
+jest.mock('./silent-sos', () => ({ ...jest.requireActual('./silent-sos'), getSosActivationMode: jest.fn(() => 'STANDARD') }));
 import * as SecureStore from 'expo-secure-store';
 import { api, backgroundApi } from './api';
 import { startTracking, stopTracking } from './journey-tracker';
@@ -81,4 +83,13 @@ it('rejects an emergency response received after an account switch', async () =>
   });
   await expect(escalateSafeWalk()).rejects.toThrow('account changed');
   expect(get).not.toHaveBeenCalled();
+});
+
+it('explicit SafeWalk emergency uses the locally selected silent mode', async () => {
+  (getSosActivationMode as jest.Mock).mockReturnValue('SILENT');
+  useSafeWalk.setState({ journey: session as never });
+  post.mockResolvedValue({ data: { status: 'INCIDENT_ACTIVATED', incident: { id: 'incident', status: 'OPEN', metadata: { activationMode: 'SILENT' } } } });
+  get.mockResolvedValue({ data: session });
+  await escalateSafeWalk();
+  expect(post).toHaveBeenCalledWith('/incident-orchestrator/activate', expect.objectContaining({ safeWalkSessionId: 'session', activationSource: 'SAFEWALK_EXPLICIT', activationMode: 'SILENT' }));
 });

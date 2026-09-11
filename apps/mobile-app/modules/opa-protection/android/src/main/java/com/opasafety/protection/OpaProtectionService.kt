@@ -21,9 +21,29 @@ import androidx.core.app.NotificationCompat
  */
 class OpaProtectionService : Service() {
 
+    private var locationForeground = false
+    private val reconciliationHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val reconciliation = object : Runnable {
+        override fun run() {
+            try {
+                if (ProtectionTrackingStore.read(this@OpaProtectionService) != null ||
+                    ProtectionPendingTriggerStore.peek(this@OpaProtectionService) != null) {
+                    startService(Intent(this@OpaProtectionService, OpaProtectionHeadlessService::class.java).apply {
+                        action = OpaProtectionHeadlessService.ACTION_PROCESS_PENDING_TRIGGERS
+                    })
+                }
+            } catch (error: Throwable) {
+                android.util.Log.w(LOG_TAG, "[OPA-TRACKING] reconciliation wake deferred", error)
+            } finally {
+                reconciliationHandler.postDelayed(this, 30_000L)
+            }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         ensureNotificationChannel()
+        activeService = this
     }
 
     override fun onStartCommand(
@@ -53,12 +73,16 @@ class OpaProtectionService : Service() {
             else -> startProtectionForeground()
         }
 
+        reconciliationHandler.removeCallbacks(reconciliation)
+        reconciliationHandler.post(reconciliation)
         return START_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
+        reconciliationHandler.removeCallbacks(reconciliation)
+        activeService = null
         ProtectionRuntime.onServiceStopping()
         super.onDestroy()
     }
@@ -68,9 +92,10 @@ class OpaProtectionService : Service() {
 
         val foregroundServiceType =
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or
+                    (if (locationForeground) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0)
             } else {
-                0
+                if (locationForeground && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0
             }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -124,6 +149,7 @@ class OpaProtectionService : Service() {
     }
 
     private fun buildProtectionNotification(): Notification {
+        val silent = ProtectionActivationModeStore.read(this) == "SILENT"
         val launchIntent =
             packageManager.getLaunchIntentForPackage(packageName)?.apply {
                 flags =
@@ -169,7 +195,7 @@ class OpaProtectionService : Service() {
             )
 
         val builder =
-            NotificationCompat.Builder(this, CHANNEL_ID)
+            NotificationCompat.Builder(this, if (silent) QUIET_CHANNEL_ID else CHANNEL_ID)
                 .setSmallIcon(applicationInfo.icon)
                 .setContentTitle("OPA Protection Service")
                 .setContentText(
@@ -177,8 +203,9 @@ class OpaProtectionService : Service() {
                 )
                 .setOngoing(true)
                 .setOnlyAlertOnce(true)
+                .setSilent(silent)
                 .setCategory(NotificationCompat.CATEGORY_SERVICE)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setPriority(if (silent) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_HIGH)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                 .addAction(
                     applicationInfo.icon,
@@ -198,6 +225,16 @@ class OpaProtectionService : Service() {
             return
         }
 
+        // A separate channel is necessary: Android preserves existing channel settings.
+        val quietChannel = NotificationChannel(QUIET_CHANNEL_ID, "OPA protection (quiet)", NotificationManager.IMPORTANCE_LOW).apply {
+            description = "Required OPA protection notification with no app sound or vibration."
+            setSound(null, null)
+            enableVibration(false)
+            setShowBadge(false)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+        }
+        getSystemService(NotificationManager::class.java).createNotificationChannel(quietChannel)
+
         val channel =
             NotificationChannel(
                 CHANNEL_ID,
@@ -215,6 +252,41 @@ class OpaProtectionService : Service() {
     }
 
     companion object {
+        @Volatile private var activeService: OpaProtectionService? = null
+        // Runs on the main queue. Promotes the existing service; never opens an Activity.
+        fun setEmergencyLocationForeground(enabled: Boolean) {
+            val service = activeService
+            if (service == null) {
+                check(!enabled) { "OPA protection foreground service is unavailable" }
+                return
+            }
+            if (enabled) {
+                check(androidx.core.content.ContextCompat.checkSelfPermission(service, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED ||
+                    androidx.core.content.ContextCompat.checkSelfPermission(service, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) { "Location permission required" }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    check(androidx.core.content.ContextCompat.checkSelfPermission(service, android.Manifest.permission.ACCESS_BACKGROUND_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) { "Background location permission required" }
+                }
+            }
+            val previous = service.locationForeground
+            service.locationForeground = enabled
+            try {
+                service.startProtectionForeground()
+                android.util.Log.i(LOG_TAG, "[OPA-TRACKING] LOCATION_FGS=" + enabled)
+            } catch (error: Throwable) {
+                service.locationForeground = previous
+                throw error
+            }
+        }
+
+        fun refreshNotificationIfRunning() {
+            // Serialize with service lifecycle callbacks; never starts a stopped service.
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                activeService?.let { service ->
+                    service.getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, service.buildProtectionNotification())
+                }
+            }
+        }
+
         private const val LOG_TAG =
             "OpaProtectionService"
 
@@ -226,6 +298,8 @@ class OpaProtectionService : Service() {
 
         const val ACTION_SOS =
             "com.opasafety.app.protection.action.SOS"
+
+        private const val QUIET_CHANNEL_ID = "opa-protection-service-quiet-v1"
 
         private const val CHANNEL_ID =
             "opa-protection-service"

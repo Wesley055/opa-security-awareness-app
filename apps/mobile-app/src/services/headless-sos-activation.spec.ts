@@ -29,20 +29,17 @@ describe('headless-sos-activation', () => {
     jest.clearAllMocks();
   });
 
-  it('retries without API activation when noninteractive location is unavailable', async () => {
+  it('creates explicit locked SOS even when a GPS fix is unavailable', async () => {
     mockedAcquireLocation.mockResolvedValue({
       ok: false,
       reason: 'LOCATION_UNAVAILABLE',
     });
 
-    await expect(
-      activateFromHeadlessSosTrigger(),
-    ).resolves.toEqual({
-      status: 'LOCATION_UNAVAILABLE',
-      locationFailure: 'LOCATION_UNAVAILABLE',
+    mockedBackgroundApi.post.mockResolvedValue({ data: { status: 'INCIDENT_ACTIVATED', incident: { id: 'incident' }, notifications: { queued: 0, dispatched: false } } });
+    await expect(activateFromHeadlessSosTrigger('SILENT')).resolves.toMatchObject({ status: 'INCIDENT_ACTIVATED', incidentId: 'incident' });
+    expect(mockedBackgroundApi.post).toHaveBeenCalledWith('/incident-orchestrator/activate', {
+      triggerType: 'SOS_BUTTON', mode: 'CONFIRMATION', activationMode: 'SILENT', activationSource: 'LOCK_SCREEN', userConfirmed: true,
     });
-
-    expect(mockedBackgroundApi.post).not.toHaveBeenCalled();
   });
 
   it('activates explicit SOS through the headless-safe API client', async () => {
@@ -73,6 +70,7 @@ describe('headless-sos-activation', () => {
       activateFromHeadlessSosTrigger(),
     ).resolves.toEqual({
       status: 'INCIDENT_ACTIVATED',
+      activationMode: 'STANDARD',
       incidentId: 'incident-1',
       notifications: {
         queued: 2,
@@ -84,7 +82,7 @@ describe('headless-sos-activation', () => {
       '/incident-orchestrator/activate',
       {
         triggerType: 'SOS_BUTTON',
-        mode: 'CONFIRMATION',
+        mode: 'CONFIRMATION', activationMode: 'STANDARD', activationSource: 'LOCK_SCREEN',
         userConfirmed: true,
         latitude: 6.5244,
         longitude: 3.3792,
@@ -122,6 +120,7 @@ describe('headless-sos-activation', () => {
       activateFromHeadlessSosTrigger(),
     ).resolves.toEqual({
       status: 'INCIDENT_RETRIGGERED',
+      activationMode: 'STANDARD',
       incidentId: 'incident-open',
       notifications: {
         queued: 0,
@@ -133,7 +132,7 @@ describe('headless-sos-activation', () => {
       '/incident-orchestrator/activate',
       {
         triggerType: 'SOS_BUTTON',
-        mode: 'CONFIRMATION',
+        mode: 'CONFIRMATION', activationMode: 'STANDARD', activationSource: 'LOCK_SCREEN',
         userConfirmed: true,
         latitude: 6.5244,
         longitude: 3.3792,

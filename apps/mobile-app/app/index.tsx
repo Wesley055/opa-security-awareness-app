@@ -1,6 +1,10 @@
+import { getSosActivationMode, setSosActivationMode, SILENT_SOS_NOTICE } from '../src/services/silent-sos';
 import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Switch,
+  ScrollView,
+  Platform,
   View,
   Text,
   StyleSheet,
@@ -18,6 +22,21 @@ export default function HomeScreen() {
   const activeIncident = useActiveIncidentStore(
     (state) => state.activeIncident,
   );
+
+  const [sosMode, setSosMode] = useState(getSosActivationMode);
+  const [modeSaving, setModeSaving] = useState(false);
+  const [modeError, setModeError] = useState<string | null>(null);
+  const changeMode = async (enabled: boolean) => {
+    if (modeSaving) return;
+    setModeSaving(true);
+    setModeError(null);
+    try {
+      const mode = enabled ? 'SILENT' : 'STANDARD';
+      await setSosActivationMode(mode);
+      setSosMode(mode);
+    } catch { setModeError('Could not save Silent SOS. Your previous setting remains in effect.'); }
+    finally { setModeSaving(false); }
+  };
 
   const emergencyAction = homeEmergencyAction(activeIncident);
 
@@ -128,9 +147,9 @@ export default function HomeScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <ScrollView style={{ backgroundColor: '#08111A' }} contentContainerStyle={[styles.container, { flex: 0, flexGrow: 1, paddingVertical: 24 }]}>
       <Text style={styles.logo}>OPA</Text>
-      <TouchableOpacity accessibilityRole="button" onPress={() => router.push('/safewalk')} style={{ padding: 16 }}><Text style={{ color: '#fff', fontSize: 18 }}>SafeWalk · Private journey</Text></TouchableOpacity>
+      <TouchableOpacity touchSoundDisabled={sosMode === 'SILENT'} accessibilityRole="button" onPress={() => router.push('/safewalk')} style={{ padding: 16 }}><Text style={{ color: '#fff', fontSize: 18 }}>SafeWalk · Private journey</Text></TouchableOpacity>
 
       <Text style={styles.welcome}>
         Welcome, {user?.firstName ?? 'there'}
@@ -138,13 +157,13 @@ export default function HomeScreen() {
 
       {emergencyAction === 'OPEN_ACTIVE_INCIDENT' ? (
         <>
-          <TouchableOpacity
-            style={styles.activeIncidentButton}
+          <TouchableOpacity touchSoundDisabled={sosMode === 'SILENT'}
+            style={[styles.activeIncidentButton, activeIncident?.activationMode === 'SILENT' && { backgroundColor: '#232E36', paddingVertical: 12 }]}
             onPress={() => router.push('/sos')}
             activeOpacity={0.85}
           >
-            <Text style={styles.activeIncidentButtonTitle}>
-              Emergency Active
+            <Text style={[styles.activeIncidentButtonTitle, activeIncident?.activationMode === 'SILENT' && { fontSize: 16, fontWeight: '500' }]}>
+              {activeIncident?.activationMode === 'SILENT' ? 'Safety controls' : 'Emergency Active'}
             </Text>
 
             <Text style={styles.activeIncidentButtonText}>
@@ -158,7 +177,7 @@ export default function HomeScreen() {
         </>
       ) : (
         <>
-          <TouchableOpacity
+          <TouchableOpacity touchSoundDisabled={sosMode === 'SILENT'}
             style={styles.sosButton}
             onPress={() => router.push('/sos')}
             activeOpacity={0.85}
@@ -172,9 +191,16 @@ export default function HomeScreen() {
         </>
       )}
 
+      {Platform.OS === 'android' ? <View style={{ padding: 12 }}>
+        <Text style={styles.text}>Silent SOS · this device</Text>
+        <Switch accessibilityLabel="Silent SOS" value={sosMode === 'SILENT'} disabled={modeSaving || !!activeIncident} onValueChange={(enabled) => void changeMode(enabled)} />
+        <Text style={styles.sosHint}>{SILENT_SOS_NOTICE}</Text>
+        {modeError ? <Text style={styles.sosHint}>{modeError}</Text> : null}
+      </View> : null}
+
       <View style={styles.secondaryActions}>
         {backgroundLocationGranted === false ? (
-          <TouchableOpacity
+          <TouchableOpacity touchSoundDisabled={sosMode === 'SILENT'}
             style={styles.backgroundLocationButton}
             onPress={requestBackgroundLocation}
           >
@@ -189,7 +215,7 @@ export default function HomeScreen() {
           </TouchableOpacity>
         ) : null}
 
-        <TouchableOpacity
+        <TouchableOpacity touchSoundDisabled={sosMode === 'SILENT'}
           style={styles.contactsButton}
           onPress={() => router.push('/contacts')}
         >
@@ -198,7 +224,7 @@ export default function HomeScreen() {
           </Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
+        <TouchableOpacity touchSoundDisabled={sosMode === 'SILENT'}
           style={styles.button}
           onPress={() => { void logout(); }}
         >
@@ -207,7 +233,7 @@ export default function HomeScreen() {
           </Text>
         </TouchableOpacity>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 

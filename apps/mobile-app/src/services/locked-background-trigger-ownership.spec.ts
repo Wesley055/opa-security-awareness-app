@@ -1,3 +1,4 @@
+jest.mock('./emergency-tracking', () => ({ rememberEmergencyTracking: jest.fn(), reconcileEmergencyTracking: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('./safewalk', () => ({ startSafeWalkReconciliation: jest.fn(() => jest.fn()), useSafeWalk: (select: (state: { journey: null }) => unknown) => select({ journey: null }) }));
 /** Set OPA_TEST_FROZEN_VC19=1 to execute the shipped vc19 modules from Git in memory.
  * This keeps the candidate production edits untouched and tests the physical-release baseline.
@@ -45,7 +46,7 @@ jest.mock('react-native', () => ({ Platform: { OS: 'android' }, AppState: { curr
 jest.mock('expo-router', () => ({ Stack: Object.assign(() => null, { Screen: () => null }), useRouter: () => ({ push: jest.fn(), replace: jest.fn() }), useSegments: () => [] }));
 jest.mock('expo-notifications', () => ({ IosAuthorizationStatus: { PROVISIONAL: 3 }, addNotificationResponseReceivedListener: jest.fn(() => ({ remove: jest.fn() })), getLastNotificationResponseAsync: jest.fn(), getPermissionsAsync: jest.fn(), requestPermissionsAsync: jest.fn() }));
 jest.mock('expo-location', () => ({ Accuracy: { High: 4 }, getForegroundPermissionsAsync: jest.fn(), getCurrentPositionAsync: jest.fn(), requestForegroundPermissionsAsync: jest.fn(), requestBackgroundPermissionsAsync: jest.fn() }));
-jest.mock('../../modules/opa-protection', () => ({ claimPendingOpaProtectionTrigger: jest.fn(), releasePendingOpaProtectionTrigger: jest.fn(), acknowledgeClaimedOpaProtectionTrigger: jest.fn(), addOpaVoiceTriggerListener: jest.fn(() => ({ remove: jest.fn() })), configureOpaVoiceProvider: jest.fn(), startOpaProtectionService: jest.fn(), stopOpaProtectionService: jest.fn(), isOpaForegroundEligible: jest.fn() }));
+jest.mock('../../modules/opa-protection', () => ({ getNativeSosActivationMode: () => 'STANDARD', claimPendingOpaProtectionTrigger: jest.fn(), releasePendingOpaProtectionTrigger: jest.fn(), acknowledgeClaimedOpaProtectionTrigger: jest.fn(), addOpaVoiceTriggerListener: jest.fn(() => ({ remove: jest.fn() })), configureOpaVoiceProvider: jest.fn(), startOpaProtectionService: jest.fn(), stopOpaProtectionService: jest.fn(), isOpaForegroundEligible: jest.fn() }));
 jest.mock('../store/authStore', () => ({ useAuthStore: () => ({ isAuthenticated: true, isLoading: false, checkAuth: jest.fn() }) }));
 jest.mock('../store/activeIncidentStore', () => ({ useActiveIncidentStore: Object.assign((select: (state: { activeIncident: null }) => unknown) => select({ activeIncident: null }), { getState: () => ({ setActiveIncident: jest.fn() }) }) }));
 jest.mock('./active-incident-reconciliation', () => ({ startActiveIncidentReconciliation: () => jest.fn() }));
@@ -176,7 +177,7 @@ it('foreground VOICE retains VOICE/SILENT activation and foreground tracking sem
   interactiveAllowed = true; AppState.currentState = 'active';
   (native.isOpaForegroundEligible as jest.Mock).mockReturnValue(true);
   await expect(processVoiceTrigger({ phrase: 'HELP HELP', provider: 'picovoice_porcupine', timestamp: 1000, confidence: null })).resolves.toBe('ACK');
-  expect(api.post).toHaveBeenCalledWith('/incident-orchestrator/activate', expect.objectContaining({ triggerType: 'VOICE', mode: 'SILENT' }));
+  expect(api.post).toHaveBeenCalledWith('/incident-orchestrator/activate', expect.objectContaining({ triggerType: 'VOICE', mode: 'IMMEDIATE', activationMode: 'STANDARD' }));
   expect(startTracking).toHaveBeenCalledTimes(1); expect(backgroundApi.post).not.toHaveBeenCalled();
 });
 it('stale exact ACK cannot delete a reclaimed trigger', async () => {

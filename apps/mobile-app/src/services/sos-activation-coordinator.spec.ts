@@ -82,6 +82,7 @@ describe('sos-activation-coordinator', () => {
       activateFromSosTrigger(),
     ).resolves.toEqual({
       status: 'INCIDENT_ACTIVATED',
+      activationMode: 'STANDARD',
       incidentId: 'incident-sos-123',
       notifications: {
         queued: 3,
@@ -162,6 +163,7 @@ describe('sos-activation-coordinator', () => {
       activateFromSosTrigger(),
     ).resolves.toEqual({
       status: 'INCIDENT_RETRIGGERED',
+      activationMode: 'STANDARD',
       incidentId: 'incident-sos-existing',
       notifications: {
         queued: 0,

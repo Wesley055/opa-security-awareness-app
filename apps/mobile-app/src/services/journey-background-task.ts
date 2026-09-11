@@ -1,52 +1,9 @@
 /**
- * Background location capture - Sprint 11A.
- *
- * WHY THIS EXISTS. On 10 August 2026 a 26 km drive with an active SOS was
- * recorded as TWO POINTS: where the phone was when the screen went off, and
- * where it was when the screen came back on. Measured in production -
- * max_gap_s=3617, total_distance_m=26234, of which 26159 were a single jump.
- *
- * The durable queue was not at fault; max_upload_lag_s=3680 proves it
- * buffered correctly for an hour. Capture had simply stopped, because
- * `watchPositionAsync` in journey-tracker.ts is a FOREGROUND-ONLY API.
- *
- * The execution plan's frozen principle names location capture among the
- * things that must ACTUALLY WORK. This file is what makes that true.
- *
- * ---
- *
- * THIS TASK CAPTURES. IT DOES NOT SEND.
- *
- * A TaskManager task runs in a SEPARATE JAVASCRIPT CONTEXT. Nothing in
- * journey-tracker.ts's module scope exists here - not `queueStore`, not
- * `sessionId`, not `captureSeq`, not `replayFault`, not `flushing`.
- *
- * Replay policy depends on all of those, so replay stays where it is: the
- * foreground tracker keeps SOLE ownership of flushing, the ADR-014 section 11
- * fault slots and the eviction bounds. This task opens its own store handle,
- * reads the persisted capture sequence, writes one row, and stops.
- *
- * When the app returns to the foreground the tracker's flush timer drains
- * whatever accumulated. That is why a background upload failure cannot exist
- * here: no upload is attempted.
- *
- * ---
- *
- * THIS IS THE SOLE CAPTURE PATH WHILE IT RUNS. The tracker starts EITHER
- * this task OR watchPositionAsync, never both. Two OS subscriptions writing
- * to one queue would double every fix: the idempotency key carries a
- * platform timestamp and an independently drawn sequence, so two readings of
- * the same position produce two DIFFERENT keys and INSERT OR IGNORE cannot
- * collapse them. Duplicate history in an emergency record is worse than a
- * slightly slower capture cadence.
- *
- * ---
- *
- * SEQUENCE SAFETY. captureSequence is persisted in SQLite metadata and read
- * fresh on every invocation, never cached in module scope. Two contexts
- * therefore cannot mint the same sequence, and `enqueue` advances it inside
- * the same exclusive transaction that writes the row. ADR-014 section 11
- * permits gaps; it requires monotonic uniqueness, which this preserves.
+ * One OS location task shared by ordinary and emergency tracking bootstrap.
+ * Each delivery snapshots its canonical session, atomically persists the batch,
+ * then attempts background-safe replay under the shared SQLite replay lease.
+ * Failed sends retain durable rows. Queue schema creation belongs to bootstrap;
+ * per-location callbacks only attach to the initialized store.
  */
 import * as Location from 'expo-location';
 import * as SecureStore from 'expo-secure-store';
@@ -58,7 +15,6 @@ import {
 } from './journey-fix-contract';
 import {
   openJourneyQueueStoreForBackground,
-  type JourneyQueueStore,
 } from './journey-queue-store';
 import { backgroundApi } from './api';
 import {
@@ -205,6 +161,7 @@ export async function captureBackgroundBatch(
         deferOverflowEviction: false,
       },
     );
+    log('[OPA-TRACKING] LOCATION_BATCH_DURABLE count=' + String(locations.length));
     if (result.dropped > 0) {
       log(
         'background queue overflow - dropped ' + String(result.dropped) +

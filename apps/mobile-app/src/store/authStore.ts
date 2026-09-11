@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { advanceAuthSessionEpoch } from '../services/auth-session-epoch';
 import { API_BASE_URL } from '../config/api-config';
 import { create } from 'zustand';
 import * as SecureStore from 'expo-secure-store';
@@ -41,12 +42,13 @@ interface AuthState {
 }
 
 async function persistSession(data: AuthSession): Promise<void> {
+  advanceAuthSessionEpoch();
   await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, data.accessToken);
   await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, data.refreshToken);
 }
 
 export const useAuthStore = create<AuthState>((set) => {
-  registerForceLogout(() => set({ user: null, isAuthenticated: false }));
+  registerForceLogout(() => { advanceAuthSessionEpoch(); set({ user: null, isAuthenticated: false }); });
 
   return {
     user: null,
@@ -97,6 +99,7 @@ export const useAuthStore = create<AuthState>((set) => {
     },
 
     logout: async () => {
+      advanceAuthSessionEpoch();
       await SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY);
       await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
       set({ user: null, isAuthenticated: false });
@@ -128,7 +131,7 @@ export const useAuthStore = create<AuthState>((set) => {
       }
     },
 
-    forceLogout: () => set({ user: null, isAuthenticated: false }),
+    forceLogout: () => { advanceAuthSessionEpoch(); set({ user: null, isAuthenticated: false }); },
   };
 });
 

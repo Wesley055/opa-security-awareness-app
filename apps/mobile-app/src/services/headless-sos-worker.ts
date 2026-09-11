@@ -1,3 +1,5 @@
+import { authSessionEpoch } from './auth-session-epoch';
+import { rememberEmergencyTracking, reconcileEmergencyTracking, bootstrapEmergencyTracking } from './emergency-tracking';
 import { useActiveIncidentStore } from '../store/activeIncidentStore';
 import {
   acknowledgeClaimedOpaProtectionTrigger,
@@ -78,6 +80,7 @@ export async function runHeadlessProtectionWorker(
     console.log(`${HEADLESS_LOG} native FIFO claim attempted`);
 
     if (claim === null) {
+      await reconcileEmergencyTracking().catch(() => console.log('[OPA-TRACKING] RECONCILIATION_DEFERRED'));
       console.log(`${HEADLESS_LOG} claim result=NONE`);
       console.log(`${HEADLESS_LOG} worker complete`);
       return;
@@ -114,12 +117,14 @@ export async function runHeadlessProtectionWorker(
 
     console.log(`${HEADLESS_LOG} claim result=SOS_BUTTON`);
     console.log(`${HEADLESS_LOG} activation starting`);
+    console.log(`[OPA-SOS] REQUEST mode=${claim.activationMode ?? 'STANDARD'} source=LOCK_SCREEN`);
 
+    const activationEpoch = authSessionEpoch();
     let activation;
 
     try {
       activation =
-        await (interactive ? activateFromSosTrigger() : activateFromHeadlessSosTrigger());
+        await (interactive ? activateFromSosTrigger(claim.activationMode) : activateFromHeadlessSosTrigger(claim.activationMode));
     } catch (error: unknown) {
       console.log(
         `${HEADLESS_LOG} activation exception category=${errorCategory(error)}`,
@@ -155,7 +160,17 @@ export async function runHeadlessProtectionWorker(
     if (activation.incidentId) {
       useActiveIncidentStore.getState().setActiveIncident({
         id: activation.incidentId, status: 'OPEN', notifications: activation.notifications,
+        ...(activation.activationMode ? { activationMode: activation.activationMode } : {}),
       });
+    }
+
+    if (!interactive && activation.incidentId) {
+      try {
+        await rememberEmergencyTracking(activation.incidentId, activationEpoch);
+      } catch {
+        await releaseClaim(claim);
+        return;
+      }
     }
 
     let acknowledged = false;
@@ -180,6 +195,14 @@ export async function runHeadlessProtectionWorker(
     }
 
     console.log(`${HEADLESS_LOG} ACK result=SUCCESS`);
+    if (!interactive && activationEpoch === authSessionEpoch() && activation.incidentId && 'journeySessionId' in activation && typeof activation.journeySessionId === 'string') {
+      try {
+        await bootstrapEmergencyTracking(activation.incidentId, activation.journeySessionId);
+      } catch {
+        console.log('[OPA-TRACKING] BOOTSTRAP_DEFERRED');
+        return;
+      }
+    }
 
     // Exact ACK removed this FIFO head. Continue so multiple locked-screen
     // emergency triggers already persisted by native code are consumed in FIFO order.

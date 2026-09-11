@@ -26,7 +26,14 @@ export enum TriggerMode {
   SILENT = 'SILENT',
 }
 
+export enum ActivationMode { STANDARD = 'STANDARD', SILENT = 'SILENT' }
+export enum ActivationSource { MANUAL = 'MANUAL', LOCK_SCREEN = 'LOCK_SCREEN', VOICE = 'VOICE', SAFEWALK_EXPLICIT = 'SAFEWALK_EXPLICIT' }
+
 export class TriggerRequestDto {
+  @IsOptional()
+  @IsEnum(ActivationMode)
+  activationMode?: ActivationMode;
+
   @IsEnum(EmergencyTriggerType)
   triggerType: EmergencyTriggerType;
 

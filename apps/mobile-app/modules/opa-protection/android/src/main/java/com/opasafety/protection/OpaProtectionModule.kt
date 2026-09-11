@@ -11,6 +11,7 @@ import androidx.core.content.ContextCompat
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
+import expo.modules.kotlin.functions.Queues
 
 class OpaProtectionModule : Module() {
 
@@ -20,6 +21,37 @@ class OpaProtectionModule : Module() {
         Events(VOICE_TRIGGER_EVENT)
 
         Function("isForegroundEligible") { isForegroundEligible() }
+
+        Function("getSosActivationMode") {
+            ProtectionActivationModeStore.read(appContext.reactContext ?: throw Exceptions.ReactContextLost())
+        }
+
+        AsyncFunction("setSosActivationModeAsync") { mode: String ->
+            check(isForegroundEligible()) { "Change Silent SOS while OPA is open and unlocked." }
+            ProtectionActivationModeStore.write(appContext.reactContext ?: throw Exceptions.ReactContextLost(), mode)
+            OpaProtectionService.refreshNotificationIfRunning()
+        }
+
+        Function("getEmergencyTrackingIncident") {
+            ProtectionTrackingStore.read(appContext.reactContext ?: throw Exceptions.ReactContextLost())
+        }
+
+        AsyncFunction("rememberEmergencyTrackingIncidentAsync") { incidentId: String ->
+            ProtectionTrackingStore.remember(appContext.reactContext ?: throw Exceptions.ReactContextLost(), incidentId)
+        }
+
+        AsyncFunction("beginEmergencyLocationAsync") { incidentId: String ->
+            val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+            check(ProtectionTrackingStore.read(context) == incidentId) { "Tracking obligation changed" }
+            OpaProtectionService.setEmergencyLocationForeground(true)
+        }.runOnQueue(Queues.MAIN)
+
+        AsyncFunction("endEmergencyTrackingAsync") { expected: String? ->
+            val context = appContext.reactContext ?: throw Exceptions.ReactContextLost()
+            if (ProtectionTrackingStore.clear(context, expected)) {
+                OpaProtectionService.setEmergencyLocationForeground(false)
+            }
+        }.runOnQueue(Queues.MAIN)
 
         OnCreate {
             ProtectionTriggerBus.attach { trigger ->

@@ -1,3 +1,4 @@
+import { useActiveIncidentStore } from '../src/store/activeIncidentStore';
 import { useEffect, useState } from 'react';
 import { Alert, Button, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as Location from 'expo-location';
@@ -61,7 +62,7 @@ export default function SafeWalkScreen() {
         <Button disabled={busy} title="I have arrived" onPress={() => void perform(() => confirmSafeWalk('confirm-arrival'), 'Arrival confirmed. Journey completed.')} />
         <Button disabled={busy} title="I am safe" onPress={() => void perform(() => confirmSafeWalk('confirm-safety'), 'Safety confirmed.')} />
         <Button disabled={busy} title="Cancel journey" onPress={() => void perform(() => confirmSafeWalk('cancel-safewalk'), 'Journey cancelled.')} />
-        <Button disabled={busy} color="#b42318" title="Escalate emergency" onPress={() => Alert.alert('Activate an emergency?', 'This creates or links your emergency Incident and authorizes necessary emergency context for responders. Your earlier private route stays private.', [{ text: 'Back', style: 'cancel' }, { text: 'Activate emergency', style: 'destructive', onPress: () => void perform(async () => { await escalateSafeWalk(); router.push('/sos'); }) }])} />
+        <Button disabled={busy} color="#b42318" title="Escalate emergency" onPress={() => Alert.alert('Activate an emergency?', 'This creates or links your emergency Incident and authorizes necessary emergency context for responders. Your earlier private route stays private.', [{ text: 'Back', style: 'cancel' }, { text: 'Activate emergency', style: 'destructive', onPress: () => void perform(async () => { await escalateSafeWalk(); if (useActiveIncidentStore.getState().activeIncident?.activationMode !== 'SILENT') router.push('/sos'); }) }])} />
         <TextInput style={styles.input} placeholder="Guardian pairing code" placeholderTextColor="#667085" value={codes} onChangeText={setCodes} autoCapitalize="none" />
         <Button disabled={busy} title="Add selected guardian" onPress={() => void perform(async () => { await api.post('/safewalk/sessions/' + journey.id + '/guardians', { code: codes.trim() }); setCodes(''); await refreshSafeWalk(); })} />
         {journey.guardianGrants.filter(g => !g.revokedAt).map((g, index) => <Button key={g.id} disabled={busy} title={'Remove guardian ' + (index + 1)} onPress={() => void perform(async () => { await api.post('/safewalk/sessions/' + journey.id + '/guardians/' + g.id + '/revoke'); await refreshSafeWalk(); })} />)}

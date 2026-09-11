@@ -20,6 +20,7 @@ export interface VoiceTriggerEvent {
    * Detection time in Unix milliseconds.
    */
   timestamp: number;
+  activationMode?: 'SILENT' | 'STANDARD';
 
   /**
    * Identifies the implementation that produced the event without exposing

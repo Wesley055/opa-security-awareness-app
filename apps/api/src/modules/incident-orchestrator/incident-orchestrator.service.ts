@@ -58,6 +58,7 @@ export class IncidentOrchestratorService {
     const detection = this.emergencyDetectionService.evaluate({
       triggerType: dto.triggerType,
       mode: dto.mode,
+      activationMode: dto.activationMode,
       detectedPhrase: dto.detectedPhrase,
       language: dto.language,
       profileName: dto.profileName,
@@ -81,6 +82,11 @@ export class IncidentOrchestratorService {
         notifications: { queued: 0, dispatched: false },
       };
     }
+
+    const provenance = {
+      activationMode: dto.activationMode ?? (detection.outcome.isSilent ? 'SILENT' : 'STANDARD'),
+      activationSource: dto.activationSource ?? (dto.safeWalkSessionId ? 'SAFEWALK_EXPLICIT' : dto.triggerType === EmergencyTriggerType.VOICE ? 'VOICE' : 'LEGACY_CLIENT'),
+    };
 
     const user = await this.usersService.findById(userId);
     if (!user) {
@@ -261,6 +267,12 @@ export class IncidentOrchestratorService {
         const updated = await tx.incident.update({
           where: { id: recent.id },
           data: {
+            metadata: {
+              ...(recent.metadata && typeof recent.metadata === 'object' && !Array.isArray(recent.metadata) ? recent.metadata : {}),
+              lastActivationMode: provenance.activationMode,
+              lastActivationSource: provenance.activationSource,
+              presentationMode: provenance.activationMode === 'SILENT' || (recent.metadata as { presentationMode?: string } | null)?.presentationMode === 'SILENT' ? 'SILENT' : 'STANDARD',
+            },
             lastTriggeredAt: retriggeredAt,
             retriggerCount: { increment: 1 },
             ...(shouldAttachFacility ? { facilityId: user.facilityId } : {}),
@@ -337,12 +349,20 @@ export class IncidentOrchestratorService {
             })
           : null;
 
+        // A locationless locked trigger still needs its canonical emergency capture session.
+        let lockedSessionId: string | undefined;
+        if (!hasLocation && (dto.activationSource === 'LOCK_SCREEN' || dto.activationSource === 'VOICE')) {
+          const session = await this.journeySessionService.resolveForActivation(tx, userId);
+          lockedSessionId = session.id;
+          await tx.incident.update({ where: { id: updated.id }, data: { journeySessionId: session.id } });
+        }
         await linkSafeWalk(updated.id);
+        await this.timelineService.recordEvent({ incidentId: updated.id, type: 'ACTIVATION_RECORDED', source: 'INCIDENT_ORCHESTRATOR', actorUserId: userId, payload: { ...provenance, retrigger: true } }, tx);
         return {
           incident: {
             ...updated,
             journeySessionId:
-              safeWalk?.id ?? retriggerFix?.sessionId ?? updated.journeySessionId,
+              safeWalk?.id ?? retriggerFix?.sessionId ?? lockedSessionId ?? updated.journeySessionId,
           },
           deduplicated: true as const,
           retriggeredAt,
@@ -368,16 +388,18 @@ export class IncidentOrchestratorService {
           voicePhrase: dto.detectedPhrase,
         },
         tx,
+        provenance,
       );
 
       // The activation fix needs created.id, so the session is resolved
       // here rather than before the create. The lifecycle lock is already
       // held above and pg_advisory_xact_lock is reentrant within a
       // transaction, so resolveForActivation re-taking it is free (D6).
-      if (hasLocation) {
+      let createdJourneySessionId = created.journeySessionId;
+      if (hasLocation || (dto.activationSource === 'LOCK_SCREEN' || dto.activationSource === 'VOICE')) {
         const journeySession =
           await this.journeySessionService.resolveForActivation(tx, userId);
-        await this.journeySessionService.recordActivationFix(tx, {
+        if (hasLocation) await this.journeySessionService.recordActivationFix(tx, {
           sessionId: journeySession.id,
           incidentId: created.id,
           latitude: dto.latitude!,
@@ -393,9 +415,11 @@ export class IncidentOrchestratorService {
           where: { id: created.id },
           data: { journeySessionId: journeySession.id },
         });
+        createdJourneySessionId = journeySession.id;
       }
 
       await linkSafeWalk(created.id);
+      await this.timelineService.recordEvent({ incidentId: created.id, type: 'ACTIVATION_RECORDED', source: 'INCIDENT_ORCHESTRATOR', actorUserId: userId, payload: { ...provenance, retrigger: false } }, tx);
 
       // The tracking URL needs the new incident id, so it is built here.
       // Pure string work - no IO inside the transaction.
@@ -432,7 +456,7 @@ export class IncidentOrchestratorService {
       });
 
       return {
-        incident: safeWalk ? { ...created, journeySessionId: safeWalk.id } : created,
+        incident: { ...created, journeySessionId: safeWalk?.id ?? createdJourneySessionId },
         deduplicated: false as const,
         retriggeredAt: null,
         trackingUrl: incidentTrackingUrl,
@@ -454,6 +478,7 @@ export class IncidentOrchestratorService {
         source: "INCIDENT_ORCHESTRATOR",
         actorUserId: userId,
         payload: {
+          ...provenance,
           triggerMethod: dto.triggerType,
           latitude: dto.latitude!,
           longitude: dto.longitude!,
@@ -493,6 +518,7 @@ export class IncidentOrchestratorService {
       source: "INCIDENT_ORCHESTRATOR",
       actorUserId: userId,
       payload: {
+        ...provenance,
         trigger: dto.triggerType,
         confidenceScore: detection.outcome.confidenceScore,
         confidenceLevel: detection.outcome.confidenceLevel,

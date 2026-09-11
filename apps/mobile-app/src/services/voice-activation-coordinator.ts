@@ -1,3 +1,6 @@
+import { authSessionEpoch } from './auth-session-epoch';
+import { rememberEmergencyTracking, bootstrapEmergencyTracking } from './emergency-tracking';
+import { getSosActivationMode, incidentPresentationMode, type ActivationMode } from './silent-sos';
 import { isForegroundExecutionAllowed } from './foreground-execution';
 import { cleanNonNegative } from './journey-fix-contract';
 import {
@@ -19,6 +22,7 @@ export type VoiceActivationStatus =
 export interface VoiceActivationResult {
   status: VoiceActivationStatus;
   incidentId?: string;
+  activationMode?: ActivationMode;
   notifications?: { queued: number; dispatched: boolean };
   locationFailure?: EmergencyLocationFailure;
 }
@@ -29,7 +33,7 @@ export interface VoiceActivationResult {
  * Picovoice-specific objects, keyword indexes and audio frames MUST NOT cross
  * into this service. Every engine is reduced to VoiceTriggerEvent first.
  *
- * Initial voice-protection policy is SILENT:
+ * Voice recognition activates immediately; Silent SOS is a separate local choice:
  * - matched offline keyword may activate without a screen interaction;
  * - we never claim userConfirmed unless the user actually confirms;
  * - CONFIRMATION mode is intentionally not synthesized here.
@@ -38,6 +42,9 @@ export async function activateFromVoiceTrigger(
   event: VoiceTriggerEvent,
   execution: 'foreground' | 'headless' = 'foreground',
 ): Promise<VoiceActivationResult> {
+  const activationEpoch = authSessionEpoch();
+  const activationMode = event.activationMode ?? getSosActivationMode();
+  console.log(`[OPA-SOS] REQUEST mode=${activationMode} source=VOICE`);
   let restricted = execution === 'headless' || !isForegroundExecutionAllowed();
   const location = await (restricted
     ? acquireEmergencyLocationWithoutPermissionRequest().catch(() => ({
@@ -55,7 +62,9 @@ export async function activateFromVoiceTrigger(
 
   const { data } = await (restricted ? backgroundApi : api).post('/incident-orchestrator/activate', {
     triggerType: 'VOICE',
-    mode: 'SILENT',
+    mode: 'IMMEDIATE',
+    activationMode,
+    activationSource: 'VOICE',
     detectedPhrase: event.phrase,
     language: 'en-NG',
     voiceConfidence:
@@ -74,6 +83,13 @@ export async function activateFromVoiceTrigger(
     data.status === 'INCIDENT_ACTIVATED' ||
     data.status === 'INCIDENT_RETRIGGERED'
   ) {
+    if (restricted && typeof data.incident?.id === 'string' && activationEpoch === authSessionEpoch()) {
+      await rememberEmergencyTracking(data.incident.id, activationEpoch);
+      if (typeof data.incident.journeySessionId === 'string') {
+        await bootstrapEmergencyTracking(data.incident.id, data.incident.journeySessionId)
+          .catch(() => console.log('[OPA-TRACKING] VOICE_BOOTSTRAP_DEFERRED'));
+      }
+    }
     // Headless activation is terminal; interactive tracking bootstrap must not
     // request permissions or turn successful activation into a durable retry.
     if (!restricted && isForegroundExecutionAllowed()) {
@@ -88,6 +104,7 @@ export async function activateFromVoiceTrigger(
     return {
       status: data.status,
       incidentId: data.incident?.id,
+      activationMode: incidentPresentationMode(data.incident, activationMode),
       notifications: data.notifications,
     };
   }

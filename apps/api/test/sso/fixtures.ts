@@ -15,7 +15,7 @@ import {
 } from '../../src/modules/sso/sso.policy';
 import { SsoSecrets } from '../../src/modules/sso/sso-secrets';
 import type { SsoNetwork } from '../../src/modules/sso/sso-network';
-export const settings = new ConfigService({
+const fixtureSettings = {
   SSO_ENCRYPTION_KEYS: JSON.stringify({
     active: 'test1',
     keys: { test1: 'ab'.repeat(32) },
@@ -27,7 +27,12 @@ export const settings = new ConfigService({
   JWT_ACCESS_EXPIRES_IN: '15m',
   JWT_REFRESH_EXPIRES_IN: '30d',
   BCRYPT_ROUNDS: 4,
-});
+};
+export const settings = new ConfigService(fixtureSettings);
+// Keep typed public test settings independent of developer process.env values.
+jest.spyOn(settings, "get").mockImplementation(
+  (key) => fixtureSettings[key as keyof typeof fixtureSettings] as never,
+);
 export const fixtureKey = readFileSync(
   join(__dirname, 'fixture-key.pem'),
   'utf8',

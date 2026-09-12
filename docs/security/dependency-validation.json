@@ -1,0 +1,42 @@
+{
+  "node": "26.5.0",
+  "npm": "11.17.0",
+  "testEnvironment": "development",
+  "ci": 0,
+  "tree": 0,
+  "audit": 1,
+  "highCriticalGate": 0,
+  "prismaValidate": 0,
+  "prismaGenerate": 0,
+  "focused": 0,
+  "api": 0,
+  "postgres": 1,
+  "typescript": 0,
+  "build": 0,
+  "artifact": 0,
+  "lint": 0,
+  "diffCheck": 0,
+  "postgresRecheck": 0,
+  "artifactRuntime": 0,
+  "postgresFailedSuites": [
+    "apps/api/test/int/locationless-incident.int-spec.ts",
+    "apps/api/test/int/invitation-delivery-worker.int-spec.ts"
+  ],
+  "postgresRecheckCoversFailures": true,
+  "postgresCounts": {
+    "failed": 4,
+    "passed": 208,
+    "total": 212
+  },
+  "postgresRecheckCounts": {
+    "failed": 0,
+    "passed": 14,
+    "total": 14
+  },
+  "apiCounts": {
+    "failed": 0,
+    "passed": 911,
+    "total": 911
+  },
+  "focusedTests": 12
+}

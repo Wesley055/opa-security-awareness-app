@@ -1,0 +1,2324 @@
+{
+  "baselineHead": "3ae25962fae46103408b0e0d180bcc8dca4a9069",
+  "baselineTotals": {
+    "info": 0,
+    "low": 4,
+    "moderate": 14,
+    "high": 18,
+    "critical": 1,
+    "total": 37
+  },
+  "currentTotals": {
+    "info": 0,
+    "low": 0,
+    "moderate": 4,
+    "high": 0,
+    "critical": 0,
+    "total": 4
+  },
+  "artifactVerified": true,
+  "highCritical": [
+    {
+      "package": "@mapbox/node-pre-gyp",
+      "severity": "high",
+      "direct": false,
+      "affectedWorkspace": "apps/api (root also contains development tooling)",
+      "instances": [
+        {
+          "path": "node_modules/@mapbox/node-pre-gyp",
+          "vulnerableVersion": "1.0.11",
+          "baselineDevOnly": false,
+          "baselineProductionGraph": true,
+          "chains": [
+            "apps/api (runtime) -> node_modules/bcrypt@5.1.1 -> node_modules/@mapbox/node-pre-gyp@1.0.11"
+          ],
+          "currentVersionAtPath": "removed/relocated",
+          "currentArtifactVersion": "absent"
+        }
+      ],
+      "advisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-34x7-hfp2-rc4v",
+          "title": "node-tar Vulnerable to Arbitrary File Creation/Overwrite via Hardlink Path Traversal",
+          "severity": "high",
+          "affectedRange": "<7.5.7"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-8qq5-rm4j-mr97",
+          "title": "node-tar is Vulnerable to Arbitrary File Overwrite and Symlink Poisoning via Insufficient Path Sanitization",
+          "severity": "high",
+          "affectedRange": "<=7.5.2"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-83g3-92jg-28cx",
+          "title": "Arbitrary File Read/Write via Hardlink Target Escape Through Symlink Chain in node-tar Extraction",
+          "severity": "high",
+          "affectedRange": "<7.5.8"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-qffp-2rhf-9h96",
+          "title": "tar has Hardlink Path Traversal via Drive-Relative Linkpath",
+          "severity": "high",
+          "affectedRange": "<=7.5.9"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-9ppj-qmqm-q256",
+          "title": "node-tar Symlink Path Traversal via Drive-Relative Linkpath",
+          "severity": "high",
+          "affectedRange": "<=7.5.10"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-r6q2-hw4h-h46w",
+          "title": "Race Condition in node-tar Path Reservations via Unicode Ligature Collisions on macOS APFS",
+          "severity": "high",
+          "affectedRange": "<=7.5.3"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-vmf3-w455-68vh",
+          "title": "node-tar applies PAX size override to intermediary GNU long-name/long-link headers, causing tar parser interpretation differential (file smuggling)",
+          "severity": "moderate",
+          "affectedRange": "<=7.5.15"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-w8wr-v893-vjvp",
+          "title": "node-tar: Process crash via PAX numeric path type confusion",
+          "severity": "moderate",
+          "affectedRange": "<=7.5.17"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-23hp-3jrh-7fpw",
+          "title": "node-tar: Decompression/parse DoS via unlimited input",
+          "severity": "critical",
+          "affectedRange": "<=7.5.18"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-8x88-c5mf-7j5w",
+          "title": "node-tar: Negative tar entry size causes infinite loop in archive replace",
+          "severity": "high",
+          "affectedRange": "<=7.5.17"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-gvwx-54wh-qm9j",
+          "title": "node-tar: Uncaught Exception DoS via NUL byte in PAX path/linkpath records",
+          "severity": "moderate",
+          "affectedRange": "<=7.5.16"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-r292-9mhp-454m",
+          "title": "node-tar: Uncontrolled recursion in mapHas/filesFilter allows uncatchable stack-overflow DoS via crafted long-path tar with member selection",
+          "severity": "high",
+          "affectedRange": "<=7.5.20"
+        }
+      ],
+      "classification": "B: BUILD/INSTALL",
+      "reachability": "Installer extracts native binary; runtime find locates binary without extraction.",
+      "fixedVersionAndRemediation": "Removed through bcrypt 6.0.0",
+      "compatibilityAndRisk": "Parent major; no tar override.",
+      "remainingSeverity": "none",
+      "deployedProductionStatus": "UNKNOWN: no deployed lockfile/SBOM or authenticated deployment inventory available"
+    },
+    {
+      "package": "@nestjs/cli",
+      "severity": "high",
+      "direct": true,
+      "affectedWorkspace": "apps/api (root also contains development tooling)",
+      "instances": [
+        {
+          "path": "node_modules/@nestjs/cli",
+          "vulnerableVersion": "10.4.9",
+          "baselineDevOnly": true,
+          "baselineProductionGraph": false,
+          "chains": [
+            "apps/api (dev) -> node_modules/@nestjs/cli@10.4.9"
+          ],
+          "currentVersionAtPath": "10.4.9",
+          "currentArtifactVersion": "absent"
+        }
+      ],
+      "advisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-2g4f-4pwh-qvx6",
+          "title": "ajv has ReDoS when using `$data` option",
+          "severity": "moderate",
+          "affectedRange": ">=7.0.0-alpha.0 <8.18.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-3v7f-55p6-f55p",
+          "title": "Picomatch: Method Injection in POSIX Character Classes causes incorrect Glob Matching",
+          "severity": "moderate",
+          "affectedRange": ">=4.0.0 <4.0.4"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-c2c7-rcm5-vvqj",
+          "title": "Picomatch has a ReDoS vulnerability via extglob quantifiers",
+          "severity": "high",
+          "affectedRange": ">=4.0.0 <4.0.4"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-52f5-9888-hmc6",
+          "title": "tmp allows arbitrary temporary file / directory write via symbolic link `dir` parameter",
+          "severity": "low",
+          "affectedRange": "<=0.2.3"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-ph9p-34f9-6g65",
+          "title": "tmp has Path Traversal via unsanitized prefix/postfix that enables directory escape",
+          "severity": "high",
+          "affectedRange": "<0.2.6"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-5j98-mcp5-4vw2",
+          "title": "glob CLI: Command injection via -c/--cmd executes matches with shell:true",
+          "severity": "high",
+          "affectedRange": ">=10.2.0 <10.5.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-8fgc-7cc6-rx7x",
+          "title": "webpack buildHttp: allowedUris allow-list bypass via URL userinfo (@) leading to build-time SSRF behavior",
+          "severity": "low",
+          "affectedRange": ">=5.49.0 <=5.104.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-38r7-794h-5758",
+          "title": "webpack buildHttp HttpUriPlugin allowedUris bypass via HTTP redirects → SSRF + cache persistence",
+          "severity": "low",
+          "affectedRange": ">=5.49.0 <5.104.0"
+        }
+      ],
+      "classification": "B: BUILD/CI-ONLY",
+      "reachability": "nest build compiler and scaffolding dependencies. CLI is devDependency; artifact presence verified separately.",
+      "fixedVersionAndRemediation": "Scoped glob 10.5.0, picomatch 4.0.4 and tmp 0.2.7 fixes",
+      "compatibilityAndRisk": "Avoid Nest CLI 12 major; other lower-severity tooling findings remain separately recorded.",
+      "remainingSeverity": "none",
+      "deployedProductionStatus": "UNKNOWN: no deployed lockfile/SBOM or authenticated deployment inventory available"
+    },
+    {
+      "package": "@nestjs/platform-express",
+      "severity": "high",
+      "direct": true,
+      "affectedWorkspace": "apps/api (root also contains development tooling)",
+      "instances": [
+        {
+          "path": "node_modules/@nestjs/platform-express",
+          "vulnerableVersion": "10.4.22",
+          "baselineDevOnly": false,
+          "baselineProductionGraph": true,
+          "chains": [
+            "apps/api (runtime) -> node_modules/@nestjs/core@10.4.22 -> node_modules/@nestjs/platform-express@10.4.22",
+            "apps/api (runtime) -> node_modules/@nestjs/platform-express@10.4.22",
+            "apps/api (runtime) -> node_modules/@nestjs/schedule@6.1.3 -> node_modules/@nestjs/core@10.4.22 -> node_modules/@nestjs/platform-express@10.4.22",
+            "apps/api (runtime) -> node_modules/@nestjs/swagger@7.4.2 -> node_modules/@nestjs/core@10.4.22 -> node_modules/@nestjs/platform-express@10.4.22",
+            "apps/api (runtime) -> node_modules/@nestjs/throttler@6.5.0 -> node_modules/@nestjs/core@10.4.22 -> node_modules/@nestjs/platform-express@10.4.22",
+            "apps/api (dev) -> node_modules/@nestjs/testing@10.4.22 -> node_modules/@nestjs/platform-express@10.4.22"
+          ],
+          "currentVersionAtPath": "10.4.22",
+          "currentArtifactVersion": "10.4.22"
+        }
+      ],
+      "advisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-36xv-jgw5-4q75",
+          "title": "@nestjs/core Improperly Neutralizes Special Elements in Output Used by a Downstream Component ('Injection')",
+          "severity": "moderate",
+          "affectedRange": "<=11.1.17"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-v422-hmwv-36x6",
+          "title": "body-parser vulnerable to denial of service when invalid limit value silently disables size enforcement",
+          "severity": "low",
+          "affectedRange": "<1.20.6"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-xf7r-hgr6-v32p",
+          "title": "Multer vulnerable to Denial of Service via incomplete cleanup",
+          "severity": "high",
+          "affectedRange": "<2.1.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-v52c-386h-88mc",
+          "title": "Multer vulnerable to Denial of Service via resource exhaustion",
+          "severity": "high",
+          "affectedRange": "<2.1.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-5528-5vmv-3xc2",
+          "title": "Multer Vulnerable to Denial of Service via Uncontrolled Recursion",
+          "severity": "high",
+          "affectedRange": "<2.1.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-72gw-mp4g-v24j",
+          "title": "Multer vulnerable to Denial of Service via deeply nested field names",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <2.2.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-3p4h-7m6x-2hcm",
+          "title": "Multer vulnerable to Denial of Service via incomplete cleanup of aborted uploads",
+          "severity": "moderate",
+          "affectedRange": ">=2.0.0-alpha.1 <2.2.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-wc9g-mqfw-jrwm",
+          "title": "multer vulnerable to Denial of Service via crafted multipart field names",
+          "severity": "high",
+          "affectedRange": "<2.3.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-qvfw-j98x-7q72",
+          "title": "multer vulnerable to file size limit bypass via async fileFilter race condition",
+          "severity": "low",
+          "affectedRange": "<2.3.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-535w-7cp7-47q4",
+          "title": "multer vulnerable to Denial of Service via oversized array index in field names",
+          "severity": "high",
+          "affectedRange": "<2.3.0"
+        }
+      ],
+      "classification": "A: PRODUCTION-REACHABLE",
+      "reachability": "Evidence upload uses its Multer interceptor; Nest adapter also serves API.",
+      "fixedVersionAndRemediation": "Scoped multer 2.3.0 override; parent remains 10.4.22",
+      "compatibilityAndRisk": "Avoid Nest framework major; retain moderate/low inherited findings for explicit review.",
+      "remainingSeverity": "moderate",
+      "deployedProductionStatus": "UNKNOWN: no deployed lockfile/SBOM or authenticated deployment inventory available"
+    },
+    {
+      "package": "@prisma/config",
+      "severity": "high",
+      "direct": false,
+      "affectedWorkspace": "apps/api (root also contains development tooling)",
+      "instances": [
+        {
+          "path": "node_modules/@prisma/config",
+          "vulnerableVersion": "6.19.3",
+          "baselineDevOnly": false,
+          "baselineProductionGraph": true,
+          "chains": [
+            "apps/api (runtime) -> node_modules/@prisma/client@6.19.3 -> node_modules/prisma@6.19.3 -> node_modules/@prisma/config@6.19.3",
+            "apps/api (dev) -> node_modules/prisma@6.19.3 -> node_modules/@prisma/config@6.19.3"
+          ],
+          "currentVersionAtPath": "6.19.3",
+          "currentArtifactVersion": "6.19.3"
+        }
+      ],
+      "advisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-ggr8-5vv4-36mx",
+          "title": "DeepmergeTS has stack exhaustion when merging recursive object graphs",
+          "severity": "high",
+          "affectedRange": "<8.0.0"
+        }
+      ],
+      "classification": "B: configuration tooling",
+      "reachability": "Prisma CLI configuration loader; may ship through optional Prisma client peer dependency. Package presence does not prove request reachability.",
+      "fixedVersionAndRemediation": "Scoped deepmerge-ts 8.0.0 override",
+      "compatibilityAndRisk": "Retain Prisma 6.19.3; generation and PostgreSQL tests required.",
+      "remainingSeverity": "none",
+      "deployedProductionStatus": "UNKNOWN: no deployed lockfile/SBOM or authenticated deployment inventory available"
+    },
+    {
+      "package": "africastalking",
+      "severity": "high",
+      "direct": true,
+      "affectedWorkspace": "apps/api (root also contains development tooling)",
+      "instances": [
+        {
+          "path": "node_modules/africastalking",
+          "vulnerableVersion": "0.7.9",
+          "baselineDevOnly": false,
+          "baselineProductionGraph": true,
+          "chains": [
+            "apps/api (runtime) -> node_modules/africastalking@0.7.9"
+          ],
+          "currentVersionAtPath": "0.8.3",
+          "currentArtifactVersion": "0.8.3"
+        }
+      ],
+      "advisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-3p68-rc4w-qgx5",
+          "title": "Axios has a NO_PROXY Hostname Normalization Bypass that Leads to SSRF",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-w9j2-pvgh-6h63",
+          "title": "Axios: Authentication Bypass via Prototype Pollution Gadget in `validateStatus` Merge Strategy",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-pmwg-cvhr-8vh7",
+          "title": "Axios: Incomplete Fix for CVE-2025-62718 — NO_PROXY Protection Bypassed via RFC 1122 Loopback Subnet (127.0.0.0/8) in Axios 1.15.0",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-3w6x-2g7m-8v23",
+          "title": "Axios: Invisible JSON Response Tampering via Prototype Pollution Gadget in `parseReviver`",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.2"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-xhjh-pmcv-23jw",
+          "title": "Axios: Null Byte Injection via Reverse-Encoding in AxiosURLSearchParams",
+          "severity": "low",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-445q-vr5w-6q77",
+          "title": "Axios: CRLF Injection in multipart/form-data body via unsanitized blob.type in formDataToStream",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-m7pr-hjqh-92cm",
+          "title": "Axios: no_proxy bypass via IP alias allows SSRF",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-5c9x-8gcm-mpgx",
+          "title": "Axios' HTTP adapter-streamed uploads bypass maxBodyLength when maxRedirects: 0",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-vf2m-468p-8v99",
+          "title": "Axios: HTTP adapter streamed responses bypass maxContentLength",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-pf86-5x62-jrwf",
+          "title": "Axios: Prototype Pollution Gadgets - Response Tampering, Data Exfiltration, and Request Hijacking",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-6chq-wfr3-2hj9",
+          "title": "Axios: Header Injection via Prototype Pollution",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-xx6v-rp6x-q39c",
+          "title": "Axios: XSRF Token Cross-Origin Leakage via Prototype Pollution Gadget in `withXSRFToken` Boolean Coercion",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-q8qp-cvcw-x6jj",
+          "title": "Axios has prototype pollution read-side gadgets in HTTP adapter that allow credential injection and request hijacking",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <1.15.2"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-fvcv-3m26-pcqx",
+          "title": "Axios has Unrestricted Cloud Metadata Exfiltration via Header Injection Chain",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-62hf-57xw-28j9",
+          "title": "Axios: unbounded recursion in toFormData causes DoS via deeply nested request data",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-hfxv-24rg-xrqf",
+          "title": "Axios: Regular Expression Denial of Service (ReDoS) via Cookie Name Injection",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <1.16.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-777c-7fjr-54vf",
+          "title": "Allocation of Resources Without Limits or Throttling in Axios",
+          "severity": "high",
+          "affectedRange": ">=1.7.0 <1.16.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-p92q-9vqr-4j8v",
+          "title": "Axios: Proxy-Authorization Credential Leak to Origin Server Across HTTP-to-HTTPS Redirect in Axios Node.js HTTP Adapter",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <1.16.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-j5f8-grm9-p9fc",
+          "title": "Axios: Proxy-Authorization header leaks to redirect target when proxy is re-evaluated to direct connection",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <1.16.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-3g43-6gmg-66jw",
+          "title": "axios Vulnerable to Credential Theft and Response Hijacking via Prototype Pollution Gadget in Config Merge",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <1.15.2"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-35jp-ww65-95wh",
+          "title": "axios Vulnerable to Full Man-in-the-Middle via Prototype Pollution Gadget in `config.proxy`",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <1.16.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-898c-q2cr-xwhg",
+          "title": "axios has DoS & Header Injection via Prototype Pollution Read-Side Gadgets in axios merge functions",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.16.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-mmx7-hfxf-jppx",
+          "title": "Axios: Prototype pollution gadgets can alter axios request construction",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.18.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-pmv8-rq9r-6j72",
+          "title": "Axios: Deep formToJSON Key Recursion Can Cause Denial of Service",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.18.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-mwf2-3pr3-8698",
+          "title": "Axios: HTTP/2 streamed uploads bypass `maxBodyLength`",
+          "severity": "moderate",
+          "affectedRange": ">=1.13.0 <1.18.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-7q8q-rj6j-mhjq",
+          "title": "Axios: Nested axios option objects can consume polluted prototype values",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.18.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-jqh4-m9w3-8hp9",
+          "title": "Axios: Fetch adapter `ReadableStream` uploads bypass `maxBodyLength`",
+          "severity": "moderate",
+          "affectedRange": ">=1.7.0 <1.18.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-42h9-826w-cgv3",
+          "title": "Axios: Excessive recursion in formDataToJSON can cause denial of service",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.18.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-q7cg-457f-vx79",
+          "title": "joi has an uncaught RangeError on deeply nested input through recursive `link()` schemas",
+          "severity": "moderate",
+          "affectedRange": ">=18.0.0 <18.2.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-6w3j-5fw6-r9vr",
+          "title": "joi: Prototype pollution via a `__proto__` language key in custom messages",
+          "severity": "low",
+          "affectedRange": ">=18.0.0 <18.2.5"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-gg4h-3hg2-grpc",
+          "title": "joi: object().rename() with a template target can set the validated object's prototype",
+          "severity": "low",
+          "affectedRange": ">=18.0.0 <18.2.4"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-r5fr-rjxr-66jc",
+          "title": "lodash vulnerable to Code Injection via `_.template` imports key names",
+          "severity": "high",
+          "affectedRange": ">=4.0.0 <=4.17.23"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-f23m-r3pf-42rh",
+          "title": "lodash vulnerable to Prototype Pollution via array path bypass in `_.unset` and `_.omit`",
+          "severity": "moderate",
+          "affectedRange": "<=4.17.23"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-xxjr-mmjv-4gpg",
+          "title": "Lodash has Prototype Pollution Vulnerability in `_.unset` and `_.omit` functions",
+          "severity": "moderate",
+          "affectedRange": ">=4.0.0 <=4.17.22"
+        }
+      ],
+      "classification": "E: vulnerable functionality needs per-advisory proof; runtime library reachable",
+      "reachability": "SmsProvider lazy-loads SDK then SMS.send. Outbound destination is SDK-defined, recipients/messages flow to SDK. No blanket exploitability claim for Axios advisories.",
+      "fixedVersionAndRemediation": "0.8.3 brings axios 1.18.1 and lodash 4.18.1",
+      "compatibilityAndRisk": "Pre-1.0 minor is potentially breaking; real SDK mocked-transport regression plus provider tests.",
+      "remainingSeverity": "none",
+      "deployedProductionStatus": "UNKNOWN: no deployed lockfile/SBOM or authenticated deployment inventory available"
+    },
+    {
+      "package": "axios",
+      "severity": "high",
+      "direct": false,
+      "affectedWorkspace": "apps/api (root also contains development tooling)",
+      "instances": [
+        {
+          "path": "node_modules/axios",
+          "vulnerableVersion": "1.13.5",
+          "baselineDevOnly": false,
+          "baselineProductionGraph": true,
+          "chains": [
+            "apps/api (runtime) -> node_modules/africastalking@0.7.9 -> node_modules/axios@1.13.5"
+          ],
+          "currentVersionAtPath": "1.18.1",
+          "currentArtifactVersion": "1.18.1"
+        }
+      ],
+      "advisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-3p68-rc4w-qgx5",
+          "title": "Axios has a NO_PROXY Hostname Normalization Bypass that Leads to SSRF",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-w9j2-pvgh-6h63",
+          "title": "Axios: Authentication Bypass via Prototype Pollution Gadget in `validateStatus` Merge Strategy",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-pmwg-cvhr-8vh7",
+          "title": "Axios: Incomplete Fix for CVE-2025-62718 — NO_PROXY Protection Bypassed via RFC 1122 Loopback Subnet (127.0.0.0/8) in Axios 1.15.0",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-3w6x-2g7m-8v23",
+          "title": "Axios: Invisible JSON Response Tampering via Prototype Pollution Gadget in `parseReviver`",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.2"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-xhjh-pmcv-23jw",
+          "title": "Axios: Null Byte Injection via Reverse-Encoding in AxiosURLSearchParams",
+          "severity": "low",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-445q-vr5w-6q77",
+          "title": "Axios: CRLF Injection in multipart/form-data body via unsanitized blob.type in formDataToStream",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-m7pr-hjqh-92cm",
+          "title": "Axios: no_proxy bypass via IP alias allows SSRF",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-5c9x-8gcm-mpgx",
+          "title": "Axios' HTTP adapter-streamed uploads bypass maxBodyLength when maxRedirects: 0",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-vf2m-468p-8v99",
+          "title": "Axios: HTTP adapter streamed responses bypass maxContentLength",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-pf86-5x62-jrwf",
+          "title": "Axios: Prototype Pollution Gadgets - Response Tampering, Data Exfiltration, and Request Hijacking",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-6chq-wfr3-2hj9",
+          "title": "Axios: Header Injection via Prototype Pollution",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-xx6v-rp6x-q39c",
+          "title": "Axios: XSRF Token Cross-Origin Leakage via Prototype Pollution Gadget in `withXSRFToken` Boolean Coercion",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-q8qp-cvcw-x6jj",
+          "title": "Axios has prototype pollution read-side gadgets in HTTP adapter that allow credential injection and request hijacking",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <1.15.2"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-fvcv-3m26-pcqx",
+          "title": "Axios has Unrestricted Cloud Metadata Exfiltration via Header Injection Chain",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-62hf-57xw-28j9",
+          "title": "Axios: unbounded recursion in toFormData causes DoS via deeply nested request data",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-hfxv-24rg-xrqf",
+          "title": "Axios: Regular Expression Denial of Service (ReDoS) via Cookie Name Injection",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <1.16.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-777c-7fjr-54vf",
+          "title": "Allocation of Resources Without Limits or Throttling in Axios",
+          "severity": "high",
+          "affectedRange": ">=1.7.0 <1.16.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-p92q-9vqr-4j8v",
+          "title": "Axios: Proxy-Authorization Credential Leak to Origin Server Across HTTP-to-HTTPS Redirect in Axios Node.js HTTP Adapter",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <1.16.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-j5f8-grm9-p9fc",
+          "title": "Axios: Proxy-Authorization header leaks to redirect target when proxy is re-evaluated to direct connection",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <1.16.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-3g43-6gmg-66jw",
+          "title": "axios Vulnerable to Credential Theft and Response Hijacking via Prototype Pollution Gadget in Config Merge",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <1.15.2"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-35jp-ww65-95wh",
+          "title": "axios Vulnerable to Full Man-in-the-Middle via Prototype Pollution Gadget in `config.proxy`",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <1.16.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-898c-q2cr-xwhg",
+          "title": "axios has DoS & Header Injection via Prototype Pollution Read-Side Gadgets in axios merge functions",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.16.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-mmx7-hfxf-jppx",
+          "title": "Axios: Prototype pollution gadgets can alter axios request construction",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.18.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-pmv8-rq9r-6j72",
+          "title": "Axios: Deep formToJSON Key Recursion Can Cause Denial of Service",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.18.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-mwf2-3pr3-8698",
+          "title": "Axios: HTTP/2 streamed uploads bypass `maxBodyLength`",
+          "severity": "moderate",
+          "affectedRange": ">=1.13.0 <1.18.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-7q8q-rj6j-mhjq",
+          "title": "Axios: Nested axios option objects can consume polluted prototype values",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.18.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-jqh4-m9w3-8hp9",
+          "title": "Axios: Fetch adapter `ReadableStream` uploads bypass `maxBodyLength`",
+          "severity": "moderate",
+          "affectedRange": ">=1.7.0 <1.18.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-42h9-826w-cgv3",
+          "title": "Axios: Excessive recursion in formDataToJSON can cause denial of service",
+          "severity": "moderate",
+          "affectedRange": ">=1.0.0 <1.18.0"
+        }
+      ],
+      "classification": "E: vulnerable functionality needs per-advisory proof; runtime library reachable",
+      "reachability": "Africa Talking SMS uses axios with fixed HTTPS endpoint and form data. No inbound arbitrary URL API found in SmsProvider.",
+      "fixedVersionAndRemediation": "1.18.0 minimum for listed advisories; resolved 1.18.1 via SDK parent",
+      "compatibilityAndRisk": "Parent 0.8.3 potentially breaking; no Axios override.",
+      "remainingSeverity": "none",
+      "deployedProductionStatus": "UNKNOWN: no deployed lockfile/SBOM or authenticated deployment inventory available"
+    },
+    {
+      "package": "bcrypt",
+      "severity": "high",
+      "direct": true,
+      "affectedWorkspace": "apps/api (root also contains development tooling)",
+      "instances": [
+        {
+          "path": "node_modules/bcrypt",
+          "vulnerableVersion": "5.1.1",
+          "baselineDevOnly": false,
+          "baselineProductionGraph": true,
+          "chains": [
+            "apps/api (runtime) -> node_modules/bcrypt@5.1.1"
+          ],
+          "currentVersionAtPath": "6.0.0",
+          "currentArtifactVersion": "6.0.0"
+        }
+      ],
+      "advisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-34x7-hfp2-rc4v",
+          "title": "node-tar Vulnerable to Arbitrary File Creation/Overwrite via Hardlink Path Traversal",
+          "severity": "high",
+          "affectedRange": "<7.5.7"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-8qq5-rm4j-mr97",
+          "title": "node-tar is Vulnerable to Arbitrary File Overwrite and Symlink Poisoning via Insufficient Path Sanitization",
+          "severity": "high",
+          "affectedRange": "<=7.5.2"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-83g3-92jg-28cx",
+          "title": "Arbitrary File Read/Write via Hardlink Target Escape Through Symlink Chain in node-tar Extraction",
+          "severity": "high",
+          "affectedRange": "<7.5.8"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-qffp-2rhf-9h96",
+          "title": "tar has Hardlink Path Traversal via Drive-Relative Linkpath",
+          "severity": "high",
+          "affectedRange": "<=7.5.9"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-9ppj-qmqm-q256",
+          "title": "node-tar Symlink Path Traversal via Drive-Relative Linkpath",
+          "severity": "high",
+          "affectedRange": "<=7.5.10"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-r6q2-hw4h-h46w",
+          "title": "Race Condition in node-tar Path Reservations via Unicode Ligature Collisions on macOS APFS",
+          "severity": "high",
+          "affectedRange": "<=7.5.3"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-vmf3-w455-68vh",
+          "title": "node-tar applies PAX size override to intermediary GNU long-name/long-link headers, causing tar parser interpretation differential (file smuggling)",
+          "severity": "moderate",
+          "affectedRange": "<=7.5.15"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-w8wr-v893-vjvp",
+          "title": "node-tar: Process crash via PAX numeric path type confusion",
+          "severity": "moderate",
+          "affectedRange": "<=7.5.17"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-23hp-3jrh-7fpw",
+          "title": "node-tar: Decompression/parse DoS via unlimited input",
+          "severity": "critical",
+          "affectedRange": "<=7.5.18"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-8x88-c5mf-7j5w",
+          "title": "node-tar: Negative tar entry size causes infinite loop in archive replace",
+          "severity": "high",
+          "affectedRange": "<=7.5.17"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-gvwx-54wh-qm9j",
+          "title": "node-tar: Uncaught Exception DoS via NUL byte in PAX path/linkpath records",
+          "severity": "moderate",
+          "affectedRange": "<=7.5.16"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-r292-9mhp-454m",
+          "title": "node-tar: Uncontrolled recursion in mapHas/filesFilter allows uncatchable stack-overflow DoS via crafted long-path tar with member selection",
+          "severity": "high",
+          "affectedRange": "<=7.5.20"
+        }
+      ],
+      "classification": "B for inherited tar advisory; bcrypt itself runtime",
+      "reachability": "Auth, activation, enrollment, password reset and SSO call hash/compare. These do not invoke tar extraction.",
+      "fixedVersionAndRemediation": "6.0.0",
+      "compatibilityAndRisk": "Major native installer change; public bcrypt5 fixture and API tests.",
+      "remainingSeverity": "none",
+      "deployedProductionStatus": "UNKNOWN: no deployed lockfile/SBOM or authenticated deployment inventory available"
+    },
+    {
+      "package": "brace-expansion",
+      "severity": "high",
+      "direct": false,
+      "affectedWorkspace": "apps/api (root also contains development tooling)",
+      "instances": [
+        {
+          "path": "node_modules/@eslint/config-array/node_modules/brace-expansion",
+          "vulnerableVersion": "1.1.16",
+          "baselineDevOnly": true,
+          "baselineProductionGraph": false,
+          "chains": [
+            "apps/api (dev) -> node_modules/@typescript-eslint/eslint-plugin@8.63.0 -> node_modules/eslint@9.39.4 -> node_modules/@eslint/config-array@0.21.2 -> node_modules/@eslint/config-array/node_modules/minimatch@3.1.5 -> node_modules/@eslint/config-array/node_modules/brace-expansion@1.1.16",
+            "apps/api (dev) -> node_modules/@typescript-eslint/parser@8.63.0 -> node_modules/eslint@9.39.4 -> node_modules/@eslint/config-array@0.21.2 -> node_modules/@eslint/config-array/node_modules/minimatch@3.1.5 -> node_modules/@eslint/config-array/node_modules/brace-expansion@1.1.16",
+            "apps/api (dev) -> node_modules/eslint@9.39.4 -> node_modules/@eslint/config-array@0.21.2 -> node_modules/@eslint/config-array/node_modules/minimatch@3.1.5 -> node_modules/@eslint/config-array/node_modules/brace-expansion@1.1.16"
+          ],
+          "currentVersionAtPath": "1.1.18",
+          "currentArtifactVersion": "absent"
+        },
+        {
+          "path": "node_modules/@eslint/eslintrc/node_modules/brace-expansion",
+          "vulnerableVersion": "1.1.16",
+          "baselineDevOnly": true,
+          "baselineProductionGraph": false,
+          "chains": [
+            "apps/api (dev) -> node_modules/@typescript-eslint/eslint-plugin@8.63.0 -> node_modules/eslint@9.39.4 -> node_modules/@eslint/eslintrc@3.3.5 -> node_modules/@eslint/eslintrc/node_modules/minimatch@3.1.5 -> node_modules/@eslint/eslintrc/node_modules/brace-expansion@1.1.16",
+            "apps/api (dev) -> node_modules/@typescript-eslint/parser@8.63.0 -> node_modules/eslint@9.39.4 -> node_modules/@eslint/eslintrc@3.3.5 -> node_modules/@eslint/eslintrc/node_modules/minimatch@3.1.5 -> node_modules/@eslint/eslintrc/node_modules/brace-expansion@1.1.16",
+            "apps/api (dev) -> node_modules/eslint@9.39.4 -> node_modules/@eslint/eslintrc@3.3.5 -> node_modules/@eslint/eslintrc/node_modules/minimatch@3.1.5 -> node_modules/@eslint/eslintrc/node_modules/brace-expansion@1.1.16"
+          ],
+          "currentVersionAtPath": "1.1.18",
+          "currentArtifactVersion": "absent"
+        },
+        {
+          "path": "node_modules/@jest/reporters/node_modules/brace-expansion",
+          "vulnerableVersion": "1.1.16",
+          "baselineDevOnly": true,
+          "baselineProductionGraph": false,
+          "chains": [
+            "apps/api (dev) -> node_modules/jest@29.7.0 -> node_modules/@jest/core@29.7.0 -> node_modules/@jest/reporters@29.7.0 -> node_modules/@jest/reporters/node_modules/glob@7.2.3 -> node_modules/@jest/reporters/node_modules/minimatch@3.1.5 -> node_modules/@jest/reporters/node_modules/brace-expansion@1.1.16",
+            "apps/api (dev) -> node_modules/ts-jest@29.4.11 -> node_modules/jest@29.7.0 -> node_modules/@jest/core@29.7.0 -> node_modules/@jest/reporters@29.7.0 -> node_modules/@jest/reporters/node_modules/glob@7.2.3 -> node_modules/@jest/reporters/node_modules/minimatch@3.1.5 -> node_modules/@jest/reporters/node_modules/brace-expansion@1.1.16"
+          ],
+          "currentVersionAtPath": "1.1.18",
+          "currentArtifactVersion": "absent"
+        },
+        {
+          "path": "node_modules/brace-expansion",
+          "vulnerableVersion": "5.0.7",
+          "baselineDevOnly": true,
+          "baselineProductionGraph": false,
+          "chains": [
+            "apps/api (dev) -> node_modules/@typescript-eslint/eslint-plugin@8.63.0 -> node_modules/@typescript-eslint/type-utils@8.63.0 -> node_modules/@typescript-eslint/typescript-estree@8.63.0 -> node_modules/minimatch@10.2.5 -> node_modules/brace-expansion@5.0.7",
+            "apps/api (dev) -> node_modules/@typescript-eslint/parser@8.63.0 -> node_modules/@typescript-eslint/typescript-estree@8.63.0 -> node_modules/minimatch@10.2.5 -> node_modules/brace-expansion@5.0.7"
+          ],
+          "currentVersionAtPath": "5.0.9",
+          "currentArtifactVersion": "absent"
+        },
+        {
+          "path": "node_modules/eslint/node_modules/brace-expansion",
+          "vulnerableVersion": "1.1.16",
+          "baselineDevOnly": true,
+          "baselineProductionGraph": false,
+          "chains": [
+            "apps/api (dev) -> node_modules/@typescript-eslint/eslint-plugin@8.63.0 -> node_modules/eslint@9.39.4 -> node_modules/eslint/node_modules/minimatch@3.1.5 -> node_modules/eslint/node_modules/brace-expansion@1.1.16",
+            "apps/api (dev) -> node_modules/@typescript-eslint/parser@8.63.0 -> node_modules/eslint@9.39.4 -> node_modules/eslint/node_modules/minimatch@3.1.5 -> node_modules/eslint/node_modules/brace-expansion@1.1.16",
+            "apps/api (dev) -> node_modules/eslint@9.39.4 -> node_modules/eslint/node_modules/minimatch@3.1.5 -> node_modules/eslint/node_modules/brace-expansion@1.1.16"
+          ],
+          "currentVersionAtPath": "1.1.18",
+          "currentArtifactVersion": "absent"
+        },
+        {
+          "path": "node_modules/fork-ts-checker-webpack-plugin/node_modules/brace-expansion",
+          "vulnerableVersion": "1.1.16",
+          "baselineDevOnly": true,
+          "baselineProductionGraph": false,
+          "chains": [
+            "apps/api (dev) -> node_modules/@nestjs/cli@10.4.9 -> node_modules/fork-ts-checker-webpack-plugin@9.0.2 -> node_modules/fork-ts-checker-webpack-plugin/node_modules/minimatch@3.1.5 -> node_modules/fork-ts-checker-webpack-plugin/node_modules/brace-expansion@1.1.16"
+          ],
+          "currentVersionAtPath": "1.1.18",
+          "currentArtifactVersion": "absent"
+        },
+        {
+          "path": "node_modules/glob/node_modules/brace-expansion",
+          "vulnerableVersion": "2.1.2",
+          "baselineDevOnly": true,
+          "baselineProductionGraph": false,
+          "chains": [
+            "apps/api (dev) -> node_modules/@nestjs/cli@10.4.9 -> node_modules/glob@10.4.5 -> node_modules/glob/node_modules/minimatch@9.0.9 -> node_modules/glob/node_modules/brace-expansion@2.1.2"
+          ],
+          "currentVersionAtPath": "2.1.4",
+          "currentArtifactVersion": "absent"
+        },
+        {
+          "path": "node_modules/jest-config/node_modules/brace-expansion",
+          "vulnerableVersion": "1.1.16",
+          "baselineDevOnly": true,
+          "baselineProductionGraph": false,
+          "chains": [
+            "apps/api (dev) -> node_modules/jest@29.7.0 -> node_modules/@jest/core@29.7.0 -> node_modules/jest-config@29.7.0 -> node_modules/jest-config/node_modules/glob@7.2.3 -> node_modules/jest-config/node_modules/minimatch@3.1.5 -> node_modules/jest-config/node_modules/brace-expansion@1.1.16",
+            "apps/api (dev) -> node_modules/ts-jest@29.4.11 -> node_modules/jest@29.7.0 -> node_modules/@jest/core@29.7.0 -> node_modules/jest-config@29.7.0 -> node_modules/jest-config/node_modules/glob@7.2.3 -> node_modules/jest-config/node_modules/minimatch@3.1.5 -> node_modules/jest-config/node_modules/brace-expansion@1.1.16"
+          ],
+          "currentVersionAtPath": "1.1.18",
+          "currentArtifactVersion": "absent"
+        },
+        {
+          "path": "node_modules/jest-runtime/node_modules/brace-expansion",
+          "vulnerableVersion": "1.1.16",
+          "baselineDevOnly": true,
+          "baselineProductionGraph": false,
+          "chains": [
+            "apps/api (dev) -> node_modules/jest@29.7.0 -> node_modules/@jest/core@29.7.0 -> node_modules/jest-runtime@29.7.0 -> node_modules/jest-runtime/node_modules/glob@7.2.3 -> node_modules/jest-runtime/node_modules/minimatch@3.1.5 -> node_modules/jest-runtime/node_modules/brace-expansion@1.1.16",
+            "apps/api (dev) -> node_modules/ts-jest@29.4.11 -> node_modules/jest@29.7.0 -> node_modules/@jest/core@29.7.0 -> node_modules/jest-runtime@29.7.0 -> node_modules/jest-runtime/node_modules/glob@7.2.3 -> node_modules/jest-runtime/node_modules/minimatch@3.1.5 -> node_modules/jest-runtime/node_modules/brace-expansion@1.1.16"
+          ],
+          "currentVersionAtPath": "1.1.18",
+          "currentArtifactVersion": "absent"
+        },
+        {
+          "path": "node_modules/rimraf/node_modules/brace-expansion",
+          "vulnerableVersion": "1.1.16",
+          "baselineDevOnly": false,
+          "baselineProductionGraph": true,
+          "chains": [
+            "apps/api (runtime) -> node_modules/bcrypt@5.1.1 -> node_modules/@mapbox/node-pre-gyp@1.0.11 -> node_modules/rimraf@3.0.2 -> node_modules/rimraf/node_modules/glob@7.2.3 -> node_modules/rimraf/node_modules/minimatch@3.1.5 -> node_modules/rimraf/node_modules/brace-expansion@1.1.16"
+          ],
+          "currentVersionAtPath": "removed/relocated",
+          "currentArtifactVersion": "absent"
+        },
+        {
+          "path": "node_modules/test-exclude/node_modules/brace-expansion",
+          "vulnerableVersion": "1.1.16",
+          "baselineDevOnly": true,
+          "baselineProductionGraph": false,
+          "chains": [
+            "apps/api (dev) -> node_modules/jest@29.7.0 -> node_modules/@jest/core@29.7.0 -> node_modules/@jest/transform@29.7.0 -> node_modules/babel-plugin-istanbul@6.1.1 -> node_modules/test-exclude@6.0.0 -> node_modules/test-exclude/node_modules/minimatch@3.1.5 -> node_modules/test-exclude/node_modules/brace-expansion@1.1.16",
+            "apps/api (dev) -> node_modules/ts-jest@29.4.11 -> node_modules/@jest/transform@29.7.0 -> node_modules/babel-plugin-istanbul@6.1.1 -> node_modules/test-exclude@6.0.0 -> node_modules/test-exclude/node_modules/minimatch@3.1.5 -> node_modules/test-exclude/node_modules/brace-expansion@1.1.16"
+          ],
+          "currentVersionAtPath": "1.1.18",
+          "currentArtifactVersion": "absent"
+        }
+      ],
+      "advisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-mh99-v99m-4gvg",
+          "title": "brace-expansion: DoS via unbounded expansion length causing an out-of-memory process crash",
+          "severity": "high",
+          "affectedRange": "<1.1.17"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-mh99-v99m-4gvg",
+          "title": "brace-expansion: DoS via unbounded expansion length causing an out-of-memory process crash",
+          "severity": "high",
+          "affectedRange": ">=2.0.0 <2.1.3"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-mh99-v99m-4gvg",
+          "title": "brace-expansion: DoS via unbounded expansion length causing an out-of-memory process crash",
+          "severity": "high",
+          "affectedRange": ">=4.0.0 <5.0.8"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-rgw5-rvv9-x895",
+          "title": "brace-expansion: DoS via unbounded intermediate arrays, bypassing the CVE-2026-14257 mitigation",
+          "severity": "high",
+          "affectedRange": ">=4.0.0 <5.0.9"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-rgw5-rvv9-x895",
+          "title": "brace-expansion: DoS via unbounded intermediate arrays, bypassing the CVE-2026-14257 mitigation",
+          "severity": "high",
+          "affectedRange": ">=2.0.0 <2.1.4"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-rgw5-rvv9-x895",
+          "title": "brace-expansion: DoS via unbounded intermediate arrays, bypassing the CVE-2026-14257 mitigation",
+          "severity": "high",
+          "affectedRange": "<1.1.18"
+        }
+      ],
+      "classification": "B/C: build/test tooling; baseline installer copy also shipped",
+      "reachability": "Glob/minimatch in lint/test/build tools; baseline rimraf installer copy is removed with bcrypt installer. No OPA runtime pattern API found.",
+      "fixedVersionAndRemediation": "1.1.18 / 2.1.4 / 5.0.9",
+      "compatibilityAndRisk": "Compatible per-major updates; no forced single-major override.",
+      "remainingSeverity": "none",
+      "deployedProductionStatus": "UNKNOWN: no deployed lockfile/SBOM or authenticated deployment inventory available"
+    },
+    {
+      "package": "browserslist",
+      "severity": "high",
+      "direct": false,
+      "affectedWorkspace": "apps/api (root also contains development tooling)",
+      "instances": [
+        {
+          "path": "node_modules/browserslist",
+          "vulnerableVersion": "4.28.5",
+          "baselineDevOnly": true,
+          "baselineProductionGraph": false,
+          "chains": [
+            "apps/api (dev) -> node_modules/@nestjs/cli@10.4.9 -> node_modules/webpack@5.97.1 -> node_modules/browserslist@4.28.5",
+            "apps/api (dev) -> node_modules/jest@29.7.0 -> node_modules/@jest/core@29.7.0 -> node_modules/@jest/transform@29.7.0 -> node_modules/@babel/core@7.29.7 -> node_modules/@babel/helper-compilation-targets@7.29.7 -> node_modules/browserslist@4.28.5",
+            "apps/api (dev) -> node_modules/ts-jest@29.4.11 -> node_modules/@babel/core@7.29.7 -> node_modules/@babel/helper-compilation-targets@7.29.7 -> node_modules/browserslist@4.28.5"
+          ],
+          "currentVersionAtPath": "4.28.9",
+          "currentArtifactVersion": "absent"
+        }
+      ],
+      "advisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-c83g-rgw3-j3cx",
+          "title": "Browserslist: Unbounded memory growth (no cache eviction) via distinct query results, leading to eventual OOM",
+          "severity": "high",
+          "affectedRange": "<=4.28.6"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-73wf-gq98-2v4g",
+          "title": "Browserslist: Uncaught crash / prototype write via untrusted browserslist-stats.json custom stats (normalizeStats)",
+          "severity": "high",
+          "affectedRange": "<=4.28.6"
+        }
+      ],
+      "classification": "B: BUILD/CI-ONLY",
+      "reachability": "Compiler/webpack browser target data; dev dependency graph.",
+      "fixedVersionAndRemediation": "4.28.7 minimum; resolved 4.28.9",
+      "compatibilityAndRisk": "Same-major; associated browser databases are reviewed update closure.",
+      "remainingSeverity": "none",
+      "deployedProductionStatus": "UNKNOWN: no deployed lockfile/SBOM or authenticated deployment inventory available"
+    },
+    {
+      "package": "deepmerge-ts",
+      "severity": "high",
+      "direct": false,
+      "affectedWorkspace": "apps/api (root also contains development tooling)",
+      "instances": [
+        {
+          "path": "node_modules/deepmerge-ts",
+          "vulnerableVersion": "7.1.5",
+          "baselineDevOnly": false,
+          "baselineProductionGraph": true,
+          "chains": [
+            "apps/api (runtime) -> node_modules/@prisma/client@6.19.3 -> node_modules/prisma@6.19.3 -> node_modules/@prisma/config@6.19.3 -> node_modules/deepmerge-ts@7.1.5",
+            "apps/api (dev) -> node_modules/prisma@6.19.3 -> node_modules/@prisma/config@6.19.3 -> node_modules/deepmerge-ts@7.1.5"
+          ],
+          "currentVersionAtPath": "8.0.0",
+          "currentArtifactVersion": "8.0.0"
+        }
+      ],
+      "advisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-ggr8-5vv4-36mx",
+          "title": "DeepmergeTS has stack exhaustion when merging recursive object graphs",
+          "severity": "high",
+          "affectedRange": "<8.0.0"
+        }
+      ],
+      "classification": "B: configuration tooling; installed artifact inclusion checked separately",
+      "reachability": "Prisma config dynamically imports deepmerge for c12 configuration. OPA has no prisma.config file or runtime deepmerge import; API uses generated Prisma client.",
+      "fixedVersionAndRemediation": "8.0.0",
+      "compatibilityAndRisk": "Major override: Map merging/type changes; OPA uses schema config, not custom Map merge. Config record/circular regression plus Prisma validate/generate/migrations.",
+      "remainingSeverity": "none",
+      "deployedProductionStatus": "UNKNOWN: no deployed lockfile/SBOM or authenticated deployment inventory available"
+    },
+    {
+      "package": "fast-xml-parser",
+      "severity": "high",
+      "direct": false,
+      "affectedWorkspace": "apps/api (root also contains development tooling)",
+      "instances": [
+        {
+          "path": "node_modules/fast-xml-parser",
+          "vulnerableVersion": "5.10.0",
+          "baselineDevOnly": false,
+          "baselineProductionGraph": true,
+          "chains": [
+            "apps/api (runtime) -> node_modules/@azure/storage-blob@12.33.0 -> node_modules/@azure/core-xml@1.6.0 -> node_modules/fast-xml-parser@5.10.0"
+          ],
+          "currentVersionAtPath": "5.11.1",
+          "currentArtifactVersion": "5.11.1"
+        }
+      ],
+      "advisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-8r6m-32jq-jx6q",
+          "title": "fast-xml-parser: Repeated DOCTYPE declarations reset entity expansion limits",
+          "severity": "high",
+          "affectedRange": ">=5.9.3 <5.10.1"
+        }
+      ],
+      "classification": "E: requires further input-reachability proof",
+      "reachability": "Azure storage SDK dependency; evidence storage uses Azure. Not the SSO XML parser. Malicious XML response path not demonstrated.",
+      "fixedVersionAndRemediation": "5.10.1 minimum; resolved compatible 5.11.1",
+      "compatibilityAndRisk": "Same-major update; entities/strnum changes are parser dependency closure.",
+      "remainingSeverity": "none",
+      "deployedProductionStatus": "UNKNOWN: no deployed lockfile/SBOM or authenticated deployment inventory available"
+    },
+    {
+      "package": "glob",
+      "severity": "high",
+      "direct": false,
+      "affectedWorkspace": "apps/api (root also contains development tooling)",
+      "instances": [
+        {
+          "path": "node_modules/glob",
+          "vulnerableVersion": "10.4.5",
+          "baselineDevOnly": true,
+          "baselineProductionGraph": false,
+          "chains": [
+            "apps/api (dev) -> node_modules/@nestjs/cli@10.4.9 -> node_modules/glob@10.4.5"
+          ],
+          "currentVersionAtPath": "10.5.0",
+          "currentArtifactVersion": "absent"
+        }
+      ],
+      "advisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-5j98-mcp5-4vw2",
+          "title": "glob CLI: Command injection via -c/--cmd executes matches with shell:true",
+          "severity": "high",
+          "affectedRange": ">=10.2.0 <10.5.0"
+        }
+      ],
+      "classification": "B: BUILD/CI-ONLY",
+      "reachability": "Nest CLI pins glob; affected CLI command execution option not found in OPA scripts.",
+      "fixedVersionAndRemediation": "10.5.0",
+      "compatibilityAndRisk": "Same-major exact parent override. Jest glob 7 copies are not in reported affected range.",
+      "remainingSeverity": "none",
+      "deployedProductionStatus": "UNKNOWN: no deployed lockfile/SBOM or authenticated deployment inventory available"
+    },
+    {
+      "package": "js-yaml",
+      "severity": "high",
+      "direct": false,
+      "affectedWorkspace": "apps/api (root also contains development tooling)",
+      "instances": [
+        {
+          "path": "node_modules/@istanbuljs/load-nyc-config/node_modules/js-yaml",
+          "vulnerableVersion": "3.15.0",
+          "baselineDevOnly": true,
+          "baselineProductionGraph": false,
+          "chains": [
+            "apps/api (dev) -> node_modules/jest@29.7.0 -> node_modules/@jest/core@29.7.0 -> node_modules/@jest/transform@29.7.0 -> node_modules/babel-plugin-istanbul@6.1.1 -> node_modules/@istanbuljs/load-nyc-config@1.1.0 -> node_modules/@istanbuljs/load-nyc-config/node_modules/js-yaml@3.15.0",
+            "apps/api (dev) -> node_modules/ts-jest@29.4.11 -> node_modules/@jest/transform@29.7.0 -> node_modules/babel-plugin-istanbul@6.1.1 -> node_modules/@istanbuljs/load-nyc-config@1.1.0 -> node_modules/@istanbuljs/load-nyc-config/node_modules/js-yaml@3.15.0"
+          ],
+          "currentVersionAtPath": "3.15.2",
+          "currentArtifactVersion": "absent"
+        },
+        {
+          "path": "node_modules/@nestjs/swagger/node_modules/js-yaml",
+          "vulnerableVersion": "4.1.0",
+          "baselineDevOnly": false,
+          "baselineProductionGraph": true,
+          "chains": [
+            "apps/api (runtime) -> node_modules/@nestjs/swagger@7.4.2 -> node_modules/@nestjs/swagger/node_modules/js-yaml@4.1.0"
+          ],
+          "currentVersionAtPath": "removed/relocated",
+          "currentArtifactVersion": "absent"
+        },
+        {
+          "path": "node_modules/js-yaml",
+          "vulnerableVersion": "4.3.0",
+          "baselineDevOnly": true,
+          "baselineProductionGraph": false,
+          "chains": [
+            "apps/api (dev) -> node_modules/@nestjs/cli@10.4.9 -> node_modules/fork-ts-checker-webpack-plugin@9.0.2 -> node_modules/cosmiconfig@8.3.6 -> node_modules/js-yaml@4.3.0",
+            "apps/api (dev) -> node_modules/@typescript-eslint/eslint-plugin@8.63.0 -> node_modules/eslint@9.39.4 -> node_modules/@eslint/eslintrc@3.3.5 -> node_modules/js-yaml@4.3.0",
+            "apps/api (dev) -> node_modules/@typescript-eslint/parser@8.63.0 -> node_modules/eslint@9.39.4 -> node_modules/@eslint/eslintrc@3.3.5 -> node_modules/js-yaml@4.3.0",
+            "apps/api (dev) -> node_modules/eslint@9.39.4 -> node_modules/@eslint/eslintrc@3.3.5 -> node_modules/js-yaml@4.3.0"
+          ],
+          "currentVersionAtPath": "4.3.2",
+          "currentArtifactVersion": "4.3.2"
+        }
+      ],
+      "advisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-mh29-5h37-fv8m",
+          "title": "js-yaml has prototype pollution in merge (<<)",
+          "severity": "moderate",
+          "affectedRange": ">=4.0.0 <4.1.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-h67p-54hq-rp68",
+          "title": "JS-YAML: Quadratic-complexity DoS in merge key handling via repeated aliases",
+          "severity": "moderate",
+          "affectedRange": ">=4.0.0 <=4.1.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-52cp-r559-cp3m",
+          "title": "js-yaml: YAML merge-key chains can force quadratic CPU consumption",
+          "severity": "high",
+          "affectedRange": ">=4.0.0 <4.3.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-5p4m-2wfm-xmqj",
+          "title": "JS-YAML: Quadratic CPU consumption in !!omap resolution (3.x and 4.x) — CVE-2026-59870 fix not backported",
+          "severity": "high",
+          "affectedRange": ">=3.0.0 <3.15.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-5p4m-2wfm-xmqj",
+          "title": "JS-YAML: Quadratic CPU consumption in !!omap resolution (3.x and 4.x) — CVE-2026-59870 fix not backported",
+          "severity": "high",
+          "affectedRange": ">=4.0.0 <4.3.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-2883-xcg3-v3hh",
+          "title": "js-yaml: maxTotalMergeKeys does not limit CPU use for empty merge sources",
+          "severity": "high",
+          "affectedRange": ">=3.0.0 <3.15.2"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-2883-xcg3-v3hh",
+          "title": "js-yaml: maxTotalMergeKeys does not limit CPU use for empty merge sources",
+          "severity": "high",
+          "affectedRange": ">=4.0.0 <4.3.2"
+        }
+      ],
+      "classification": "E for runtime dump; B/C for tooling",
+      "reachability": "SwaggerModule uses dump for generated OpenAPI YAML, not arbitrary YAML load. Test/coverage tooling also loads YAML. Vulnerable input path not established.",
+      "fixedVersionAndRemediation": "3.15.2 / 4.3.2",
+      "compatibilityAndRisk": "Same-major updates and scoped Swagger 4.3.2 override.",
+      "remainingSeverity": "none",
+      "deployedProductionStatus": "UNKNOWN: no deployed lockfile/SBOM or authenticated deployment inventory available"
+    },
+    {
+      "package": "lodash",
+      "severity": "high",
+      "direct": false,
+      "affectedWorkspace": "apps/api (root also contains development tooling)",
+      "instances": [
+        {
+          "path": "node_modules/africastalking/node_modules/lodash",
+          "vulnerableVersion": "4.17.23",
+          "baselineDevOnly": false,
+          "baselineProductionGraph": true,
+          "chains": [
+            "apps/api (runtime) -> node_modules/africastalking@0.7.9 -> node_modules/africastalking/node_modules/lodash@4.17.23"
+          ],
+          "currentVersionAtPath": "removed/relocated",
+          "currentArtifactVersion": "absent"
+        },
+        {
+          "path": "node_modules/lodash",
+          "vulnerableVersion": "4.17.21",
+          "baselineDevOnly": false,
+          "baselineProductionGraph": true,
+          "chains": [
+            "apps/api (runtime) -> node_modules/@nestjs/config@3.3.0 -> node_modules/lodash@4.17.21",
+            "apps/api (runtime) -> node_modules/@nestjs/swagger@7.4.2 -> node_modules/lodash@4.17.21",
+            "apps/api (dev) -> node_modules/@nestjs/cli@10.4.9 -> node_modules/inquirer@8.2.6 -> node_modules/lodash@4.17.21"
+          ],
+          "currentVersionAtPath": "4.18.1",
+          "currentArtifactVersion": "4.18.1"
+        }
+      ],
+      "advisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-r5fr-rjxr-66jc",
+          "title": "lodash vulnerable to Code Injection via `_.template` imports key names",
+          "severity": "high",
+          "affectedRange": ">=4.0.0 <=4.17.23"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-f23m-r3pf-42rh",
+          "title": "lodash vulnerable to Prototype Pollution via array path bypass in `_.unset` and `_.omit`",
+          "severity": "moderate",
+          "affectedRange": "<=4.17.23"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-xxjr-mmjv-4gpg",
+          "title": "Lodash has Prototype Pollution Vulnerability in `_.unset` and `_.omit` functions",
+          "severity": "moderate",
+          "affectedRange": ">=4.0.0 <=4.17.22"
+        }
+      ],
+      "classification": "E: requires per-function input proof",
+      "reachability": "Nest config/Swagger and SMS SDK load lodash. Runtime package use is established; exploit of affected functions is not.",
+      "fixedVersionAndRemediation": "4.18.1 (verified fixed resolved version)",
+      "compatibilityAndRisk": "Same-major exact overrides for pinned Nest parents; SDK parent supplies fixed version.",
+      "remainingSeverity": "none",
+      "deployedProductionStatus": "UNKNOWN: no deployed lockfile/SBOM or authenticated deployment inventory available"
+    },
+    {
+      "package": "multer",
+      "severity": "high",
+      "direct": false,
+      "affectedWorkspace": "apps/api (root also contains development tooling)",
+      "instances": [
+        {
+          "path": "node_modules/multer",
+          "vulnerableVersion": "2.0.2",
+          "baselineDevOnly": false,
+          "baselineProductionGraph": true,
+          "chains": [
+            "apps/api (runtime) -> node_modules/@nestjs/core@10.4.22 -> node_modules/@nestjs/platform-express@10.4.22 -> node_modules/multer@2.0.2",
+            "apps/api (runtime) -> node_modules/@nestjs/platform-express@10.4.22 -> node_modules/multer@2.0.2",
+            "apps/api (runtime) -> node_modules/@nestjs/schedule@6.1.3 -> node_modules/@nestjs/core@10.4.22 -> node_modules/@nestjs/platform-express@10.4.22 -> node_modules/multer@2.0.2",
+            "apps/api (runtime) -> node_modules/@nestjs/swagger@7.4.2 -> node_modules/@nestjs/core@10.4.22 -> node_modules/@nestjs/platform-express@10.4.22 -> node_modules/multer@2.0.2",
+            "apps/api (runtime) -> node_modules/@nestjs/throttler@6.5.0 -> node_modules/@nestjs/core@10.4.22 -> node_modules/@nestjs/platform-express@10.4.22 -> node_modules/multer@2.0.2",
+            "apps/api (dev) -> node_modules/@nestjs/testing@10.4.22 -> node_modules/@nestjs/platform-express@10.4.22 -> node_modules/multer@2.0.2"
+          ],
+          "currentVersionAtPath": "2.3.0",
+          "currentArtifactVersion": "2.3.0"
+        }
+      ],
+      "advisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-xf7r-hgr6-v32p",
+          "title": "Multer vulnerable to Denial of Service via incomplete cleanup",
+          "severity": "high",
+          "affectedRange": "<2.1.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-v52c-386h-88mc",
+          "title": "Multer vulnerable to Denial of Service via resource exhaustion",
+          "severity": "high",
+          "affectedRange": "<2.1.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-5528-5vmv-3xc2",
+          "title": "Multer Vulnerable to Denial of Service via Uncontrolled Recursion",
+          "severity": "high",
+          "affectedRange": "<2.1.1"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-72gw-mp4g-v24j",
+          "title": "Multer vulnerable to Denial of Service via deeply nested field names",
+          "severity": "high",
+          "affectedRange": ">=1.0.0 <2.2.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-3p4h-7m6x-2hcm",
+          "title": "Multer vulnerable to Denial of Service via incomplete cleanup of aborted uploads",
+          "severity": "moderate",
+          "affectedRange": ">=2.0.0-alpha.1 <2.2.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-wc9g-mqfw-jrwm",
+          "title": "multer vulnerable to Denial of Service via crafted multipart field names",
+          "severity": "high",
+          "affectedRange": "<2.3.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-qvfw-j98x-7q72",
+          "title": "multer vulnerable to file size limit bypass via async fileFilter race condition",
+          "severity": "low",
+          "affectedRange": "<2.3.0"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-535w-7cp7-47q4",
+          "title": "multer vulnerable to Denial of Service via oversized array index in field names",
+          "severity": "high",
+          "affectedRange": "<2.3.0"
+        }
+      ],
+      "classification": "A: PRODUCTION-REACHABLE",
+      "reachability": "EvidenceController FileInterceptor consumes authenticated incident upload multipart data; size cap does not by itself prevent parser DoS.",
+      "fixedVersionAndRemediation": "2.3.0",
+      "compatibilityAndRisk": "Same-major scoped override; Nest 10.4.22 pins 2.0.2; valid, oversized, unexpected and truncated uploads tested.",
+      "remainingSeverity": "none",
+      "deployedProductionStatus": "UNKNOWN: no deployed lockfile/SBOM or authenticated deployment inventory available"
+    },
+    {
+      "package": "picomatch",
+      "severity": "high",
+      "direct": false,
+      "affectedWorkspace": "apps/api (root also contains development tooling)",
+      "instances": [
+        {
+          "path": "node_modules/picomatch",
+          "vulnerableVersion": "4.0.1",
+          "baselineDevOnly": true,
+          "baselineProductionGraph": false,
+          "chains": [
+            "apps/api (dev) -> node_modules/@nestjs/cli@10.4.9 -> node_modules/@angular-devkit/core@17.3.11 -> node_modules/picomatch@4.0.1",
+            "apps/api (dev) -> node_modules/@typescript-eslint/eslint-plugin@8.63.0 -> node_modules/@typescript-eslint/type-utils@8.63.0 -> node_modules/@typescript-eslint/typescript-estree@8.63.0 -> node_modules/tinyglobby@0.2.17 -> node_modules/fdir@6.5.0 -> node_modules/picomatch@4.0.1",
+            "apps/api (dev) -> node_modules/@typescript-eslint/parser@8.63.0 -> node_modules/@typescript-eslint/typescript-estree@8.63.0 -> node_modules/tinyglobby@0.2.17 -> node_modules/fdir@6.5.0 -> node_modules/picomatch@4.0.1"
+          ],
+          "currentVersionAtPath": "4.0.4",
+          "currentArtifactVersion": "absent"
+        }
+      ],
+      "advisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-3v7f-55p6-f55p",
+          "title": "Picomatch: Method Injection in POSIX Character Classes causes incorrect Glob Matching",
+          "severity": "moderate",
+          "affectedRange": ">=4.0.0 <4.0.4"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-c2c7-rcm5-vvqj",
+          "title": "Picomatch has a ReDoS vulnerability via extglob quantifiers",
+          "severity": "high",
+          "affectedRange": ">=4.0.0 <4.0.4"
+        }
+      ],
+      "classification": "B: BUILD/CI-ONLY",
+      "reachability": "Angular devkit under Nest CLI uses glob matching; no API runtime import found.",
+      "fixedVersionAndRemediation": "4.0.4",
+      "compatibilityAndRisk": "Patch scoped override. Unaffected v2 copies retained.",
+      "remainingSeverity": "none",
+      "deployedProductionStatus": "UNKNOWN: no deployed lockfile/SBOM or authenticated deployment inventory available"
+    },
+    {
+      "package": "prisma",
+      "severity": "high",
+      "direct": true,
+      "affectedWorkspace": "apps/api (root also contains development tooling)",
+      "instances": [
+        {
+          "path": "node_modules/prisma",
+          "vulnerableVersion": "6.19.3",
+          "baselineDevOnly": false,
+          "baselineProductionGraph": true,
+          "chains": [
+            "apps/api (runtime) -> node_modules/@prisma/client@6.19.3 -> node_modules/prisma@6.19.3",
+            "apps/api (dev) -> node_modules/prisma@6.19.3"
+          ],
+          "currentVersionAtPath": "6.19.3",
+          "currentArtifactVersion": "6.19.3"
+        }
+      ],
+      "advisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-ggr8-5vv4-36mx",
+          "title": "DeepmergeTS has stack exhaustion when merging recursive object graphs",
+          "severity": "high",
+          "affectedRange": "<8.0.0"
+        }
+      ],
+      "classification": "B: build/migration tooling",
+      "reachability": "CLI generates client during build/artifact assembly. API executes generated client. Production lock may include CLI through optional peer.",
+      "fixedVersionAndRemediation": "Scoped deepmerge-ts 8.0.0 override",
+      "compatibilityAndRisk": "No Prisma major/schema migration change.",
+      "remainingSeverity": "none",
+      "deployedProductionStatus": "UNKNOWN: no deployed lockfile/SBOM or authenticated deployment inventory available"
+    },
+    {
+      "package": "tar",
+      "severity": "critical",
+      "direct": false,
+      "affectedWorkspace": "apps/api (root also contains development tooling)",
+      "instances": [
+        {
+          "path": "node_modules/tar",
+          "vulnerableVersion": "6.2.1",
+          "baselineDevOnly": false,
+          "baselineProductionGraph": true,
+          "chains": [
+            "apps/api (runtime) -> node_modules/bcrypt@5.1.1 -> node_modules/@mapbox/node-pre-gyp@1.0.11 -> node_modules/tar@6.2.1"
+          ],
+          "currentVersionAtPath": "removed/relocated",
+          "currentArtifactVersion": "absent"
+        }
+      ],
+      "advisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-34x7-hfp2-rc4v",
+          "title": "node-tar Vulnerable to Arbitrary File Creation/Overwrite via Hardlink Path Traversal",
+          "severity": "high",
+          "affectedRange": "<7.5.7"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-8qq5-rm4j-mr97",
+          "title": "node-tar is Vulnerable to Arbitrary File Overwrite and Symlink Poisoning via Insufficient Path Sanitization",
+          "severity": "high",
+          "affectedRange": "<=7.5.2"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-83g3-92jg-28cx",
+          "title": "Arbitrary File Read/Write via Hardlink Target Escape Through Symlink Chain in node-tar Extraction",
+          "severity": "high",
+          "affectedRange": "<7.5.8"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-qffp-2rhf-9h96",
+          "title": "tar has Hardlink Path Traversal via Drive-Relative Linkpath",
+          "severity": "high",
+          "affectedRange": "<=7.5.9"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-9ppj-qmqm-q256",
+          "title": "node-tar Symlink Path Traversal via Drive-Relative Linkpath",
+          "severity": "high",
+          "affectedRange": "<=7.5.10"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-r6q2-hw4h-h46w",
+          "title": "Race Condition in node-tar Path Reservations via Unicode Ligature Collisions on macOS APFS",
+          "severity": "high",
+          "affectedRange": "<=7.5.3"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-vmf3-w455-68vh",
+          "title": "node-tar applies PAX size override to intermediary GNU long-name/long-link headers, causing tar parser interpretation differential (file smuggling)",
+          "severity": "moderate",
+          "affectedRange": "<=7.5.15"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-w8wr-v893-vjvp",
+          "title": "node-tar: Process crash via PAX numeric path type confusion",
+          "severity": "moderate",
+          "affectedRange": "<=7.5.17"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-23hp-3jrh-7fpw",
+          "title": "node-tar: Decompression/parse DoS via unlimited input",
+          "severity": "critical",
+          "affectedRange": "<=7.5.18"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-8x88-c5mf-7j5w",
+          "title": "node-tar: Negative tar entry size causes infinite loop in archive replace",
+          "severity": "high",
+          "affectedRange": "<=7.5.17"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-gvwx-54wh-qm9j",
+          "title": "node-tar: Uncaught Exception DoS via NUL byte in PAX path/linkpath records",
+          "severity": "moderate",
+          "affectedRange": "<=7.5.16"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-r292-9mhp-454m",
+          "title": "node-tar: Uncontrolled recursion in mapHas/filesFilter allows uncatchable stack-overflow DoS via crafted long-path tar with member selection",
+          "severity": "high",
+          "affectedRange": "<=7.5.20"
+        }
+      ],
+      "classification": "B: BUILD/INSTALL",
+      "reachability": "bcrypt install -> node-pre-gyp/lib/install.js -> tar.extract. bcrypt runtime calls node-pre-gyp.find only; no OPA archive extraction call found. Baseline lock includes tar in production dependencies; deployed inventory unavailable.",
+      "fixedVersionAndRemediation": "bcrypt 6.0.0 removes chain; critical alone fixed in tar 7.5.19, other reported tar ranges extend through 7.5.20; parent removal avoids all of them.",
+      "compatibilityAndRisk": "Major bcrypt upgrade; verify persisted hashes and native artifact binding.",
+      "remainingSeverity": "none",
+      "deployedProductionStatus": "UNKNOWN: no deployed lockfile/SBOM or authenticated deployment inventory available"
+    },
+    {
+      "package": "tmp",
+      "severity": "high",
+      "direct": false,
+      "affectedWorkspace": "apps/api (root also contains development tooling)",
+      "instances": [
+        {
+          "path": "node_modules/tmp",
+          "vulnerableVersion": "0.0.33",
+          "baselineDevOnly": true,
+          "baselineProductionGraph": false,
+          "chains": [
+            "apps/api (dev) -> node_modules/@nestjs/cli@10.4.9 -> node_modules/inquirer@8.2.6 -> node_modules/external-editor@3.1.0 -> node_modules/tmp@0.0.33"
+          ],
+          "currentVersionAtPath": "0.2.7",
+          "currentArtifactVersion": "absent"
+        }
+      ],
+      "advisories": [
+        {
+          "url": "https://github.com/advisories/GHSA-52f5-9888-hmc6",
+          "title": "tmp allows arbitrary temporary file / directory write via symbolic link `dir` parameter",
+          "severity": "low",
+          "affectedRange": "<=0.2.3"
+        },
+        {
+          "url": "https://github.com/advisories/GHSA-ph9p-34f9-6g65",
+          "title": "tmp has Path Traversal via unsanitized prefix/postfix that enables directory escape",
+          "severity": "high",
+          "affectedRange": "<0.2.6"
+        }
+      ],
+      "classification": "C: DEV-ONLY",
+      "reachability": "Nest CLI -> inquirer -> external-editor -> tmp.tmpNameSync. Build does not invoke interactive external editor.",
+      "fixedVersionAndRemediation": "0.2.7 (0.2.6 introduced GHSA-7c78-jf6q-g5cm)",
+      "compatibilityAndRisk": "Pre-1.0 minor override; tmpNameSync compatibility test.",
+      "remainingSeverity": "none",
+      "deployedProductionStatus": "UNKNOWN: no deployed lockfile/SBOM or authenticated deployment inventory available"
+    }
+  ],
+  "remainingFindings": {
+    "@nestjs/core": {
+      "name": "@nestjs/core",
+      "severity": "moderate",
+      "isDirect": true,
+      "via": [
+        "@nestjs/platform-express",
+        {
+          "source": 1117063,
+          "name": "@nestjs/core",
+          "dependency": "@nestjs/core",
+          "title": "@nestjs/core Improperly Neutralizes Special Elements in Output Used by a Downstream Component ('Injection')",
+          "url": "https://github.com/advisories/GHSA-36xv-jgw5-4q75",
+          "severity": "moderate",
+          "cwe": [
+            "CWE-74"
+          ],
+          "cvss": {
+            "score": 6.1,
+            "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:N/A:L"
+          },
+          "range": "<=11.1.17"
+        }
+      ],
+      "effects": [
+        "@nestjs/platform-express",
+        "@nestjs/swagger",
+        "@nestjs/testing"
+      ],
+      "range": "<=11.1.17",
+      "nodes": [
+        "node_modules/@nestjs/core"
+      ],
+      "fixAvailable": {
+        "name": "@nestjs/core",
+        "version": "12.0.1",
+        "isSemVerMajor": true
+      }
+    },
+    "@nestjs/platform-express": {
+      "name": "@nestjs/platform-express",
+      "severity": "moderate",
+      "isDirect": true,
+      "via": [
+        "@nestjs/core"
+      ],
+      "effects": [
+        "@nestjs/core",
+        "@nestjs/testing"
+      ],
+      "range": "<=11.0.0-next.4",
+      "nodes": [
+        "node_modules/@nestjs/platform-express"
+      ],
+      "fixAvailable": {
+        "name": "@nestjs/platform-express",
+        "version": "12.0.1",
+        "isSemVerMajor": true
+      }
+    },
+    "@nestjs/swagger": {
+      "name": "@nestjs/swagger",
+      "severity": "moderate",
+      "isDirect": true,
+      "via": [
+        "@nestjs/core"
+      ],
+      "effects": [],
+      "range": "<=8.1.1 || 12.0.0-alpha.0 - 12.0.0-alpha.2",
+      "nodes": [
+        "node_modules/@nestjs/swagger"
+      ],
+      "fixAvailable": {
+        "name": "@nestjs/swagger",
+        "version": "12.0.1",
+        "isSemVerMajor": true
+      }
+    },
+    "@nestjs/testing": {
+      "name": "@nestjs/testing",
+      "severity": "moderate",
+      "isDirect": true,
+      "via": [
+        "@nestjs/core",
+        "@nestjs/platform-express"
+      ],
+      "effects": [],
+      "range": "<=11.0.0-next.4",
+      "nodes": [
+        "node_modules/@nestjs/testing"
+      ],
+      "fixAvailable": {
+        "name": "@nestjs/testing",
+        "version": "12.0.1",
+        "isSemVerMajor": true
+      }
+    }
+  },
+  "drift": [
+    {
+      "path": "node_modules/@eslint/config-array/node_modules/brace-expansion",
+      "before": "1.1.16",
+      "after": "1.1.18",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/@eslint/eslintrc/node_modules/brace-expansion",
+      "before": "1.1.16",
+      "after": "1.1.18",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/@istanbuljs/load-nyc-config/node_modules/js-yaml",
+      "before": "3.15.0",
+      "after": "3.15.2",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/@jest/reporters/node_modules/brace-expansion",
+      "before": "1.1.16",
+      "after": "1.1.18",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/@mapbox/node-pre-gyp",
+      "before": "1.0.11",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/@nestjs/swagger/node_modules/js-yaml",
+      "before": "4.1.0",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/@nodable/entities",
+      "before": "2.2.0",
+      "after": "3.0.0",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/@tokenizer/inflate",
+      "before": "0.2.7",
+      "after": "0.4.1",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/abbrev",
+      "before": "1.1.1",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/africastalking",
+      "before": "0.7.9",
+      "after": "0.8.3",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/africastalking/node_modules/dotenv",
+      "before": "17.2.4",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/africastalking/node_modules/lodash",
+      "before": "4.17.23",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/ajv",
+      "before": "8.12.0",
+      "after": "8.20.0",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/aproba",
+      "before": "2.1.0",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/are-we-there-yet",
+      "before": "2.0.0",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/axios",
+      "before": "1.13.5",
+      "after": "1.18.1",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/baseline-browser-mapping",
+      "before": "2.10.42",
+      "after": "2.11.22",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/bcrypt",
+      "before": "5.1.1",
+      "after": "6.0.0",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/body-parser",
+      "before": "1.20.4",
+      "after": "2.3.0",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/body-parser/node_modules/debug",
+      "before": "2.6.9",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/body-parser/node_modules/ms",
+      "before": "2.0.0",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/brace-expansion",
+      "before": "5.0.7",
+      "after": "5.0.9",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/browserslist",
+      "before": "4.28.5",
+      "after": "4.28.9",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/caniuse-lite",
+      "before": "1.0.30001803",
+      "after": "1.0.30001810",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/chownr",
+      "before": "2.0.0",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/color-support",
+      "before": "1.1.3",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/console-control-strings",
+      "before": "1.1.0",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/deepmerge-ts",
+      "before": "7.1.5",
+      "after": "8.0.0",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/delegates",
+      "before": "1.0.0",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/detect-libc",
+      "before": "2.1.2",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/electron-to-chromium",
+      "before": "1.5.389",
+      "after": "1.5.427",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/es-module-lexer",
+      "before": "1.7.0",
+      "after": "2.3.2",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/eslint/node_modules/brace-expansion",
+      "before": "1.1.16",
+      "after": "1.1.18",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/fast-xml-parser",
+      "before": "5.10.0",
+      "after": "5.11.1",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/fflate",
+      "before": "0.8.3",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/file-type",
+      "before": "20.4.1",
+      "after": "21.3.2",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/fork-ts-checker-webpack-plugin/node_modules/brace-expansion",
+      "before": "1.1.16",
+      "after": "1.1.18",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/fs-minipass",
+      "before": "2.1.0",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/fs-minipass/node_modules/minipass",
+      "before": "3.3.6",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/fs-minipass/node_modules/yallist",
+      "before": "4.0.0",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/gauge",
+      "before": "3.0.2",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/gauge/node_modules/signal-exit",
+      "before": "3.0.7",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/glob",
+      "before": "10.4.5",
+      "after": "10.5.0",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/glob/node_modules/brace-expansion",
+      "before": "2.1.2",
+      "after": "2.1.4",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/has-unicode",
+      "before": "2.0.1",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/jest-config/node_modules/brace-expansion",
+      "before": "1.1.16",
+      "after": "1.1.18",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/jest-runtime/node_modules/brace-expansion",
+      "before": "1.1.16",
+      "after": "1.1.18",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/joi",
+      "before": "18.0.2",
+      "after": "18.2.5",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/js-yaml",
+      "before": "4.3.0",
+      "after": "4.3.2",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/lodash",
+      "before": "4.17.21",
+      "after": "4.18.1",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/make-dir",
+      "before": "3.1.0",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/make-dir/node_modules/semver",
+      "before": "6.3.1",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/minizlib",
+      "before": "2.1.2",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/minizlib/node_modules/minipass",
+      "before": "3.3.6",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/minizlib/node_modules/yallist",
+      "before": "4.0.0",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/mkdirp",
+      "before": "0.5.6",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/multer",
+      "before": "2.0.2",
+      "after": "2.3.0",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/node-addon-api",
+      "before": "5.1.0",
+      "after": "8.9.2",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/node-releases",
+      "before": "2.0.51",
+      "after": "2.0.55",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/nopt",
+      "before": "5.0.0",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/npmlog",
+      "before": "5.0.1",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/os-tmpdir",
+      "before": "1.0.2",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/picomatch",
+      "before": "4.0.1",
+      "after": "4.0.4",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/proxy-from-env",
+      "before": "1.1.0",
+      "after": "2.1.0",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/qs",
+      "before": "6.14.2",
+      "after": "6.16.0",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/raw-body",
+      "before": "2.5.3",
+      "after": "3.0.2",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/rimraf",
+      "before": "3.0.2",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/rimraf/node_modules/balanced-match",
+      "before": "1.0.2",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/rimraf/node_modules/brace-expansion",
+      "before": "1.1.16",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/rimraf/node_modules/glob",
+      "before": "7.2.3",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/rimraf/node_modules/minimatch",
+      "before": "3.1.5",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/set-blocking",
+      "before": "2.0.0",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/strnum",
+      "before": "2.4.1",
+      "after": "2.4.2",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/tar",
+      "before": "6.2.1",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/tar/node_modules/minipass",
+      "before": "5.0.0",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/tar/node_modules/mkdirp",
+      "before": "1.0.4",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/tar/node_modules/yallist",
+      "before": "4.0.0",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/test-exclude/node_modules/brace-expansion",
+      "before": "1.1.16",
+      "after": "1.1.18",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/tmp",
+      "before": "0.0.33",
+      "after": "0.2.7",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/update-browserslist-db",
+      "before": "1.2.3",
+      "after": "1.3.3",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/webpack",
+      "before": "5.97.1",
+      "after": "5.104.1",
+      "integrityChanged": true
+    },
+    {
+      "path": "node_modules/wide-align",
+      "before": "1.1.5",
+      "after": null,
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/@angular-devkit/core/node_modules/ajv",
+      "before": null,
+      "after": "8.18.0",
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/@nestjs/platform-express/node_modules/body-parser",
+      "before": null,
+      "after": "1.20.6",
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/@nestjs/platform-express/node_modules/debug",
+      "before": null,
+      "after": "2.6.9",
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/@nestjs/platform-express/node_modules/ms",
+      "before": null,
+      "after": "2.0.0",
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/@nestjs/platform-express/node_modules/raw-body",
+      "before": null,
+      "after": "2.5.3",
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/acorn-import-phases",
+      "before": null,
+      "after": "1.0.4",
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/body-parser/node_modules/content-type",
+      "before": null,
+      "after": "2.1.0",
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/body-parser/node_modules/iconv-lite",
+      "before": null,
+      "after": "0.7.3",
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/body-parser/node_modules/media-typer",
+      "before": null,
+      "after": "1.1.1",
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/body-parser/node_modules/mime-db",
+      "before": null,
+      "after": "1.54.0",
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/body-parser/node_modules/mime-types",
+      "before": null,
+      "after": "3.0.2",
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/body-parser/node_modules/type-is",
+      "before": null,
+      "after": "2.1.0",
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/express/node_modules/body-parser",
+      "before": null,
+      "after": "1.20.6",
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/express/node_modules/raw-body",
+      "before": null,
+      "after": "2.5.3",
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/fast-uri",
+      "before": null,
+      "after": "3.1.7",
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/node-gyp-build",
+      "before": null,
+      "after": "4.8.4",
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/raw-body/node_modules/iconv-lite",
+      "before": null,
+      "after": "0.7.3",
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/webpack/node_modules/ajv-formats",
+      "before": null,
+      "after": "3.0.1",
+      "integrityChanged": false
+    },
+    {
+      "path": "node_modules/webpack/node_modules/schema-utils",
+      "before": null,
+      "after": "4.4.0",
+      "integrityChanged": false
+    }
+  ]
+}

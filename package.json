@@ -14,7 +14,9 @@
     "prisma:migrate": "npm --workspace apps/api run prisma:migrate",
     "start": "node apps/api/dist/main.js",
     "artifact:production": "node apps/api/scripts/assemble-production.cjs",
-    "sso:dependencies": "node apps/api/scripts/sso-dependency-report.cjs"
+    "sso:dependencies": "node apps/api/scripts/sso-dependency-report.cjs",
+    "dependencies:audit": "npm audit --audit-level=high",
+    "dependencies:test": "node --test apps/api/scripts/dependency-security-regression.cjs"
   },
   "engines": {
     "node": ">=22.12.0",
@@ -28,6 +30,41 @@
     "jose": "6.2.12",
     "oauth4webapi": "3.8.8",
     "xml-crypto": "6.1.2",
-    "@xmldom/xmldom": "0.8.15"
+    "@xmldom/xmldom": "0.8.15",
+    "@nestjs/platform-express": {
+      "multer": "2.3.0",
+      "body-parser": "1.20.6"
+    },
+    "@nestjs/swagger": {
+      "js-yaml": "4.3.2",
+      "lodash": "4.18.1"
+    },
+    "@nestjs/config": {
+      "lodash": "4.18.1"
+    },
+    "@nestjs/cli": {
+      "glob": "10.5.0",
+      "webpack": "5.104.1"
+    },
+    "@angular-devkit/core": {
+      "picomatch": "4.0.4",
+      "ajv": "8.18.0"
+    },
+    "external-editor": {
+      "tmp": "0.2.7"
+    },
+    "@prisma/config": {
+      "deepmerge-ts": "8.0.0"
+    },
+    "express": {
+      "body-parser": "1.20.6"
+    },
+    "africastalking": {
+      "joi": "18.2.5"
+    },
+    "@nestjs/common": {
+      "file-type": "21.3.2"
+    },
+    "qs": "6.16.0"
   }
 }

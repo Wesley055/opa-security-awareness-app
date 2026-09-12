@@ -110,8 +110,6 @@ it("provides four reporting areas without fabricated data", () => {
   ])
     expect(screen.getByRole("heading", { name })).toBeVisible();
   expect(screen.getAllByRole("status")).toHaveLength(4);
-  for (const status of screen.getAllByRole("status"))
-    expect(status).toHaveTextContent(
-      "Not enabled / backend capability pending",
-    );
+  expect(screen.getAllByText("Controls for this area are not available in this view yet.")).toHaveLength(3);
+  expect(screen.getByText("See OPA Insight below for facility metric availability.")).toBeVisible();
 });

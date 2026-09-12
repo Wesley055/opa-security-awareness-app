@@ -1066,3 +1066,75 @@ model StagingNotificationBudget {
   key String @id
   count Int @default(0)
 }
+
+/// Rebuildable allowlisted projection. Incident remains authoritative.
+model ReportingProjection {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String @db.Uuid
+  incidentId String @db.Uuid
+  sourceDigest String @db.VarChar(64)
+  generatorVersion String @db.VarChar(64)
+  sourceCutoff DateTime
+  document Json
+  updatedAt DateTime @updatedAt
+  @@unique([facilityId, incidentId])
+  @@index([facilityId, updatedAt])
+}
+
+/// Stored snapshots are never regenerated on read. Supersession is an appended version.
+model AfterIncidentReport {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String @db.Uuid
+  incidentId String @db.Uuid
+  version Int
+  requestKey String @db.Uuid
+  schemaVersion Int
+  generatorVersion String @db.VarChar(64)
+  generatedAt DateTime @default(now())
+  generatedBy String @db.Uuid
+  sourceCutoff DateTime
+  sourceDigest String @db.VarChar(64)
+  supersedesId String? @db.Uuid
+  correctiveActions CorrectiveAction[]
+  @@unique([id, facilityId, incidentId])
+  document Json
+  @@unique([facilityId, incidentId, version])
+  @@unique([facilityId, incidentId, requestKey])
+  @@index([facilityId, generatedAt])
+}
+
+enum CorrectiveActionStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  VERIFIED
+  CANCELLED
+}
+
+/// OVERDUE is derived, never a stored lifecycle transition.
+model CorrectiveAction {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String @db.Uuid
+  incidentId String @db.Uuid
+  airId String @db.Uuid
+  air AfterIncidentReport @relation(fields: [airId, facilityId, incidentId], references: [id, facilityId, incidentId], onDelete: Restrict)
+  requestKey String @db.Uuid
+  category String @db.VarChar(64)
+  title String @db.VarChar(160)
+  description String @db.VarChar(500)
+  ownerId String @db.Uuid
+  dueAt DateTime
+  priority String @db.VarChar(16)
+  status CorrectiveActionStatus @default(OPEN)
+  version Int @default(1)
+  createdBy String @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  completionEvidenceId String? @db.Uuid
+  completedAt DateTime?
+  verifiedBy String? @db.Uuid
+  verifiedAt DateTime?
+  @@unique([facilityId, requestKey])
+  @@index([facilityId, incidentId])
+  @@index([facilityId, status, dueAt])
+}

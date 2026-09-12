@@ -1,3 +1,5 @@
+import { InsightOverview } from '@/components/console/insight-overview';
+import { loadInsightOverview } from '@/lib/insight-overview';
 import { ReportingShell } from '@/components/console/reporting-shell';
 import { redirect } from 'next/navigation';
 import { getSessionState } from '@/lib/operator-session';
@@ -11,6 +13,10 @@ export default async function ReportsPage() {
   const result = await getOperatorContext();
   if (result.state === 'REJECTED') redirect('/api/operator/refresh');
   const role = result.state === 'READY' ? result.context.role : result.state === 'NO_FACILITY' ? result.role : null;
-  if (['FACILITY_OPERATOR','FACILITY_ADMIN','ADMIN'].includes(role ?? '')) return <ReportingShell />;
+  if (['FACILITY_OPERATOR','FACILITY_ADMIN','ADMIN'].includes(role ?? '')) {
+    const insight = await loadInsightOverview();
+    if (insight.state === 'REJECTED') redirect('/api/operator/refresh');
+    return <><ReportingShell /><InsightOverview result={insight} /></>;
+  }
   return <section className="mx-auto max-w-7xl p-6 text-ink"><h1 className="text-2xl font-bold">Reports / Analytics</h1><p role="status" className="mt-4">{result.state === 'UNAVAILABLE' ? 'Account context is temporarily unavailable.' : !['FACILITY_OPERATOR','FACILITY_ADMIN','ADMIN'].includes(role ?? '') ? 'This account cannot access institutional reports.' : 'Reporting is not enabled. Reports and analytics will appear here when the reporting service is available.'}</p>{result.state === 'UNAVAILABLE' ? <RetryButton /> : null}</section>;
 }

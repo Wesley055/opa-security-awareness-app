@@ -1,0 +1,29 @@
+# Protected staging migration OIDC path
+
+The only target is OPA staging. The migration identity is id-opa-staging-migrations (client 453f70fc-09c5-43ea-8a63-6c3304cf5dfc, principal 737caf69-640d-485e-9be5-c0095633a27e) in subscription b79ffdb2-0cf1-4915-89b4-2b6b7cae0299 and tenant adb3fb59-1ac3-42c2-b39a-d70c7006ccbc.
+
+GitHub environment staging requires Wesley055 review and permits only the branch integration/institutional-security. Self-review remains allowed so this operator can approve a manually dispatched run. No environment bypass is used by this workflow. Its federation subject is repo:Wesley055/opa-security-awareness-app:environment:staging, issuer https://token.actions.githubusercontent.com, audience api://AzureADTokenExchange.
+
+The migration identity has Key Vault Secrets User on eight individual staging secret-name scopes. It has no network-management role. Deployment identity and workflow targets are not inputs. No runtime secret is stored in YAML, GitHub environment variables, checkout files, audit output, or the host runner launcher.
+
+## Manual workflow and policy
+
+.github/workflows/opa-staging-migration.yml accepts workflow_dispatch only. Auth-only is the default. The approved SHA must equal the dispatched branch commit. The protected environment variable OPA_STAGING_MIGRATION_POLICY contains the public signed migration envelope, never secret values. It must bind that exact SHA, unexpired staging policy, approved resource IDs and immutable vault secret versions. The checked-in trust registry contains only public verification material. A new workflow commit requires a policy bound to the new SHA; never bypass the build or expiry checks.
+
+The job installs Node 22, runs npm ci, generates Prisma, builds preflight tooling, and tests the invocation guards. The OIDC helper validates GitHub and Azure identity claims, reads only the eight fixed versioned vault secrets into process memory, checks fingerprints/private DNS and calls the committed migration preflight. Auth-only performs read-only identity/history queries and prisma validate. It cannot call migrate deploy. A future migration additionally requires mode=migrate, the exact MIGRATE_OPA_STAGING confirmation and a fresh environment approval; the existing staging-migrate.cjs wrapper then runs prisma migrate deploy and verifies the full migration history/checksums. prisma validate is repeated afterward. No migration is authorized by publishing this configuration.
+
+GitHub requires the workflow file to exist on the repository default branch for workflow_dispatch discovery. If it exists only on the integration branch, the launcher fails before registration or network changes. Making it discoverable on the default branch requires separate authorization when that branch is outside the permitted scope. Do not change the repository default branch to evade this gate.
+
+## Ephemeral operator-host runner
+
+Use ops/staging/run-ephemeral-migration.py with the Azure CLI Python runtime, from this repository, on the approved VPN-connected Windows host. Supply --sha with the exact reviewed integration commit and --image with an approved immutable ghcr.io/actions/actions-runner@sha256 digest. The launcher defaults to --mode auth-only. An image digest must be reviewed/pulled from that official image repository; no mutable tag is accepted. The official image layout must provide /home/runner and its bundled Node 24 or Node 20 bootstrap runtime. Node 22 for the job is installed by the pinned setup action.
+
+The launcher verifies environment review/branch restrictions, default-branch workflow availability and the branch SHA before allocation. It discovers exactly one staging P2S address. A fresh, single-job Linux container uses that host VPN path and DNS 10.72.3.4. The container has no host mounts, host home/Azure profile, Docker socket or static Azure credential. Root filesystem is read-only, capabilities are dropped, and runner work/authentication files live only in RAM-backed tmpfs. The short-lived GitHub registration token is sent over stdin; it is not a host command-line argument or persisted file. The runner is registered --ephemeral with staging-only labels.
+
+The operator host creates only a per-run /32 lease to the fixed PostgreSQL, Key Vault and Redis private IP/ports needed by preflight. Existing evidence HTTPS access is reused. It dispatches the exact SHA/mode with a unique runner lease ID and waits for the required human environment approval. The helper checks the actual database client address against that lease. It records SHA, GitHub run ID, identity, secret version/digest metadata and migration-history readiness without credential values.
+
+On completion/failure/timeout, the host removes its exact network rules, removes the container and deregisters the runner (or verifies automatic ephemeral deregistration). The workflow always signals cleanup; it never receives network-management credentials. The launcher records lease resource IDs before changes and cleanup results in a sanitized opa-staging-run-<lease>.json in the host working directory. If the operator process/host crashes, use that lease record to remove only those rules and the matching labeled container/runner before another VPN client can reuse the address. Do not leave a runner unattended or reuse it across jobs.
+
+## Validation boundary
+
+Publishing this path does not authorize a database migration. Require an identity-authenticated auth-only run with successful private Key Vault access, database identity/history checks, safe cleanup and a fresh SAFE TO MIGRATE STAGING: YES report before separately authorizing migration. Local syntax/unit tests and prior operator-host preflight do not substitute for that CI identity proof.

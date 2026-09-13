@@ -1,1 +1,5 @@
-{}
+{
+  "staging": {
+    "opa-staging-release-20260913": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASove184/bTxkEi7FHb3I2RDwPr/VJ9Kt213FVZkgTJ4=\n-----END PUBLIC KEY-----\n"
+  }
+}

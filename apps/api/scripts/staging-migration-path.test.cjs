@@ -146,13 +146,66 @@ function url(kind) {
     v.SERVER +
     ":5432/" +
     (kind === "runtime" ? v.RUNTIME : v.TEST) +
-    "?sslmode=require"
+    "?sslmode=require" +
+    (kind === "runtime" ? "&sslaccept=strict" : "")
   );
 }
 test("separate fixed database URLs accepted", () => {
   v.databaseUrl(url("runtime"), "runtime");
   v.databaseUrl(url("test"), "test", LEASE);
 });
+test("runtime accepts exact committed Prisma TLS option contract in either order", () => {
+  const approved = url("runtime");
+  v.databaseUrl(approved, "runtime");
+  v.databaseUrl(
+    approved.replace(
+      "sslmode=require&sslaccept=strict",
+      "sslaccept=strict&sslmode=require",
+    ),
+    "runtime",
+  );
+});
+for (const [title, transform] of [
+  ["unknown option", (u) => u + "&unknown=synthetic"],
+  ["host override", (u) => u + "&host=example.invalid"],
+  ["extra schema option", (u) => u + "&schema=public"],
+  ["extra pool option", (u) => u + "&connection_limit=1"],
+  ["duplicate strict option", (u) => u + "&sslaccept=strict"],
+  ["duplicate TLS option", (u) => u + "&sslmode=require"],
+  ["encoded duplicate option", (u) => u + "&ssl%61ccept=strict"],
+  ["missing strict option", (u) => u.replace("&sslaccept=strict", "")],
+  ["missing TLS option", (u) => u.replace("sslmode=require&", "")],
+  [
+    "invalid certificate bypass",
+    (u) => u.replace("sslaccept=strict", "sslaccept=accept_invalid_certs"),
+  ],
+  [
+    "unknown strict value",
+    (u) => u.replace("sslaccept=strict", "sslaccept=other"),
+  ],
+  ["empty strict value", (u) => u.replace("sslaccept=strict", "sslaccept=")],
+  ["TLS disabled", (u) => u.replace("sslmode=require", "sslmode=disable")],
+  [
+    "production server",
+    (u) => u.replace("opa-pg-staging", "opa-pg-production"),
+  ],
+  [
+    "production database",
+    (u) => u.replace("/opa_staging?", "/opa_production?"),
+  ],
+  [
+    "disposable database",
+    (u) => u.replace("/opa_staging?", "/opa_staging_test?"),
+  ],
+  ["arbitrary database", (u) => u.replace("/opa_staging?", "/other?")],
+  [
+    "wrong identity",
+    (u) => u.replace("opa_staging_migrations", "opa_staging_runtime"),
+  ],
+])
+  test("runtime URL rejects " + title, () =>
+    assert.throws(() => v.databaseUrl(transform(url("runtime")), "runtime")),
+  );
 for (const [title, transform] of [
   ["runtime URL used for tests", () => url("runtime")],
   ["other server", (u) => u.replace(v.SERVER, "example.invalid")],

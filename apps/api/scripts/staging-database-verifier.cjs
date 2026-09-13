@@ -93,15 +93,26 @@ function databaseUrl(value, kind, lease) {
     "DATABASE_ROLE",
   );
   const keys = [...u.searchParams.keys()];
-  check(
-    new Set(keys).size === keys.length &&
-      keys.every((k) =>
-        ["sslmode", "schema", "connection_limit", "pool_timeout"].includes(k),
-      ) &&
-      (!u.searchParams.has("schema") ||
-        u.searchParams.get("schema") === "public"),
-    "DATABASE_OPTIONS",
-  );
+  // The signed runtime policy requires exactly these two Prisma TLS options.
+  // Preserve the separate disposable-test URL contract below.
+  if (kind === "runtime")
+    check(
+      keys.length === 2 &&
+        new Set(keys).size === 2 &&
+        u.searchParams.get("sslmode") === "require" &&
+        u.searchParams.get("sslaccept") === "strict",
+      "DATABASE_OPTIONS",
+    );
+  else
+    check(
+      new Set(keys).size === keys.length &&
+        keys.every((k) =>
+          ["sslmode", "schema", "connection_limit", "pool_timeout"].includes(k),
+        ) &&
+        (!u.searchParams.has("schema") ||
+          u.searchParams.get("schema") === "public"),
+      "DATABASE_OPTIONS",
+    );
   check(
     Boolean(u.password) && u.searchParams.get("sslmode") === "require",
     "DATABASE_TLS",

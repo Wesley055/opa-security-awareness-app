@@ -193,3 +193,78 @@ test("post-migration checksum failure retains successful Prisma exit", async () 
 
 test("Node error codes are not mislabeled PostgreSQL SQLSTATE", () =>
   assert.equal(d.codes("pipe failed", [], "EPIPE").sqlstate, null));
+
+test("asynchronous Prisma child leaves event loop available before reconnect", async () => {
+  let ticks = 0;
+  const timer = setInterval(() => ticks++, 5);
+  try {
+    const result = await require("./staging-migrate.cjs").spawnAsync(
+      process.execPath,
+      ["-e", "setTimeout(()=>process.exit(0),60)"],
+      { stdio: "pipe" },
+    );
+    assert.equal(result.status, 0);
+    assert(ticks > 0);
+  } finally {
+    clearInterval(timer);
+  }
+});
+test("post-command reconnect completes before cleanup with one invocation", async () => {
+  const order = [];
+  let access = true;
+  const { result } = await wrapper({
+    initialize: async (pending) => {
+      assert(access);
+      order.push(pending ? "pre" : "reconnect");
+    },
+    spawn: async () => {
+      order.push("deploy");
+      await new Promise((r) => setImmediate(r));
+      return { status: 0 };
+    },
+    cleanup: async () => {
+      order.push("cleanup");
+      access = false;
+    },
+  });
+  assert(result.ok);
+  assert.deepEqual(order, ["pre", "deploy", "reconnect", "cleanup"]);
+});
+test("reconnect failure retains Prisma code and always cleans up without second deploy", async () => {
+  let calls = 0,
+    cleaned = false;
+  const { artifact } = await wrapper({
+    initialize: async (pending, _p, observe) => {
+      observe("database-connectivity");
+      if (!pending)
+        throw Object.assign(Error("Can't reach database"), { code: "P1001" });
+    },
+    spawn: () => {
+      calls++;
+      return { status: 0 };
+    },
+    cleanup: async () => {
+      cleaned = true;
+    },
+  });
+  assert.equal(calls, 1);
+  assert(cleaned);
+  assert.equal(artifact.failureStage, "database-connectivity");
+  assert.equal(artifact.failure.prismaCode, "P1001");
+  assert.equal(artifact.failure.stderrClass, "connectivity");
+});
+test("verify-only never invokes migration and requires complete history", async () => {
+  const { result, artifact } = await wrapper({
+    verifyOnly: true,
+    spawn: () => {
+      throw Error("MIGRATION_FORBIDDEN");
+    },
+    initialize: async (pending, _p, observe) => {
+      assert.equal(pending, false);
+      observe("migration-history-verification");
+      observe("checksum-verification");
+    },
+  });
+  assert(result.ok);
+  assert.equal(artifact.process, undefined);
+});

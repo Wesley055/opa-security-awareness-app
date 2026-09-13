@@ -56,7 +56,11 @@ function codes(text, secrets = [], errorCode) {
       ? errorCode
       : null;
   return {
-    prismaCode: prisma ? prisma[1].toUpperCase() : null,
+    prismaCode: prisma
+      ? prisma[1].toUpperCase()
+      : /^P[0-9]{4}$/.test(errorCode || "")
+        ? errorCode
+        : null,
     sqlstate:
       state && isSqlstate(state[1].toUpperCase()) ? state[1].toUpperCase() : pg,
     stderrClass: /permission denied|insufficient privilege/i.test(safe)

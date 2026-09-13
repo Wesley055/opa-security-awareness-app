@@ -26,9 +26,10 @@ def main():
  require(subprocess.run(['git','-c','safe.directory=C:/Projects/OPA','-C',str(ROOT),'diff','--quiet','HEAD','--','apps/api/scripts/staging-validation-custodian.cjs','apps/api/scripts/staging-database-verifier.cjs','ops/staging/run-protected-migration.py']).returncode==0,'HOST_EXECUTABLE_CHANGED')
  require(git('rev-parse','HEAD')==args.sha and git('branch','--show-current')==BRANCH,'LOCAL_SHA')
  trigger=json.loads(git('show',args.sha+':ops/staging/migration-trigger.json'))
- require(trigger['mode']=='migration' and trigger['environment']=='staging' and trigger['server']=='opa-pg-staging' and trigger['runtimeDatabase']=='opa_staging' and trigger['testDatabase']=='opa_staging_test' and trigger['identity']=='id-opa-staging-migrations','TRIGGER_TARGET')
- require(trigger['execute'] is args.execute and (not args.execute or args.confirmation=='MIGRATE_OPA_STAGING'),'EXECUTION_NOT_AUTHORIZED')
+ require(trigger['mode'] in ('migration','validation') and trigger['environment']=='staging' and trigger['server']=='opa-pg-staging' and trigger['runtimeDatabase']=='opa_staging' and trigger['testDatabase']=='opa_staging_test' and trigger['identity']=='id-opa-staging-migrations','TRIGGER_TARGET')
+ require(trigger['execute'] is args.execute and (not args.execute or args.confirmation==('VALIDATE_MIGRATED_OPA_STAGING' if trigger['mode']=='validation' else 'MIGRATE_OPA_STAGING')),'EXECUTION_NOT_AUTHORIZED')
  require(datetime.datetime.fromisoformat(trigger['expiresAt'].replace('Z','+00:00'))>datetime.datetime.now(datetime.timezone.utc),'TRIGGER_EXPIRED')
+ action='VALIDATE_MIGRATED_OPA_STAGING' if trigger['mode']=='validation' else 'MIGRATE_OPA_STAGING'
  leaseid=trigger['lease'];require(re.fullmatch('[a-f0-9]{24}',leaseid));name='opa-staging-ephemeral-'+leaseid
  env=os.environ.copy();env['GIT_TERMINAL_PROMPT']='0';env['GCM_INTERACTIVE']='Never'
  c=subprocess.run(['git','-c','safe.directory=C:/Projects/OPA','-C',str(ROOT),'-c','credential.interactive=false','credential','fill'],input='protocol=https\nhost=github.com\n\n',capture_output=True,text=True,env=env,timeout=20)
@@ -43,7 +44,7 @@ def main():
  branches=gh('GET','/environments/staging/deployment-branch-policies').json()['branch_policies'];require(len(branches)==1 and branches[0]['name']==BRANCH and branches[0].get('type')=='branch','ENVIRONMENT_BRANCH')
  if args.execute:
   x=requests.get(f'https://api.github.com/repositories/{repo["id"]}/environments/staging/variables/OPA_STAGING_MIGRATION_AUTHORIZATION',headers=headers,timeout=30);require(x.status_code==200,'MIGRATION_AUTHORIZATION_MISSING');a=json.loads(x.json()['value'])
-  require(a['sha']==args.sha and a['lease']==leaseid and a['action']=='MIGRATE_OPA_STAGING' and datetime.datetime.fromisoformat(a['expiresAt'].replace('Z','+00:00'))>datetime.datetime.now(datetime.timezone.utc),'MIGRATION_AUTHORIZATION_INVALID')
+  require(a['sha']==args.sha and a['lease']==leaseid and a['action']==action and datetime.datetime.fromisoformat(a['expiresAt'].replace('Z','+00:00'))>datetime.datetime.now(datetime.timezone.utc),'MIGRATION_AUTHORIZATION_INVALID')
  credential,subscription,tenant=Profile().get_login_credentials(subscription_id=SUB);require(subscription==SUB and tenant==TENANT,'AZURE_ACCOUNT')
  def arm(method,resource,body=None,allowed=(200,201,202,204)):
   require(resource.startswith(SCOPE+'/'),'ARM_STAGING_SCOPE')
@@ -54,7 +55,7 @@ def main():
  require(len(roles)==8 and {x['scope'] for x in roles}==expected and all(x['roleDefinitionId'].endswith('/'+ROLE) and x['principalId']==PRINCIPAL for x in roles),'MIGRATION_IAM_SCOPE')
  address=subprocess.run(['powershell','-NoProfile','-Command',"@(Get-NetIPAddress -AddressFamily IPv4 | Where-Object IPAddress -like '172.27.240.*' | Select-Object -ExpandProperty IPAddress) | ConvertTo-Json -Compress"],capture_output=True,text=True,timeout=20)
  ips=json.loads(address.stdout);ips=ips if isinstance(ips,list) else [ips];require(len(ips)==1 and re.fullmatch(r'172\.27\.240\.(?:[1-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-4])',ips[0]),'VPN_ADDRESS')
- lease={'id':leaseid,'repository':REPO,'approvedSha':args.sha,'mode':'migration' if args.execute else 'migration-review','source':ips[0]+'/32','expiresAt':(datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(minutes=55)).isoformat(),'hostMounts':0,'cleanupOwner':'operator-host','azurePreflight':{'postgresState':'Ready','principalId':PRINCIPAL,'productionAssignments':0,'approvedSecretAssignments':8}}
+ lease={'id':leaseid,'repository':REPO,'approvedSha':args.sha,'mode':'migration-validation' if trigger['mode']=='validation' else 'migration' if args.execute else 'migration-review','source':ips[0]+'/32','expiresAt':(datetime.datetime.now(datetime.timezone.utc)+datetime.timedelta(minutes=55)).isoformat(),'hostMounts':0,'cleanupOwner':'operator-host','azurePreflight':{'postgresState':'Ready','principalId':PRINCIPAL,'productionAssignments':0,'approvedSecretAssignments':8}}
  audit={'runId':args.run_id,'sha':args.sha,'execute':args.execute,'lease':lease,'networkCleanup':[],'testDatabaseRequested':False,'testDatabaseCleanup':not args.execute,'temporaryIamRemoved':True,'containerRemoved':False,'runnerDeregistered':False};rules=[];container=None;runner_id=None;iam=None
  folder=ROOT/'artifacts/staging-migration-runs';folder.mkdir(parents=True,exist_ok=True);evidence=folder/(str(args.run_id)+'-'+leaseid+'.json')
  def save():evidence.write_text(json.dumps(audit,indent=2))

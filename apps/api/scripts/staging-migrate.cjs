@@ -1,5 +1,30 @@
 // Execute only on a reviewed staging-network runner. No Azure login or provisioning.
-const { spawnSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
+function spawnAsync(file, args, options) {
+  return new Promise((resolve) => {
+    const child = spawn(file, args, { ...options, timeout: 1200000 });
+    let stdout = "",
+      stderr = "",
+      error;
+    const retain = (kind, chunk) => {
+      if (stdout.length + stderr.length + chunk.length > 32 * 1024 * 1024) {
+        error = { code: "ENOBUFS" };
+        child.kill();
+        return;
+      }
+      if (kind === "out") stdout += chunk;
+      else stderr += chunk;
+    };
+    child.stdout.on("data", (chunk) => retain("out", chunk));
+    child.stderr.on("data", (chunk) => retain("err", chunk));
+    child.on("error", (e) => {
+      error = e;
+    });
+    child.on("close", (status, signal) =>
+      resolve({ status, signal, stdout, stderr, error }),
+    );
+  });
+}
 const fs = require("node:fs"),
   path = require("node:path");
 const diagnostics = require("./staging-migration-diagnostics.cjs");
@@ -22,30 +47,33 @@ async function run(options = {}) {
       options.initialize ||
       require("../dist/shared/config/environment.js").initializeEnvironment;
     const observe = (stage, state = "start") => d.stage(stage, state);
-    await initialize(true, "migration", observe);
-    d.stage("prisma-command-start");
-    const start = Date.now();
-    const result = (options.spawn || spawnSync)(
-      process.execPath,
-      [
-        (
-          options.resolveCli || (() => require.resolve("prisma/build/index.js"))
-        )(),
-        "migrate",
-        "deploy",
-        "--schema",
-        path.resolve(__dirname, "../prisma/schema.prisma"),
-      ],
-      { stdio: "pipe", env },
-    );
-    d.data.process = diagnostics.processResult(
-      result,
-      Date.now() - start,
-      secrets,
-    );
-    d.stage("prisma-command-exit");
-    if (result.status !== 0) throw Error("Prisma child failed");
-    d.stage("prisma-command-exit", "passed");
+    if (!options.verifyOnly) {
+      await initialize(true, "migration", observe);
+      d.stage("prisma-command-start");
+      const start = Date.now();
+      const result = await (options.spawn || spawnAsync)(
+        process.execPath,
+        [
+          (
+            options.resolveCli ||
+            (() => require.resolve("prisma/build/index.js"))
+          )(),
+          "migrate",
+          "deploy",
+          "--schema",
+          path.resolve(__dirname, "../prisma/schema.prisma"),
+        ],
+        { stdio: "pipe", env },
+      );
+      d.data.process = diagnostics.processResult(
+        result,
+        Date.now() - start,
+        secrets,
+      );
+      d.stage("prisma-command-exit");
+      if (result.status !== 0) throw Error("Prisma child failed");
+      d.stage("prisma-command-exit", "passed");
+    }
     await initialize(false, "migration", observe);
     // Validation remains in the caller, as in the reviewed execution path.
     d.stage("prisma-validate", "skipped");
@@ -85,9 +113,9 @@ async function run(options = {}) {
   }
   return { ok: !failed, diagnostic: diagnostics.validate(d.data) };
 }
-module.exports = { run };
+module.exports = { run, spawnAsync };
 if (require.main === module)
-  run()
+  run({ verifyOnly: process.argv.includes("--verify-only") })
     .then((result) => {
       console.log(
         result.ok

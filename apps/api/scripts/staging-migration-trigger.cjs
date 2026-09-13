@@ -32,7 +32,7 @@ function validate(env, event, t, lease, now = Date.now()) {
   );
   v.check(
     t.version === 1 &&
-      t.mode === "migration" &&
+      ["migration", "validation"].includes(t.mode) &&
       typeof t.execute === "boolean" &&
       t.environment === "staging" &&
       t.server === "opa-pg-staging" &&
@@ -57,7 +57,12 @@ function validate(env, event, t, lease, now = Date.now()) {
     lease.id === t.lease &&
       lease.repository === REPO &&
       lease.approvedSha === env.GITHUB_SHA &&
-      lease.mode === (t.execute ? "migration" : "migration-review") &&
+      lease.mode ===
+        (t.mode === "validation"
+          ? "migration-validation"
+          : t.execute
+            ? "migration"
+            : "migration-review") &&
       /^172\.27\.240\.(?:[1-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-4])\/32$/.test(
         lease.source,
       ) &&
@@ -73,7 +78,10 @@ function validate(env, event, t, lease, now = Date.now()) {
       a &&
         a.sha === env.GITHUB_SHA &&
         a.lease === t.lease &&
-        a.action === "MIGRATE_OPA_STAGING" &&
+        a.action ===
+          (t.mode === "validation"
+            ? "VALIDATE_MIGRATED_OPA_STAGING"
+            : "MIGRATE_OPA_STAGING") &&
         Date.parse(a.expiresAt) > now &&
         Date.parse(a.expiresAt) <= now + 3600000,
       "EXECUTION_AUTHORIZATION",
@@ -81,6 +89,7 @@ function validate(env, event, t, lease, now = Date.now()) {
   }
   return {
     execute: t.execute,
+    mode: t.mode,
     sha: env.GITHUB_SHA,
     lease: t.lease,
     source: lease.source,

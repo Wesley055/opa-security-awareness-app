@@ -224,6 +224,29 @@ async function baseline(db) {
     ).rows[0].bytes,
   };
 }
+async function verifyMigrated(
+  db,
+  expected,
+  source,
+  schemaCheck = schemaSanity,
+) {
+  await db.query("BEGIN READ ONLY");
+  try {
+    check(
+      (await db.query("SHOW transaction_read_only")).rows[0]
+        .transaction_read_only === "on",
+      "READ_ONLY_REQUIRED",
+    );
+    await identity(db, RUNTIME, "opa_staging_migrations", source);
+    await runtimeSentinel(db);
+    const rows = await history(db);
+    historyCheck(rows, expected);
+    await schemaCheck(db);
+    return { migrationCount: rows.length, history: rows, readOnly: true };
+  } finally {
+    await db.query("ROLLBACK");
+  }
+}
 async function schemaSanity(db) {
   const { Prisma } = require("@prisma/client");
   const columns = (
@@ -332,6 +355,7 @@ module.exports = {
   manifest,
   manifestHash,
   historyCheck,
+  verifyMigrated,
   testRole,
   databaseUrl,
   identityCheck,

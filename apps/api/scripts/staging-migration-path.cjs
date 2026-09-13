@@ -258,7 +258,7 @@ async function tests(access, run, audit) {
 async function controlledExecution(run, ops) {
   if (!run.execute) return;
   await ops.beforeWrite();
-  await ops.migrateRuntime();
+  if (run.mode !== "validation") await ops.migrateRuntime();
   await ops.verifyRuntime();
   let original;
   try {
@@ -300,7 +300,12 @@ async function main() {
   );
   const audit = {
     status: "running",
-    mode: run.execute ? "migration" : "review-only",
+    mode:
+      run.mode === "validation"
+        ? "post-migration-validation"
+        : run.execute
+          ? "migration"
+          : "review-only",
     runId: process.env.GITHUB_RUN_ID,
     attempt: process.env.GITHUB_RUN_ATTEMPT,
     sha: run.sha,
@@ -373,7 +378,9 @@ async function main() {
     await db.connect();
     try {
       await v.identity(db, v.RUNTIME, "opa_staging_migrations", run.source);
-      audit.baseline = await v.baseline(db);
+      if (run.mode === "validation") {
+        audit.baseline = await v.verifyMigrated(db, run.manifest, run.source);
+      } else audit.baseline = await v.baseline(db);
       if (!run.execute) phase = "read-only-permission-diagnostics";
       if (!run.execute)
         audit.readOnlyDiagnostics =
@@ -383,7 +390,7 @@ async function main() {
     }
     phase = "prisma-engine-connectivity";
     await require("../dist/shared/config/environment.js").initializeEnvironment(
-      true,
+      run.mode !== "validation",
       "migration",
     );
     audit.prismaEngineConnectivity = "PASS";
@@ -442,8 +449,8 @@ async function main() {
               audit.wrapperStage =
                 audit.wrapper.failureStage || audit.wrapper.stage;
               audit.wrapperFailureClass =
-                audit.wrapper.process?.stderrClass ||
                 audit.wrapper.failure?.stderrClass ||
+                audit.wrapper.process?.stderrClass ||
                 "none";
             } else
               audit.wrapperFailureClass = "diagnostic-artifact-unavailable";
@@ -453,15 +460,41 @@ async function main() {
       },
       verifyRuntime: async () => {
         phase = "runtime-verification";
-        const after = new Client({ connectionString: runtime.DATABASE_URL });
+        runtime.OPA_MIGRATION_DIAGNOSTICS_FILE =
+          "/runner/opa-staging-wrapper-diagnostics.json";
+        command(
+          path.join(__dirname, "staging-migrate.cjs"),
+          ["--verify-only"],
+          runtime,
+          "POST_MIGRATION_RECONNECT",
+          600000,
+          (result, durationMs) => {
+            audit.postVerifierExit = diagnostics.processResult(
+              result,
+              durationMs,
+              boundary.secretNames.map((name) => runtime[name]),
+            );
+            if (fs.existsSync(runtime.OPA_MIGRATION_DIAGNOSTICS_FILE)) {
+              const data = fs.readFileSync(
+                runtime.OPA_MIGRATION_DIAGNOSTICS_FILE,
+                "utf8",
+              );
+              v.check(data.length <= 65536, "DIAGNOSTIC_ARTIFACT_SIZE");
+              audit.postVerifier = diagnostics.validate(JSON.parse(data));
+            }
+          },
+        );
+        const after = new Client({
+          connectionString: runtime.DATABASE_URL,
+          options: "-c default_transaction_read_only=on",
+        });
         await after.connect();
         try {
-          await v.runtimeSentinel(after);
-          const rows = await v.history(after);
-          v.historyCheck(rows, run.manifest);
-          await v.schemaSanity(after);
-          audit.history = rows;
-          audit.postMigrationCount = rows.length;
+          const proof = await v.verifyMigrated(after, run.manifest, run.source);
+          audit.history = proof.history;
+          audit.postMigrationCount = proof.migrationCount;
+          audit.runtimeReadOnlyVerification = "PASS";
+          audit.runtimeMigrationRerun = run.mode !== "validation";
         } finally {
           await after.end();
         }

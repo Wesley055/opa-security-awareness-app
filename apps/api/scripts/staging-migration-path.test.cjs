@@ -395,3 +395,106 @@ test("expired owned lease can still be cleaned, never created", () => {
 });
 test("arbitrary custodian action rejected", () =>
   assert.throws(() => c.context({ ...input, action: "reset" })));
+
+test("validation mode requires distinct SHA-bound authorization and lease", () => {
+  const f = fixture();
+  f.t.mode = "validation";
+  f.t.execute = true;
+  f.lease.mode = "migration-validation";
+  f.env.OPA_STAGING_MIGRATION_AUTHORIZATION = JSON.stringify({
+    sha: SHA,
+    lease: LEASE,
+    action: "MIGRATE_OPA_STAGING",
+    expiresAt: new Date(NOW + 600000).toISOString(),
+  });
+  assert.throws(() => valid(f));
+  f.env.OPA_STAGING_MIGRATION_AUTHORIZATION =
+    f.env.OPA_STAGING_MIGRATION_AUTHORIZATION.replace(
+      "MIGRATE_OPA_STAGING",
+      "VALIDATE_MIGRATED_OPA_STAGING",
+    );
+  assert.equal(valid(f).mode, "validation");
+});
+test("validation skips runtime migration and retains access through verification", async () => {
+  const order = [];
+  let access = true;
+  await controlledExecution(
+    { execute: true, mode: "validation" },
+    {
+      beforeWrite: async () => order.push("gate"),
+      migrateRuntime: async () => {
+        throw Error("FORBIDDEN");
+      },
+      verifyRuntime: async () => {
+        assert(access);
+        order.push("verify");
+      },
+      createTest: async () => order.push("create"),
+      validateTest: async () => order.push("tests"),
+      dropTest: async () => {
+        order.push("drop");
+        access = false;
+      },
+    },
+  );
+  assert.deepEqual(order, ["gate", "verify", "create", "tests", "drop"]);
+});
+test("migrated verification uses only reads and rollback", async () => {
+  const statements = [];
+  const expected = [{ name: "migration", checksum: "hash" }];
+  const db = {
+    query: async (sql) => {
+      statements.push(sql);
+      if (sql.startsWith("SHOW"))
+        return { rows: [{ transaction_read_only: "on" }] };
+      if (sql.includes("host(inet_client_addr"))
+        return {
+          rows: [
+            {
+              database: v.RUNTIME,
+              role: "opa_staging_migrations",
+              address: "172.27.240.2",
+            },
+          ],
+        };
+      if (sql.includes("SELECT environment"))
+        return { rows: [{ environment: "staging" }] };
+      if (sql.includes("to_regclass"))
+        return { rows: [{ table_name: "_prisma_migrations" }] };
+      if (sql.includes("SELECT migration_name"))
+        return {
+          rows: [
+            {
+              migration_name: "migration",
+              checksum: "hash",
+              finished_at: "now",
+              rolled_back_at: null,
+              applied_steps_count: 1,
+            },
+          ],
+        };
+      return { rows: [] };
+    },
+  };
+  const proof = await v.verifyMigrated(
+    db,
+    expected,
+    "172.27.240.2/32",
+    async () => {},
+  );
+  assert.equal(proof.migrationCount, 1);
+  assert.equal(statements[0], "BEGIN READ ONLY");
+  assert.equal(statements.at(-1), "ROLLBACK");
+  assert(
+    statements.every((s) => /^(SELECT|SHOW|BEGIN READ ONLY|ROLLBACK)/.test(s)),
+  );
+  await assert.rejects(
+    v.verifyMigrated(
+      db,
+      [{ name: "wrong", checksum: "hash" }],
+      "172.27.240.2/32",
+      async () => {},
+    ),
+  );
+  assert.equal(statements.at(-1), "ROLLBACK");
+});

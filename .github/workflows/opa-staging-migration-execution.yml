@@ -1,0 +1,44 @@
+name: OPA protected staging migration execution
+run-name: OPA staging migration path ${{ github.sha }}
+on:
+  push:
+    branches: [integration/institutional-security]
+    paths: [ops/staging/migration-trigger.json]
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: opa-staging-migration
+  cancel-in-progress: false
+jobs:
+  staging-migration:
+    if: github.event_name == 'push' && github.repository == 'Wesley055/opa-security-awareness-app' && github.ref == 'refs/heads/integration/institutional-security'
+    environment: staging
+    runs-on: [self-hosted, Linux, X64, opa-staging-ephemeral]
+    timeout-minutes: 45
+    env:
+      OPA_GITHUB_ENVIRONMENT: staging
+      OPA_STAGING_MIGRATION_POLICY: ${{ vars.OPA_STAGING_MIGRATION_POLICY }}
+      OPA_STAGING_MIGRATION_AUTHORIZATION: ${{ vars.OPA_STAGING_MIGRATION_AUTHORIZATION }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.x
+      - name: Check immutable invocation before authentication
+        run: node apps/api/scripts/staging-migration-path.cjs --guard-only
+      - run: npm install --global npm@11.17.0
+      - run: npm ci
+      - run: npm run prisma:generate
+      - run: npm --workspace apps/api run build
+      - name: Test migration and database boundaries
+        run: node --test apps/api/scripts/staging-migration-path.test.cjs apps/api/scripts/staging-oidc.test.cjs packages/environment-policy/policy.test.cjs
+      - name: Protected staging review or explicitly authorized migration
+        run: node apps/api/scripts/staging-migration-path.cjs
+      - name: Signal custodian cleanup
+        if: always()
+        run: node -e "require('fs').writeFileSync('/runner/opa-staging-job-finished.json',JSON.stringify({runId:process.env.GITHUB_RUN_ID,sha:process.env.GITHUB_SHA}))"

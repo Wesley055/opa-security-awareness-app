@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "mode": "migration",
+  "execute": false,
+  "approvedParentSha": "592b32c5366a457157a93620802b64988d493d53",
+  "executableShaBinding": "github-event-sha+signed-policy+runner-lease",
+  "lease": "129c364151be03e9d4037518",
+  "expiresAt": "2026-09-14T08:30:31.749151+00:00",
+  "environment": "staging",
+  "server": "opa-pg-staging",
+  "runtimeDatabase": "opa_staging",
+  "testDatabase": "opa_staging_test",
+  "identity": "id-opa-staging-migrations",
+  "migrationChainSha256": "a4fc253271a9395ce29f01425b68e24299a4a891b1f1a23379db074bd1e881a8"
+}

@@ -101,7 +101,7 @@ async function main(){
   prisma(['validate'],runtime);
   const {PrismaClient}=require('@prisma/client');const db=new PrismaClient({datasources:{db:{url:runtime.DATABASE_URL}}});
   let identity;
-  try{identity=await db.$queryRaw`SELECT current_user AS role,current_database() AS database,inet_client_addr()::text AS client_address FROM opa_deployment.environment_identity WHERE singleton=true`;}finally{await db.$disconnect()}
+  try{identity=await db.$queryRaw`SELECT current_user AS role,current_database() AS database,host(inet_client_addr()) AS client_address FROM opa_deployment.environment_identity WHERE singleton=true`;}finally{await db.$disconnect()}
   if(identity.length!==1||identity[0].role!=='opa_staging_migrations'||identity[0].database!=='opa_staging'||identity[0].client_address!==lease.source.split('/')[0])reject();
   if(mode==='migrate'){
    const result=spawnSync(process.execPath,[path.join(__dirname,'staging-migrate.cjs')],{env:runtime,stdio:'pipe',timeout:1200000,maxBuffer:4*1024*1024});

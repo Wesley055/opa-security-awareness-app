@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "mode": "auth-only",
+  "migration": false,
+  "repository": "Wesley055/opa-security-awareness-app",
+  "branch": "integration/institutional-security",
+  "parentSha": "db38b5ddbaa0fe5ee73f75c20302a5facc42bd88",
+  "lease": "2e829bfb89f786a0cb4486f6"
+}

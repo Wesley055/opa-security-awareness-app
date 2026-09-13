@@ -5,6 +5,7 @@ const fs = require("node:fs"),
 const { spawnSync } = require("node:child_process");
 const v = require("./staging-database-verifier.cjs"),
   trigger = require("./staging-migration-trigger.cjs");
+const diagnostics = require("./staging-migration-diagnostics.cjs");
 const boundary = require("../../../packages/environment-policy/index.cjs");
 const { validatePolicy } = require("./staging-oidc.cjs");
 const { REPO, REF } = trigger;
@@ -110,7 +111,8 @@ const SUITES = [
   "journey-session-service",
   "advisory-lock",
 ];
-function command(script, args, env, stage, timeout = 600000) {
+function command(script, args, env, stage, timeout = 600000, observe) {
+  const started = Date.now();
   const r = spawnSync(process.execPath, [script, ...args], {
     env,
     cwd: path.join(v.ROOT, "apps/api"),
@@ -118,6 +120,7 @@ function command(script, args, env, stage, timeout = 600000) {
     timeout,
     maxBuffer: 32 * 1024 * 1024,
   });
+  if (observe) observe(r, Date.now() - started);
   v.check(r.status === 0, stage);
   return r;
 }
@@ -371,13 +374,20 @@ async function main() {
     try {
       await v.identity(db, v.RUNTIME, "opa_staging_migrations", run.source);
       audit.baseline = await v.baseline(db);
+      if (!run.execute) phase = "read-only-permission-diagnostics";
+      if (!run.execute)
+        audit.readOnlyDiagnostics =
+          await require("./staging-readonly-diagnostics.cjs").collect(db);
     } finally {
       await db.end();
     }
+    phase = "prisma-engine-connectivity";
     await require("../dist/shared/config/environment.js").initializeEnvironment(
       true,
       "migration",
     );
+    audit.prismaEngineConnectivity = "PASS";
+    phase = "prisma-validate";
     prisma(["validate"], runtime, "PRISMA_VALIDATE");
     audit.privateConnectivity = "PASS";
     audit.databasePreflight = "PASS";
@@ -401,12 +411,43 @@ async function main() {
       migrateRuntime: async () => {
         phase = "runtime-migration";
         audit.migrationAttempted = true;
+        runtime.OPA_MIGRATION_DIAGNOSTICS_FILE =
+          "/runner/opa-staging-wrapper-diagnostics.json";
+        audit.diagnosticArtifactPath = runtime.OPA_MIGRATION_DIAGNOSTICS_FILE;
         command(
           path.join(__dirname, "staging-migrate.cjs"),
           [],
           runtime,
           "RUNTIME_MIGRATION_FAILED",
           1200000,
+          (result, durationMs) => {
+            audit.wrapperExit = diagnostics.processResult(
+              result,
+              durationMs,
+              Object.entries(runtime)
+                .filter(
+                  ([name]) =>
+                    boundary.secretNames.includes(name) ||
+                    /TOKEN|PASSWORD|SECRET/i.test(name),
+                )
+                .map(([, value]) => value),
+            );
+            if (fs.existsSync(runtime.OPA_MIGRATION_DIAGNOSTICS_FILE)) {
+              const data = fs.readFileSync(
+                runtime.OPA_MIGRATION_DIAGNOSTICS_FILE,
+                "utf8",
+              );
+              v.check(data.length <= 65536, "DIAGNOSTIC_ARTIFACT_SIZE");
+              audit.wrapper = diagnostics.validate(JSON.parse(data));
+              audit.wrapperStage =
+                audit.wrapper.failureStage || audit.wrapper.stage;
+              audit.wrapperFailureClass =
+                audit.wrapper.process?.stderrClass ||
+                audit.wrapper.failure?.stderrClass ||
+                "none";
+            } else
+              audit.wrapperFailureClass = "diagnostic-artifact-unavailable";
+          },
         );
         audit.migrationsExecuted = true;
       },
@@ -462,6 +503,19 @@ async function main() {
     audit.status = "Failed";
     audit.failureStage = phase;
     audit.cleanupFailed = Boolean(error.cleanupFailed);
+    audit.errorDiagnostic = diagnostics.codes(
+      error.message,
+      runtime
+        ? Object.entries(runtime)
+            .filter(
+              ([name]) =>
+                boundary.secretNames.includes(name) ||
+                /TOKEN|PASSWORD|SECRET/i.test(name),
+            )
+            .map(([, value]) => value)
+        : [],
+      error.code,
+    );
     audit.errorCode = /^[A-Z0-9_]{1,64}$/.test(error.message || "")
       ? error.message
       : "DETAILS_SUPPRESSED";
@@ -472,7 +526,16 @@ async function main() {
       if (runtime) delete runtime[name];
       delete process.env[name];
     }
-    if (policyDir) fs.rmSync(policyDir, { recursive: true, force: true });
+    try {
+      if (policyDir) fs.rmSync(policyDir, { recursive: true, force: true });
+      audit.localCleanup = "passed";
+    } catch {
+      audit.localCleanup = "failed";
+      audit.cleanupFailed = true;
+      if (audit.status !== "Failed") audit.failureStage = "cleanup";
+      audit.status = "Failed";
+      process.exitCode = 1;
+    }
     fs.writeFileSync(
       "/runner/opa-staging-migration-audit.json",
       JSON.stringify(audit),

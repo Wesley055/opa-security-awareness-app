@@ -36,6 +36,8 @@ class Transport:
             else: raise RuntimeError("VM_CONTROL_CLEANUP_NOT_VERIFIED")
     def results(self,host,expected=None,dns_only=False):
         return self.command(results_network.PROBE_SCRIPT,results_network.payload(host,expected,dns_only))
+    def engine(self):
+        return self.command(results_network.ENGINE_PROBE_SCRIPT,results_network.engine_payload())
     def probe(self):
         return self.command(SCRIPT,{"action":"probe"})
     def publish(self,name,value):

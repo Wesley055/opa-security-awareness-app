@@ -27,6 +27,21 @@ class Socket:
 
 
 class Tests(unittest.TestCase):
+    def test_engine_transport_required_before_launch(self):
+        report={"host":n.ENGINE_HOST,"addresses":["104.20.43.103"],"dns":"PASS","tcp443":"PASS","tls":"PASS","httpStatus":404,"failureStage":None}
+        self.assertEqual(n.engine_check(report),"PASS")
+        for field,value in [("host",n.HOST),("dns","FAIL"),("tcp443","FAIL"),("tls","FAIL"),("httpStatus",None),("failureStage","HTTP")]:
+            with self.subTest(field=field), self.assertRaises(RuntimeError):
+                n.engine_check(dict(report,**{field:value}))
+        with self.assertRaises(RuntimeError):
+            n.payload(n.ENGINE_HOST)
+        with self.assertRaises(RuntimeError):
+            n.metadata_host(302,"https://productionresultssa13.blob.core.windows.net/path")
+        s=pathlib.Path(__file__).with_name("run-azure-validation.py").read_text()
+        self.assertEqual(s.count("results_network.engine_check(engine)"),2)
+        self.assertLess(s.rindex("results_network.engine_check(engine)"),s.index("transport.launch("))
+        self.assertIn("assert h=='binaries.prisma.sh'",n.ENGINE_PROBE_SCRIPT)
+
     def test_metadata_strips_signed_query(self):
         self.assertEqual(n.metadata_host(302, "https://" + n.HOST + "/path?sig=NEVER_PRINT"), n.HOST)
         for url in ["https://opa-production.blob.core.windows.net/x", "http://"+n.HOST, "https://"+n.HOST+".evil.example/x", "https://user:pass@"+n.HOST]:

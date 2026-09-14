@@ -116,6 +116,8 @@ def execute(args):
   rule_response=arm('GET',result_rule,allowed=(200,404));correct_rule=rule_response.status_code==200 and results_network.rule_matches(rule_response.json(),result_body)
   decision=results_network.classify(proof,results_ips,nat_ready,correct_rule)
   audit['resultsNetwork']['preflight']=proof;audit['resultsNetwork']['decision']=decision;save();require(decision=='PASS',decision)
+  phase='prisma-engine-preflight'
+  engine=transport.engine();audit['prismaEnginePreflight']=engine;save();results_network.engine_check(engine)
   phase='custodian-preflight'
   for suffix,destination,port,nsg in [('postgres','10.72.1.4','5432','nsg-opa-staging-postgres'),('vault','10.72.2.4','443','nsg-opa-staging-private-endpoints')]:
    resource=N+'/networkSecurityGroups/'+nsg+'/securityRules/opa-azure-custodian-'+leaseid+'-'+suffix+NETAPI;require(arm('GET',resource,allowed=(200,404)).status_code==404,'TEMP_RULE_EXISTS');temporary.append(resource);audit['temporaryRules']=list(temporary);save()
@@ -133,6 +135,8 @@ def execute(args):
   jit=gh('POST','/actions/runners/generate-jitconfig',{'name':NAME,'runner_group_id':1,'labels':['self-hosted','linux',LABEL,args.sha],'work_folder':'_work'}).json();runner_id=jit['runner']['id'];jit['encoded_jit_config']=seal_jit(jit['encoded_jit_config']);audit['runnerId']=runner_id;save()
   phase='results-storage-launch-check'
   final_network=transport.results(results_host,results_ips);final_decision=results_network.classify(final_network,results_ips,nat_ready,correct_rule);audit['resultsNetwork']['launchProof']=final_network;audit['resultsNetwork']['launchDecision']=final_decision;save();require(final_decision=='PASS',final_decision)
+  phase='prisma-engine-launch-check'
+  engine=transport.engine();audit['prismaEngineLaunchProof']=engine;save();results_network.engine_check(engine)
   # Check approval again immediately before the only listener start operation.
   approved(gh('GET','/actions/runs/'+str(args.run_id)).json(),gh('GET','/actions/runs/'+str(args.run_id)+'/pending_deployments').json(),gh('GET','/actions/runs/'+str(args.run_id)+'/approvals').json(),args.sha,args.run_id)
   phase='validation-job'

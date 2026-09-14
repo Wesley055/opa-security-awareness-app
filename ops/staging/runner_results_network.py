@@ -4,11 +4,11 @@ Only hostname/status metadata leaves the probe; signed URLs never leave memory.
 import ipaddress
 import urllib.parse
 
-HOST = "productionresultssa13.blob.core.windows.net"
+HOST = "productionresultssa9.blob.core.windows.net"
 SOURCE = "10.72.4.4/32"
 PRIORITY = 170
-METADATA_RUN = 34811303714
-METADATA_JOB = 103873034838
+METADATA_RUN = 34819635287
+METADATA_JOB = 103897986188
 
 
 def require(value, code):
@@ -99,7 +99,7 @@ PROBE_SCRIPT = r"""#!/bin/sh
 python3 - <<'PY'
 import os,json,socket,ssl,re,shutil,subprocess
 x=json.loads(os.environ.pop('OPA_PAYLOAD'));h=x['host']
-assert h=='productionresultssa13.blob.core.windows.net'
+assert h=='productionresultssa9.blob.core.windows.net'
 out={'host':h,'dns':'FAIL','tcp443':'NOT_REACHED','tls':'NOT_REACHED','httpStatus':None,'ttlSeconds':None}
 try:
  ips=sorted({a[4][0] for a in socket.getaddrinfo(h,443,socket.AF_INET,socket.SOCK_STREAM)})
@@ -132,3 +132,24 @@ except Exception as exc:
 print('OPA_CONTROL '+json.dumps(out,separators=(',',':')))
 PY
 """
+
+
+# Fixed second transport target; results payload/rule authorization stays exact-host.
+ENGINE_HOST = "binaries.prisma.sh"
+ENGINE_PROBE_SCRIPT = PROBE_SCRIPT.replace(HOST, ENGINE_HOST)
+
+
+def engine_payload():
+    return {"host": ENGINE_HOST, "expected": None, "dnsOnly": False}
+
+
+def engine_check(report):
+    require(report.get("host") == ENGINE_HOST, "PRISMA_ENGINE_HOST")
+    require(report.get("dns") == "PASS", "PRISMA_ENGINE_DNS")
+    addresses(report.get("addresses"))
+    require(report.get("tcp443") == "PASS", "PRISMA_ENGINE_TCP")
+    require(report.get("tls") == "PASS", "PRISMA_ENGINE_TLS")
+    require(report.get("failureStage") is None and
+            isinstance(report.get("httpStatus"), int) and
+            100 <= report["httpStatus"] <= 599, "PRISMA_ENGINE_HTTP")
+    return "PASS"

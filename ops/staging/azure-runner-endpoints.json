@@ -1,6 +1,7 @@
 {
   "hosts": [
     "api.github.com",
+    "binaries.prisma.sh",
     "broker.actions.githubusercontent.com",
     "codeload.github.com",
     "github.com",

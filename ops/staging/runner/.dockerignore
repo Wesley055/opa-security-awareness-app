@@ -1,0 +1,4 @@
+*
+!Dockerfile
+!verify-toolchain.cjs
+!signal-cleanup.cjs

@@ -1,0 +1,15 @@
+# Protected Azure disposable validation
+
+The workflow requires self-hosted, linux, opa-staging-azure-validation and the exact executable SHA as runner labels. Only the protected staging environment on integration/institutional-security can launch it. This path accepts validation mode only; it cannot rerun runtime migrations.
+
+The signed migration policy binds the exact VM, VNet, subnet, 10.72.4.4/32, migration identity, runtime opa_staging, disposable opa_staging_test and validation lease ID. The job verifies the root-owned lease, exact private DNS and VM user/tmpfs isolation. The operator supervisor rechecks Azure metadata, inherited IAM, routes, resource ownership and protected GitHub approval before introducing temporary access or starting a listener.
+
+The offline JIT registration is expected. After approval, run run-azure-validation.py with the approved SHA and run ID. It renews the one-job JIT configuration, forces ephemeral/no-update settings, adds the SHA label, and uses a protected in-memory transfer. No listener is started by preparation or commit/push. An approval or authorization mismatch fails closed.
+
+Database custody stays on the existing Windows operator host through its independently verified staging VPN /32. That source is distinct from the Azure runner source. The operator receives only temporary single-bootstrap-secret IAM and PostgreSQL/Key Vault rules. Bootstrap credentials never reach the job or VM. The custodian refuses runtime writes, validates disposable ownership, and sends only disposable access through a protected parameter to VM tmpfs.
+
+After completion/failure, cleanup attempts cancellation, listener stop, disposable DB/role drop, runner deregistration, tmpfs removal, temporary IAM/network removal, execution-authorization deletion, VM/NIC/disk deletion, and runner-only NAT/public-IP deletion. Each step is recorded; one failure does not suppress later independent cleanup. Shared networking, PostgreSQL, Key Vault and the runner subnet/NSG are retained. Azure deletion is polled to absence. Before the supervisor reaches its temporary-access/launch lifecycle, rejected approval or resource-ownership preflight leaves the offline provisioned resources retained for review.
+
+Egress is source-limited to 10.72.4.4/32. Checked hostnames are in azure-runner-endpoints.json. NSGs enforce IP/service boundaries, not hostname filtering. Azure identity uses AzureActiveDirectory; rotating GitHub token/results endpoints use GitHub's published 140.82.112.0/20 prefix. Other job destinations use observed /32s. Unknown JIT service hostnames fail closed. The preparation probe verifies TLS/HTTP only; signed artifact transfers and token acquisition are verified by the eventual protected job.
+
+Preparation never creates/drops databases, launches the listener, deploys, or changes production. The lifecycle supervisor must be invoked only after the prepared run receives staging approval. If the 55-minute execution authorization expires while waiting, refresh only that same SHA/lease authorization before invocation; do not change the reviewed executable SHA.

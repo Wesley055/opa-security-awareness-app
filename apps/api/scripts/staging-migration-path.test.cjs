@@ -399,6 +399,25 @@ test("arbitrary custodian action rejected", () =>
 test("validation mode requires distinct SHA-bound authorization and lease", () => {
   const f = fixture();
   f.t.mode = "validation";
+  const azure = require("./staging-azure-runner.cjs");
+  f.env.OPA_RUNNER_KIND = azure.CONTRACT.kind;
+  f.env.RUNNER_NAME = azure.CONTRACT.name;
+  Object.assign(f.lease, {
+    runner: { ...azure.CONTRACT },
+    source: azure.CONTRACT.source,
+    cleanupOwner: azure.CONTRACT.cleanupOwner,
+    azurePreflight: {
+      postgresState: "Ready",
+      principalId: azure.CONTRACT.principal,
+      productionAssignments: 0,
+      approvedSecretAssignments: 8,
+      productionRoutes: 0,
+      productionDnsBindings: 0,
+      privatePostgres: "10.72.1.4",
+      privateVault: "10.72.2.4",
+      publicVmIp: false,
+    },
+  });
   f.t.execute = true;
   f.lease.mode = "migration-validation";
   f.env.OPA_STAGING_MIGRATION_AUTHORIZATION = JSON.stringify({

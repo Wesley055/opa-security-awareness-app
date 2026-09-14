@@ -1,8 +1,10 @@
 "use strict";
+const process = require("node:process");
 const fs = require("node:fs"),
   path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const v = require("./staging-database-verifier.cjs");
+const azure = require("./staging-azure-runner.cjs");
 const REPO = "Wesley055/opa-security-awareness-app";
 const REF = "refs/heads/integration/institutional-security";
 const TRIGGER = "ops/staging/migration-trigger.json";
@@ -53,6 +55,8 @@ function validate(env, event, t, lease, now = Date.now()) {
       Date.parse(t.expiresAt) <= now + 48 * 3600 * 1000,
     "TRIGGER_EXPIRY",
   );
+  if (t.mode === "validation" || env.OPA_RUNNER_KIND)
+    azure.lease(lease, t, env);
   v.check(
     lease.id === t.lease &&
       lease.repository === REPO &&
@@ -63,13 +67,18 @@ function validate(env, event, t, lease, now = Date.now()) {
           : t.execute
             ? "migration"
             : "migration-review") &&
-      /^172\.27\.240\.(?:[1-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-4])\/32$/.test(
-        lease.source,
-      ) &&
+      (t.mode === "validation"
+        ? lease.source === azure.CONTRACT.source
+        : /^172\.27\.240\.(?:[1-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-4])\/32$/.test(
+            lease.source,
+          )) &&
       Date.parse(lease.expiresAt) > now &&
       Date.parse(lease.expiresAt) <= now + 3600000 &&
       lease.hostMounts === 0 &&
-      lease.cleanupOwner === "operator-host",
+      lease.cleanupOwner ===
+        (t.mode === "validation"
+          ? azure.CONTRACT.cleanupOwner
+          : "operator-host"),
     "RUNNER_LEASE",
   );
   if (t.execute) {
@@ -99,7 +108,8 @@ function validate(env, event, t, lease, now = Date.now()) {
 function load(env = process.env) {
   v.check(
     process.platform === "linux" &&
-      fs.existsSync("/.dockerenv") &&
+      (env.OPA_RUNNER_KIND === "azure-ephemeral" ||
+        fs.existsSync("/.dockerenv")) &&
       !fs.existsSync("/var/run/docker.sock"),
     "RUNNER_ISOLATION",
   );
@@ -110,9 +120,24 @@ function load(env = process.env) {
   const t = JSON.parse(fs.readFileSync(path.join(v.ROOT, TRIGGER), "utf8"));
   const event = JSON.parse(fs.readFileSync(env.GITHUB_EVENT_PATH, "utf8"));
   const lease = JSON.parse(
-    fs.readFileSync("/runner/opa-staging-lease.json", "utf8"),
+    fs.readFileSync(
+      env.OPA_RUNNER_KIND === "azure-ephemeral"
+        ? "/opt/opa/lease.json"
+        : "/runner/opa-staging-lease.json",
+      "utf8",
+    ),
   );
   const result = validate(env, event, t, lease);
+  if (t.mode === "validation") {
+    azure.live();
+    azure.policy(
+      require("./staging-oidc.cjs").validatePolicy(
+        JSON.parse(env.OPA_STAGING_MIGRATION_POLICY || "null"),
+        env.GITHUB_SHA,
+      ),
+      lease,
+    );
+  }
   const parent = execFileSync("git", ["rev-parse", "HEAD^"], {
     cwd: v.ROOT,
     encoding: "utf8",
@@ -141,6 +166,7 @@ function load(env = process.env) {
     "apps/api/scripts/staging-database-verifier.cjs",
     "apps/api/scripts/staging-migration-path.cjs",
     "apps/api/scripts/staging-migration-trigger.cjs",
+    "apps/api/scripts/staging-azure-runner.cjs",
     "apps/api/scripts/staging-validation-custodian.cjs",
     "packages/environment-policy/index.cjs",
     "packages/environment-policy/trusted-signers.json",

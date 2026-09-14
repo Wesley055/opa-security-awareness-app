@@ -1,0 +1,24 @@
+{
+  "hosts": [
+    "api.github.com",
+    "broker.actions.githubusercontent.com",
+    "codeload.github.com",
+    "github.com",
+    "login.microsoftonline.com",
+    "management.azure.com",
+    "objects.githubusercontent.com",
+    "opa-kv-staging.vault.azure.net",
+    "pipelinesghubeus6.actions.githubusercontent.com",
+    "raw.githubusercontent.com",
+    "registry.npmjs.org",
+    "release-assets.githubusercontent.com",
+    "results-receiver.actions.githubusercontent.com",
+    "token.actions.githubusercontent.com"
+  ],
+  "source": "10.72.4.4/32",
+  "port": 443,
+  "azureIdentityServiceTag": "AzureActiveDirectory",
+  "githubPublishedServicePrefix": "140.82.112.0/20",
+  "githubPrefixSource": "https://api.github.com/meta",
+  "authenticationProof": "Requires protected job; preparation checks TLS/HTTP without credentials"
+}

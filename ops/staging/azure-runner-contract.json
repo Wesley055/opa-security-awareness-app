@@ -1,0 +1,15 @@
+{
+  "kind": "azure-ephemeral",
+  "label": "opa-staging-azure-validation",
+  "name": "opa-staging-azure-validation-01",
+  "vm": "/subscriptions/b79ffdb2-0cf1-4915-89b4-2b6b7cae0299/resourceGroups/rg-opa-staging/providers/Microsoft.Compute/virtualMachines/vm-opa-staging-validation-01",
+  "vnet": "/subscriptions/b79ffdb2-0cf1-4915-89b4-2b6b7cae0299/resourceGroups/rg-opa-staging/providers/Microsoft.Network/virtualNetworks/vnet-opa-staging",
+  "subnet": "/subscriptions/b79ffdb2-0cf1-4915-89b4-2b6b7cae0299/resourceGroups/rg-opa-staging/providers/Microsoft.Network/virtualNetworks/vnet-opa-staging/subnets/snet-opa-staging-runner",
+  "cidr": "10.72.4.0/28",
+  "source": "10.72.4.4/32",
+  "identity": "/subscriptions/b79ffdb2-0cf1-4915-89b4-2b6b7cae0299/resourceGroups/rg-opa-staging/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-opa-staging-migrations",
+  "principal": "737caf69-640d-485e-9be5-c0095633a27e",
+  "cleanupOwner": "operator-host-azure",
+  "runtimeDatabase": "opa_staging",
+  "testDatabase": "opa_staging_test"
+}

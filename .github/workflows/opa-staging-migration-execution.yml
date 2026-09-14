@@ -14,10 +14,11 @@ jobs:
   staging-migration:
     if: github.event_name == 'push' && github.repository == 'Wesley055/opa-security-awareness-app' && github.ref == 'refs/heads/integration/institutional-security'
     environment: staging
-    runs-on: [self-hosted, Linux, X64, opa-staging-ephemeral]
+    runs-on: [self-hosted, linux, opa-staging-azure-validation, "${{ github.sha }}"]
     timeout-minutes: 45
     env:
       OPA_GITHUB_ENVIRONMENT: staging
+      OPA_RUNNER_KIND: azure-ephemeral
       OPA_STAGING_MIGRATION_POLICY: ${{ vars.OPA_STAGING_MIGRATION_POLICY }}
       OPA_STAGING_MIGRATION_AUTHORIZATION: ${{ vars.OPA_STAGING_MIGRATION_AUTHORIZATION }}
     steps:
@@ -34,7 +35,7 @@ jobs:
       - run: npm run prisma:generate
       - run: npm --workspace apps/api run build
       - name: Test migration and database boundaries
-        run: node --test apps/api/scripts/staging-migration-diagnostics.test.cjs apps/api/scripts/staging-migration-path.test.cjs apps/api/scripts/staging-oidc.test.cjs packages/environment-policy/policy.test.cjs
+        run: node --test apps/api/scripts/staging-azure-runner.test.cjs apps/api/scripts/staging-migration-diagnostics.test.cjs apps/api/scripts/staging-migration-path.test.cjs apps/api/scripts/staging-oidc.test.cjs packages/environment-policy/policy.test.cjs
       - name: Protected staging review or explicitly authorized migration
         run: node apps/api/scripts/staging-migration-path.cjs
       - name: Signal custodian cleanup

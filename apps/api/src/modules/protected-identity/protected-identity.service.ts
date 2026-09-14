@@ -188,46 +188,66 @@ export class ProtectedIdentityService {
     )
       throw unavailable();
     // The transaction must COMMIT the audit before its promise releases any plaintext.
-    return this.prisma.$transaction(async (tx) => {
-      const grant = await this.authorize(
-        tx,
-        tenantId,
-        actorUserId,
-        purpose === "DELIVERY" ? "DELIVERY" : "RESOLVE",
-      );
-      const row = await this.find(tx, tenantId, id);
-      if (
-        expected &&
-        (row.tenantId !== expected.tenantId ||
-          row.subjectUserId !== expected.subjectUserId ||
-          row.sourceId !== expected.sourceId ||
-          row.kind !== expected.kind)
+    return this.prisma.$transaction((tx) =>
+      this.resolveInTransaction(tx, actorUserId, tenantId, id, purpose, caseReference, expected),
+    );
+  }
+
+  /** Internal adapter. The caller must commit before releasing any resolved plaintext. */
+  async resolveInTransaction(
+    tx: Prisma.TransactionClient,
+    actorUserId: string,
+    tenantId: string,
+    id: string,
+    purpose: ResolutionPurpose,
+    caseReference: string,
+    expected?: CryptoContext,
+  ) {
+    if (
+      !["SUPPORT_CASE", "ACCOUNT_RECOVERY", "DELIVERY"].includes(purpose) ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        caseReference,
       )
-        throw unavailable();
-      const snapshot =
-        row.kind === "INVITATION_SNAPSHOT" ||
-        row.kind === "NOTIFICATION_SNAPSHOT";
-      if (snapshot !== (purpose === "DELIVERY")) throw unavailable();
-      try {
-        const plaintext = await this.crypto.open(this.envelope(row), row);
-        await tx.identityResolutionAudit.create({
-          data: {
-            tenantId,
-            actorUserId,
-            identifierId: row.id,
-            grantId: grant.id,
-            purpose,
-            caseReference,
-            encryptionKeyVersion: row.encryptionKeyVersion,
-          },
-        });
-        return plaintext;
-      } catch {
-        throw new ServiceUnavailableException(
-          "Protected identity operation unavailable.",
-        );
-      }
-    });
+    )
+      throw unavailable();
+    const grant = await this.authorize(
+      tx,
+      tenantId,
+      actorUserId,
+      purpose === "DELIVERY" ? "DELIVERY" : "RESOLVE",
+    );
+    const row = await this.find(tx, tenantId, id);
+    if (
+      expected &&
+      (row.tenantId !== expected.tenantId ||
+        row.subjectUserId !== expected.subjectUserId ||
+        row.sourceId !== expected.sourceId ||
+        row.kind !== expected.kind)
+    )
+      throw unavailable();
+    const snapshot =
+      row.kind === "INVITATION_SNAPSHOT" ||
+      row.kind === "NOTIFICATION_SNAPSHOT";
+    if (snapshot !== (purpose === "DELIVERY")) throw unavailable();
+    try {
+      const plaintext = await this.crypto.open(this.envelope(row), row);
+      await tx.identityResolutionAudit.create({
+        data: {
+          tenantId,
+          actorUserId,
+          identifierId: row.id,
+          grantId: grant.id,
+          purpose,
+          caseReference,
+          encryptionKeyVersion: row.encryptionKeyVersion,
+        },
+      });
+      return plaintext;
+    } catch {
+      throw new ServiceUnavailableException(
+        "Protected identity operation unavailable.",
+      );
+    }
   }
 
   private envelope(row: ProtectedIdentifier): SealedValue {

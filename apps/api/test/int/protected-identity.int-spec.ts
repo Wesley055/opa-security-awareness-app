@@ -1,4 +1,4 @@
-import { Prisma } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { ProtectedSnapshotsService } from "../../src/modules/protected-identity/protected-snapshots.service";
 import { InvitationDeliveryWorker } from "../../src/modules/admin-provisioning/invitation-delivery.worker";
 import { NotificationService } from "../../src/modules/notifications/notification.service";
@@ -11,25 +11,44 @@ import { PassportModule } from "@nestjs/passport";
 import { ValidationPipe } from "@nestjs/common";
 import type { INestApplication } from "@nestjs/common";
 import request from "supertest";
-import { prismaTest } from "./prisma-test-client";
+import { prismaTest, TEST_DB_URL } from "./prisma-test-client";
 import { createUser } from "./fixtures";
 import { PrismaService } from "../../src/prisma/prisma.service";
 import { JwtStrategy } from "../../src/modules/auth/jwt.strategy";
 import {
   IdentityCrypto,
-  LocalIdentityCrypto,
 } from "../../src/modules/protected-identity/identity-crypto";
 import { ProtectedIdentityService } from "../../src/modules/protected-identity/protected-identity.service";
 import { ProtectedIdentityController } from "../../src/modules/protected-identity/protected-identity.controller";
 
+import { configuredIdentityCrypto } from "../../src/modules/protected-identity/protected-identity.module";
+
 const jwtSecret = "isolated-test-jwt-secret-only";
 const jwt = new JwtService({ secret: jwtSecret });
-const crypto = new LocalIdentityCrypto(
-  new Map([["e1", randomBytes(32)]]),
-  "e1",
-  randomBytes(32),
-  "h1",
+// Test-only environment configuration: no key material is persisted or reused.
+const piiEnvironment = {
+  PII_CRYPTO_ADAPTER: "local",
+  PII_ENCRYPTION_KEYS_JSON: JSON.stringify({ test_e1: randomBytes(32).toString("base64") }),
+  PII_ENCRYPTION_KEY_VERSION: "test_e1",
+  PII_LOOKUP_KEY: randomBytes(32).toString("base64"),
+  PII_LOOKUP_KEY_VERSION: "test_h1",
+};
+const previousPiiEnvironment = Object.fromEntries(
+  Object.keys(piiEnvironment).map((key) => [key, process.env[key]]),
 );
+let crypto: IdentityCrypto;
+try {
+  Object.assign(process.env, piiEnvironment);
+  crypto = configuredIdentityCrypto();
+} finally {
+  for (const key of Object.keys(piiEnvironment)) {
+    const previous = previousPiiEnvironment[key];
+    if (previous === undefined) delete process.env[key];
+    else process.env[key] = previous;
+    Reflect.deleteProperty(piiEnvironment, key);
+    Reflect.deleteProperty(previousPiiEnvironment, key);
+  }
+}
 let app: INestApplication;
 let service: ProtectedIdentityService;
 let actorId: string;
@@ -149,17 +168,12 @@ describe("protected identity real PostgreSQL and authenticated HTTP", () => {
     ).toEqual([{ id: identityId, kind: "EMAIL", value: "[protected]" }]);
   });
   it("audits every concurrent reveal with distinct durable records", async () => {
-    const values = await Promise.all(
-      Array.from({ length: 8 }, () =>
-        service.resolve(
-          actorId,
-          tenantId,
-          identityId,
-          "SUPPORT_CASE",
-          caseReference,
-        ),
-      ),
+    const attempts = Array.from({ length: 8 }, () =>
+      service.resolve(actorId, tenantId, identityId, "SUPPORT_CASE", caseReference),
     );
+    // A rejection must not let the next fixture truncate beneath pending transactions.
+    await Promise.allSettled(attempts);
+    const values = await Promise.all(attempts);
     expect(values).toEqual(Array(8).fill("private.person@example.test"));
     const audits = await prismaTest.identityResolutionAudit.findMany({
       where: { identifierId: identityId },
@@ -540,6 +554,24 @@ describe("protected recipient snapshot cutover and real workers", () => {
       ),
     ).toEqual({ sourceId: source.id, status: "ALREADY_PROTECTED" });
   });
+  it("replays a protected snapshot on the caller's sole connection", async () => {
+    const source = await invitation();
+    await snapshots.backfill(actorId, tenantId, "INVITATION_SNAPSHOT", source.id, source.updatedAt, true);
+    const url = new URL(TEST_DB_URL);
+    url.searchParams.set("connection_limit", "1");
+    const isolated = new PrismaClient({ datasourceUrl: url.toString() });
+    const identities = new ProtectedIdentityService(isolated as never, crypto);
+    const replay = new ProtectedSnapshotsService(isolated as never, identities);
+    try {
+      await expect(replay.backfill(actorId, tenantId, "INVITATION_SNAPSHOT", source.id, source.updatedAt, true))
+        .resolves.toEqual({ sourceId: source.id, status: "ALREADY_PROTECTED" });
+      expect(await prismaTest.identityResolutionAudit.count()).toBe(1);
+      expect((await prismaTest.accountInvitationDelivery.findUniqueOrThrow({ where: { id: source.id } })).recipient).toBe("[protected]");
+    } finally {
+      await isolated.$disconnect();
+    }
+  });
+
   it("encrypts the entire notification payload and delivers it after durable audit", async () => {
     const source = await notification();
     await snapshots.backfill(

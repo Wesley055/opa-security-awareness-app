@@ -110,6 +110,7 @@ export class ProtectedSnapshotsService {
           sourceId,
           subjectUserId,
           kind,
+          tx,
         );
         if (
           verified.version !== 1 ||
@@ -243,22 +244,25 @@ export class ProtectedSnapshotsService {
     sourceId: string,
     subjectUserId: string,
     kind: SnapshotKind,
+    tx?: Prisma.TransactionClient,
   ): Promise<Record<string, unknown>> {
     // A reference copied from another outbox row must not unlock its plaintext.
-    const row = await this.prisma.protectedIdentifier.findFirst({
+    const row = await (tx ?? this.prisma).protectedIdentifier.findFirst({
       where: { id: snapshotId, sourceId, subjectUserId, kind },
       select: { tenantId: true },
     });
     if (!row) throw missing();
     const expected = { tenantId: row.tenantId, subjectUserId, sourceId, kind };
-    const plaintext = await this.identities.resolve(
-      this.deliveryActor(row.tenantId),
-      row.tenantId,
-      snapshotId,
-      "DELIVERY",
-      sourceId,
-      expected,
-    );
+    const actor = this.deliveryActor(row.tenantId);
+    // Replay already owns a transaction and its outbox lock. Keep lookup and audit
+    // on that connection; only the masked replay status leaves the outer commit.
+    const plaintext = tx
+      ? await this.identities.resolveInTransaction(
+          tx, actor, row.tenantId, snapshotId, "DELIVERY", sourceId, expected,
+        )
+      : await this.identities.resolve(
+          actor, row.tenantId, snapshotId, "DELIVERY", sourceId, expected,
+        );
     try {
       const value: unknown = JSON.parse(plaintext);
       if (typeof value !== "object" || value === null || Array.isArray(value))

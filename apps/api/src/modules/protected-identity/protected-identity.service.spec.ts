@@ -59,6 +59,24 @@ describe("protected identity authorization and audit", () => {
     expect(open).not.toHaveBeenCalled();
     open.mockRestore();
   });
+  it("never releases plaintext when committing the resolution audit fails", async () => {
+    prisma.$transaction.mockImplementationOnce(async (fn) => {
+      await fn(tx);
+      throw new Error("COMMIT_FAILED");
+    });
+    await expect(service.resolve(actor, tenantId, "record", "SUPPORT_CASE", caseReference))
+      .rejects.toThrow("COMMIT_FAILED");
+    expect(tx.identityResolutionAudit.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("uses only the caller transaction and still requires its resolution grant", async () => {
+    tx.identityAccessGrant.findFirst.mockResolvedValueOnce(null);
+    await expect(service.resolveInTransaction(tx as never, actor, tenantId, "record", "SUPPORT_CASE", caseReference))
+      .rejects.toMatchObject({ status: 404 });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.identityResolutionAudit.create).not.toHaveBeenCalled();
+  });
+
   it("requires explicit grants even for an administrator", async () => {
     tx.identityAccessGrant.findFirst.mockResolvedValue(null);
     await expect(

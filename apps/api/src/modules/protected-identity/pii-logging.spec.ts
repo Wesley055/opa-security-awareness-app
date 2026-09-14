@@ -11,6 +11,7 @@ import {
   redactSensitivePath,
 } from "../../shared/middleware/request-logging.middleware";
 import { SmsProvider } from "../notifications/providers/sms.provider";
+import * as outboundEnvironment from "../notifications/outbound-environment";
 import { EmailProvider } from "../notifications/providers/email.provider";
 import { PushProvider } from "../notifications/providers/push.provider";
 import { VoiceProvider } from "../notifications/providers/voice.provider";
@@ -147,6 +148,17 @@ describe("ordinary logging PII boundaries", () => {
       spy.mockRestore();
     }
   });
+  it("keeps the real notification policy fail-closed before transport", async () => {
+    const fetch = jest.spyOn(globalThis, "fetch").mockRejectedValue(new Error("must not send"));
+    try {
+      await expect(new EmailProvider().send({ recipient: pii, message: "secret" }))
+        .resolves.toMatchObject({ success: false, failureCategory: "REJECTED", retryable: false });
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
   it("sanitizes email transport exceptions without returning provider secrets", async () => {
     const previousKey = process.env.RESEND_API_KEY,
       previousFrom = process.env.RESEND_FROM_ADDRESS;
@@ -155,6 +167,8 @@ describe("ordinary logging PII boundaries", () => {
     const fetch = jest
       .spyOn(globalThis, "fetch")
       .mockRejectedValue(new Error("private@example.test Bearer secret"));
+    // Exercise the mocked transport error, independently of the fail-closed send policy.
+    const gate = jest.spyOn(outboundEnvironment, "outboundDenial").mockResolvedValue(null);
     try {
       expect(
         await new EmailProvider().send({ recipient: pii, message: "secret" }),
@@ -166,7 +180,9 @@ describe("ordinary logging PII boundaries", () => {
         failureCategory: "NETWORK",
         retryable: false,
       });
+      expect(fetch).toHaveBeenCalledTimes(1);
     } finally {
+      gate.mockRestore();
       fetch.mockRestore();
       if (previousKey === undefined) delete process.env.RESEND_API_KEY;
       else process.env.RESEND_API_KEY = previousKey;

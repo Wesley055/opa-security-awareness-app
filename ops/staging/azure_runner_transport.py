@@ -2,6 +2,7 @@
 Sensitive file transfers use protected parameters, never command text or stdout.
 """
 import json,time,uuid,requests
+import runner_results_network as results_network
 SCOPE="/subscriptions/b79ffdb2-0cf1-4915-89b4-2b6b7cae0299/resourceGroups/rg-opa-staging"
 VM=SCOPE+"/providers/Microsoft.Compute/virtualMachines/vm-opa-staging-validation-01"
 BASE="https://management.azure.com"
@@ -33,6 +34,8 @@ class Transport:
                 if requests.get(BASE+path,headers=self.headers(),timeout=60).status_code==404: break
                 time.sleep(2)
             else: raise RuntimeError("VM_CONTROL_CLEANUP_NOT_VERIFIED")
+    def results(self,host,expected=None,dns_only=False):
+        return self.command(results_network.PROBE_SCRIPT,results_network.payload(host,expected,dns_only))
     def probe(self):
         return self.command(SCRIPT,{"action":"probe"})
     def publish(self,name,value):

@@ -6,6 +6,7 @@ import argparse,json,pathlib,subprocess,os,re,time,uuid,datetime,base64,urllib.p
 import requests
 from azure.cli.core._profile import Profile
 import runner_runtime as runtime
+import runner_results_network as results_network
 from azure_runner_transport import Transport,VM,SCOPE,BASE
 from azure_runner_lifecycle import cleanup
 ROOT=pathlib.Path(__file__).resolve().parents[2]
@@ -13,7 +14,7 @@ SUB="b79ffdb2-0cf1-4915-89b4-2b6b7cae0299";TENANT="adb3fb59-1ac3-42c2-b39a-d70c7
 PRINCIPAL="737caf69-640d-485e-9be5-c0095633a27e";OPERATOR="c9af56a4-86a7-42e3-bcae-c232209354fb";ROLE="4633458b-17de-408a-b874-0445c86b69e6"
 NAME="opa-staging-azure-validation-01";LABEL="opa-staging-azure-validation";NODE=r"C:\Program Files\nodejs\node.exe";AZ=r"C:\Program Files\Microsoft SDKs\Azure\CLI2\wbin\az.cmd"
 N=SCOPE+"/providers/Microsoft.Network";NIC=N+"/networkInterfaces/nic-opa-staging-validation-01";DISK=SCOPE+"/providers/Microsoft.Compute/disks/osdisk-opa-staging-validation-01";NAT=N+"/natGateways/nat-opa-staging-runner";PIP=N+"/publicIPAddresses/pip-opa-staging-runner-nat";VNET=N+"/virtualNetworks/vnet-opa-staging";SUBNET=VNET+"/subnets/snet-opa-staging-runner"
-NETAPI="?api-version=2024-05-01";COMPAPI="?api-version=2024-07-01"
+NETAPI="?api-version=2024-05-01";COMPAPI="?api-version=2024-07-01";DISKAPI="?api-version=2024-03-02"
 SECRETS=["database-migration-url","redis-url","storage-connection","enrollment-encryption-key","jwt-access-secret","jwt-refresh-secret","pii-encryption-ring","pii-lookup-key"]
 def require(v,code):
  if not v:raise RuntimeError(code)
@@ -40,7 +41,7 @@ def seal_jit(encoded):
  return base64.b64encode(json.dumps(files,separators=(',',':')).encode()).decode()
 def execute(args):
  require(re.fullmatch('[a-f0-9]{40}',args.sha) and git('rev-parse','HEAD')==args.sha and git('branch','--show-current')==BRANCH,'LOCAL_SHA')
- for file in ['ops/staging/run-azure-validation.py','ops/staging/azure_runner_transport.py','ops/staging/azure_runner_lifecycle.py','ops/staging/runner_runtime.py','apps/api/scripts/staging-validation-custodian.cjs','apps/api/scripts/staging-database-verifier.cjs','apps/api/scripts/staging-azure-runner.cjs','apps/api/scripts/staging-oidc.cjs','packages/environment-policy/index.cjs','packages/environment-policy/trusted-signers.json','ops/staging/azure-runner-contract.json','ops/staging/azure-runner-endpoints.json']:
+ for file in ['ops/staging/run-azure-validation.py','ops/staging/azure_runner_transport.py','ops/staging/azure_runner_lifecycle.py','ops/staging/runner_runtime.py','ops/staging/runner_results_network.py','apps/api/scripts/staging-validation-custodian.cjs','apps/api/scripts/staging-database-verifier.cjs','apps/api/scripts/staging-azure-runner.cjs','apps/api/scripts/staging-oidc.cjs','packages/environment-policy/index.cjs','packages/environment-policy/trusted-signers.json','ops/staging/azure-runner-contract.json','ops/staging/azure-runner-endpoints.json']:
   expected=subprocess.check_output(['git','-c','safe.directory='+ROOT.as_posix(),'-C',str(ROOT),'show',args.sha+':'+file]);require(expected.replace(b'\r\n',b'\n')==(ROOT/file).read_bytes().replace(b'\r\n',b'\n'),'HOST_EXECUTABLE_CHANGED')
  trigger=json.loads(git('show',args.sha+':ops/staging/migration-trigger.json'));leaseid=trigger['lease']
  require(trigger['mode']=='validation' and trigger['execute'] is True and trigger['runtimeDatabase']=='opa_staging' and trigger['testDatabase']=='opa_staging_test' and trigger['server']=='opa-pg-staging' and trigger['identity']=='id-opa-staging-migrations','VALIDATION_ONLY')
@@ -62,7 +63,7 @@ def execute(args):
  def arm(method,path,body=None,allowed=(200,201,202,204)):
   require(path.startswith(SCOPE+'/'),'STAGING_SCOPE')
   if method!='GET':
-   mutable=[VM+COMPAPI,NIC+NETAPI,NIC+'/effectiveRouteTable'+NETAPI,DISK+COMPAPI,NAT+NETAPI,PIP+NETAPI,SUBNET+NETAPI]+temporary+([iam] if iam else [])+[N+'/networkSecurityGroups/nsg-opa-staging-runner/securityRules/'+x+NETAPI for x in ['Allow-Pinned-Bootstrap-Https','Allow-Azure-Platform-Agent','Allow-Validation-Job-Https','Allow-Validation-AzureAD-Https']]
+   mutable=[VM+COMPAPI,NIC+NETAPI,NIC+'/effectiveRouteTable'+NETAPI,DISK+DISKAPI,NAT+NETAPI,PIP+NETAPI,SUBNET+NETAPI]+temporary+([iam] if iam else [])+[N+'/networkSecurityGroups/nsg-opa-staging-runner/securityRules/'+x+NETAPI for x in ['Allow-Pinned-Bootstrap-Https','Allow-Azure-Platform-Agent','Allow-Validation-Job-Https','Allow-Validation-AzureAD-Https']]
    require(path in mutable,'MUTATION_SCOPE')
   r=rec.call('azure.'+method,'azure.management',requests.request,method,BASE+path,headers=transport.headers(),json=body,timeout=60);require(r.status_code in allowed,'AZURE_OPERATION');return r
  def remove(path):
@@ -95,7 +96,27 @@ def execute(args):
   try:answer=json.loads(r.stdout)
   except ValueError:raise RuntimeError('CUSTODIAN_RESULT')
   code=answer.get('code','FAILED');code=code if isinstance(code,str) and re.fullmatch('[A-Z0-9_]+',code) else 'FAILED';require(r.returncode==0 and answer.get('status')=='ready','CUSTODIAN_'+code);return answer
+ phase='results-storage-preflight'
  try:
+  # The approved completed job is provenance for the exact host, not a promise
+  # that GitHub will keep using it for every future job. Unknown hosts fail closed.
+  metadata=gh('GET','/actions/jobs/'+str(results_network.METADATA_JOB)).json()
+  require(metadata['run_id']==results_network.METADATA_RUN and metadata['status']=='completed','RESULTS_METADATA_PROVENANCE')
+  redirect=requests.get('https://api.github.com/repos/'+REPO+'/actions/jobs/'+str(results_network.METADATA_JOB)+'/logs',headers=headers,allow_redirects=False,timeout=30)
+  results_host=results_network.metadata_host(redirect.status_code,redirect.headers.get('Location'))
+  discovery=transport.results(results_host,dns_only=True);results_ips=results_network.dns_binding(discovery)
+  result_rule=N+'/networkSecurityGroups/nsg-opa-staging-runner/securityRules/opa-results-'+leaseid+NETAPI
+  require(arm('GET',result_rule,allowed=(200,404)).status_code==404,'RESULTS_RULE_EXISTS')
+  temporary.append(result_rule);audit['temporaryRules']=list(temporary)
+  audit['resultsNetwork']={'hostname':results_host,'sourceJobId':results_network.METADATA_JOB,'sourceRunId':results_network.METADATA_RUN,'addresses':results_ips,'ttlSeconds':discovery.get('ttlSeconds'),'rule':result_rule,'priority':results_network.PRIORITY,'source':'10.72.4.4/32','observedAt':datetime.datetime.now(datetime.timezone.utc).isoformat()};save()
+  result_body=results_network.rule(results_host,results_ips);arm('PUT',result_rule,result_body)
+  proof=transport.results(results_host,results_ips)
+  nat_response=arm('GET',NAT+NETAPI,allowed=(200,404));nat_properties=nat_response.json().get('properties',{}) if nat_response.status_code==200 else {};runner_subnet=arm('GET',SUBNET+NETAPI).json()['properties']
+  nat_ready=nat_properties.get('provisioningState')=='Succeeded' and runner_subnet.get('natGateway',{}).get('id','').lower()==NAT.lower() and [x['id'].lower() for x in nat_properties.get('publicIpAddresses',[])]==[PIP.lower()]
+  rule_response=arm('GET',result_rule,allowed=(200,404));correct_rule=rule_response.status_code==200 and results_network.rule_matches(rule_response.json(),result_body)
+  decision=results_network.classify(proof,results_ips,nat_ready,correct_rule)
+  audit['resultsNetwork']['preflight']=proof;audit['resultsNetwork']['decision']=decision;save();require(decision=='PASS',decision)
+  phase='custodian-preflight'
   for suffix,destination,port,nsg in [('postgres','10.72.1.4','5432','nsg-opa-staging-postgres'),('vault','10.72.2.4','443','nsg-opa-staging-private-endpoints')]:
    resource=N+'/networkSecurityGroups/'+nsg+'/securityRules/opa-azure-custodian-'+leaseid+'-'+suffix+NETAPI;require(arm('GET',resource,allowed=(200,404)).status_code==404,'TEMP_RULE_EXISTS');temporary.append(resource);audit['temporaryRules']=list(temporary);save()
    arm('PUT',resource,{'properties':{'priority':900,'direction':'Inbound','access':'Allow','protocol':'Tcp','sourceAddressPrefix':lease['custodianSource'],'sourcePortRange':'*','destinationAddressPrefix':destination+'/32','destinationPortRange':port}})
@@ -110,12 +131,19 @@ def execute(args):
   current=[x for x in gh('GET','/actions/runners?per_page=100').json()['runners'] if x['name']==NAME];require(len(current)<=1 and all(not x['busy'] and x['status']=='offline' for x in current),'RUNNER_STATE')
   for x in current:gh('DELETE','/actions/runners/'+str(x['id']))
   jit=gh('POST','/actions/runners/generate-jitconfig',{'name':NAME,'runner_group_id':1,'labels':['self-hosted','linux',LABEL,args.sha],'work_folder':'_work'}).json();runner_id=jit['runner']['id'];jit['encoded_jit_config']=seal_jit(jit['encoded_jit_config']);audit['runnerId']=runner_id;save()
+  phase='results-storage-launch-check'
+  final_network=transport.results(results_host,results_ips);final_decision=results_network.classify(final_network,results_ips,nat_ready,correct_rule);audit['resultsNetwork']['launchProof']=final_network;audit['resultsNetwork']['launchDecision']=final_decision;save();require(final_decision=='PASS',final_decision)
   # Check approval again immediately before the only listener start operation.
   approved(gh('GET','/actions/runs/'+str(args.run_id)).json(),gh('GET','/actions/runs/'+str(args.run_id)+'/pending_deployments').json(),gh('GET','/actions/runs/'+str(args.run_id)+'/approvals').json(),args.sha,args.run_id)
-  transport.launch(lease,ready,jit['encoded_jit_config']);jit.clear();handled=set();deadline=time.monotonic()+45*60
+  phase='validation-job'
+  transport.launch(lease,ready,jit['encoded_jit_config']);jit.clear();handled=set();deadline=time.monotonic()+45*60;next_dns_check=time.monotonic()+60
   while time.monotonic()<deadline:
    run=gh('GET','/actions/runs/'+str(args.run_id)).json()
    if run['status']=='completed':audit['conclusion']=run['conclusion'];finished=run['conclusion']=='success';break
+   if time.monotonic()>=next_dns_check:
+    phase='results-dns-monitor'
+    observed=transport.results(results_host,dns_only=True);audit['resultsNetwork']['lastDnsObservation']=observed;save();results_network.unchanged(observed,results_ips);next_dns_check=time.monotonic()+60
+   phase='validation-job'
    request=transport.request()['request']
    if request:
     require(request['sha']==args.sha and request['lease']==leaseid and request['action'] in ('create','drop','cleanup'),'CUSTODIAN_REQUEST_BINDING');action=request['action']
@@ -129,7 +157,7 @@ def execute(args):
   require(finished,'VALIDATION_NOT_SUCCESSFUL')
  except Exception as exc:
   code=str(exc) if isinstance(exc,RuntimeError) and re.fullmatch('[A-Z0-9_]+',str(exc)) else 'SANITIZED_FAILURE'
-  audit['failure']={'stage':rec.last_stage,'code':code,'exceptionClass':type(exc).__name__};save();raise
+  audit['failure']={'stage':phase,'code':code,'exceptionClass':type(exc).__name__};save();raise
  finally:
   def cancel():
    if not finished:gh('POST','/actions/runs/'+str(args.run_id)+'/cancel',{},allowed=(202,409))
@@ -162,7 +190,7 @@ def execute(args):
    results={}
    for i,path in enumerate(paths):runtime.cleanup_step('egress-'+str(i),lambda path=path:remove(path),rec,results)
    audit['egressCleanup']=results;return all(results.values())
-  operations={'cancel':cancel,'stop':lambda:transport.stop()['stopped'],'database':database,'registration':registration,'secrets':lambda:transport.clear()['tmpfsRemoved'],'iam':lambda:not iam or remove(iam),'network':network,'authorization':authorization,'vm':lambda:remove(VM+COMPAPI),'nic':lambda:remove(NIC+NETAPI),'disk':lambda:remove(DISK+COMPAPI),'nat':nat}
+  operations={'cancel':cancel,'stop':lambda:transport.stop()['stopped'],'database':database,'registration':registration,'secrets':lambda:transport.clear()['tmpfsRemoved'],'iam':lambda:not iam or remove(iam),'network':network,'authorization':authorization,'vm':lambda:remove(VM+COMPAPI),'nic':lambda:remove(NIC+NETAPI),'disk':lambda:remove(DISK+DISKAPI),'nat':nat}
   audit['cleanup']=cleanup(operations,rec);save();require(all(audit['cleanup'].values()),'CLEANUP_INCOMPLETE')
 if __name__=='__main__':
  p=argparse.ArgumentParser();p.add_argument('--sha',required=True);p.add_argument('--run-id',required=True,type=int);args=p.parse_args()

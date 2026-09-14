@@ -151,6 +151,7 @@ model PasswordResetToken {
 }
 
 model Incident {
+  safeWalkEmergencyJourneys JourneySession[] @relation("SafeWalkEmergencyIncident")
   id              String          @id @default(uuid()) @db.Uuid
   userId          String          @db.Uuid
   user            User            @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -481,6 +482,7 @@ enum JourneyRedactionReason {
 model JourneySession {
   safeWalkCreateKey String? @db.Uuid
   safeWalkEmergencyIncidentId String? @db.Uuid
+  safeWalkEmergencyIncident Incident? @relation("SafeWalkEmergencyIncident", fields: [safeWalkEmergencyIncidentId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "safewalk_emergency_incident_fkey")
   safeWalkEmergencyAt DateTime?
 
   id     String @id @default(uuid()) @db.Uuid
@@ -782,7 +784,7 @@ enum DeliveryFailureCategory {
 
 model DeliveryAttempt {
   safeWalkNoticeId String? @db.Uuid
-  safeWalkNotice SafeWalkNotice? @relation(fields: [safeWalkNoticeId], references: [id], onDelete: Restrict)
+  safeWalkNotice SafeWalkNotice? @relation(fields: [safeWalkNoticeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   id String @id @default(uuid()) @db.Uuid
   incidentNotificationId String? @db.Uuid
   incidentNotification IncidentNotification? @relation(fields: [incidentNotificationId], references: [id], onDelete: Restrict)
@@ -821,7 +823,7 @@ model ProviderReference {
 
 model DeliveryStatusEvent {
   safeWalkNoticeId String? @db.Uuid
-  safeWalkNotice SafeWalkNotice? @relation(fields: [safeWalkNoticeId], references: [id], onDelete: Restrict)
+  safeWalkNotice SafeWalkNotice? @relation(fields: [safeWalkNoticeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   id String @id @default(uuid()) @db.Uuid
   incidentNotificationId String? @db.Uuid
   incidentNotification IncidentNotification? @relation(fields: [incidentNotificationId], references: [id], onDelete: Restrict)

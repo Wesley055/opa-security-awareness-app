@@ -1,0 +1,24 @@
+PASS test/int/protected-identity.int-spec.ts (33.513 s)
+PASS test/int/safewalk-guardian-escalation.int-spec.ts (29.464 s)
+PASS test/int/tenant-isolation.int-spec.ts (17.464 s)
+PASS test/int/enrollment.int-spec.ts (28.756 s)
+PASS test/int/delivery-confirmation.int-spec.ts (16.72 s)
+PASS test/int/journey-session-service.int-spec.ts (10.986 s)
+FAIL test/int/sso.int-spec.ts (20.572 s)
+FAIL test/int/safewalk-reconciliation.int-spec.ts (19.961 s)
+PASS test/int/super-admin.int-spec.ts (30.283 s)
+PASS test/int/locationless-incident.int-spec.ts (24.42 s)
+PASS test/int/journey-session-concurrency.int-spec.ts (13.633 s)
+PASS test/int/incident-lifecycle-concurrency.int-spec.ts (7.674 s)
+PASS test/int/invitation-delivery-worker.int-spec.ts (12.623 s)
+PASS test/int/incident-timeline-concurrency.int-spec.ts (11.717 s)
+PASS test/int/advisory-lock.int-spec.ts (8.415 s)
+PASS test/int/safewalk-confirmations.int-spec.ts (11.733 s)
+PASS test/int/emergency-intelligence-snapshot.int-spec.ts (5.638 s)
+PASS test/int/journey-session-constraints.int-spec.ts (6.107 s)
+PASS test/int/staging-notifications.int-spec.ts (7.449 s)
+PASS test/int/harness.int-spec.ts (12.668 s)
+Test Suites: 2 failed, 18 passed, 20 total
+Tests:       22 failed, 191 passed, 213 total
+Snapshots:   0 total
+Time:        329.879 s

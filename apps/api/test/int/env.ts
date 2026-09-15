@@ -1,8 +1,10 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import * as dotenv from 'dotenv';
+import { createRequire } from "node:module";
+const loadNodeModule = createRequire(__filename);
+import * as fs from "fs";
+import * as path from "path";
+import * as dotenv from "dotenv";
 
-export const API_ROOT = path.resolve(__dirname, '..', '..');
+export const API_ROOT = path.resolve(__dirname, "..", "..");
 
 export interface TestDbInfo {
   url: string;
@@ -21,42 +23,51 @@ export interface TestDbInfo {
  * data.
  */
 export function loadTestEnv(): TestDbInfo {
-  const envPath = path.join(API_ROOT, '.env.test.local');
+  if (process.env.OPA_STAGING_GATE) {
+    const gates = loadNodeModule("../../scripts/staging-gates.cjs");
+    const context = gates.environment(process.env);
+    const url = process.env.DATABASE_URL;
+    gates.databaseUrl(url, context);
+    if (process.env.NODE_ENV !== "test")
+      throw new Error("GATE_TEST_ENVIRONMENT");
+    return { url: url as string, dbName: gates.database(context) };
+  }
+  const envPath = path.join(API_ROOT, ".env.test.local");
 
   if (!fs.existsSync(envPath)) {
     throw new Error(
-      'Missing apps/api/.env.test.local. From apps/api, run: ' +
-        'node .\\scripts\\create-test-db.cjs',
+      "Missing apps/api/.env.test.local. From apps/api, run: " +
+        "node .\\scripts\\create-test-db.cjs",
     );
   }
 
-  const parsedEnv = dotenv.parse(fs.readFileSync(envPath, 'utf8'));
+  const parsedEnv = dotenv.parse(fs.readFileSync(envPath, "utf8"));
   const url = parsedEnv.DATABASE_URL;
 
   if (!url) {
-    throw new Error('.env.test.local does not define DATABASE_URL.');
+    throw new Error(".env.test.local does not define DATABASE_URL.");
   }
 
   let parsedUrl: URL;
   try {
     parsedUrl = new URL(url);
-  } catch (err) {
-    throw new Error('DATABASE_URL in .env.test.local is not a parseable URL.');
+  } catch {
+    throw new Error("DATABASE_URL in .env.test.local is not a parseable URL.");
   }
 
-  const dbName = decodeURIComponent(parsedUrl.pathname.replace(/^\//, ''));
+  const dbName = decodeURIComponent(parsedUrl.pathname.replace(/^\//, ""));
 
-  if (!dbName.endsWith('_test')) {
+  if (!dbName.endsWith("_test")) {
     throw new Error(
       'REFUSING TO RUN INTEGRATION TESTS: resolved database is "' +
         dbName +
         '", which does not end in _test. The harness truncates every table ' +
-        'it finds.',
+        "it finds.",
     );
   }
 
   process.env.DATABASE_URL = url;
-  process.env.NODE_ENV = parsedEnv.NODE_ENV || 'test';
+  process.env.NODE_ENV = parsedEnv.NODE_ENV || "test";
 
   return { url, dbName };
 }

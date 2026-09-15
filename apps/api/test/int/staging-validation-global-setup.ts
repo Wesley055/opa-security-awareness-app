@@ -1,19 +1,42 @@
+import { createRequire } from "node:module";
+const loadNodeModule = createRequire(__filename);
 import { PrismaClient } from "@prisma/client";
 import { loadTestEnv } from "./env";
 import { assertProductionSchema } from "./assert-schema";
-const verifier = require("../../scripts/staging-database-verifier.cjs");
+const verifier = loadNodeModule("../../scripts/staging-database-verifier.cjs");
 export default async function setup(): Promise<void> {
   const { url, dbName } = loadTestEnv();
-  if (dbName !== "opa_staging_test")
+  const gates = loadNodeModule("../../scripts/staging-gates.cjs");
+  const gateContext = process.env.OPA_STAGING_GATE
+    ? gates.environment(process.env)
+    : undefined;
+  if (
+    dbName !== (gateContext ? gates.database(gateContext) : "opa_staging_test")
+  )
     throw new Error("Staging test database required");
-  verifier.databaseUrl(url, "test", process.env.OPA_STAGING_VALIDATION_LEASE);
-  const { Client } = require("pg");
-  const db = new Client({ connectionString: url });
+  if (gateContext) gates.databaseUrl(url, gateContext);
+  else
+    verifier.databaseUrl(url, "test", process.env.OPA_STAGING_VALIDATION_LEASE);
+  const { Client } = loadNodeModule("pg");
+  const parsed = new URL(url);
+  const db = new Client(
+    gateContext
+      ? {
+          host: verifier.SERVER,
+          port: 5432,
+          database: dbName,
+          user: decodeURIComponent(parsed.username),
+          password: decodeURIComponent(parsed.password),
+          ssl: { rejectUnauthorized: true, servername: verifier.SERVER },
+          connectionTimeoutMillis: 5000,
+        }
+      : { connectionString: url },
+  );
   await db.connect();
   try {
     await verifier.identity(
       db,
-      "opa_staging_test",
+      dbName,
       verifier.testRole(process.env.OPA_STAGING_VALIDATION_LEASE),
       process.env.OPA_STAGING_VALIDATION_SOURCE,
     );
@@ -21,6 +44,7 @@ export default async function setup(): Promise<void> {
       db,
       process.env.OPA_STAGING_VALIDATION_SHA,
       process.env.OPA_STAGING_VALIDATION_LEASE,
+      gateContext,
     );
     verifier.historyCheck(await verifier.history(db), verifier.manifest());
     const allowed = await db.query(

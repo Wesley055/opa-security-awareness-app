@@ -1,9 +1,11 @@
 "use strict";
+const { URL } = require("node:url");
+const process = require("node:process");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { execFileSync } = require("node:child_process");
-const ROOT = path.resolve(__dirname, "../../..");
+const ROOT = path.resolve(path.dirname(module.filename), "../../..");
 const SERVER = "opa-pg-staging.postgres.database.azure.com";
 const RUNTIME = "opa_staging";
 const TEST = "opa_staging_test";
@@ -165,7 +167,15 @@ async function runtimeSentinel(db) {
     "RUNTIME_SENTINEL",
   );
 }
-async function testSentinel(db, sha, lease) {
+async function testSentinel(db, sha, lease, gateContext) {
+  const expected = gateContext
+    ? require("./staging-gates.cjs").database(gateContext)
+    : TEST;
+  if (gateContext)
+    check(
+      gateContext.sha === sha && gateContext.lease === lease,
+      "GATE_SENTINEL_BINDING",
+    );
   const rows = (
     await db.query(
       "SELECT environment,database_name,approved_sha,lease FROM opa_deployment.validation_identity WHERE singleton=true",
@@ -174,7 +184,7 @@ async function testSentinel(db, sha, lease) {
   check(
     rows.length === 1 &&
       rows[0].environment === "staging-test" &&
-      rows[0].database_name === TEST &&
+      rows[0].database_name === expected &&
       rows[0].approved_sha === sha &&
       rows[0].lease === lease,
     "TEST_SENTINEL",

@@ -1,0 +1,357 @@
+{
+  "version": 1,
+  "baselineSha": "e330736fd504fee9d082ede4aad8ef4d7a774ecf",
+  "migrationCount": 35,
+  "total": 213,
+  "gates": [
+    {
+      "name": "database",
+      "count": 9,
+      "suites": [
+        {
+          "file": "harness.int-spec.ts",
+          "tests": [
+            "integration harness is connected to the dedicated test database",
+            "integration harness reports a postgres server version",
+            "integration harness has every migration on disk applied, none half-applied",
+            "integration harness kept the partial unique index with its exact semantics",
+            "integration harness kept the incident notification contact/channel partial unique index with its exact semantics",
+            "integration harness truncates cleanly and preserves _prisma_migrations"
+          ]
+        },
+        {
+          "file": "advisory-lock.int-spec.ts",
+          "tests": [
+            "pg_advisory_xact_lock blocks a second transaction taking the same key",
+            "pg_advisory_xact_lock does not block when the keys differ",
+            "pg_advisory_xact_lock releases the lock when the transaction commits"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "security",
+      "count": 69,
+      "suites": [
+        {
+          "file": "tenant-isolation.int-spec.ts",
+          "tests": [
+            "tenant isolation over HTTP and PostgreSQL A operator reads own resources; foreign and absent incidents are identical",
+            "tenant isolation over HTTP and PostgreSQL B operator reads own resources; foreign and absent incidents are identical",
+            "tenant isolation over HTTP and PostgreSQL A operator can upload own evidence but cannot mutate foreign incidents",
+            "tenant isolation over HTTP and PostgreSQL B operator can upload own evidence but cannot mutate foreign incidents",
+            "tenant isolation over HTTP and PostgreSQL A queue, cursor and roster remain inside authenticated facility",
+            "tenant isolation over HTTP and PostgreSQL B queue, cursor and roster remain inside authenticated facility",
+            "tenant isolation over HTTP and PostgreSQL denies unauthenticated, nonoperator and suspended/removed operators",
+            "tenant isolation over HTTP and PostgreSQL separates explicit platform access from operator and facility-admin access",
+            "tenant isolation over HTTP and PostgreSQL A facility admin invitation read/resend cannot address a foreign resident",
+            "tenant isolation over HTTP and PostgreSQL B facility admin invitation read/resend cannot address a foreign resident",
+            "tenant isolation over HTTP and PostgreSQL rejects forged provisioning tenant IDs and records the actual inviter for allowed provisioning",
+            "tenant isolation over HTTP and PostgreSQL retains former-tenant invitation history only for platform admin and audits reassignment/removal",
+            "tenant isolation over HTTP and PostgreSQL keeps platform administrator member lists masked without reveal grants",
+            "tenant isolation over HTTP and PostgreSQL records facility creation with authenticated platform actor",
+            "tenant isolation over HTTP and PostgreSQL cancels only stale queued invitations, preserves same-facility queues and in-flight outcomes",
+            "tenant isolation over HTTP and PostgreSQL rolls back membership and queue cancellation if provenance cannot be stored",
+            "tenant isolation over HTTP and PostgreSQL ignores stale or forged signed authority claims and rejects pending/deactivated platform accounts",
+            "tenant isolation over HTTP and PostgreSQL enforces the cooldown for the current facility while ignoring foreign terminal delivery history"
+          ]
+        },
+        {
+          "file": "protected-identity.int-spec.ts",
+          "tests": [
+            "protected identity real PostgreSQL and authenticated HTTP stores encrypted values and deterministic lookup metadata, retaining legacy records",
+            "protected identity real PostgreSQL and authenticated HTTP audits every concurrent reveal with distinct durable records",
+            "protected identity real PostgreSQL and authenticated HTTP denies interactive resolution after an actor loses their institutional role",
+            "protected identity real PostgreSQL and authenticated HTTP returns masked API output and no-store headers",
+            "protected identity real PostgreSQL and authenticated HTTP denies unauthenticated ID access",
+            "protected identity real PostgreSQL and authenticated HTTP resolves only with grant and records a durable audit",
+            "protected identity real PostgreSQL and authenticated HTTP does not elevate ADMIN to decryptor",
+            "protected identity real PostgreSQL and authenticated HTTP makes foreign and missing references indistinguishable",
+            "protected identity real PostgreSQL and authenticated HTTP rejects revoked and expired grants",
+            "protected identity real PostgreSQL and authenticated HTTP rejects inactive tenant and subject membership",
+            "protected identity real PostgreSQL and authenticated HTTP protects immutable INVITATION_SNAPSHOT and requires delivery authority",
+            "protected identity real PostgreSQL and authenticated HTTP protects immutable NOTIFICATION_SNAPSHOT and requires delivery authority",
+            "protected identity real PostgreSQL and authenticated HTTP enforces facility foreign keys without duplicating membership tables",
+            "protected identity real PostgreSQL and authenticated HTTP prevents ordinary audit deletion and modification",
+            "protected identity real PostgreSQL and authenticated HTTP does not accept body-supplied grants, roles or delivery purpose",
+            "protected recipient snapshot cutover and real workers dry-runs without creating ciphertext or changing the source",
+            "protected recipient snapshot cutover and real workers refuses stale source versions and in-flight deliveries",
+            "protected recipient snapshot cutover and real workers refuses cutover without independently granted delivery authority",
+            "protected recipient snapshot cutover and real workers rejects source ownership from another tenant without inferring facility scope",
+            "protected recipient snapshot cutover and real workers cuts over invitations atomically and delivers the frozen recipient after audit commit",
+            "protected recipient snapshot cutover and real workers replays a protected snapshot on the caller's sole connection",
+            "protected recipient snapshot cutover and real workers encrypts the entire notification payload and delivers it after durable audit",
+            "protected recipient snapshot cutover and real workers does not send when snapshot decryption or audit fails",
+            "protected recipient snapshot cutover and real workers rejects copied snapshot references without a plaintext fallback",
+            "protected recipient snapshot cutover and real workers rolls back source cutover on crypto failure",
+            "protected recipient snapshot cutover and real workers serializes repeated cutover and blocks plaintext reintroduction at the database",
+            "protected recipient snapshot cutover and real workers keeps legacy plaintext intact when persisted ciphertext cannot verify",
+            "protected recipient snapshot cutover and real workers resumes successfully after a failed cutover without duplicate protected rows"
+          ]
+        },
+        {
+          "file": "sso.int-spec.ts",
+          "tests": [
+            "SSO PostgreSQL authorization and atomic replay links after local reauthentication then issues normal OPA access and refresh tokens",
+            "SSO PostgreSQL authorization and atomic replay never exposes stored secrets in configuration responses",
+            "SSO PostgreSQL authorization and atomic replay rejects email-only mapping and creates no users or memberships",
+            "SSO PostgreSQL authorization and atomic replay denies linking with password",
+            "SSO PostgreSQL authorization and atomic replay denies linking with missing",
+            "SSO PostgreSQL authorization and atomic replay denies linking with admin",
+            "SSO PostgreSQL authorization and atomic replay binds staged linking to the original local session and single-use proof",
+            "SSO PostgreSQL authorization and atomic replay rejects a stale local reauthentication proof",
+            "SSO PostgreSQL authorization and atomic replay prevents another user from stealing an existing identity",
+            "SSO PostgreSQL authorization and atomic replay denies suspended after verification",
+            "SSO PostgreSQL authorization and atomic replay denies membership-revoked after verification",
+            "SSO PostgreSQL authorization and atomic replay denies facility-suspended after verification",
+            "SSO PostgreSQL authorization and atomic replay denies admin after verification",
+            "SSO PostgreSQL authorization and atomic replay denies cross-tenant membership and configuration administration",
+            "SSO PostgreSQL authorization and atomic replay rejects a different exact subject even with the same email claim",
+            "SSO PostgreSQL authorization and atomic replay unlinks with audit and invalidates existing OPA access and refresh tokens",
+            "SSO PostgreSQL authorization and atomic replay disabling configuration revokes sessions and pending callbacks",
+            "SSO PostgreSQL authorization and atomic replay atomically rejects duplicate OIDC jti across different transactions",
+            "SSO PostgreSQL authorization and atomic replay SAML replay across PostgreSQL connections permits only one session for concurrent identical callbacks",
+            "SSO PostgreSQL authorization and atomic replay SAML replay across PostgreSQL connections rejects reused assertionId on a newly correlated signed response",
+            "SSO PostgreSQL authorization and atomic replay SAML replay across PostgreSQL connections rejects reused responseId on a newly correlated signed response"
+          ]
+        },
+        {
+          "file": "emergency-intelligence-snapshot.int-spec.ts",
+          "tests": [
+            "EmergencyIntelligenceSnapshotService integration does not let an older refresh overwrite a newer snapshot",
+            "EmergencyIntelligenceSnapshotService integration refuses persistence when the source is redacted during provider work"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "safety",
+      "count": 70,
+      "suites": [
+        {
+          "file": "safewalk-guardian-escalation.int-spec.ts",
+          "tests": [
+            "SafeWalk guardian authorization and durable escalation creates deadlines atomically through the existing start API",
+            "SafeWalk guardian authorization and durable escalation stores hashed pairing credentials and makes owner selection idempotent",
+            "SafeWalk guardian authorization and durable escalation does not allow a foreign owner to select a guardian or read owner status",
+            "SafeWalk guardian authorization and durable escalation returns only the status/ETA fields explicitly shared and audits the read",
+            "SafeWalk guardian authorization and durable escalation persists the +5 requirement and exactly one owner prompt across concurrent workers",
+            "SafeWalk guardian authorization and durable escalation does not transition before +5",
+            "SafeWalk guardian authorization and durable escalation does not notify guardians before the response deadline",
+            "SafeWalk guardian authorization and durable escalation confirmation after the check cancels pending escalation atomically",
+            "SafeWalk guardian authorization and durable escalation an early safety confirmation prevents escalation for this ETA cycle",
+            "SafeWalk guardian authorization and durable escalation creates only selected-guardian overdue notices once across concurrent +8 workers and restarts",
+            "SafeWalk guardian authorization and durable escalation overdue creates no incident, operator grant, or private analytics",
+            "SafeWalk guardian authorization and durable escalation completion before +5 closes the schedule without a prompt",
+            "SafeWalk guardian authorization and durable escalation generic journey ending cancels a pending check",
+            "SafeWalk guardian authorization and durable escalation revocation blocks future reads and overdue notices",
+            "SafeWalk guardian authorization and durable escalation rechecks facility membership for reads and dispatch, without treating facility as tenant",
+            "SafeWalk guardian authorization and durable escalation rejects cross-facility guardian selection and accepts same-facility selection",
+            "SafeWalk guardian authorization and durable escalation acknowledges only the recipient notice and preserves the first acknowledgement",
+            "SafeWalk guardian authorization and durable escalation cancels already-available guardian notices after safety confirmation without deleting provenance",
+            "SafeWalk guardian authorization and durable escalation serializes confirmation and due workers without duplicate or surviving actionable notifications",
+            "SafeWalk guardian authorization and durable escalation rolls back the state transition if a notice cannot be persisted, then retries successfully",
+            "SafeWalk guardian authorization and durable escalation rejects expired pairing codes without disclosing another account",
+            "SafeWalk guardian authorization and durable escalation consumes a pairing code only once when two owners race to authorize it",
+            "SafeWalk guardian authorization and durable escalation revocation racing escalation leaves no actionable guardian message or read access",
+            "SafeWalk guardian authorization and durable escalation rechecks guardian eligibility after authorization: suspended",
+            "SafeWalk guardian authorization and durable escalation rechecks guardian eligibility after authorization: operator",
+            "SafeWalk guardian authorization and durable escalation redacted journeys cannot be read or escalated to guardians",
+            "SafeWalk guardian authorization and durable escalation backfills legacy journeys without manufacturing historical notifications",
+            "SafeWalk guardian authorization and durable escalation lets the owner recover selected grant identifiers without listing family accounts",
+            "SafeWalk guardian authorization and durable escalation does not silently revive an old grant under a different facility snapshot"
+          ]
+        },
+        {
+          "file": "safewalk-reconciliation.int-spec.ts",
+          "tests": [
+            "SafeWalk integrated outbox and lifecycle links explicit locationless emergency once with auditable provenance under concurrent requests",
+            "SafeWalk integrated outbox and lifecycle serializes completion against explicit emergency without ending active emergency tracking",
+            "SafeWalk integrated outbox and lifecycle replays a create key after completion without starting a second journey",
+            "SafeWalk integrated outbox and lifecycle scopes create replay keys and creation audits to each owner",
+            "SafeWalk integrated outbox and lifecycle uses the shared ledger once under concurrent dispatch and never promotes acceptance to delivery",
+            "SafeWalk integrated outbox and lifecycle applies verified receipts through the existing delivery ledger",
+            "SafeWalk integrated outbox and lifecycle does not dispatch a guardian notice after owner completion wins the lock",
+            "SafeWalk integrated outbox and lifecycle protects institutional recipient snapshots and audits their delivery resolution"
+          ]
+        },
+        {
+          "file": "safewalk-confirmations.int-spec.ts",
+          "tests": [
+            "SafeWalk PostgreSQL confirmations and privacy serializes concurrent arrivals and preserves the original confirmation",
+            "SafeWalk PostgreSQL confirmations and privacy preserves live emergency tracking and incident truth",
+            "SafeWalk PostgreSQL confirmations and privacy hides another owners journey from reads and confirmations",
+            "SafeWalk PostgreSQL confirmations and privacy excludes late-uploaded personal history from operator routes"
+          ]
+        },
+        {
+          "file": "journey-session-service.int-spec.ts",
+          "tests": [
+            "JourneySessionService writes a genesis fix at sequence 0 and activates a STARTED session",
+            "JourneySessionService treats a replayed idempotency key as a skip, not an error",
+            "JourneySessionService produces a chain that verifies by recomputation from stored values",
+            "JourneySessionService ends a STARTED session with database time and USER_ENDED",
+            "JourneySessionService ends an ACTIVE session",
+            "JourneySessionService re-ending preserves the original endedAt and endedReason",
+            "JourneySessionService returns the same null for unknown and foreign-owned sessions",
+            "JourneySessionService makes the existing ingestion 409 reachable after a real end",
+            "JourneySessionService reuses an ACTIVE linked session for a retrigger",
+            "JourneySessionService moves a retrigger from an ENDED session to a fresh linked session",
+            "JourneySessionService resolveForActivation reuses an open session and creates one otherwise",
+            "JourneySessionService resolveForActivation does not reuse an ENDED session"
+          ]
+        },
+        {
+          "file": "journey-session-concurrency.int-spec.ts",
+          "tests": [
+            "JourneySessionService concurrency serialises two concurrent inserts into one session",
+            "JourneySessionService concurrency does not block an insert into a different session",
+            "JourneySessionService concurrency serialises two concurrent resolveForActivation calls for one user",
+            "JourneySessionService concurrency prevents ingestion from appending after a concurrent end wins"
+          ]
+        },
+        {
+          "file": "journey-session-constraints.int-spec.ts",
+          "tests": [
+            "one active session per user rejects a second active session for the same user",
+            "one active session per user rejects two STARTED sessions for the same user",
+            "one active session per user allows many ENDED sessions for one user",
+            "one active session per user allows a replacement once the previous session is ENDED",
+            "one active session per user scopes the constraint per user, not globally"
+          ]
+        },
+        {
+          "file": "locationless-incident.int-spec.ts",
+          "tests": [
+            "locationless incident production persistence cold locked SOS atomically returns one canonical session before a GPS fix",
+            "locationless incident production persistence persists explicit STANDARD provenance atomically, deduplicates, and resolves the same lifecycle",
+            "locationless incident production persistence persists explicit SILENT provenance atomically, deduplicates, and resolves the same lifecycle",
+            "locationless incident production persistence creates a real emergency, dispatches notifications, and later records a real location",
+            "locationless incident production persistence serializes concurrent locationless activations into one OPEN incident",
+            "locationless incident production persistence database rejects partial coordinates {\"latitude\": 6.5}",
+            "locationless incident production persistence database rejects partial coordinates {\"longitude\": 3.3}",
+            "locationless incident production persistence migration preserves populated coordinate values and other constraints"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "incident",
+      "count": 6,
+      "suites": [
+        {
+          "file": "incident-lifecycle-concurrency.int-spec.ts",
+          "tests": [
+            "IncidentsService lifecycle contention blocks a concurrent resolve for the same incident",
+            "IncidentsService lifecycle contention does not block a resolve for a different incident",
+            "IncidentsService lifecycle contention lets exactly one of a raced resolve and cancel win"
+          ]
+        },
+        {
+          "file": "incident-timeline-concurrency.int-spec.ts",
+          "tests": [
+            "IncidentTimelineService contention blocks a concurrent recordEvent for the same incident",
+            "IncidentTimelineService contention does not block a recordEvent for a different incident",
+            "IncidentTimelineService contention allocates 1 and 2 and leaves a valid chain under concurrent writes"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "delivery",
+      "count": 50,
+      "suites": [
+        {
+          "file": "enrollment.int-spec.ts",
+          "tests": [
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL public registration unknown returns only a durable receipt and creates no account",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL public registration email returns only a durable receipt and creates no account",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL public registration phone returns only a durable receipt and creates no account",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL tenant enrollment unknown has identical receipts, safe status and no roster change",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL tenant enrollment email has identical receipts, safe status and no roster change",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL tenant enrollment phone has identical receipts, safe status and no roster change",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL rejects unauthenticated and unauthorized enrollment/status probing",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL bulk accepts mixed global conflicts without row-dependent failures",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL serializes duplicate intake and queues exactly one message per channel",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL requires both proofs, then creates one account/membership with acceptance audit",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL refuses expired proof and creates no membership",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL refuses exhausted proof and creates no membership",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL persists failed proof attempts across rejected requests",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL existing account must authenticate; same-tenant acceptance is idempotent",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL allows an authenticated unassigned account to accept without creating a duplicate account",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL refuses cross-tenant transfer even after proofs and authenticated acceptance",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL rechecks suspended inviter authority at completion",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL rechecks removed inviter authority at completion",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL rechecks facility-disabled inviter authority at completion",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL serializes duplicate verification submissions",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL competing completions preserve global email uniqueness",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL competing completions preserve global phone uniqueness",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL provider failure cannot change accepted response or expose status; retries recover",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL cancels stale queued enrollment proofs after inviter removal without exposing eligibility in status",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL records an abandoned enrollment attempt as UNKNOWN without resending or rotating credentials",
+            "verification-first enrollment HTTP, signed JWT and PostgreSQL reset intake queues identical encrypted work and token creation happens only in worker"
+          ]
+        },
+        {
+          "file": "delivery-confirmation.int-spec.ts",
+          "tests": [
+            "Delivery confirmation PostgreSQL invariants queue \u2192 attempting \u2192 accepted; acceptance is never delivered",
+            "Delivery confirmation PostgreSQL invariants retries a known retryable failure, preserving both attempts and reporting",
+            "Delivery confirmation PostgreSQL invariants never retries a terminal recipient failure",
+            "Delivery confirmation PostgreSQL invariants bounds repeated failures to five attempts",
+            "Delivery confirmation PostgreSQL invariants atomically protects institutional outboxes and serializes concurrent claims to one audited provider send",
+            "Delivery confirmation PostgreSQL invariants duplicate/concurrent callbacks append one receipt event and never regress delivery",
+            "Delivery confirmation PostgreSQL invariants a late delivery strengthens failed; stale acceptance does not erase failed",
+            "Delivery confirmation PostgreSQL invariants an older attempt callback cannot overwrite a newer attempt; delivered still strengthens",
+            "Delivery confirmation PostgreSQL invariants retains unknown-reference receipts and correlates after response persistence",
+            "Delivery confirmation PostgreSQL invariants recovers abandoned attempts as unknown, with no duplicate resend",
+            "Delivery confirmation PostgreSQL invariants does not attribute a different provider/account receipt to a message",
+            "Delivery confirmation PostgreSQL invariants verifies signed ingestion and persists duplicate/replay only once",
+            "Delivery confirmation PostgreSQL invariants denies cross-facility incident access using the existing server-side guard",
+            "Delivery confirmation PostgreSQL invariants keeps audit events immutable and refuses orphan delivery attempts",
+            "Production receipt and tenant boundaries rejects every SMS callback without persisting or changing delivery truth",
+            "Production receipt and tenant boundaries enforces A active-account rules and incident relationships at the read service"
+          ]
+        },
+        {
+          "file": "invitation-delivery-worker.int-spec.ts",
+          "tests": [
+            "InvitationDeliveryWorker integration sends a due delivery and stores only the provider outcome",
+            "InvitationDeliveryWorker integration does not claim a row whose nextAttemptAt is still in the future",
+            "InvitationDeliveryWorker integration never reclaims a terminal row",
+            "InvitationDeliveryWorker integration does not blindly resend legacy SENDING rows without attempt evidence",
+            "InvitationDeliveryWorker integration requeues with backoff when the provider rejects the send",
+            "InvitationDeliveryWorker integration only one of two concurrent workers claims the same delivery"
+          ]
+        },
+        {
+          "file": "staging-notifications.int-spec.ts",
+          "tests": [
+            "durable staging notification limits and truth concurrent reservations enforce run limit, then hourly limit across runs",
+            "durable staging notification limits and truth blocked provider send persists FAILED without accepted or delivered evidence"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "admin",
+      "count": 9,
+      "suites": [
+        {
+          "file": "super-admin.int-spec.ts",
+          "tests": [
+            "production Super Admin / PostgreSQL allows platform facility creation and listing, denies both to tenant operators",
+            "production Super Admin / PostgreSQL delivers both proofs before activating FACILITY_OPERATOR membership",
+            "production Super Admin / PostgreSQL delivers both proofs before activating FACILITY_ADMIN membership",
+            "production Super Admin / PostgreSQL serializes concurrent idempotent provisioning and creates no duplicate seat",
+            "production Super Admin / PostgreSQL denies stale proofs after revocation and records provenance",
+            "production Super Admin / PostgreSQL honors resend cooldown and serializes concurrent resends",
+            "production Super Admin / PostgreSQL masks memberships and denies stale cross-facility mutations",
+            "production Super Admin / PostgreSQL invalidates signed sessions on suspension and audits revocation",
+            "production Super Admin / PostgreSQL requires current account authentication before an existing resident accepts staff membership"
+          ]
+        }
+      ]
+    }
+  ]
+}

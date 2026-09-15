@@ -329,6 +329,7 @@ async function run(c, adapter, selected = ORDER) {
           suites.push(suiteResult(s.file, r.result));
         }
       } catch (e) {
+        adapter.diagnosticFailure?.(e);
         failure = e;
       } finally {
         try {

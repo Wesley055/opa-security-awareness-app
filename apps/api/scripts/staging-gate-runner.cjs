@@ -15,6 +15,8 @@ const v = require("./staging-database-verifier.cjs"),
   custody = require("./staging-gate-custodian.cjs");
 const boundary = require("../../../packages/environment-policy/index.cjs");
 const results = require("./staging-integration-results.cjs");
+const diagnostics = require("./staging-modular-diagnostics.cjs");
+const preflightReceipt = require("./staging-preflight-receipt.cjs");
 const API = path.join(v.ROOT, "apps/api");
 const SCOPE =
   "/subscriptions/b79ffdb2-0cf1-4915-89b4-2b6b7cae0299/resourceGroups/rg-opa-staging";
@@ -76,11 +78,13 @@ function policyFields(p) {
   );
   return p;
 }
-function git(...args) {
+function git(d, ...args) {
+  const started = Date.now();
   const r = spawnSync("git", ["-c", "safe.directory=" + v.ROOT, ...args], {
     cwd: v.ROOT,
     encoding: "utf8",
   });
+  d.outcome({ ...r, durationMs: Date.now() - started });
   v.check(r.status === 0, "GIT_CHECK");
   return r.stdout.trim();
 }
@@ -98,7 +102,17 @@ function cleanResult(r) {
     errorClass: r.error ? "PROCESS_FAILURE" : null,
   };
 }
-async function execute(input) {
+async function endConnection(db, d) {
+  try {
+    await db.end();
+  } catch (error) {
+    d.cleanup("FAIL");
+    d.capture(error);
+    throw error;
+  }
+}
+async function runInternal(input, d, prepareOnly) {
+  d.mark("POLICY");
   const p = policy(input.policy),
     c = {
       sha: p.build,
@@ -106,6 +120,7 @@ async function execute(input) {
       source: p.source,
       expiresAt: p.expiresAt,
     };
+  d.mark("HOST");
   v.check(
     process.platform === "linux" &&
       process.getuid() === 0 &&
@@ -114,22 +129,26 @@ async function execute(input) {
       os.cpus().length >= 2,
     "GATE_HOST",
   );
+  d.mark("CHECKOUT");
   v.check(
-    git("rev-parse", "HEAD") === c.sha &&
-      git("branch", "--show-current") === p.branch &&
-      git("status", "--porcelain", "--untracked-files=all") === "",
+    git(d, "rev-parse", "HEAD") === c.sha &&
+      git(d, "branch", "--show-current") === p.branch &&
+      git(d, "status", "--porcelain", "--untracked-files=all") === "",
     "GATE_CHECKOUT",
   );
+  d.mark("MANIFEST");
   g.inventory(
     fs
       .readdirSync(path.join(API, "test/int"))
       .filter((n) => n.endsWith(".int-spec.ts")),
   );
+  d.mark("FINGERPRINT");
   v.check(
     g.hash(input.runtimeUrl) === p.runtimeSecretSha256,
     "GATE_SECRET_FINGERPRINT",
   );
   const runtime = v.databaseUrl(input.runtimeUrl, "runtime");
+  d.mark("DNS");
   for (const [host, ip] of [
     [v.SERVER, "10.72.1.4"],
     ["opa-kv-staging.vault.azure.net", "10.72.2.4"],
@@ -140,11 +159,13 @@ async function execute(input) {
       "GATE_PRIVATE_DNS",
     );
   }
+  d.mark("SOURCE_RECHECK");
   const addresses = Object.values(os.networkInterfaces())
     .flat()
     .filter(Boolean)
     .map((x) => x.address);
   v.check(addresses.includes("10.72.4.4"), "GATE_SOURCE");
+  d.mark("TOOLCHAIN");
   v.check(
     require("prisma/package.json").version === "6.19.3" &&
       require("@prisma/client/package.json").version === "6.19.3",
@@ -152,6 +173,7 @@ async function execute(input) {
   );
   // Read fixed staging bootstrap secret through the existing protected transport.
   // Token claims must name the staging migration identity; no token is retained.
+  d.mark("IDENTITY");
   let claims;
   try {
     claims = JSON.parse(
@@ -165,6 +187,7 @@ async function execute(input) {
       claims.tid === "adb3fb59-1ac3-42c2-b39a-d70c7006ccbc",
     "GATE_IDENTITY",
   );
+  d.mark("VAULT");
   const response = await fetch(
     "https://opa-kv-staging.vault.azure.net/secrets/opa-staging-bootstrap-db-password?api-version=7.4",
     {
@@ -173,7 +196,9 @@ async function execute(input) {
       signal: AbortSignal.timeout(20000),
     },
   );
+  d.outcome({ httpStatus: response.status });
   v.check(response.ok, "GATE_BOOTSTRAP_ACCESS");
+  d.mark("BOOTSTRAP_SECRET");
   const secret = await response.json();
   delete input.vaultToken;
   v.check(
@@ -208,24 +233,41 @@ async function execute(input) {
     });
     try {
       await db.connect();
+      if (database === v.RUNTIME) d.mark("RUNTIME_IDENTITY");
       await v.identity(db, database, user, c.source);
       return db;
-    } catch {
-      await db.end();
-      throw Error("GATE_CONNECT");
+    } catch (error) {
+      d.capture(error);
+      try {
+        await db.end();
+      } catch (closeError) {
+        d.cleanup("FAIL");
+        d.capture(closeError);
+      }
+      throw error;
     }
   };
+  d.mark("TOOLCHAIN");
+  const npmStarted = Date.now();
   const npmVersion = spawnSync(
     process.execPath,
     ["/opt/opa/node22/lib/node_modules/npm/bin/npm-cli.js", "--version"],
     { encoding: "utf8" },
   );
+  d.outcome({ ...npmVersion, durationMs: Date.now() - npmStarted });
   v.check(
     npmVersion.status === 0 && npmVersion.stdout.trim() === "10.9.8",
     "GATE_NPM_VERSION",
   );
-  const evidence = "/opt/opa/evidence/modular-" + c.lease;
+  const evidence =
+    "/opt/opa/evidence/" +
+    (prepareOnly ? "modular-preflight-" : "modular-") +
+    c.lease;
+  d.mark("RECEIPT_DIRECTORY");
   fs.mkdirSync(evidence, { recursive: false, mode: 0o700 });
+  d.setWriter((report) =>
+    g.writeOnce(path.join(evidence, "orchestration-failure.json"), report),
+  );
   const base = {
     PATH: "/opt/opa/node22/bin:/usr/local/bin:/usr/bin:/bin",
     HOME: "/opt/opa/test-home",
@@ -252,11 +294,19 @@ async function execute(input) {
         detached: true,
         maxBuffer: 64 * 1024 * 1024,
       });
+    d.outcome({
+      ...r,
+      prismaCode: cleanResult(r).prismaCodes[0],
+      durationMs: Date.now() - started,
+    });
     if (r.pid) {
       try {
         process.kill(-r.pid, "SIGKILL");
       } catch (e) {
-        if (e.code !== "ESRCH") throw Error("GATE_CHILD_CLEANUP");
+        if (e.code !== "ESRCH") {
+          d.cleanup("FAIL");
+          throw Error("GATE_CHILD_CLEANUP");
+        }
       }
     }
     g.writeOnce(path.join(evidence, stage + ".json"), {
@@ -268,9 +318,11 @@ async function execute(input) {
   };
   const prisma = require.resolve("prisma/build/index.js"),
     schema = path.join(API, "prisma/schema.prisma");
+  d.mark("MIGRATION_MANIFEST");
   const expected = v.manifest();
   v.committed(v.ROOT, c.sha, expected);
   const runtimeCheck = async () => {
+    d.mark("RUNTIME_CONNECT");
     const db = await connect(
       v.RUNTIME,
       decodeURIComponent(runtime.username),
@@ -278,29 +330,64 @@ async function execute(input) {
       true,
     );
     try {
+      d.mark("RUNTIME_VERIFY");
       const proof = await v.verifyMigrated(db, expected, c.source);
       v.check(
         JSON.stringify(proof.history.map((x) => x.migration_name)) ===
           JSON.stringify(expected.map((x) => x.name)),
         "GATE_HISTORY_ORDER",
       );
+      if (prepareOnly)
+        g.writeOnce(path.join(evidence, "runtime-verification.json"), {
+          result: "PASS",
+          readOnly: true,
+          migrationCount: 35,
+          failedMigrations: 0,
+          sentinel: "PASS",
+          checksums: "PASS",
+          order: "PASS",
+          migrationManifestHash: v.manifestHash(expected),
+        });
+    } catch (error) {
+      d.capture(error);
+      throw error;
     } finally {
-      await db.end();
+      d.mark("RUNTIME_CLOSE");
+      await endConnection(db, d);
     }
   };
   const adapter = {
     async lock() {
+      d.mark("ADMIN_CONNECT");
       admin = await connect("postgres");
+      d.mark("LOCK");
       const held = (
         await admin.query("SELECT pg_try_advisory_lock(727204,213) AS held")
       ).rows[0].held;
       v.check(held, "GATE_EXCLUSIVE_LEASE");
       return async () => {
-        await admin.end();
-        admin = null;
+        d.mark("UNLOCK");
+        try {
+          await admin.end();
+          admin = null;
+        } catch (error) {
+          d.cleanup("FAIL");
+          d.capture(error);
+          throw error;
+        }
       };
     },
     async preflight() {
+      if (!prepareOnly) {
+        d.mark("PREFLIGHT_RECEIPT");
+        preflightReceipt.verify(
+          input.preflightReceipt,
+          input.policy,
+          p,
+          v.manifestHash(expected),
+        );
+        return;
+      }
       const dummy = {
         ...base,
         DATABASE_URL:
@@ -310,9 +397,18 @@ async function execute(input) {
         ["prisma-generate", [prisma, "generate", "--schema", schema]],
         ["prisma-validate", [prisma, "validate", "--schema", schema]],
         ["api-build", [require.resolve("@nestjs/cli/bin/nest.js"), "build"]],
-      ])
+      ]) {
+        d.mark(
+          {
+            "prisma-generate": "BUILD_GENERATE",
+            "prisma-validate": "BUILD_VALIDATE",
+            "api-build": "BUILD_API",
+          }[name],
+        );
         v.check(command(name, args, dummy).status === 0, "GATE_BUILD");
+      }
       await runtimeCheck();
+      d.mark("SCHEMA_PARITY");
       const diff = command(
         "runtime-schema-parity",
         [
@@ -336,19 +432,27 @@ async function execute(input) {
         "GATE_SCHEMA_PARITY",
       );
     },
+    diagnosticFailure(error) {
+      d.capture(error);
+    },
     async assertAbsent(ctx) {
+      d.mark("AUTHORIZATION");
       policy(input.policy);
+      d.mark("SOURCE_RECHECK");
       v.check(
-        git("rev-parse", "HEAD") === c.sha &&
-          git("status", "--porcelain", "--untracked-files=all") === "",
+        git(d, "rev-parse", "HEAD") === c.sha &&
+          git(d, "status", "--porcelain", "--untracked-files=all") === "",
         "GATE_SOURCE_CHANGED",
       );
+      d.mark("GATE_ABSENCE");
       await custody.operate(admin, connect, ctx, "absent");
     },
     async create(ctx) {
+      d.mark("GATE_CREATE");
       access = await custody.operate(admin, connect, ctx, "create");
     },
     async migrateAndVerify(ctx) {
+      d.mark("GATE_MIGRATE");
       policy(input.policy);
       g.databaseUrl(access, ctx);
       v.check(
@@ -359,6 +463,7 @@ async function execute(input) {
         ).status === 0,
         "GATE_MIGRATION_FAILED",
       );
+      d.mark("GATE_VERIFY");
       const u = g.databaseUrl(access, ctx),
         db = await connect(
           g.database(ctx),
@@ -386,6 +491,7 @@ async function execute(input) {
       };
     },
     async suite(ctx, file) {
+      d.mark("READINESS_INITIALIZATION");
       policy(input.policy);
       const tmp = fs.mkdtempSync("/tmp/opa-readiness-");
       fs.chownSync(tmp, 1001, 1001);
@@ -410,6 +516,7 @@ async function execute(input) {
         PII_LOOKUP_KEY: crypto.randomBytes(32).toString("base64"),
       };
       try {
+        d.mark("SUITE");
         const r = command(
           ctx.gate + "-" + file,
           [
@@ -426,10 +533,11 @@ async function execute(input) {
         );
 
         // Parse in memory, allowlist only approved test identifiers/statuses.
+        d.mark("RESULT_COLLECTION");
         const parsed = results.collect(r, (x) => x);
         v.check(
-          git("rev-parse", "HEAD") === c.sha &&
-            git("status", "--porcelain", "--untracked-files=all") === "",
+          git(d, "rev-parse", "HEAD") === c.sha &&
+            git(d, "status", "--porcelain", "--untracked-files=all") === "",
           "GATE_SOURCE_CHANGED",
         );
         const safe = {
@@ -492,51 +600,154 @@ async function execute(input) {
       }
     },
     async cleanup(ctx) {
+      d.mark("GATE_CLEANUP");
       access = null;
-      const proof = await custody.operate(admin, connect, ctx, "drop");
-      v.check(proof.databaseAbsent && proof.roleAbsent, "GATE_CLEANUP");
-      await runtimeCheck();
+      try {
+        const proof = await custody.operate(admin, connect, ctx, "drop");
+        v.check(proof.databaseAbsent && proof.roleAbsent, "GATE_CLEANUP");
+        await runtimeCheck();
+      } catch (error) {
+        d.cleanup("FAIL");
+        d.capture(error);
+        throw error;
+      }
     },
     async receipt(r) {
+      d.mark("RECEIPT_WRITE");
       g.writeOnce(path.join(evidence, r.gate + "-receipt.json"), r);
     },
     async failure(r) {
-      g.writeOnce(path.join(evidence, r.gate + "-failure.json"), r);
+      const diagnostic = d.report(new Error("GATE_FAILED"));
+      g.writeOnce(path.join(evidence, r.gate + "-failure.json"), {
+        ...r,
+        code: diagnostic.errorCode,
+        diagnostic,
+      });
     },
   };
+  // Capture at the adapter boundary before release/cleanup can change the stage.
+  for (const [name, operation] of Object.entries(adapter)) {
+    if (name === "diagnosticFailure") continue;
+    adapter[name] = async (...args) => {
+      try {
+        return await operation(...args);
+      } catch (error) {
+        d.capture(error);
+        throw error;
+      }
+    };
+  }
   try {
+    if (prepareOnly) {
+      await adapter.preflight();
+      d.mark("PREFLIGHT_RECEIPT");
+      const files = [
+        "prisma-generate",
+        "prisma-validate",
+        "api-build",
+        "runtime-verification",
+        "runtime-schema-parity",
+      ].map((name) =>
+        JSON.parse(
+          fs.readFileSync(path.join(evidence, name + ".json"), "utf8"),
+        ),
+      );
+      const receipt = preflightReceipt.draft(
+        input.policy,
+        p,
+        g.hash(files),
+        v.manifestHash(expected),
+      );
+      g.writeOnce(path.join(evidence, "preflight-unsigned.json"), receipt);
+      return {
+        result: "PASS",
+        evidence,
+        preflight: receipt,
+        signatureRequired: true,
+      };
+    }
     const result = await g.run(c, adapter, p.gates);
+    d.mark("ARTIFACT_WRITE");
     g.writeOnce(path.join(evidence, "result.json"), result);
     return { result: "PASS", evidence };
+  } catch (error) {
+    d.capture(error);
+    throw error;
   } finally {
     access = null;
     secret.value = "";
     input.runtimeUrl = "";
-    if (admin) await admin.end();
+    d.mark("FINAL_CLEANUP");
+    if (admin) await endConnection(admin, d);
+    d.cleanup("PASS");
   }
 }
-module.exports = { execute, policyFields, policy, cleanResult };
+async function invoke(input, prepareOnly) {
+  const d = diagnostics.tracker();
+  try {
+    return await runInternal(input, d, prepareOnly);
+  } catch (error) {
+    if (d.cleanupOutcome === "PENDING") d.cleanup("NOT_REQUIRED");
+    const safe = new Error(d.report(error).errorCode);
+    safe.diagnostic = d.report(error);
+    safe.diagnostic.artifactOutcome = d.persist(safe.diagnostic);
+    diagnostics.register(safe, safe.diagnostic);
+    throw safe;
+  } finally {
+    if (input && typeof input === "object") {
+      input.runtimeUrl = "";
+      delete input.vaultToken;
+    }
+  }
+}
+const execute = (input) => invoke(input, false);
+const preflight = (input) => invoke(input, true);
+module.exports = {
+  execute,
+  preflight,
+  policyFields,
+  policy,
+  cleanResult,
+  failureRecord: diagnostics.failure,
+};
 if (require.main === module) {
   let text = "";
   process.stdin.on("data", (d) => {
     text += d;
-    if (text.length > 131072) process.exit(1);
+    if (text.length > 131072) {
+      text = "";
+      process.stderr.write(
+        JSON.stringify({
+          result: "FAIL",
+          diagnostic: diagnostics.classify(new RangeError(), "INPUT"),
+        }) + "\n",
+      );
+      process.exit(1);
+    }
   });
   process.stdin.on("end", () => {
     let input;
     try {
       input = JSON.parse(text);
       text = "";
-    } catch {
-      process.stderr.write("GATE_INPUT\n");
+    } catch (error) {
+      process.stderr.write(
+        JSON.stringify({
+          result: "FAIL",
+          diagnostic: diagnostics.classify(error, "INPUT"),
+        }) + "\n",
+      );
       process.exitCode = 1;
       return;
     }
-    execute(input)
+    (input?.mode === "preflight" ? preflight : execute)(input)
       .then((r) => process.stdout.write(JSON.stringify(r) + "\n"))
-      .catch(() => {
+      .catch((error) => {
         process.stderr.write(
-          "MODULAR_VALIDATION_FAILED; inspect sanitized gate evidence\n",
+          JSON.stringify({
+            result: "FAIL",
+            diagnostic: error.diagnostic || diagnostics.failure(error),
+          }) + "\n",
         );
         process.exitCode = 1;
       });

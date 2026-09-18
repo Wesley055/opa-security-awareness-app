@@ -1,0 +1,640 @@
+{
+  "decision": "BRAND-001",
+  "source": "apps/website/public/opa-logo-mark.svg",
+  "sourceSha256": "21385afffabe494c700f21d7e70ef75fe912fca01d6949fc27bf343745acee3b",
+  "generator": "scripts/brand-assets.cjs",
+  "rendererVersions": {
+    "aom": "3.13.1",
+    "archive": "3.8.2",
+    "cairo": "1.18.4",
+    "cgif": "0.5.0",
+    "exif": "0.6.25",
+    "expat": "2.7.3",
+    "ffi": "3.5.2",
+    "fontconfig": "2.17.1",
+    "freetype": "2.14.1",
+    "fribidi": "1.0.16",
+    "glib": "2.86.1",
+    "harfbuzz": "12.1.0",
+    "heif": "1.20.2",
+    "highway": "1.3.0",
+    "imagequant": "2.4.1",
+    "lcms": "2.17",
+    "mozjpeg": "0826579",
+    "pango": "1.57.0",
+    "pixman": "0.46.4",
+    "png": "1.6.50",
+    "proxy-libintl": "0.5",
+    "rsvg": "2.61.2",
+    "spng": "0.7.4",
+    "tiff": "4.7.1",
+    "vips": "8.17.3",
+    "webp": "1.6.0",
+    "xml2": "2.15.1",
+    "zlib-ng": "2.2.5",
+    "sharp": "0.34.5"
+  },
+  "policy": "All logo changes require coordinated product-owner approval. No independent surface recoloring.",
+  "assets": [
+    {
+      "surface": "Expo Android / iOS shared opaque RGB source",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/icon.png",
+      "dimensions": "1024 x 1024",
+      "sha256": "bec4803930772c8eda12fa6f95ae12d9a499e96c85f091f31dd93cd71857e76d",
+      "status": "generated"
+    },
+    {
+      "surface": "Android adaptive foreground",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/android-icon-foreground.png",
+      "dimensions": "432 x 432",
+      "sha256": "f604e467714c750427476609c737ba998dd066d057a0f8caa60dedb2916ee15d",
+      "status": "generated"
+    },
+    {
+      "surface": "Android adaptive navy background",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/android-icon-background.png",
+      "dimensions": "432 x 432",
+      "sha256": "cde38b3b9ffea10f342c7ff61f1fd78769a37a63d9045d474b5fab0579e874b1",
+      "status": "generated"
+    },
+    {
+      "surface": "Android themed monochrome",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/android-icon-monochrome.png",
+      "dimensions": "432 x 432",
+      "sha256": "aa23c23c2f4cbc8d2ddb55eeeb35d79df976e5e14b345467dcc0ea9c35b0ed3c",
+      "status": "generated"
+    },
+    {
+      "surface": "Shared splash",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/splash-icon.png",
+      "dimensions": "1024 x 1024",
+      "sha256": "2243f114f2e8a52ac9338b13955407aa1f18788b335d34ddaca102ef61e65b4e",
+      "status": "generated"
+    },
+    {
+      "surface": "Expo web favicon",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/favicon.png",
+      "dimensions": "48 x 48",
+      "sha256": "00be0520e7656dde24e386631e658ea3583f0911e2add3c5a9116d0050df4ac8",
+      "status": "generated"
+    },
+    {
+      "surface": "Google Play listing",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "artifacts/brand/google-play/opa-emergency-safety-play-icon-512.png",
+      "dimensions": "512 x 512",
+      "sha256": "91c8159deb156e5eb957740589bfe4e4ee457aa1c927286b2fdcbf72c3574a86",
+      "status": "generated"
+    },
+    {
+      "surface": "Website / Command Center browser icon",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/website/src/app/icon.svg",
+      "dimensions": "64 x 64 vector",
+      "sha256": "21385afffabe494c700f21d7e70ef75fe912fca01d6949fc27bf343745acee3b",
+      "status": "generated"
+    },
+    {
+      "surface": "Website / Command Center favicon",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/website/src/app/favicon.ico",
+      "dimensions": "16, 32, 48, 256 square",
+      "sha256": "9ef5f3e587ddf4ad3ffd3a4bd830939cfd4745500c4b5c808e09daebd5da0f30",
+      "status": "generated"
+    },
+    {
+      "surface": "Android standard (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-mdpi/ic_launcher.webp",
+      "dimensions": "48 x 48",
+      "sha256": "da59eef8a3911d572ab00aa5736444c26ed3ecaf0f7e8242bf5401a5ebc47e4f",
+      "status": "generated"
+    },
+    {
+      "surface": "Android standard",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-mdpi/ic_launcher.webp",
+      "dimensions": "48 x 48",
+      "sha256": "da59eef8a3911d572ab00aa5736444c26ed3ecaf0f7e8242bf5401a5ebc47e4f",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android round (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-mdpi/ic_launcher_round.webp",
+      "dimensions": "48 x 48",
+      "sha256": "90dc623d33b5ddc03eef82f0fa12c620923bb4f6c38b501044bde838cc457677",
+      "status": "generated"
+    },
+    {
+      "surface": "Android round",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-mdpi/ic_launcher_round.webp",
+      "dimensions": "48 x 48",
+      "sha256": "90dc623d33b5ddc03eef82f0fa12c620923bb4f6c38b501044bde838cc457677",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android foreground (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-mdpi/ic_launcher_foreground.webp",
+      "dimensions": "108 x 108",
+      "sha256": "32f466bfc4d18edbc46eaef88edf183ad03b403e4be99a8d7576599b52b1cb13",
+      "status": "generated"
+    },
+    {
+      "surface": "Android foreground",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-mdpi/ic_launcher_foreground.webp",
+      "dimensions": "108 x 108",
+      "sha256": "32f466bfc4d18edbc46eaef88edf183ad03b403e4be99a8d7576599b52b1cb13",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android background (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-mdpi/ic_launcher_background.webp",
+      "dimensions": "108 x 108",
+      "sha256": "a288e68b00fd1d0752cc121e474584aeefaffb4fe623ea39e97aaa99c99ed02a",
+      "status": "generated"
+    },
+    {
+      "surface": "Android background",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-mdpi/ic_launcher_background.webp",
+      "dimensions": "108 x 108",
+      "sha256": "a288e68b00fd1d0752cc121e474584aeefaffb4fe623ea39e97aaa99c99ed02a",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android monochrome (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-mdpi/ic_launcher_monochrome.webp",
+      "dimensions": "108 x 108",
+      "sha256": "bcaa6b50f7416408521e2362c3db60ab384d3dcfe6dabb72e11fc1ff87de2fbf",
+      "status": "generated"
+    },
+    {
+      "surface": "Android monochrome",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-mdpi/ic_launcher_monochrome.webp",
+      "dimensions": "108 x 108",
+      "sha256": "bcaa6b50f7416408521e2362c3db60ab384d3dcfe6dabb72e11fc1ff87de2fbf",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android splash (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/drawable-mdpi/splashscreen_logo.png",
+      "dimensions": "288 x 288",
+      "sha256": "bb7f282affae33c388998d0ddf3d276a87681c9b3da5ff275de541bf7120ceac",
+      "status": "generated"
+    },
+    {
+      "surface": "Android splash",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/drawable-mdpi/splashscreen_logo.png",
+      "dimensions": "288 x 288",
+      "sha256": "bb7f282affae33c388998d0ddf3d276a87681c9b3da5ff275de541bf7120ceac",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android standard (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-hdpi/ic_launcher.webp",
+      "dimensions": "72 x 72",
+      "sha256": "8ba021f7f0bd569651d511d5d22edacb962a7fac8c162402a74660cb5c59abd4",
+      "status": "generated"
+    },
+    {
+      "surface": "Android standard",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-hdpi/ic_launcher.webp",
+      "dimensions": "72 x 72",
+      "sha256": "8ba021f7f0bd569651d511d5d22edacb962a7fac8c162402a74660cb5c59abd4",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android round (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-hdpi/ic_launcher_round.webp",
+      "dimensions": "72 x 72",
+      "sha256": "cd5f03e053e935c2810527f9c870a3a495d82750722b083cec3eb1c2dc109210",
+      "status": "generated"
+    },
+    {
+      "surface": "Android round",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-hdpi/ic_launcher_round.webp",
+      "dimensions": "72 x 72",
+      "sha256": "cd5f03e053e935c2810527f9c870a3a495d82750722b083cec3eb1c2dc109210",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android foreground (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-hdpi/ic_launcher_foreground.webp",
+      "dimensions": "162 x 162",
+      "sha256": "01385d1e3e44f398fd93f0bb5e81ebcb3bcf1fdd8d02b9fbd421e20551b37fba",
+      "status": "generated"
+    },
+    {
+      "surface": "Android foreground",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-hdpi/ic_launcher_foreground.webp",
+      "dimensions": "162 x 162",
+      "sha256": "01385d1e3e44f398fd93f0bb5e81ebcb3bcf1fdd8d02b9fbd421e20551b37fba",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android background (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-hdpi/ic_launcher_background.webp",
+      "dimensions": "162 x 162",
+      "sha256": "63b6c72a2c73d62a794e0b59297265d4de62e901c2e42d4523dc0d21e772473a",
+      "status": "generated"
+    },
+    {
+      "surface": "Android background",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-hdpi/ic_launcher_background.webp",
+      "dimensions": "162 x 162",
+      "sha256": "63b6c72a2c73d62a794e0b59297265d4de62e901c2e42d4523dc0d21e772473a",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android monochrome (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-hdpi/ic_launcher_monochrome.webp",
+      "dimensions": "162 x 162",
+      "sha256": "cf132b9cedc16324dfe98dd82e2c0f166b0f1d67d8f3fe3a55d57afd64cd15a1",
+      "status": "generated"
+    },
+    {
+      "surface": "Android monochrome",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-hdpi/ic_launcher_monochrome.webp",
+      "dimensions": "162 x 162",
+      "sha256": "cf132b9cedc16324dfe98dd82e2c0f166b0f1d67d8f3fe3a55d57afd64cd15a1",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android splash (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/drawable-hdpi/splashscreen_logo.png",
+      "dimensions": "432 x 432",
+      "sha256": "d8d4b320a827ef41dd2d48da15e1221608f7f820ae0d3aa6afb2ccd65e2e4ee9",
+      "status": "generated"
+    },
+    {
+      "surface": "Android splash",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/drawable-hdpi/splashscreen_logo.png",
+      "dimensions": "432 x 432",
+      "sha256": "d8d4b320a827ef41dd2d48da15e1221608f7f820ae0d3aa6afb2ccd65e2e4ee9",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android standard (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-xhdpi/ic_launcher.webp",
+      "dimensions": "96 x 96",
+      "sha256": "5833be4947c5d1aeca09e02c0922d2fbb1236ae17a14e042af91cb8d7004f399",
+      "status": "generated"
+    },
+    {
+      "surface": "Android standard",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-xhdpi/ic_launcher.webp",
+      "dimensions": "96 x 96",
+      "sha256": "5833be4947c5d1aeca09e02c0922d2fbb1236ae17a14e042af91cb8d7004f399",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android round (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-xhdpi/ic_launcher_round.webp",
+      "dimensions": "96 x 96",
+      "sha256": "786429308cfa4fb597405cb937de44a27173f6729b9946fcd181c31a2e3c7ec7",
+      "status": "generated"
+    },
+    {
+      "surface": "Android round",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-xhdpi/ic_launcher_round.webp",
+      "dimensions": "96 x 96",
+      "sha256": "786429308cfa4fb597405cb937de44a27173f6729b9946fcd181c31a2e3c7ec7",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android foreground (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-xhdpi/ic_launcher_foreground.webp",
+      "dimensions": "216 x 216",
+      "sha256": "db588da6bd305b20ccc31335d4503477aa3870a93a24eb7601439703133e593e",
+      "status": "generated"
+    },
+    {
+      "surface": "Android foreground",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-xhdpi/ic_launcher_foreground.webp",
+      "dimensions": "216 x 216",
+      "sha256": "db588da6bd305b20ccc31335d4503477aa3870a93a24eb7601439703133e593e",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android background (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-xhdpi/ic_launcher_background.webp",
+      "dimensions": "216 x 216",
+      "sha256": "d0f8fd2f74a60aef0e7c17616ba4f68ff696a4fb9035b2f09289ef725eabfdc6",
+      "status": "generated"
+    },
+    {
+      "surface": "Android background",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-xhdpi/ic_launcher_background.webp",
+      "dimensions": "216 x 216",
+      "sha256": "d0f8fd2f74a60aef0e7c17616ba4f68ff696a4fb9035b2f09289ef725eabfdc6",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android monochrome (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-xhdpi/ic_launcher_monochrome.webp",
+      "dimensions": "216 x 216",
+      "sha256": "54fb1b28eefc60ed3d0b0bdda47d405d0094b7c90cee16d5fe2bf3182643a89b",
+      "status": "generated"
+    },
+    {
+      "surface": "Android monochrome",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-xhdpi/ic_launcher_monochrome.webp",
+      "dimensions": "216 x 216",
+      "sha256": "54fb1b28eefc60ed3d0b0bdda47d405d0094b7c90cee16d5fe2bf3182643a89b",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android splash (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/drawable-xhdpi/splashscreen_logo.png",
+      "dimensions": "576 x 576",
+      "sha256": "7289ede2b919cd2902391337266439016f9cf4f637baac50524dda00b3289c9c",
+      "status": "generated"
+    },
+    {
+      "surface": "Android splash",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/drawable-xhdpi/splashscreen_logo.png",
+      "dimensions": "576 x 576",
+      "sha256": "7289ede2b919cd2902391337266439016f9cf4f637baac50524dda00b3289c9c",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android standard (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-xxhdpi/ic_launcher.webp",
+      "dimensions": "144 x 144",
+      "sha256": "d0e37d76bc7392da63df067a6137745c907644c932640b5d10368e3ede27d554",
+      "status": "generated"
+    },
+    {
+      "surface": "Android standard",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-xxhdpi/ic_launcher.webp",
+      "dimensions": "144 x 144",
+      "sha256": "d0e37d76bc7392da63df067a6137745c907644c932640b5d10368e3ede27d554",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android round (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-xxhdpi/ic_launcher_round.webp",
+      "dimensions": "144 x 144",
+      "sha256": "d6f8c98aa1ee0dbfed588787d9693dfe7e66f0a8170769235b9991c3b0efe314",
+      "status": "generated"
+    },
+    {
+      "surface": "Android round",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.webp",
+      "dimensions": "144 x 144",
+      "sha256": "d6f8c98aa1ee0dbfed588787d9693dfe7e66f0a8170769235b9991c3b0efe314",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android foreground (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-xxhdpi/ic_launcher_foreground.webp",
+      "dimensions": "324 x 324",
+      "sha256": "c8169f57b91a349c6fc34a0f78043893b3f76d5bdb1801fb67c8362d8b199ebb",
+      "status": "generated"
+    },
+    {
+      "surface": "Android foreground",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_foreground.webp",
+      "dimensions": "324 x 324",
+      "sha256": "c8169f57b91a349c6fc34a0f78043893b3f76d5bdb1801fb67c8362d8b199ebb",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android background (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-xxhdpi/ic_launcher_background.webp",
+      "dimensions": "324 x 324",
+      "sha256": "d1e058694aa88aae3d433f35360514c2646a7dc3b8577e08cf9a752eacd0014f",
+      "status": "generated"
+    },
+    {
+      "surface": "Android background",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_background.webp",
+      "dimensions": "324 x 324",
+      "sha256": "d1e058694aa88aae3d433f35360514c2646a7dc3b8577e08cf9a752eacd0014f",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android monochrome (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-xxhdpi/ic_launcher_monochrome.webp",
+      "dimensions": "324 x 324",
+      "sha256": "1692f3ee472d6b83aba5b467d27143aa265259f177a651506c67be5f7c65c8cb",
+      "status": "generated"
+    },
+    {
+      "surface": "Android monochrome",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-xxhdpi/ic_launcher_monochrome.webp",
+      "dimensions": "324 x 324",
+      "sha256": "1692f3ee472d6b83aba5b467d27143aa265259f177a651506c67be5f7c65c8cb",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android splash (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/drawable-xxhdpi/splashscreen_logo.png",
+      "dimensions": "864 x 864",
+      "sha256": "863d1c773fe974be46f4008960ea94bfedd4650fca8ed8b475a8e071ef6d5f53",
+      "status": "generated"
+    },
+    {
+      "surface": "Android splash",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/drawable-xxhdpi/splashscreen_logo.png",
+      "dimensions": "864 x 864",
+      "sha256": "863d1c773fe974be46f4008960ea94bfedd4650fca8ed8b475a8e071ef6d5f53",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android standard (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-xxxhdpi/ic_launcher.webp",
+      "dimensions": "192 x 192",
+      "sha256": "c7bd6312709ae7b3016c8f22b4b2f3c9249e31eea68aa29096599e12a2c9f630",
+      "status": "generated"
+    },
+    {
+      "surface": "Android standard",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.webp",
+      "dimensions": "192 x 192",
+      "sha256": "c7bd6312709ae7b3016c8f22b4b2f3c9249e31eea68aa29096599e12a2c9f630",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android round (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-xxxhdpi/ic_launcher_round.webp",
+      "dimensions": "192 x 192",
+      "sha256": "58a4f3e6cd573e3a8bf77c861ce5bb52ca4f1ddf85d9f0d22c6437777542d57d",
+      "status": "generated"
+    },
+    {
+      "surface": "Android round",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.webp",
+      "dimensions": "192 x 192",
+      "sha256": "58a4f3e6cd573e3a8bf77c861ce5bb52ca4f1ddf85d9f0d22c6437777542d57d",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android foreground (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-xxxhdpi/ic_launcher_foreground.webp",
+      "dimensions": "432 x 432",
+      "sha256": "2986fb680149f202cdd5ee8114529d9bd3a6313ac864432b2210b42c8b19fcb6",
+      "status": "generated"
+    },
+    {
+      "surface": "Android foreground",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_foreground.webp",
+      "dimensions": "432 x 432",
+      "sha256": "2986fb680149f202cdd5ee8114529d9bd3a6313ac864432b2210b42c8b19fcb6",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android background (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-xxxhdpi/ic_launcher_background.webp",
+      "dimensions": "432 x 432",
+      "sha256": "3c8d37cb3256d35247175f6ddc975b1278bc372ad4e1416ad5767ceba09f34c5",
+      "status": "generated"
+    },
+    {
+      "surface": "Android background",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_background.webp",
+      "dimensions": "432 x 432",
+      "sha256": "3c8d37cb3256d35247175f6ddc975b1278bc372ad4e1416ad5767ceba09f34c5",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android monochrome (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-xxxhdpi/ic_launcher_monochrome.webp",
+      "dimensions": "432 x 432",
+      "sha256": "d34792910613a6ca6456a8f1a80698903b5b7de84571d07e3d879b8b31908367",
+      "status": "generated"
+    },
+    {
+      "surface": "Android monochrome",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_monochrome.webp",
+      "dimensions": "432 x 432",
+      "sha256": "d34792910613a6ca6456a8f1a80698903b5b7de84571d07e3d879b8b31908367",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android splash (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/drawable-xxxhdpi/splashscreen_logo.png",
+      "dimensions": "1152 x 1152",
+      "sha256": "1841b58cc8498925d189c1b40f00d655eacc6d1f1ddb295ff43a470ccfe1d348",
+      "status": "generated"
+    },
+    {
+      "surface": "Android splash",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/drawable-xxxhdpi/splashscreen_logo.png",
+      "dimensions": "1152 x 1152",
+      "sha256": "1841b58cc8498925d189c1b40f00d655eacc6d1f1ddb295ff43a470ccfe1d348",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android adaptive wiring (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-anydpi-v26/ic_launcher.xml",
+      "dimensions": "108dp layers",
+      "sha256": "4bab3c59768636d72264d7db9321872f9325713beb66797b7dbfe41c11d90320",
+      "status": "generated"
+    },
+    {
+      "surface": "Android adaptive wiring",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml",
+      "dimensions": "108dp layers",
+      "sha256": "4bab3c59768636d72264d7db9321872f9325713beb66797b7dbfe41c11d90320",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Android adaptive wiring (portable native source)",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/assets/brand/android-res/mipmap-anydpi-v26/ic_launcher_round.xml",
+      "dimensions": "108dp layers",
+      "sha256": "4bab3c59768636d72264d7db9321872f9325713beb66797b7dbfe41c11d90320",
+      "status": "generated"
+    },
+    {
+      "surface": "Android adaptive wiring",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/mobile-app/android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml",
+      "dimensions": "108dp layers",
+      "sha256": "4bab3c59768636d72264d7db9321872f9325713beb66797b7dbfe41c11d90320",
+      "status": "native resource; device acceptance pending"
+    },
+    {
+      "surface": "Website Navbar/Footer and Super Admin",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/website/src/components/brand/Logo.tsx",
+      "dimensions": "64 x 64 viewBox; consumer size",
+      "sha256": "50bd3af5cd8c8cd7205365a444da93f0757b124db3e02efe9aff970868e206f4",
+      "status": "canonical existing implementation"
+    },
+    {
+      "surface": "Shared horizontal lockup",
+      "source": "apps/website/public/opa-logo-mark.svg",
+      "path": "apps/website/public/opa-logo-horizontal.svg",
+      "dimensions": "220 x 64 vector",
+      "sha256": "e927ba778c4475160ad3e5a8c4f3cd7bcef6641c6e0ff91a3769289ef363b798",
+      "status": "canonical existing implementation"
+    }
+  ]
+}

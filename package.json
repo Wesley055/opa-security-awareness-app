@@ -16,7 +16,9 @@
     "artifact:production": "node apps/api/scripts/assemble-production.cjs",
     "sso:dependencies": "node apps/api/scripts/sso-dependency-report.cjs",
     "dependencies:audit": "npm audit --audit-level=high",
-    "dependencies:test": "node --test apps/api/scripts/dependency-security-regression.cjs"
+    "dependencies:test": "node --test apps/api/scripts/dependency-security-regression.cjs",
+    "brand:generate": "node scripts/brand-assets.cjs",
+    "brand:check": "node scripts/brand-assets.cjs --check"
   },
   "engines": {
     "node": ">=22.12.0",

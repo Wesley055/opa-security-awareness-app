@@ -5,8 +5,7 @@ type LogoProps = {
 
 /**
  * OPA logo mark. The SVG is inlined rather than loaded from /public so it
- * renders immediately with no image optimisation config, and so its colours
- * can be adjusted from CSS later if needed.
+ * renders immediately with no image optimisation config, with canonical colors protected by BRAND-001.
  */
 export function LogoMark({ className, size = 28 }: LogoProps) {
   return (

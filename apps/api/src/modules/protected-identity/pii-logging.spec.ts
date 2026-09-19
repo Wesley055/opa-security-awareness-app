@@ -149,12 +149,31 @@ describe("ordinary logging PII boundaries", () => {
     }
   });
   it("keeps the real notification policy fail-closed before transport", async () => {
-    const fetch = jest.spyOn(globalThis, "fetch").mockRejectedValue(new Error("must not send"));
+    const fetch = jest
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("must not send"));
+    const gate = jest
+      .spyOn(outboundEnvironment, "outboundDenial")
+      .mockResolvedValue({
+        success: false,
+        provider: "EMAIL",
+        failureCategory: "REJECTED",
+        retryable: false,
+        error: "Environment notification policy denied send",
+      });
+
     try {
-      await expect(new EmailProvider().send({ recipient: pii, message: "secret" }))
-        .resolves.toMatchObject({ success: false, failureCategory: "REJECTED", retryable: false });
+      await expect(
+        new EmailProvider().send({ recipient: pii, message: "secret" }),
+      ).resolves.toMatchObject({
+        success: false,
+        failureCategory: "REJECTED",
+        retryable: false,
+      });
+      expect(gate).toHaveBeenCalledWith("EMAIL", pii);
       expect(fetch).not.toHaveBeenCalled();
     } finally {
+      gate.mockRestore();
       fetch.mockRestore();
     }
   });

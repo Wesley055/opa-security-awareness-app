@@ -1,5 +1,8 @@
 {
   "staging": {
     "opa-staging-release-20260913": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEASove184/bTxkEi7FHb3I2RDwPr/VJ9Kt213FVZkgTJ4=\n-----END PUBLIC KEY-----\n"
+  },
+  "production": {
+    "opa-production-release-20260919": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAAMcNv0d8xk+R6G0kIBx+v3wwAvItAdygyYTutdah2A4=\n-----END PUBLIC KEY-----\n"
   }
 }

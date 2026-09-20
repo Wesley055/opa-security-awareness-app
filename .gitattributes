@@ -28,3 +28,7 @@
 # Windows-native, and this session found the PowerShell parser fussy enough
 # not to gamble on it.
 *.ps1    text eol=crlf
+
+# Canonical brand master is byte-hashed during EAS prebuild.
+apps/website/public/opa-logo-mark.svg text eol=lf
+

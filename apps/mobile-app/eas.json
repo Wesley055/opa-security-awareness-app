@@ -32,6 +32,18 @@
       "env": {
         "OPA_ENVIRONMENT": "development"
       }
+    },
+    "production-apk": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "OPA_API_BASE_URL": "https://opa-api-production-g4f6cxdyanfbaub0.southafricanorth-01.azurewebsites.net",
+        "OPA_ENVIRONMENT": "production",
+        "OPA_ENDPOINT_POLICY_FILE": "../../packages/environment-policy/release/production-endpoint.json"
+      },
+      "environment": "production"
     }
   }
 }

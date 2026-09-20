@@ -32,3 +32,6 @@
 # Canonical brand master is byte-hashed during EAS prebuild.
 apps/website/public/opa-logo-mark.svg text eol=lf
 
+
+# XML resources are byte-hashed during canonical brand verification.
+*.xml text eol=lf

@@ -52,6 +52,22 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         ? message.map((entry) => redactSensitiveTrackingUrls(entry))
         : redactSensitiveTrackingUrls(message);
 
+    const errorName =
+      exception instanceof Error ? exception.name : "UnknownError";
+
+    const diagnosticMessage =
+      exception instanceof Error
+        ? redactSensitiveTrackingUrls(exception.message)
+        : "Unknown exception";
+
+    const diagnosticCode =
+      typeof exception === "object" &&
+      exception !== null &&
+      "code" in exception &&
+      typeof (exception as { code?: unknown }).code === "string"
+        ? (exception as { code: string }).code
+        : undefined;
+
     this.logger.error(
       JSON.stringify({
         event: "http_error",
@@ -62,6 +78,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
             ? request.route.path
             : "[unmatched]",
         statusCode: status,
+        errorName,
+        diagnosticMessage,
+        ...(diagnosticCode ? { diagnosticCode } : {}),
         message: "Request failed.",
         timestamp: new Date().toISOString(),
       }),

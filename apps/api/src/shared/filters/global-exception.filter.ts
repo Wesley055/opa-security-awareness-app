@@ -55,11 +55,6 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const errorName =
       exception instanceof Error ? exception.name : "UnknownError";
 
-    const diagnosticMessage =
-      exception instanceof Error
-        ? redactSensitiveTrackingUrls(exception.message)
-        : "Unknown exception";
-
     const diagnosticCode =
       typeof exception === "object" &&
       exception !== null &&
@@ -79,7 +74,6 @@ export class GlobalExceptionFilter implements ExceptionFilter {
             : "[unmatched]",
         statusCode: status,
         errorName,
-        diagnosticMessage,
         ...(diagnosticCode ? { diagnosticCode } : {}),
         message: "Request failed.",
         timestamp: new Date().toISOString(),

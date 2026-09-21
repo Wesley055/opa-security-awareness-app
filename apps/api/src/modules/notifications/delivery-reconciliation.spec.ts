@@ -142,13 +142,8 @@ describe("Delivery production boundaries", () => {
       ledger as never,
     ).dispatchNotification("notification");
     expect(provider.send).not.toHaveBeenCalled();
-    expect(ledger.complete).toHaveBeenCalledWith(
-      "attempt",
-      expect.objectContaining({
-        failureCategory: "INTERNAL_ERROR",
-        retryable: false,
-      }),
-    );
+    expect(ledger.claimIncident).not.toHaveBeenCalled();
+    expect(ledger.complete).not.toHaveBeenCalled();
   });
   it("uses the shared authoritative scope for readers and denies guessed cross-tenant incidents", async () => {
     const actor = {

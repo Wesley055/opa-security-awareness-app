@@ -1,3 +1,5 @@
+import { Logger } from "@nestjs/common";
+import { DELIVERY_WORKER_ID, deliveryDiagnostic, markDeliveryFailure } from "./delivery-diagnostics";
 import { randomUUID } from "crypto";
 import type { Prisma } from "@prisma/client";
 import { ProtectedSnapshotsService } from "../protected-identity/protected-snapshots.service";
@@ -31,6 +33,7 @@ import { WhatsAppProvider } from "./providers/whatsapp.provider";
 
 @Injectable()
 export class NotificationService {
+  private readonly deliveryLogger = new Logger("ProtectedDelivery");
   private readonly providers: Record<NotificationChannel, NotificationProvider>;
 
   constructor(
@@ -166,8 +169,6 @@ export class NotificationService {
   async dispatchNotification(
     notificationId: string,
   ): Promise<NotificationResponse | null> {
-    const attempt = await this.ledger.claimIncident(notificationId);
-    if (!attempt) return null;
     const notification = await this.prisma.incidentNotification.findUnique({
       where: { id: notificationId },
       include: { incident: { select: { facilityId: true } } },
@@ -175,22 +176,24 @@ export class NotificationService {
     let durablePayload: unknown = notification?.payload;
     if (notification?.protectedSnapshotId) {
       try {
-        if (!this.protectedSnapshots) throw new Error();
+        if (!this.protectedSnapshots) throw markDeliveryFailure(new Error(), "DELIVERY_ACTOR_UNAVAILABLE");
         durablePayload = await this.protectedSnapshots.notificationPayload(
           notification.protectedSnapshotId,
           notification.id,
         );
-      } catch {
-        const failure: NotificationResponse = {
-          success: false,
-          provider: attempt.provider,
-          failureCategory: "INTERNAL_ERROR",
-          retryable: false,
-        };
-        await this.ledger.complete(attempt.id, failure);
-        return failure;
+      } catch (error) {
+        // Resolve (including committed audit) BEFORE claiming. An unready process
+        // leaves durable work untouched for a ready worker; never sends plaintext fallback.
+        this.deliveryLogger.warn(JSON.stringify({ event: "protected_delivery_deferred",
+          notificationId, workerId: DELIVERY_WORKER_ID, stage: "PRE_PROVIDER",
+          diagnostic: deliveryDiagnostic(error, "SNAPSHOT_RESOLUTION_FAILED") }));
+        return null;
       }
     }
+    // Resolution does not authorize sending. The existing atomic claim is still
+    // the only send fence; competing ready workers can resolve but only one sends.
+    const attempt = await this.ledger.claimIncident(notificationId);
+    if (!attempt) return null;
     let result: NotificationResponse;
     if (
       !notification ||
@@ -207,6 +210,8 @@ export class NotificationService {
         success: false,
         provider: attempt.provider,
         failureCategory: "INTERNAL_ERROR",
+        stage: "PRE_PROVIDER",
+        diagnostic: "PAYLOAD_VALIDATION_FAILED",
         retryable: false,
       };
     } else {

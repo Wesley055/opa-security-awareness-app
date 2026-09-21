@@ -1,3 +1,4 @@
+import type { DeliveryDiagnostic, DeliveryStage } from "../delivery-diagnostics";
 import type { DeliveryFailureCategory } from "@prisma/client";
 export interface NotificationRequest {
   recipient: string;
@@ -7,6 +8,8 @@ export interface NotificationRequest {
 
 export interface NotificationResponse {
   success: boolean;
+  stage?: DeliveryStage;
+  diagnostic?: DeliveryDiagnostic;
   provider: string;
   messageId?: string;
   error?: string;

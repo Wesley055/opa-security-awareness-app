@@ -1,3 +1,4 @@
+import { emailTransportConfigured } from "../delivery-capabilities";
 import { outboundDenial } from "../outbound-environment";
 import { httpFailure } from "../delivery-policy";
 import type {
@@ -15,7 +16,7 @@ export class EmailProvider implements NotificationProvider {
     const apiKey = process.env.RESEND_API_KEY;
     const fromAddress = process.env.RESEND_FROM_ADDRESS;
 
-    if (!apiKey || !fromAddress) {
+    if (!emailTransportConfigured()) {
       console.warn(
         `[EmailProvider] RESEND_API_KEY/FROM_ADDRESS not set — nothing sent`,
       );
@@ -24,6 +25,8 @@ export class EmailProvider implements NotificationProvider {
         provider: this.providerName,
         error: "Email provider not configured",
         failureCategory: "AUTHENTICATION",
+        stage: "PRE_PROVIDER",
+        diagnostic: "PROVIDER_NOT_CONFIGURED",
         retryable: false,
       };
     }
@@ -50,12 +53,15 @@ export class EmailProvider implements NotificationProvider {
           provider: this.providerName,
           error: "Email provider rejected request",
           ...httpFailure(res.status),
+          stage: "PROVIDER_RESPONSE",
+          diagnostic: "PROVIDER_REQUEST_FAILED",
         };
       }
 
       const result = await res.json();
       return {
         success: true,
+        stage: "PROVIDER_RESPONSE",
         provider: this.providerName,
         messageId: typeof result?.id === "string" ? result.id : undefined,
       };
@@ -66,6 +72,8 @@ export class EmailProvider implements NotificationProvider {
         error: "Email outcome uncertain",
         uncertain: true,
         failureCategory: "NETWORK",
+        stage: "PROVIDER_REQUEST",
+        diagnostic: "PROVIDER_INVOCATION_FAILED",
         retryable: false,
       };
     }

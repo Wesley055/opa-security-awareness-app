@@ -1,3 +1,4 @@
+import { DELIVERY_WORKER_ID, safeDiagnostic } from "./delivery-diagnostics";
 import { Injectable } from "@nestjs/common";
 import {
   DeliveryAttempt,
@@ -138,6 +139,11 @@ export class DeliveryLedgerService {
         occurredAt: now,
       },
     });
+    await tx.deliveryStatusEvent.create({ data: {
+      ...this.ownerFields(owner), attemptId: attempt.id, previousStatus: row.deliveryStatus,
+      newStatus: "ATTEMPTING", provider: attempt.provider, source: "WORKER",
+      reason: `PROCESS_${DELIVERY_WORKER_ID}`, occurredAt: now,
+    }});
     return attempt;
   }
 
@@ -245,9 +251,11 @@ export class DeliveryLedgerService {
           attemptId,
           previousStatus: attempt.status,
           newStatus: status,
-          source: "PROVIDER_RESPONSE",
+          source: response.stage === "PRE_PROVIDER" ? "PRE_PROVIDER"
+            : response.stage === "PROVIDER_REQUEST" ? "PROVIDER_REQUEST"
+            : response.stage === "PROVIDER_RESPONSE" || response.success ? "PROVIDER_RESPONSE" : "DISPATCH",
           provider: attempt.provider,
-          reason:
+          reason: safeDiagnostic(response.diagnostic) ?? (
             observed === "PROVIDER_ACCEPTED"
               ? "REQUEST_ACCEPTED"
               : observed === "UNKNOWN"
@@ -255,7 +263,7 @@ export class DeliveryLedgerService {
                 : response.error ===
                     "Environment notification policy denied send"
                   ? "ENVIRONMENT_POLICY_DENIED"
-                  : "REQUEST_FAILED",
+                  : "REQUEST_FAILED"),
           failureCategory: failure,
           occurredAt: now,
         },

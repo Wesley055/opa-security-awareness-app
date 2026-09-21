@@ -1,3 +1,4 @@
+import { markDeliveryFailure } from "../notifications/delivery-diagnostics";
 import {
   Injectable,
   NotFoundException,
@@ -30,15 +31,15 @@ export class ProtectedSnapshotsService {
           process.env.PII_DELIVERY_ACTORS_JSON,
         );
         if (!values || typeof values !== "object" || Array.isArray(values))
-          throw failed();
+          throw markDeliveryFailure(failed(), "DELIVERY_ACTOR_UNAVAILABLE");
         const selected = (values as Record<string, unknown>)[tenantId];
-        if (typeof selected !== "string") throw failed();
+        if (typeof selected !== "string") throw markDeliveryFailure(failed(), "DELIVERY_ACTOR_UNAVAILABLE");
         actor = selected;
       } catch {
-        throw failed();
+        throw markDeliveryFailure(failed(), "DELIVERY_ACTOR_UNAVAILABLE");
       }
     }
-    if (!actor || !/^[0-9a-f-]{36}$/i.test(actor)) throw failed();
+    if (!actor || !/^[0-9a-f-]{36}$/i.test(actor)) throw markDeliveryFailure(failed(), "DELIVERY_ACTOR_UNAVAILABLE");
     return actor;
   }
 
@@ -269,7 +270,7 @@ export class ProtectedSnapshotsService {
         throw failed();
       return value as Record<string, unknown>;
     } catch {
-      throw failed();
+      throw markDeliveryFailure(failed(), "PAYLOAD_VALIDATION_FAILED");
     }
   }
 
@@ -309,7 +310,7 @@ export class ProtectedSnapshotsService {
       "NOTIFICATION_SNAPSHOT",
     );
     if (value.version !== 1 || !validNotificationPayload(value.payload))
-      throw failed();
+      throw markDeliveryFailure(failed(), "PAYLOAD_VALIDATION_FAILED");
     return value.payload;
   }
 }

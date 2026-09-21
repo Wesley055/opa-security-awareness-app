@@ -1,3 +1,4 @@
+import { markDeliveryFailure, deliveryDiagnostic } from "../notifications/delivery-diagnostics";
 import {
   Injectable,
   NotFoundException,
@@ -52,7 +53,8 @@ export class ProtectedIdentityService {
       },
       select: { id: true },
     });
-    if (!grant) throw unavailable();
+    if (!grant) throw permission === "DELIVERY"
+      ? markDeliveryFailure(unavailable(), "DELIVERY_AUTHORIZATION_DENIED") : unavailable();
     return grant;
   }
 
@@ -188,9 +190,18 @@ export class ProtectedIdentityService {
     )
       throw unavailable();
     // The transaction must COMMIT the audit before its promise releases any plaintext.
-    return this.prisma.$transaction((tx) =>
-      this.resolveInTransaction(tx, actorUserId, tenantId, id, purpose, caseReference, expected),
-    );
+    let resolved = false;
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const value = await this.resolveInTransaction(tx, actorUserId, tenantId, id, purpose, caseReference, expected);
+        resolved = true;
+        return value;
+      });
+    } catch (error) {
+      if (purpose !== "DELIVERY") throw error;
+      throw markDeliveryFailure((error instanceof NotFoundException ? error : new ServiceUnavailableException("Protected identity operation unavailable.")),
+        deliveryDiagnostic(error, resolved ? "AUDIT_PERSISTENCE_FAILED" : "SNAPSHOT_RESOLUTION_FAILED"));
+    }
   }
 
   /** Internal adapter. The caller must commit before releasing any resolved plaintext. */
@@ -229,25 +240,21 @@ export class ProtectedIdentityService {
       row.kind === "INVITATION_SNAPSHOT" ||
       row.kind === "NOTIFICATION_SNAPSHOT";
     if (snapshot !== (purpose === "DELIVERY")) throw unavailable();
+    let plaintext: string;
     try {
-      const plaintext = await this.crypto.open(this.envelope(row), row);
-      await tx.identityResolutionAudit.create({
-        data: {
-          tenantId,
-          actorUserId,
-          identifierId: row.id,
-          grantId: grant.id,
-          purpose,
-          caseReference,
-          encryptionKeyVersion: row.encryptionKeyVersion,
-        },
-      });
-      return plaintext;
+      plaintext = await this.crypto.open(this.envelope(row), row);
     } catch {
-      throw new ServiceUnavailableException(
-        "Protected identity operation unavailable.",
-      );
+      throw markDeliveryFailure(new ServiceUnavailableException("Protected identity operation unavailable."), "CRYPTO_DECRYPTION_FAILED");
     }
+    try {
+      await tx.identityResolutionAudit.create({ data: {
+        tenantId, actorUserId, identifierId: row.id, grantId: grant.id,
+        purpose, caseReference, encryptionKeyVersion: row.encryptionKeyVersion,
+      }});
+    } catch {
+      throw markDeliveryFailure(new ServiceUnavailableException("Protected identity operation unavailable."), "AUDIT_PERSISTENCE_FAILED");
+    }
+    return plaintext;
   }
 
   private envelope(row: ProtectedIdentifier): SealedValue {

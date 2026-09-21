@@ -67,7 +67,12 @@ describe("IncidentOrchestratorService", () => {
     },
   };
 
+  const previousEnv = { ...process.env };
+  afterEach(() => { process.env = { ...previousEnv }; });
   beforeEach(async () => {
+    process.env.RESEND_API_KEY = "fixture-key";
+    process.env.RESEND_FROM_ADDRESS = "fixture@example.test";
+    process.env.OPA_NOTIFICATION_MODE = "live";
     jest.clearAllMocks();
     prisma.$transaction.mockImplementation(
       async (callback: (tx: typeof prisma) => unknown) => callback(prisma),
@@ -214,7 +219,7 @@ describe("IncidentOrchestratorService", () => {
       );
       const notifications =
         prisma.incidentNotification.createMany.mock.calls[0]![0].data;
-      expect(notifications).toHaveLength(2);
+      expect(notifications).toHaveLength(1);
       for (const row of notifications) {
         expect(row.status).toBe("QUEUED");
         expect(row.payload.message).toContain("may be in danger");
@@ -320,7 +325,7 @@ describe("IncidentOrchestratorService", () => {
     });
 
     expect(result.status).toBe("INCIDENT_ACTIVATED");
-    expect(result.notifications).toEqual({ queued: 3, dispatched: false });
+    expect(result.notifications).toEqual({ queued: 2, dispatched: false });
     expect(result.coordination?.silentMode).toBe(true);
     expect(result.incident?.id).toBe("incident-123");
 
@@ -331,7 +336,7 @@ describe("IncidentOrchestratorService", () => {
     expect(prisma.incidentNotification.createMany).toHaveBeenCalledTimes(1);
     const createManyArgs =
       prisma.incidentNotification.createMany.mock.calls[0][0];
-    expect(createManyArgs.data).toHaveLength(3);
+    expect(createManyArgs.data).toHaveLength(2);
     expect(createManyArgs.data[0].status).toBe("QUEUED");
     expect(createManyArgs.data[0].payload.version).toBe(1);
     expect(timelineService.recordEvent).toHaveBeenCalled();
@@ -389,18 +394,33 @@ describe("IncidentOrchestratorService", () => {
 
     const createArgs = prisma.incidentNotification.createMany.mock.calls[0][0];
 
-    expect(createArgs.data).toHaveLength(2);
+    expect(createArgs.data).toHaveLength(1);
     expect(
       createArgs.data.some((row: { channel: string }) => row.channel === "SMS"),
     ).toBe(false);
     expect(
       createArgs.data.map((row: { channel: string }) => row.channel),
-    ).toEqual(expect.arrayContaining(["WHATSAPP", "EMAIL"]));
+    ).toEqual(expect.arrayContaining(["EMAIL"]));
 
     expect(result.notifications).toEqual({
-      queued: 2,
+      queued: 1,
       dispatched: false,
     });
+  });
+  it.each([false, true])("queues one opted-in SMS and no unavailable channel for three contacts, emailConfigured=%s", async (emailConfigured) => {
+    if (!emailConfigured) delete process.env.RESEND_API_KEY;
+    emergencyDetectionService.evaluate.mockReturnValue({ outcome: { shouldActivate: true, isSilent: false } });
+    usersService.findById.mockResolvedValue({ id: "user-123", firstName: "Test", lastName: "User" });
+    incidentsService.create.mockResolvedValue({ id: "incident-123", status: "OPEN" });
+    emergencyContactsService.listForUser.mockResolvedValue([0, 1, 2].map(i => ({
+      id: "contact-"+i, firstName: "Test", lastName: "Contact", relationship: "FAMILY",
+      phoneNumber: "+2348012345678", isActive: true, receivesEmergencySms: i === 0,
+      email: emailConfigured ? null : "fixture@example.test",
+    })));
+    const result = await service.createCoordinatedIncident("user-123", { triggerType: "SOS_BUTTON" as never, mode: "IMMEDIATE" as never });
+    const rows = prisma.incidentNotification.createMany.mock.calls[0][0].data;
+    expect(rows.map((row: {channel: string}) => row.channel)).toEqual(["SMS"]);
+    expect(result.notifications).toEqual({ queued: 1, dispatched: false });
   });
   it("should not create an incident when detection does not activate", async () => {
     emergencyDetectionService.evaluate.mockReturnValue({
@@ -717,14 +737,9 @@ describe("IncidentOrchestratorService", () => {
       const createArgs =
         prisma.incidentNotification.createMany.mock.calls[0][0];
 
-      expect(createArgs.data).toHaveLength(2);
+      expect(createArgs.data).toHaveLength(1);
       expect(createArgs.data).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({
-            incidentId: "incident-existing",
-            contactId: "contact-1",
-            channel: "WHATSAPP",
-          }),
           expect.objectContaining({
             incidentId: "incident-existing",
             contactId: "contact-1",
@@ -740,7 +755,7 @@ describe("IncidentOrchestratorService", () => {
       ).toBe(false);
 
       expect(result.notifications).toEqual({
-        queued: 2,
+        queued: 1,
         dispatched: false,
       });
     });
@@ -786,7 +801,7 @@ describe("IncidentOrchestratorService", () => {
       const createArgs =
         prisma.incidentNotification.createMany.mock.calls[0][0];
 
-      expect(createArgs.data).toHaveLength(2);
+      expect(createArgs.data).toHaveLength(1);
 
       expect(
         createArgs.data.some(
@@ -796,10 +811,10 @@ describe("IncidentOrchestratorService", () => {
 
       expect(
         createArgs.data.map((row: { channel: string }) => row.channel),
-      ).toEqual(expect.arrayContaining(["WHATSAPP", "EMAIL"]));
+      ).toEqual(expect.arrayContaining(["EMAIL"]));
 
       expect(result.notifications).toEqual({
-        queued: 2,
+        queued: 1,
         dispatched: false,
       });
     });

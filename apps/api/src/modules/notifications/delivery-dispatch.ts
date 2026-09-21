@@ -17,6 +17,8 @@ export async function dispatchWithEvidence(
       provider,
       uncertain: true,
       failureCategory: "NETWORK",
+      stage: "PROVIDER_REQUEST",
+      diagnostic: "PROVIDER_INVOCATION_FAILED",
       retryable: false,
     }))
     .then(async (response) => {
@@ -43,6 +45,8 @@ export async function dispatchWithEvidence(
             provider,
             uncertain: true,
             failureCategory: "TIMEOUT",
+            stage: "PROVIDER_REQUEST",
+            diagnostic: "PROVIDER_INVOCATION_FAILED",
             retryable: false,
           });
         }, 30_000);

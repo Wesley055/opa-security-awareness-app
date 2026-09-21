@@ -30,6 +30,8 @@ export class WhatsAppProvider implements NotificationProvider {
     return {
       success: false,
       failureCategory: "INTERNAL_ERROR",
+      stage: "PRE_PROVIDER",
+      diagnostic: "TRANSPORT_UNSUPPORTED",
       retryable: false,
       provider: this.providerName,
       error: "WhatsApp provider not implemented",

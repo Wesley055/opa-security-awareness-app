@@ -26,6 +26,8 @@ export class SmsProvider implements NotificationProvider {
         provider: this.providerName,
         error: "SMS provider not configured",
         failureCategory: "AUTHENTICATION",
+        stage: "PRE_PROVIDER",
+        diagnostic: "PROVIDER_NOT_CONFIGURED",
         retryable: false,
       };
     }
@@ -47,11 +49,13 @@ export class SmsProvider implements NotificationProvider {
       console.log(`[SmsProvider] mode=${mode}`);
     }
 
+    let invoked = false;
     try {
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       const AfricasTalking = require("africastalking");
       const sms = AfricasTalking({ apiKey, username }).SMS;
 
+      invoked = true;
       const result = await sms.send({
         to: [request.recipient],
         message: request.message,
@@ -90,6 +94,8 @@ export class SmsProvider implements NotificationProvider {
           success: false,
           provider: this.providerName,
           messageId: recipient?.messageId,
+          stage: "PROVIDER_RESPONSE",
+          diagnostic: "PROVIDER_REQUEST_FAILED",
           failureCategory:
             reported === "InvalidPhoneNumber"
               ? "INVALID_RECIPIENT"
@@ -116,6 +122,7 @@ export class SmsProvider implements NotificationProvider {
       // handset received the message.
       return {
         success: true,
+        stage: "PROVIDER_RESPONSE",
         provider: this.providerName,
         messageId: recipient.messageId,
       };
@@ -127,6 +134,8 @@ export class SmsProvider implements NotificationProvider {
         error: "SMS outcome uncertain",
         uncertain: true,
         failureCategory: "NETWORK",
+        stage: invoked ? "PROVIDER_REQUEST" : "PRE_PROVIDER",
+        diagnostic: "PROVIDER_INVOCATION_FAILED",
         retryable: false,
       };
     }

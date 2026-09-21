@@ -398,6 +398,29 @@ describe("protected recipient snapshot cutover and real workers", () => {
       snapshots,
     );
 
+  it("keeps an unready worker from consuming protected SMS and fences concurrent ready workers", async () => {
+    const source = await notification();
+    await snapshots.backfill(actorId, tenantId, "NOTIFICATION_SNAPSHOT", source.id, source.updatedAt, true);
+    const send = jest.fn().mockResolvedValue({success:true, provider:"SMS", messageId:"vc20-test-only"});
+    const previousMap=process.env.PII_DELIVERY_ACTORS_JSON;
+    delete process.env.PII_DELIVERY_ACTOR_USER_ID;
+    delete process.env.PII_DELIVERY_ACTORS_JSON;
+    try {
+      await notify(send).dispatchNotification(source.id);
+      expect(send).not.toHaveBeenCalled();
+      expect(await prismaTest.deliveryAttempt.count({where:{incidentNotificationId:source.id}})).toBe(0);
+      const untouched=await prismaTest.incidentNotification.findUniqueOrThrow({where:{id:source.id}});
+      expect(untouched.status).toBe("QUEUED");expect(untouched.attemptCount).toBe(0);
+    } finally {
+      process.env.PII_DELIVERY_ACTOR_USER_ID=actorId;
+      if(previousMap !== undefined)process.env.PII_DELIVERY_ACTORS_JSON=previousMap;
+    }
+    await Promise.all([notify(send).dispatchNotification(source.id),notify(send).dispatchNotification(source.id)]);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(await prismaTest.deliveryAttempt.count({where:{incidentNotificationId:source.id}})).toBe(1);
+    expect((await prismaTest.incidentNotification.findUniqueOrThrow({where:{id:source.id}})).deliveryStatus).toBe("PROVIDER_ACCEPTED");
+    expect(await prismaTest.deliveryStatusEvent.count({where:{incidentNotificationId:source.id,source:"WORKER"}})).toBe(1);
+  });
   it("dry-runs without creating ciphertext or changing the source", async () => {
     const source = await invitation();
     expect(
@@ -653,7 +676,9 @@ describe("protected recipient snapshot cutover and real workers", () => {
           where: { id: source.id },
         })
       ).lastError,
-    ).toBe("INTERNAL_ERROR");
+    ).toBeNull();
+    expect(await prismaTest.deliveryAttempt.count({where:{incidentNotificationId:source.id}})).toBe(0);
+    expect((await prismaTest.incidentNotification.findUniqueOrThrow({where:{id:source.id}})).status).toBe("QUEUED");
   });
   it("rejects copied snapshot references without a plaintext fallback", async () => {
     const first = await notification();

@@ -27,11 +27,19 @@ describe("NotificationDispatchWorker", () => {
       expect.objectContaining({
         where: {
           status: "QUEUED",
+          id: { notIn: expect.any(Array) },
           nextAttemptAt: { lte: expect.any(Date) },
           attemptCount: { lt: 5 },
         },
       }),
     );
+  });
+  it("visits a deferred row only once per tick and continues to other work", async () => {
+    const rows = [{id:"unready"},{id:"ready"}];
+    prisma.incidentNotification.findFirst.mockImplementation(async ({where}) => rows.find(r => !where.id.notIn.includes(r.id)) ?? null);
+    service.dispatchNotification.mockResolvedValue(null);
+    await worker().tick();
+    expect(service.dispatchNotification.mock.calls.map(call => call[0])).toEqual(["unready","ready"]);
   });
   it("prevents process-local overlapping ticks", async () => {
     let release!: () => void;

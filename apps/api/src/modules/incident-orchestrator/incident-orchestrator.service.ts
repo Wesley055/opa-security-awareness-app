@@ -1,3 +1,4 @@
+import { deliveryChannelEnabled } from "../notifications/delivery-capabilities";
 import { settleSafeWalk, lockJourney, dbTime } from "../journey/safewalk-policy";
 import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import {
@@ -134,7 +135,7 @@ export class IncidentOrchestratorService {
 
         // SMS recipient selection is independent of contact activation and
         // other channels. No SMS row means nothing can be dispatched or billed.
-        if (contact.receivesEmergencySms) {
+        if (contact.receivesEmergencySms && deliveryChannelEnabled("SMS")) {
           rows.push({
             id: randomUUID(),
             contactId: contact.id,
@@ -145,15 +146,7 @@ export class IncidentOrchestratorService {
           });
         }
 
-        rows.push({
-          id: randomUUID(),
-          contactId: contact.id,
-          contactName,
-          contactType: contact.relationship,
-          recipient: contact.phoneNumber,
-          channel: NotificationChannel.WHATSAPP,
-        });
-        if (contact.email) {
+        if (contact.email && deliveryChannelEnabled("EMAIL")) {
           rows.push({
             id: randomUUID(),
             contactId: contact.id,

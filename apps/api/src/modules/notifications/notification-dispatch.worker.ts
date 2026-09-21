@@ -25,16 +25,19 @@ export class NotificationDispatchWorker {
     this.running = true;
     try {
       await this.ledger.recoverStale();
+      const visited: string[] = [];
       for (let i = 0; i < this.batchSize; i++) {
         const row = await this.prisma.incidentNotification.findFirst({
           where: {
             status: "QUEUED",
+            id: { notIn: visited },
             nextAttemptAt: { lte: new Date() },
             attemptCount: { lt: 5 },
           },
           orderBy: [{ queuedAt: "asc" }, { id: "asc" }],
         });
         if (!row) break;
+        visited.push(row.id);
         await this.notificationService.dispatchNotification(row.id);
       }
     } catch {

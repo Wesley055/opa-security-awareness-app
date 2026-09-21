@@ -195,6 +195,8 @@ describe("ordinary logging PII boundaries", () => {
         success: false,
         provider: "Email",
         error: "Email outcome uncertain",
+      stage: "PROVIDER_REQUEST",
+      diagnostic: "PROVIDER_INVOCATION_FAILED",
         uncertain: true,
         failureCategory: "NETWORK",
         retryable: false,

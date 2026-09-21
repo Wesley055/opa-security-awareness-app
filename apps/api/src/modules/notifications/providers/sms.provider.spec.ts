@@ -69,6 +69,8 @@ describe("SmsProvider send-time status handling", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain("Failed");
+    expect(result.stage).toBe("PROVIDER_RESPONSE");
+    expect(result.diagnostic).toBe("PROVIDER_REQUEST_FAILED");
   });
 
   it.each([
@@ -124,6 +126,8 @@ describe("SmsProvider send-time status handling", () => {
     expect(result.success).toBe(false);
     expect(result.error).toBe("SMS outcome uncertain");
     expect(result.uncertain).toBe(true);
+    expect(result.stage).toBe("PROVIDER_REQUEST");
+    expect(result.diagnostic).toBe("PROVIDER_INVOCATION_FAILED");
   });
 
   it("fails without attempting a send when credentials are absent", async () => {
@@ -133,5 +137,7 @@ describe("SmsProvider send-time status handling", () => {
 
     expect(result.success).toBe(false);
     expect(sendMock).not.toHaveBeenCalled();
+    expect(result.stage).toBe("PRE_PROVIDER");
+    expect(result.diagnostic).toBe("PROVIDER_NOT_CONFIGURED");
   });
 });

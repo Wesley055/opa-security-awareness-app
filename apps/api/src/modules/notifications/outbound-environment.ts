@@ -112,5 +112,7 @@ export async function outboundDenial(
     failureCategory: "REJECTED",
     retryable: false,
     error: "Environment notification policy denied send",
+    stage: "PRE_PROVIDER",
+    diagnostic: "ENVIRONMENT_POLICY_DENIED",
   };
 }

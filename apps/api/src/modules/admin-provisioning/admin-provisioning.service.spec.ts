@@ -24,6 +24,7 @@ describe("AdminProvisioningService", () => {
       findUnique: jest.fn(),
     },
     user: {
+      count: jest.fn().mockResolvedValue(0),
       findUnique: jest.fn(),
       findMany: jest.fn(),
       create: jest.fn(),
@@ -327,7 +328,7 @@ describe("AdminProvisioningService", () => {
     expect(prisma.user.findMany).not.toHaveBeenCalled();
   });
 
-  it("partitions facility members by role from a single query", async () => {
+  it("reads bounded facility members separately by role", async () => {
     prisma.facility.findUnique.mockResolvedValue({
       id: "facility-1",
       name: "Lekki Estate",
@@ -344,13 +345,13 @@ describe("AdminProvisioningService", () => {
     expect(result.operators.map((o) => o.id)).toEqual(["op-1"]);
     expect(result.residents.map((r) => r.id)).toEqual(["res-1", "res-2"]);
 
-    // One index scan, not two. Facility.staff is named for operators but
-    // holds both, so the split belongs in code rather than in a second
-    // query filtered by role.
-    expect(prisma.user.findMany).toHaveBeenCalledTimes(1);
+    // Each role has its own bounded page; other roles cannot consume it.
+    expect(prisma.user.findMany).toHaveBeenCalledTimes(2);
     expect(prisma.user.findMany.mock.calls[0][0].where).toEqual({
       facilityId: "facility-1",
+      role: UserRole.FACILITY_OPERATOR,
     });
+    expect(prisma.user.findMany.mock.calls[0][0].take).toBe(51);
   });
 
   it("takes the user lock before resident membership changes", async () => {

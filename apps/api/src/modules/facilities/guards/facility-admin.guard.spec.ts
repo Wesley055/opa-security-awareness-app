@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, type ExecutionContext } from '@nestjs/common';
 import { FacilityAdminGuard } from './facility-admin.guard';
 
 describe('FacilityAdminGuard', () => {
@@ -11,9 +11,9 @@ describe('FacilityAdminGuard', () => {
   const guard = new FacilityAdminGuard(prisma as never);
 
   function makeContext() {
-    const request = {
+    const request: { user: { sub: string }; facilityAdminFacilityId?: string } = {
       user: { sub: 'facility-admin-1' },
-    } as any;
+    };
 
     return {
       request,
@@ -21,7 +21,7 @@ describe('FacilityAdminGuard', () => {
         switchToHttp: () => ({
           getRequest: () => request,
         }),
-      } as any,
+      } as unknown as ExecutionContext,
     };
   }
 

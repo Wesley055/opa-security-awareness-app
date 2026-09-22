@@ -1,4 +1,4 @@
-import { NotificationChannel } from './dto/send-notification.dto';
+import type { NotificationChannel } from './dto/send-notification.dto';
 
 /**
  * Versioned payload persisted on IncidentNotification.payload.

@@ -36,7 +36,7 @@ describe('FacilityAdminResidentProvisioningController', () => {
     } as never);
 
     expect(provisioning.listFacilityMembers).toHaveBeenCalledWith(
-      'facility-1',
+      'facility-1', undefined,
     );
 
     expect(result).toEqual({

@@ -360,12 +360,10 @@ export class AdminProvisioningService {
    * column once and partitions here rather than trusting the relation's
    * name or issuing two queries for one index scan.
    *
-   * Deliberately UNPAGINATED, unlike the incident queue. A facility's
-   * membership is bounded by how many people an estate has; its incident
-   * history is not. If an estate ever has enough residents for this to
-   * matter, it needs pagination AND a different admin screen.
+   * Each role is read in bounded pages with a stable createdAt/id order.
+   * Counts describe current backend membership, never enrollment intake.
    */
-  async listFacilityMembers(facilityId: string) {
+  async listFacilityMembers(facilityId: string, page = 0) {
     const facility = await this.prisma.facility.findUnique({
       where: { id: facilityId },
       select: { id: true, name: true, isActive: true },
@@ -375,8 +373,8 @@ export class AdminProvisioningService {
       throw new NotFoundException("Facility not found.");
     }
 
-    const members = await this.prisma.user.findMany({
-      where: { facilityId },
+    const read = (role: UserRole) => this.prisma.user.findMany({
+      where: { facilityId, role },
       select: {
         id: true,
         email: true,
@@ -387,17 +385,20 @@ export class AdminProvisioningService {
         isActive: true,
         accountStatus: true,
       },
-      orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 51,
+      skip: page * 50,
     });
+    const [operators, residents, residentCount] = await Promise.all([
+      read(UserRole.FACILITY_OPERATOR), read(UserRole.USER),
+      this.prisma.user.count({ where: { facilityId, role: UserRole.USER } }),
+    ]);
 
     return {
       facility,
-      operators: members
-        .filter((m) => m.role === UserRole.FACILITY_OPERATOR)
-        .map(maskedPerson),
-      residents: members
-        .filter((m) => m.role === UserRole.USER)
-        .map(maskedPerson),
+      page, hasNext: residents.length > 50, residentCount,
+      operators: operators.slice(0, 50).filter(row => row.role === UserRole.FACILITY_OPERATOR).map(maskedPerson),
+      residents: residents.slice(0, 50).filter(row => row.role === UserRole.USER).map(maskedPerson),
     };
   }
 

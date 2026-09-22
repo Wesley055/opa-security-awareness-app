@@ -1,4 +1,5 @@
-import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
+import { ReaderPageDto } from '../../shared/dto/reader-page.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { FacilitiesService } from './facilities.service';
 import { OperatorFacilityGuard } from './guards/operator-facility.guard';
@@ -29,9 +30,10 @@ export class OperatorMembersController {
   constructor(private readonly facilitiesService: FacilitiesService) {}
 
   @Get('members')
-  listMyFacilityMembers(@Req() request: OperatorQueueRequest) {
+  listMyFacilityMembers(@Req() request: OperatorQueueRequest, @Query() query: ReaderPageDto = {}) {
     return this.facilitiesService.listMembersForOperator(
       request.operatorFacilityId,
+      query.page,
     );
   }
 }

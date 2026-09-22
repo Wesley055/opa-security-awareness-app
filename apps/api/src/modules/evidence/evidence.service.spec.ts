@@ -54,6 +54,7 @@ describe('EvidenceService download access', () => {
       id: evidenceId,
       incidentId,
       storageKey: `incidents/${incidentId}/evidence/${evidenceId}`,
+      status: 'STORED',
     });
 
     await service.getDownloadUrl(incidentId, evidenceId);
@@ -71,6 +72,7 @@ describe('EvidenceService download access', () => {
       id: evidenceId,
       incidentId,
       storageKey: `incidents/${incidentId}/evidence/${evidenceId}`,
+      status: 'STORED',
     });
 
     const result = await service.getDownloadUrl(incidentId, evidenceId);

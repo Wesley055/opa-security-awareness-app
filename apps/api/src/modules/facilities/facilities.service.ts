@@ -213,13 +213,10 @@ export class FacilitiesService {
    * argument as the operator queue: the browser does not need to know, send,
    * or be trusted with a facility id.
    *
-   * isActive AND accountStatus ARE CARRIED BUT NEED NOT BE RENDERED. Both are
-   * provisioning facts, and today every member of OPA Demo Estate is
-   * ACTIVE/ACTIVE, so a status column would show one value twice. Carried
-   * because 14A-12 may want them and widening later is worse - the same call
-   * 2.6 made for journeySessionId.
+   * Account activity and activation are distinct authoritative facts. Each
+   * role has a bounded page so operator seats cannot crowd out residents.
    */
-  async listMembersForOperator(facilityId: string) {
+  async listMembersForOperator(facilityId: string, page = 0) {
     const facility = await this.prisma.facility.findUnique({
       where: { id: facilityId },
       select: {
@@ -234,8 +231,8 @@ export class FacilitiesService {
       throw new NotFoundException('Facility not found.');
     }
 
-    const members = await this.prisma.user.findMany({
-      where: { facilityId },
+    const read = (role: UserRole) => this.prisma.user.findMany({
+      where: { facilityId, role },
       select: {
         id: true,
         firstName: true,
@@ -244,18 +241,25 @@ export class FacilitiesService {
         isActive: true,
         accountStatus: true,
       },
-      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      skip: page * 50,
+      take: 51,
     });
+    const [operators, residents, operatorCount, residentCount] = await Promise.all([
+      read(UserRole.FACILITY_OPERATOR), read(UserRole.USER),
+      this.prisma.user.count({ where: { facilityId, role: UserRole.FACILITY_OPERATOR } }),
+      this.prisma.user.count({ where: { facilityId, role: UserRole.USER } }),
+    ]);
 
     // User.facilityId is ONE COLUMN carrying operators and residents alike -
     // 9.5's "Facility.staff is a misleading name". Partition by role rather
     // than trusting any relation to have done it.
     return {
       facility,
-      operators: members.filter(
-        (member) => member.role === UserRole.FACILITY_OPERATOR,
-      ).map(maskedPerson),
-      residents: members.filter((member) => member.role === UserRole.USER).map(maskedPerson),
+      page, hasNext: operators.length > 50 || residents.length > 50,
+      operatorCount, residentCount,
+      operators: operators.slice(0, 50).filter(row => row.role === UserRole.FACILITY_OPERATOR).map(maskedPerson),
+      residents: residents.slice(0, 50).filter(row => row.role === UserRole.USER).map(maskedPerson),
     };
   }
 }

@@ -6,7 +6,7 @@ describe('FacilitiesService', () => {
   const prisma = {
     facility: { findUnique: jest.fn() },
     incident: { findMany: jest.fn() },
-    user: { findMany: jest.fn() },
+    user: { findMany: jest.fn(), count: jest.fn().mockResolvedValue(0) },
   };
 
   const service = new FacilitiesService(prisma as never);
@@ -302,10 +302,12 @@ describe('FacilitiesService', () => {
     it('scopes the member query to the facility it was given', async () => {
       await service.listMembersForOperator('facility-1');
 
-      expect(memberArgs().where).toEqual({ facilityId: 'facility-1' });
+      expect(memberArgs().where).toEqual({ facilityId: 'facility-1', role: 'FACILITY_OPERATOR' });
+      expect(memberArgs().take).toBe(51);
+      expect(memberArgs().skip).toBe(0);
       expect(memberArgs().orderBy).toEqual([
-        { lastName: 'asc' },
-        { firstName: 'asc' },
+        { createdAt: 'desc' },
+        { id: 'desc' },
       ]);
     });
 

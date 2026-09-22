@@ -19,7 +19,7 @@ describe('OperatorMembersController', () => {
     } as never);
 
     expect(facilitiesService.listMembersForOperator).toHaveBeenCalledWith(
-      'facility-1',
+      'facility-1', undefined,
     );
   });
 });

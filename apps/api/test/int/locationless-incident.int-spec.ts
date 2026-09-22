@@ -19,20 +19,29 @@ const dto: CreateIncidentRequestDto = {
   mode: "SILENT" as never,
   detectedPhrase: "HELP HELP",
 };
+// Production deliberately excludes stub channels. Exercise two real opted-in
+// destinations without relying on the retired implicit WhatsApp notification.
+async function createSmsRecipients(userId: string) {
+  await prismaTest.emergencyContact.createMany({ data: [
+    { userId, firstName: 'Test', lastName: 'Recipient One', relationship: 'FAMILY', phoneNumber: '+2348000000000', receivesEmergencySms: true },
+    { userId, firstName: 'Test', lastName: 'Recipient Two', relationship: 'FAMILY', phoneNumber: '+2348000000001', receivesEmergencySms: true },
+  ] });
+}
 function services() {
   const db = prismaTest as never;
   const tokens = new IncidentAccessTokenService(db);
   const timeline = new IncidentTimelineService(db);
   const journey = new JourneySessionService();
   const incidents = new IncidentsService(db, tokens, timeline, journey);
+  let sentMessages = 0;
   const provider = {
     send: jest
       .fn()
-      .mockResolvedValue({
+      .mockImplementation(() => Promise.resolve({
         success: true,
         provider: "test",
-        messageId: "test-message",
-      }),
+        messageId: `test-message-${++sentMessages}`,
+      })),
   };
   const notifications = new NotificationService(
     db,
@@ -87,7 +96,7 @@ describe("locationless incident production persistence", () => {
 
   it.each(['STANDARD', 'SILENT'] as const)('persists explicit %s provenance atomically, deduplicates, and resolves the same lifecycle', async mode => {
     const user = await createUser();
-    await prismaTest.emergencyContact.create({ data: { userId: user.id, firstName: 'Test', lastName: 'Recipient', relationship: 'FAMILY', phoneNumber: '+2348000000000', receivesEmergencySms: true } });
+    await createSmsRecipients(user.id);
     const s = services();
     const request: CreateIncidentRequestDto = { triggerType: 'SOS_BUTTON' as never, mode: 'CONFIRMATION' as never, activationMode: mode as never, activationSource: 'MANUAL' as never, userConfirmed: true };
     const results = await Promise.all([s.orchestrator.createCoordinatedIncident(user.id, request), s.orchestrator.createCoordinatedIncident(user.id, request)]);
@@ -101,6 +110,8 @@ describe("locationless incident production persistence", () => {
     expect(await s.timeline.verifyChain(id)).toEqual({ valid: true });
     const queued = await prismaTest.incidentNotification.findMany({ where: { incidentId: id } });
     expect(queued).toHaveLength(2);
+    expect(queued.map(row => row.channel)).toEqual(['SMS', 'SMS']);
+    expect(new Set(queued.map(row => row.contactId)).size).toBe(2);
     for (const row of queued) expect(JSON.stringify(row.payload)).not.toContain('activationMode');
     await s.incidents.resolve(id, user.id, { reason: 'USER_SAFE' });
     expect((await prismaTest.incident.findUniqueOrThrow({ where: { id } })).status).toBe('RESOLVED');
@@ -109,16 +120,7 @@ describe("locationless incident production persistence", () => {
 
   it("creates a real emergency, dispatches notifications, and later records a real location", async () => {
     const user = await createUser();
-    await prismaTest.emergencyContact.create({
-      data: {
-        userId: user.id,
-        firstName: "Test",
-        lastName: "Contact",
-        relationship: "FAMILY",
-        phoneNumber: "+2348000000000",
-        receivesEmergencySms: true,
-      },
-    });
+    await createSmsRecipients(user.id);
     const s = services();
     const result = await s.orchestrator.createCoordinatedIncident(user.id, dto);
     expect(result.status).toBe("INCIDENT_ACTIVATED");

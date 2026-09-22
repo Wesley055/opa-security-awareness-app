@@ -1,9 +1,10 @@
 import { ConflictException } from '@nestjs/common';
 import { AdminProvisioningService } from './admin-provisioning.service';
-import { CreateResidentDto } from './dto/create-resident.dto';
+import type { CreateResidentDto } from './dto/create-resident.dto';
 
 describe('AdminProvisioningService bulk resident provisioning', () => {
-  const prisma: any = {};
+  // No database method is used: each single-row operation is explicitly mocked below.
+  const prisma = {} as ConstructorParameters<typeof AdminProvisioningService>[0];
   let service: AdminProvisioningService;
 
   const resident = (email: string): CreateResidentDto => ({

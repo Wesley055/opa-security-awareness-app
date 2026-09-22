@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   BlobSASPermissions,
@@ -47,24 +47,19 @@ export class EvidenceService {
   }) {
     const sha256 = createHash('sha256').update(params.buffer).digest('hex');
 
-    const existing = await this.prisma.evidence.findUnique({
+    // The unique incident/hash key makes concurrent retries converge. Preserve
+    // the first capture metadata; retries never rewrite its provenance.
+    const record = await this.prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(3, hashtext(${params.incidentId}))`;
+      return tx.evidence.upsert({
       where: {
         incidentId_sha256: {
           incidentId: params.incidentId,
           sha256,
         },
       },
-    });
-
-    if (existing) {
-      this.logger.warn(
-        `Duplicate evidence upload for incident ${params.incidentId}, sha256 ${sha256} — returning existing record`,
-      );
-      return existing;
-    }
-
-    const record = await this.prisma.evidence.create({
-      data: {
+      update: {},
+      create: {
         incidentId: params.incidentId,
         type: params.type,
         status: 'PENDING',
@@ -73,7 +68,11 @@ export class EvidenceService {
         sha256,
         capturedAt: params.capturedAt,
       },
+      });
     });
+
+    if (record.status === 'STORED') return record;
+    if (record.status === 'DELETED') throw new ConflictException('Deleted evidence cannot be uploaded again.');
 
     const storageKey = `incidents/${params.incidentId}/evidence/${record.id}`;
 
@@ -84,10 +83,17 @@ export class EvidenceService {
       const blockBlobClient = containerClient.getBlockBlobClient(storageKey);
 
       await blockBlobClient.uploadData(params.buffer, {
-        blobHTTPHeaders: { blobContentType: params.mimeType },
+        blobHTTPHeaders: { blobContentType: record.mimeType ?? params.mimeType },
       });
 
-      const updated = await this.prisma.evidence.update({
+      // Blob I/O is outside the database transaction. Publication and its
+      // chronology are atomic, serialized with closure and other evidence.
+      return await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(3, hashtext(${params.incidentId}))`;
+        const current = await tx.evidence.findUniqueOrThrow({ where: { id: record.id } });
+        if (current.status === 'STORED') return current;
+        if (current.status === 'DELETED') throw new ConflictException('Deleted evidence cannot be uploaded again.');
+        const updated = await tx.evidence.update({
         where: { id: record.id },
         data: {
           status: 'STORED',
@@ -103,20 +109,23 @@ export class EvidenceService {
         actorUserId: params.actorUserId,
         payload: {
           evidenceId: record.id,
-          evidenceType: params.type,
+          evidenceType: record.type,
           sha256,
           sizeBytes: params.buffer.length,
         },
-      });
+      }, tx);
 
-      return updated;
+        return updated;
+      });
     } catch (error) {
       this.logger.error(
         `Evidence upload failed for incident ${params.incidentId}`,
       );
 
-      await this.prisma.evidence.update({
-        where: { id: record.id },
+      // Never undo a successful concurrent retry. A failed publication can
+      // be retried using the same row/blob; no success is returned until audited.
+      await this.prisma.evidence.updateMany({
+        where: { id: record.id, status: { in: ['PENDING', 'UPLOADING', 'FAILED'] } },
         data: { status: 'FAILED' },
       });
 
@@ -152,7 +161,7 @@ export class EvidenceService {
       throw new NotFoundException('Evidence not found.');
     }
 
-    if (!evidence.storageKey) {
+    if (evidence.status !== 'STORED' || !evidence.storageKey) {
       throw new NotFoundException('Evidence file is not available.');
     }
 

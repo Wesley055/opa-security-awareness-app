@@ -143,7 +143,7 @@ export class EnrollmentService {
     return { requests: receipts };
   }
 
-  async list(facilityId: string, actorId: string) {
+  async list(facilityId: string, actorId: string, page = 0) {
     return this.prisma.$transaction(async (tx) => {
       await this.authorizeInviter(tx, facilityId, actorId);
       const rows = await tx.enrollmentRequest.findMany({
@@ -153,16 +153,19 @@ export class EnrollmentService {
           createdAt: true,
           expiresAt: true,
           acceptedAt: true,
+          revokedAt: true,
         },
-        orderBy: { createdAt: "desc" },
-        take: 100,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip: page * 50,
+        take: 51,
       });
       return {
-        requests: rows.map((row) => ({
+        page, hasNext: rows.length > 50,
+        requests: rows.slice(0, 50).map((row) => ({
           requestId: row.id,
           createdAt: row.createdAt,
           expiresAt: row.expiresAt,
-          status: row.acceptedAt
+          status: row.revokedAt ? "REVOKED" : row.acceptedAt
             ? "ACCEPTED"
             : row.expiresAt <= new Date()
               ? "EXPIRED"

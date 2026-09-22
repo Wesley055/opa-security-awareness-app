@@ -172,6 +172,21 @@ describe("verification-first enrollment HTTP, signed JWT and PostgreSQL", () => 
       status: "VERIFICATION_PENDING",
     });
 
+  it('reports stored revocation and expiry without claiming membership activation', async () => {
+    const revoked = await service.request(input(), randomUUID(), facility, admin.id);
+    const expired = await service.request(input(), randomUUID(), facility, admin.id);
+    await prismaTest.enrollmentRequest.update({ where: { id: revoked.requestId }, data: { revokedAt: new Date() } });
+    await prismaTest.enrollmentRequest.update({ where: { id: expired.requestId }, data: { expiresAt: new Date(0) } });
+    const result = await request(app.getHttpServer()).get('/facility-admin/facility/residents/enrollments').set('Authorization', 'Bearer ' + token(admin)).expect(200);
+    expect(result.body.page).toBe(0);
+    expect(result.body.hasNext).toBe(false);
+    expect(result.body.requests).toEqual(expect.arrayContaining([
+      expect.objectContaining({ requestId: revoked.requestId, status: 'REVOKED' }),
+      expect.objectContaining({ requestId: expired.requestId, status: 'EXPIRED' }),
+    ]));
+    expect(JSON.stringify(result.body)).not.toContain('@');
+  });
+
   it.each(["unknown", "email", "phone"])(
     "public registration %s returns only a durable receipt and creates no account",
     async (kind) => {
@@ -254,6 +269,46 @@ describe("verification-first enrollment HTTP, signed JWT and PostgreSQL", () => 
     );
     expect(await prismaTest.user.count()).toBe(2);
   });
+  it("resumes a partially committed bulk intent through the guarded HTTP path without duplicate work", async () => {
+    const residents = [input(), input(), input()], key = randomUUID();
+    // A prior attempt committed row zero before its response/remaining work was lost.
+    const first = await service.request(residents[0]!, key + ":0", facility, admin.id);
+    const beforeMembers = await prismaTest.user.count();
+    const results = await Promise.all(Array.from({ length: 3 }, () =>
+      post("/facility-admin/facility/residents/bulk", admin)
+        .set("Idempotency-Key", key).send({ residents }).expect(202),
+    ));
+    for (const result of results) {
+      expect(result.body).toEqual(results[0]!.body);
+      expect(result.body.requests).toHaveLength(3);
+      expect(result.body.requests[0]).toEqual({ index: 0, ...first });
+      expect(JSON.stringify(result.body)).not.toContain(residents[0]!.email);
+      expect(JSON.stringify(result.body)).not.toContain("activationToken");
+    }
+    expect(await prismaTest.enrollmentRequest.count({ where: { facilityId: facility } })).toBe(3);
+    expect(await prismaTest.accountInvitationDelivery.count()).toBe(6);
+    expect(await prismaTest.administrativeAuditEvent.count({ where: { action: "ENROLLMENT_REQUESTED", facilityId: facility } })).toBe(3);
+    expect(await prismaTest.user.count()).toBe(beforeMembers);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("scopes an identical bulk retry key to the current inviter and tenant", async () => {
+    const residents = [input()], key = randomUUID();
+    const otherAdmin = await prismaTest.user.create({ data: { ...input(), role: "FACILITY_ADMIN", facilityId: other } });
+    const a = await post("/facility-admin/facility/residents/bulk", admin).set("Idempotency-Key", key).send({ residents }).expect(202);
+    const b = await post("/facility-admin/facility/residents/bulk", otherAdmin).set("Idempotency-Key", key).send({ residents }).expect(202);
+    expect(a.body.requests[0].requestId).not.toBe(b.body.requests[0].requestId);
+    for (const [actor, expected] of [[admin, a], [otherAdmin, b]] as const) {
+      const replay = await post("/facility-admin/facility/residents/bulk", actor).set("Idempotency-Key", key).send({ residents }).expect(202);
+      expect(replay.body).toEqual(expected.body);
+    }
+    expect(await prismaTest.enrollmentRequest.count()).toBe(2);
+    expect(await prismaTest.accountInvitationDelivery.count()).toBe(4);
+    await prismaTest.user.update({ where: { id: admin.id }, data: { isActive: false } });
+    await post("/facility-admin/facility/residents/bulk", admin).set("Idempotency-Key", key).send({ residents }).expect(401);
+    expect(await prismaTest.enrollmentRequest.count()).toBe(2);
+  });
+
   it("serializes duplicate intake and queues exactly one message per channel", async () => {
     const data = input(),
       key = randomUUID();

@@ -1,5 +1,5 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, CanActivate, ExecutionContext } from '@nestjs/common';
+import { Test, type TestingModule } from '@nestjs/testing';
+import type { INestApplication, CanActivate, ExecutionContext } from '@nestjs/common';
 import request from 'supertest';
 
 import { IncidentOrchestratorController } from '../src/modules/incident-orchestrator/incident-orchestrator.controller';

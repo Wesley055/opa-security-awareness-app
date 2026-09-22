@@ -6,12 +6,14 @@ import {
   Get,
   Param,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
 import { AdminProvisioningService } from '../admin-provisioning/admin-provisioning.service';
 import { randomUUID } from 'crypto';
 import { EnrollmentService } from '../auth/enrollment.service';
+import { ReaderPageDto } from '../../shared/dto/reader-page.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateBulkFacilityAdminResidentsDto } from './dto/create-bulk-facility-admin-residents.dto';
 import { CreateFacilityAdminResidentDto } from './dto/create-facility-admin-resident.dto';
@@ -26,20 +28,22 @@ export class FacilityAdminResidentProvisioningController {
   constructor(private readonly provisioning: AdminProvisioningService, private readonly enrollment: EnrollmentService) {}
 
   @Get()
-  async listResidents(@Req() request: FacilityAdminRequest) {
+  async listResidents(@Req() request: FacilityAdminRequest, @Query() query: ReaderPageDto = {}) {
     const membership = await this.provisioning.listFacilityMembers(
       request.facilityAdminFacilityId,
+      query.page,
     );
 
     return {
       facility: membership.facility,
       residents: membership.residents,
+      page: membership.page, hasNext: membership.hasNext, residentCount: membership.residentCount,
     };
   }
 
   @Get('enrollments')
-  listEnrollments(@Req() request: FacilityAdminRequest) {
-    return this.enrollment.list(request.facilityAdminFacilityId, request.user.sub);
+  listEnrollments(@Req() request: FacilityAdminRequest, @Query() query: ReaderPageDto = {}) {
+    return this.enrollment.list(request.facilityAdminFacilityId, request.user.sub, query.page);
   }
 
   @HttpCode(202)

@@ -4,7 +4,7 @@ import { prismaTest } from './prisma-test-client';
 import { createIncident, createSession, createUser } from './fixtures';
 import { JourneySessionService } from '../../src/modules/journey/journey-session.service';
 import { JourneyIngestionService } from '../../src/modules/journey/journey-ingestion.service';
-import { PrismaService } from '../../src/prisma/prisma.service';
+import type { PrismaService } from '../../src/prisma/prisma.service';
 import { canonicalChainEnvelope } from '../../src/modules/journey/canonical-chain';
 import { canonicalFixPayload } from '../../src/modules/journey/canonical-fix';
 

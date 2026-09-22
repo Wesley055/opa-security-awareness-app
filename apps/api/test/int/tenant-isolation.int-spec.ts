@@ -165,6 +165,40 @@ describe("tenant isolation over HTTP and PostgreSQL", () => {
       .post(path)
       .set("Authorization", "Bearer " + token(u));
 
+  it('bounds roster pages and counts by current facility and role without identity disclosure', async () => {
+    await prismaTest.user.createMany({ data: Array.from({ length: 52 }, (_, i) => ({
+      email: randomUUID() + '@example.test', phoneNumber: '+' + String(900000000000 + i),
+      firstName: 'Private', lastName: 'Identity', facilityId: a, role: 'USER' as const,
+    })) });
+    for (const [seat, path] of [[opA, '/operator/facility/members'], [adminA, '/facility-admin/facility/residents']] as const) {
+      const first = await get(seat, path).expect(200);
+      const second = await get(seat, path + '?page=1').expect(200);
+      expect(first.body.residentCount).toBe(53);
+      expect(first.body.residents).toHaveLength(50);
+      expect(first.body.hasNext).toBe(true);
+      expect(second.body.residents).toHaveLength(3);
+      expect(second.body.hasNext).toBe(false);
+      const ids = [...first.body.residents, ...second.body.residents].map((row: { id: string }) => row.id);
+      expect(new Set(ids).size).toBe(53);
+      expect(ids).not.toContain(residentB.id);
+      expect(JSON.stringify(first.body)).not.toMatch(/example\.test|Private|Identity/);
+      await get(seat, path + '?page=-1').expect(400);
+      await get(seat, path + '?page=0.5').expect(400);
+    }
+    await get(opA, '/facility-admin/facility/residents').expect(403);
+    await get(adminA, '/operator/facility/members').expect(403);
+  });
+
+  it('reads closed history through existing status filters without exposing a foreign incident', async () => {
+    await prismaTest.incident.updateMany({ where: { id: { in: [incidentA, incidentB] } }, data: { status: 'RESOLVED', resolvedAt: new Date() } });
+    const result = await get(opA, '/operator/incidents?status=RESOLVED&take=1').expect(200);
+    expect(result.body.incidents.map((row: { id: string }) => row.id)).toEqual([incidentA]);
+    expect(result.body.hasMore).toBe(false);
+    const live = await get(opA, '/operator/incidents').expect(200);
+    expect(live.body.incidents).toEqual([]);
+    await get(adminA, '/operator/incidents?status=RESOLVED').expect(403);
+  });
+
   it.each(["A", "B"])(
     "%s operator reads own resources; foreign and absent incidents are identical",
     async (side) => {
@@ -265,6 +299,55 @@ describe("tenant isolation over HTTP and PostgreSQL", () => {
     await get(opA, `/incidents/${incidentA}/timeline`).expect(404);
     await post(opA, `/incidents/${incidentA}/evidence`).expect(404);
   });
+  it("pages tied timestamps deterministically and rechecks lifecycle without exposing private journeys", async () => {
+    const at = new Date("2026-09-17T12:00:00.000Z");
+    await prismaTest.incident.updateMany({ data: { status: "CANCELLED" } });
+    const ids = [randomUUID(), randomUUID(), randomUUID()].sort().reverse();
+    for (const id of ids) {
+      // Preserve the one-active-incident-per-owner constraint.
+      const owner = await prismaTest.user.create({ data: {
+        email: randomUUID() + "@example.test", phoneNumber: randomUUID(),
+        firstName: "Private", lastName: "Owner", facilityId: a,
+      } });
+      await prismaTest.incident.create({ data: {
+        id, userId: owner.id, facilityId: a, trigger: "SOS_BUTTON", createdAt: at,
+      } });
+    }
+    await prismaTest.journeySession.create({ data: {
+      userId: residentA.id, purpose: "SAFEWALK", expectedArrivalAt: new Date(0),
+      destinationLabel: "Private destination never in queue",
+    } });
+    const first = await get(opA, "/operator/incidents?take=2").expect(200);
+    expect(first.body.incidents.map((row: { id: string }) => row.id)).toEqual(ids.slice(0, 2));
+    const second = await get(opA, "/operator/incidents?take=2&cursor=" + first.body.nextCursor).expect(200);
+    expect(second.body.incidents.map((row: { id: string }) => row.id)).toEqual(ids.slice(2));
+    expect(second.body.hasMore).toBe(false);
+    await prismaTest.incident.update({ where: { id: ids[2] }, data: { status: "RESOLVED", resolvedAt: new Date() } });
+    const refreshed = await get(opA, "/operator/incidents?take=2").expect(200);
+    expect(refreshed.body.incidents.map((row: { id: string }) => row.id)).toEqual(ids.slice(0, 2));
+    expect(refreshed.body.hasMore).toBe(false);
+    expect(await prismaTest.incident.count()).toBe(5);
+    expect(JSON.stringify(refreshed.body)).not.toContain("Private destination");
+    expect(JSON.stringify(refreshed.body)).not.toContain(residentA.email);
+    expect(refreshed.body.incidents[0].user).toEqual({ firstName: "[protected]", lastName: "[protected]" });
+  });
+
+  it("uses current membership and denies changed roles and revoked credentials on queue continuation", async () => {
+    const bearer = token(opA);
+    const read = () => request(app.getHttpServer()).get("/operator/incidents").set("Authorization", "Bearer " + bearer);
+    await prismaTest.user.update({ where: { id: opA.id }, data: { facilityId: b } });
+    const moved = await read().expect(200);
+    expect(moved.body.incidents.map((row: { id: string }) => row.id)).toEqual([incidentB]);
+    await prismaTest.user.update({ where: { id: opA.id }, data: { role: "FACILITY_ADMIN" } });
+    await read().expect(403);
+    await prismaTest.user.update({ where: { id: opA.id }, data: { role: "FACILITY_OPERATOR", credentialVersion: 1 } });
+    await read().expect(401);
+  });
+
+  it.each(["USER", "FACILITY_ADMIN"])("denies the %s role the operator queue", async role => {
+    await get(role === "USER" ? residentA : adminA, "/operator/incidents").expect(403);
+  });
+
   it("separates explicit platform access from operator and facility-admin access", async () => {
     await get(platform, `/facilities/${b}/incidents`).expect(200);
     await get(platform, `/incidents/${incidentB}/timeline`).expect(200);

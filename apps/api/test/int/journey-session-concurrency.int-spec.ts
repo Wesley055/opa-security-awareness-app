@@ -4,7 +4,7 @@ import { makeTestClient, prismaTest } from './prisma-test-client';
 import { createSession, createUser, sleep, waitFor } from './fixtures';
 import { JourneySessionService } from '../../src/modules/journey/journey-session.service';
 import { JourneyIngestionService } from '../../src/modules/journey/journey-ingestion.service';
-import { PrismaService } from '../../src/prisma/prisma.service';
+import type { PrismaService } from '../../src/prisma/prisma.service';
 
 /**
  * Trap #11, service level.

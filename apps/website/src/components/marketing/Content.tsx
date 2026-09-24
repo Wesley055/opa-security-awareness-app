@@ -1,4 +1,4 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import type { ReactNode } from "react";
 
 export const pilotHref =
@@ -324,50 +324,73 @@ export function Shield({ detailed = false }: { detailed?: boolean }) {
   );
 }
 export function HumanRiskIntelligence() {
-  const contexts = [
+  const domains = [
     {
-      title: "Safety Context",
-      body: "Emergency activity, journey context and incident history provide a clearer view of safety events as they develop.",
+      title: "Human Risk Intelligence",
+      body: "Connect authorized safety, identity and organizational context to support informed human decision-making.",
     },
     {
-      title: "Identity Context",
-      body: "Roles, authorization and facility relationships establish who is involved and what access is appropriate.",
+      title: "Fleet & Vehicle Intelligence",
+      body: "Extend journey and incident context toward fleet operations, vehicle events and mobility systems.",
     },
     {
-      title: "Organizational Context",
-      body: "Employees, contractors, vendors and facilities connect safety events to the organizational environment in which they occur.",
+      title: "Pipeline & Infrastructure Intelligence",
+      body: "Connect field operations and incident context with authorized infrastructure and telemetry sources.",
+    },
+    {
+      title: "Aviation Operations Intelligence",
+      body: "Extend identity, workforce and incident context across safety-critical ground and aviation operations.",
+    },
+    {
+      title: "Spatial & Drone Intelligence",
+      body: "Create an integration path for authorized spatial, sensor and aerial context where operationally appropriate.",
+    },
+    {
+      title: "Response Network Intelligence",
+      body: "Connect incident context, coverage and authorized response organizations across coordinated response workflows.",
     },
   ];
 
   return (
     <Section
       id="human-risk-intelligence"
-      label="Human Risk Intelligence"
-      title="Understand risk across people, identity and operations."
+      label="The OPA Intelligence Layer"
+      title="From human safety to operational intelligence."
       tone="m-tinted"
     >
       <p className="m-lead">
-        OPA brings authorized safety, identity and operational context together
-        to help organizations understand events and support informed human
-        decision-making.
+        OPA is designed to bring authorized operational signals into a common
+        intelligence model while keeping human decision-makers responsible for
+        interpretation and action.
       </p>
 
+      <div className="m-pack">
+        <p className="m-eyebrow">Core intelligence path</p>
+        <h3>
+          People + Identity + Location + Assets + Telemetry + Events
+        </h3>
+        <p>
+          Intelligence → Command → Evidence → Insight
+        </p>
+      </div>
+
       <div className="m-three m-cards">
-        {contexts.map((context) => (
-          <article key={context.title}>
-            <h3>{context.title}</h3>
-            <p>{context.body}</p>
+        {domains.map((domain) => (
+          <article key={domain.title}>
+            <h3>{domain.title}</h3>
+            <p>{domain.body}</p>
           </article>
         ))}
       </div>
 
-      <div className="m-pack">
-        <h3>Human-led by design</h3>
-        <p>
-          OPA provides context for authorized decision-makers. Human judgment
-          remains authoritative.
-        </p>
-      </div>
+      <p className="m-note">
+        Human Risk Intelligence builds on OPA's safety, identity and operational
+        context. Fleet, infrastructure, aviation, spatial and response-network
+        intelligence describe platform directions whose availability depends on
+        supported integrations and deployment scope. OPA provides context for
+        authorized human decision-makers; it does not autonomously determine
+        intent or disciplinary outcomes.
+      </p>
     </Section>
   );
 }
@@ -775,18 +798,3 @@ export function Connectivity() {
     </Section>
   );
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

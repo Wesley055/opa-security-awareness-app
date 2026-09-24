@@ -5,8 +5,8 @@ import {
   Command,
   Shield,
   HumanRiskIntelligence,
-  Evidence,
   Insight,
+  Connect,
   Industries,
   Trust,
   PilotCTA,
@@ -35,8 +35,8 @@ export default function Home() {
       <Safety />
       <Command />
       <Shield />
-      <Evidence />
       <Insight />
+      <Connect />
       <Industries />
       <HumanRiskIntelligence />
       <Trust />

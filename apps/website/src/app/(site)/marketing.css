@@ -875,3 +875,10 @@
   font-weight: 600;
   letter-spacing: -0.015em;
 }
+
+/* Intelligence domain headings use IBM Plex Sans for conventional glyph rendering. */
+.marketing #human-risk-intelligence .m-cards h3 {
+  font-family: var(--elite-font-body);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}

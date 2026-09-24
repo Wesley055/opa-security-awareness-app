@@ -1,23 +1,51 @@
-import { Hero } from "@/components/home/Hero";
-import { ProtectionModes } from "@/components/home/ProtectionModes";
-import { InfrastructureFlow } from "@/components/home/InfrastructureFlow";
-import { CommandCenterSection } from "@/components/home/CommandCenterSection";
-import { ConnectivitySection } from "@/components/home/ConnectivitySection";
-import { SecuritySection } from "@/components/home/SecuritySection";
-import { LifecycleSection } from "@/components/home/LifecycleSection";
-import { CTA } from "@/components/home/CTA";
-
+﻿import { Hero } from "@/components/home/Hero";
+import {
+  Section,
+  Lifecycle,
+  Command,
+  Shield,
+  HumanRiskIntelligence,
+  Evidence,
+  Insight,
+  Industries,
+  Trust,
+  PilotCTA,
+  Safety,
+} from "@/components/marketing/Content";
 export default function Home() {
   return (
     <>
       <Hero />
-      <ProtectionModes />
-      <InfrastructureFlow />
-      <CommandCenterSection />
-      <ConnectivitySection />
-      <SecuritySection />
-      <LifecycleSection />
-      <CTA />
+      <span id="architecture" className="m-anchor" />
+      <Section
+        id="platform"
+        label="The OPA platform"
+        title="Protection Is More Than a Panic Button."
+      >
+        <p className="m-lead">
+          Protection should begin before an emergency happens.
+        </p>
+        <p>
+          OPA connects personal protection, institutional response, location
+          context, operational accountability and incident history into one
+          coordinated safety platform.
+        </p>
+      </Section>
+      <Lifecycle />
+      <Safety />
+      <Command />
+      <Shield />
+      <Evidence />
+      <Insight />
+      <Industries />
+      <HumanRiskIntelligence />
+      <Trust />
+      <PilotCTA />
     </>
   );
 }
+
+
+
+
+

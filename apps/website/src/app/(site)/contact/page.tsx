@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { PilotCTA } from "@/components/marketing/Content";
 import {
   Info,
   Handshake,
@@ -15,7 +16,7 @@ import type { LucideIcon } from "lucide-react";
 export const metadata: Metadata = {
   title: "Contact",
   description:
-    "Contact OPA Technologies Limited for hospital partnerships, enterprise sales, technical support, media inquiries, privacy, security, and general information.",
+    "Contact OPA Technologies Limited for institutional demonstrations, enterprise sales, technical support, media inquiries, privacy, security, and general information.",
 };
 
 const contactOptions: {
@@ -34,9 +35,9 @@ const contactOptions: {
     icon: Info,
   },
   {
-    title: "Hospital & partnerships",
+    title: "Institutional & strategic partnerships",
     description:
-      "Hospitals, NGOs, corporate security teams, and strategic partnerships.",
+      "Private security firms, gated estates, corporate security and lone-worker organizations.",
     email: "partnerships@opasafety.com",
     subject: "OPA Partnership Inquiry",
     icon: Handshake,
@@ -91,8 +92,7 @@ const contactOptions: {
   },
   {
     title: "Careers",
-    description:
-      "Career opportunities and employment-related inquiries.",
+    description: "Career opportunities and employment-related inquiries.",
     email: "careers@opasafety.com",
     subject: "OPA Career Inquiry",
     icon: Briefcase,
@@ -101,96 +101,66 @@ const contactOptions: {
 
 export default function ContactPage() {
   return (
-    <div className="mx-auto max-w-6xl px-6 py-24">
-      <p className="font-mono text-xs uppercase tracking-widest text-flare">
-        Contact
-      </p>
+    <>
+      <div className="mx-auto max-w-6xl px-6 py-24">
+        <p className="font-mono text-xs uppercase tracking-widest text-flare">
+          Contact
+        </p>
 
-      <h1 className="mt-4 font-display text-4xl font-extrabold text-ink sm:text-5xl">
-        Contact the OPA team.
-      </h1>
+        <h1 className="mt-4 font-display text-4xl font-extrabold text-ink sm:text-5xl">
+          Contact the OPA team.
+        </h1>
 
-      <p className="mt-6 max-w-3xl text-muted">
-        Whether you are interested in becoming a pilot partner, learning
-        more about our platform, requesting a demonstration, or contacting
-        a specific department, we are here to help.
-      </p>
+        <p className="mt-6 max-w-3xl text-muted">
+          Whether you are interested in discussing institutional safety,
+          learning more about our platform, requesting a demonstration, or
+          contacting a specific department, we are here to help.
+        </p>
 
-      <div className="mt-16 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-        {contactOptions.map((option) => (
-          <div
-            key={option.email}
-            className="rounded-lg border border-line bg-panel p-6"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-md bg-panel-2">
-              <option.icon size={20} className="text-signal" />
-            </div>
-            <h2 className="mt-4 font-display text-lg font-bold text-ink">
-              {option.title}
-            </h2>
-            <p className="mt-3 text-sm leading-6 text-muted">
-              {option.description}
-            </p>
-            
-            <a
-              href={`mailto:${option.email}?subject=${encodeURIComponent(option.subject)}`}
-              className="mt-5 inline-block break-all font-mono text-sm text-signal transition hover:brightness-110"
+        <div className="mt-16 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {contactOptions.map((option) => (
+            <div
+              key={option.email}
+              className="rounded-lg border border-line bg-panel p-6"
             >
-              {option.email}
-            </a>
-          </div>
-        ))}
-      </div>
+              <div className="flex h-10 w-10 items-center justify-center rounded-md bg-panel-2">
+                <option.icon size={20} className="text-signal" />
+              </div>
+              <h2 className="mt-4 font-display text-lg font-bold text-ink">
+                {option.title}
+              </h2>
+              <p className="mt-3 text-sm leading-6 text-muted">
+                {option.description}
+              </p>
 
-      <div className="mt-10 rounded-lg border border-line bg-panel p-6">
-        <h2 className="font-display text-base font-bold text-ink">
-          Response times
-        </h2>
-        <ul className="mt-4 space-y-2 text-sm text-muted">
-          <li>General inquiries: typically within 1&ndash;2 business days</li>
-          <li>Partnership inquiries: typically within 1 business day</li>
-          <li>Technical support: prioritized according to severity and impact</li>
-        </ul>
-      </div>
-
-      <div className="mt-16 rounded-xl border border-line bg-panel p-8 sm:p-10">
-        <h2 className="font-display text-2xl font-bold text-ink">
-          OPA Technologies Limited
-        </h2>
-        <p className="mt-2 font-mono text-xs text-muted-2">
-          RC 9697630 &middot; Registered in Nigeria
-        </p>
-        <p className="mt-4 max-w-3xl text-muted">
-          Building trusted personal safety and live incident awareness
-          technology for individuals, families, organisations, and
-          partners. Nigeria first, global by design.
-        </p>
-
-        <div className="mt-8 grid gap-8 sm:grid-cols-2">
-          <div>
-            <h3 className="font-display font-semibold text-ink">
-              Business hours
-            </h3>
-            <p className="mt-2 text-sm leading-6 text-muted">
-              Monday &ndash; Friday
-              <br />
-              9:00 AM &ndash; 5:00 PM (WAT)
-            </p>
-          </div>
-          <div>
-            <h3 className="font-display font-semibold text-ink">
-              Website
-            </h3>
-            <a href="https://opasafety.com" className="mt-2 inline-block font-mono text-sm text-signal transition hover:brightness-110">
-              opasafety.com
-            </a>
-          </div>
+              <a
+                href={`mailto:${option.email}?subject=${encodeURIComponent(option.subject)}`}
+                className="mt-5 inline-block break-all font-mono text-sm text-signal transition hover:brightness-110"
+              >
+                {option.email}
+              </a>
+            </div>
+          ))}
         </div>
 
-        <p className="mt-10 border-t border-line pt-6 text-xs text-muted-2">
-          &copy; {new Date().getFullYear()} OPA Technologies Limited. All rights reserved.
-        </p>
+        <div className="mt-16 rounded-xl border border-line bg-panel p-8 sm:p-10">
+          <h2 className="font-display text-2xl font-bold text-ink">
+            OPA Technologies Limited
+          </h2>
+
+          <p className="mt-4 max-w-3xl text-muted">
+            Building trusted personal safety and live incident awareness
+            technology for individuals, families, organisations, and partners.
+            Nigeria first, global by design.
+          </p>
+
+          <p className="mt-10 border-t border-line pt-6 text-xs text-muted-2">
+            &copy; {new Date().getFullYear()} OPA Technologies Limited. All
+            rights reserved.
+          </p>
+        </div>
       </div>
-    </div>
+      <PilotCTA />
+    </>
   );
 }

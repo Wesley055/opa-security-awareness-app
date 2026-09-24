@@ -1,8 +1,9 @@
-import type { Metadata } from "next";
+﻿import type { Metadata } from "next";
 import { Archivo, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
 import { Navbar } from "@/components/layout/Navbar";
 import { Footer } from "@/components/layout/Footer";
 import "../globals.css";
+import "./marketing.css";
 
 const archivo = Archivo({
   variable: "--font-archivo",
@@ -25,15 +26,15 @@ const plexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   metadataBase: new URL("https://opasafety.com"),
   title: {
-    default: "OPA - Physical Incident Management Operating System",
+    default: "OPA â€” Enterprise Safety & Operational Intelligence",
     template: "%s | OPA",
   },
   description:
     "OPA protects people before, during, and after emergencies with SOS, journey protection, live incident intelligence, and institutional Command Center coordination.",
   openGraph: {
-    title: "OPA - Physical Incident Management Operating System",
+    title: "OPA â€” Enterprise Safety & Operational Intelligence",
     description:
-      "Physical incident management for private security, gated estates, corporate security, executive protection, and lone-worker operations.",
+      "Connected safety, incident coordination, identity, evidence and insight for institutions, workplaces and families.",
     url: "https://opasafety.com",
     siteName: "OPA",
     locale: "en_NG",
@@ -51,11 +52,18 @@ export default function RootLayout({
       lang="en"
       className={`${archivo.variable} ${plexSans.variable} ${plexMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-base text-ink font-sans">
+      <body className="marketing min-h-full flex flex-col bg-base text-ink font-sans">
+        <a className="m-skip" href="#main-content">
+          Skip to content
+        </a>
         <Navbar />
-        <main className="flex-1">{children}</main>
+        <main id="main-content" tabIndex={-1} className="flex-1">
+          {children}
+        </main>
         <Footer />
       </body>
     </html>
   );
 }
+
+

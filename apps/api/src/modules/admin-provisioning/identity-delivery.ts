@@ -1,3 +1,5 @@
+import { ForbiddenException } from "@nestjs/common";
+import { onboardingAuthority } from "../onboarding/onboarding-authority";
 import type { ConfigService } from "@nestjs/config";
 import type { AccountInvitationDelivery, Prisma } from "@prisma/client";
 import { randomBytes } from "crypto";
@@ -40,14 +42,24 @@ export async function prepareIdentityDelivery(
       if (
         !facility?.isActive ||
         !inviter?.isActive ||
-        inviter.accountStatus !== "ACTIVE" ||
-        !(
-          inviter.role === "ADMIN" ||
-          ((request.requestedRole ?? "USER") === "USER" &&
-            inviter.role === "FACILITY_ADMIN" &&
-            inviter.facilityId === request.facilityId)
-        )
+        inviter.accountStatus !== "ACTIVE"
       )
+        return null;
+      if (
+        ["FACILITY_ADMIN", "FACILITY_OPERATOR"].includes(request.requestedRole)
+      ) {
+        try {
+          await onboardingAuthority(tx, inviter.id, facility.id);
+        } catch (error) {
+          if (error instanceof ForbiddenException) return null;
+          throw error;
+        }
+      } else if (!(
+        inviter.role === "ADMIN" ||
+        ((request.requestedRole ?? "USER") === "USER" &&
+          inviter.role === "FACILITY_ADMIN" &&
+          inviter.facilityId === request.facilityId)
+      ))
         return null;
       organization = facility.name;
     }

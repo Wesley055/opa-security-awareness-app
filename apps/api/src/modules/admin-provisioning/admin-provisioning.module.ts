@@ -1,3 +1,8 @@
+import { OnboardingService } from "../onboarding/onboarding.service";
+import {
+  OnboardingController,
+  OnboardingGrantsController,
+} from "../onboarding/onboarding.controller";
 import { PlatformAdminService } from "./platform-admin.service";
 import { EnrollmentModule } from "../auth/enrollment.module";
 import { ProtectedIdentityModule } from "../protected-identity/protected-identity.module";
@@ -16,9 +21,14 @@ import { InvitationDeliveryWorker } from "./invitation-delivery.worker";
     PrismaModule,
     NotificationModule,
   ],
-  controllers: [AdminProvisioningController],
+  controllers: [
+    AdminProvisioningController,
+    OnboardingController,
+    OnboardingGrantsController,
+  ],
   providers: [
     PlatformAdminService,
+    OnboardingService,
     AdminProvisioningService,
     AdminGuard,
     InvitationDeliveryWorker,

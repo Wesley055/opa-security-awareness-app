@@ -56,6 +56,7 @@ export default async function ProtectedLayout({
         <nav aria-label="Super Admin">
           <a href="/super-admin">Facility workspace</a>
           <a href="/super-admin/facilities/new">Create facility</a>
+          <a href="/super-admin/onboarding">Onboarding delegation</a>
         </nav>
         {children}
       </main>

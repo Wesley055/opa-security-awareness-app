@@ -60,6 +60,11 @@ const allowedKeys = new Set([
   "afterState",
   "userId",
   "revoked",
+  "authority",
+  "grantId",
+  "approvedByUserId",
+  "permission",
+  "unrevokedGrants",
 ]);
 export function project(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(project);

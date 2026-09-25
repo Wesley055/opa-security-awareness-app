@@ -82,6 +82,8 @@ enum EvidenceStatus {
 }
 
 model User {
+  onboardingGrants OnboardingAuthorityGrant[] @relation("OnboardingActor")
+  onboardingApprovals OnboardingAuthorityGrant[] @relation("OnboardingApprover")
   ssoIdentities SsoExternalIdentity[]
   identityGrants IdentityAccessGrant[] @relation("IdentityGrantActor")
   protectedIdentifiers ProtectedIdentifier[] @relation("ProtectedIdentitySubject")
@@ -362,6 +364,7 @@ model AccountInvitationDelivery {
 }
 
 model Facility {
+  onboardingGrants OnboardingAuthorityGrant[]
   ssoConfigurations SsoConfiguration[]
   identityGrants IdentityAccessGrant[]
   protectedIdentifiers ProtectedIdentifier[]
@@ -1067,4 +1070,24 @@ model SafeWalkAudit {
 model StagingNotificationBudget {
   key String @id
   count Int @default(0)
+}
+
+enum OnboardingPermission {
+  STAFF_ONBOARDING
+}
+model OnboardingAuthorityGrant {
+  id String @id @default(uuid()) @db.Uuid
+  actorUserId String @db.Uuid
+  facilityId String @db.Uuid
+  permission OnboardingPermission @default(STAFF_ONBOARDING)
+  approvedByUserId String @db.Uuid
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  actor User @relation("OnboardingActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  approver User @relation("OnboardingApprover", fields: [approvedByUserId], references: [id], onDelete: Restrict)
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  @@index([actorUserId, facilityId, permission, revokedAt, expiresAt], map: "onboarding_actor_scope_idx")
+  @@index([facilityId])
+  @@index([approvedByUserId])
 }

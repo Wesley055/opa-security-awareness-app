@@ -1,26 +1,26 @@
-import type { PrismaClient } from '@prisma/client';
-import * as fs from 'fs';
-import * as path from 'path';
-import { API_ROOT } from './env';
-import { firstRow } from './rows';
+import type { PrismaClient } from "@prisma/client";
+import * as fs from "fs";
+import * as path from "path";
+import { API_ROOT } from "./env";
+import { firstRow } from "./rows";
 
-export const PARTIAL_INDEX = 'journey_session_one_active_per_user';
+export const PARTIAL_INDEX = "journey_session_one_active_per_user";
 
-type RawClient = Pick<PrismaClient, '$queryRawUnsafe'>;
+type RawClient = Pick<PrismaClient, "$queryRawUnsafe">;
 
 /** Number of real migration directories on disk. */
 export function countMigrationDirectories(): number {
-  const dir = path.join(API_ROOT, 'prisma', 'migrations');
+  const dir = path.join(API_ROOT, "prisma", "migrations");
 
   if (!fs.existsSync(dir)) {
-    throw new Error('No prisma/migrations directory at ' + dir);
+    throw new Error("No prisma/migrations directory at " + dir);
   }
 
   return fs
     .readdirSync(dir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .filter((entry) =>
-      fs.existsSync(path.join(dir, entry.name, 'migration.sql')),
+      fs.existsSync(path.join(dir, entry.name, "migration.sql")),
     ).length;
 }
 
@@ -49,8 +49,8 @@ export async function assertMigrationsFullyApplied(
   if (Number(firstRow(unfinished).count) > 0) {
     throw new Error(
       Number(firstRow(unfinished).count) +
-        ' migration(s) in the test database are unfinished. The database is ' +
-        'in a partially-applied state; drop it and re-bootstrap.',
+        " migration(s) in the test database are unfinished. The database is " +
+        "in a partially-applied state; drop it and re-bootstrap.",
     );
   }
 
@@ -61,11 +61,11 @@ export async function assertMigrationsFullyApplied(
 
   if (Number(firstRow(applied).count) !== expected) {
     throw new Error(
-      'Migration mismatch: ' +
+      "Migration mismatch: " +
         expected +
-        ' migration directories on disk but ' +
+        " migration directories on disk but " +
         Number(firstRow(applied).count) +
-        ' applied in the test database.',
+        " applied in the test database.",
     );
   }
 }
@@ -84,32 +84,37 @@ export async function assertPartialIndex(prisma: RawClient): Promise<string> {
     { indexdef: string; tablename: string }[]
   >(
     "SELECT indexdef, tablename FROM pg_indexes " +
-      "WHERE schemaname = 'public' AND indexname = '" + PARTIAL_INDEX + "'",
+      "WHERE schemaname = 'public' AND indexname = '" +
+      PARTIAL_INDEX +
+      "'",
   );
 
   if (rows.length === 0) {
     throw new Error(
-      'The partial unique index ' +
+      "The partial unique index " +
         PARTIAL_INDEX +
-        ' is missing. Either migrate deploy did not replay the hand-added ' +
-        'SQL, or a later migration dropped it.',
+        " is missing. Either migrate deploy did not replay the hand-added " +
+        "SQL, or a later migration dropped it.",
     );
   }
 
   const def = firstRow(rows).indexdef;
 
-  if (firstRow(rows).tablename !== 'JourneySession') {
+  if (firstRow(rows).tablename !== "JourneySession") {
     throw new Error(
-      PARTIAL_INDEX + ' is on table ' + firstRow(rows).tablename + ', not JourneySession.',
+      PARTIAL_INDEX +
+        " is on table " +
+        firstRow(rows).tablename +
+        ", not JourneySession.",
     );
   }
 
   const required = [
-    { name: 'UNIQUE', pattern: /CREATE\s+UNIQUE\s+INDEX/i },
+    { name: "UNIQUE", pattern: /CREATE\s+UNIQUE\s+INDEX/i },
     { name: '"userId" column', pattern: /"userId"/ },
-    { name: 'WHERE clause', pattern: /\bWHERE\b/i },
-    { name: 'STARTED in predicate', pattern: /STARTED/ },
-    { name: 'ACTIVE in predicate', pattern: /ACTIVE/ },
+    { name: "WHERE clause", pattern: /\bWHERE\b/i },
+    { name: "STARTED in predicate", pattern: /STARTED/ },
+    { name: "ACTIVE in predicate", pattern: /ACTIVE/ },
   ];
 
   const missing = required
@@ -119,9 +124,9 @@ export async function assertPartialIndex(prisma: RawClient): Promise<string> {
   if (missing.length > 0) {
     throw new Error(
       PARTIAL_INDEX +
-        ' no longer has the expected semantics. Missing: ' +
-        missing.join(', ') +
-        '. Actual definition: ' +
+        " no longer has the expected semantics. Missing: " +
+        missing.join(", ") +
+        ". Actual definition: " +
         def,
     );
   }
@@ -131,8 +136,8 @@ export async function assertPartialIndex(prisma: RawClient): Promise<string> {
   if (/ENDED/.test(def)) {
     throw new Error(
       PARTIAL_INDEX +
-        ' includes ENDED in its predicate, which would forbid more than one ' +
-        'ended session per user. Actual definition: ' +
+        " includes ENDED in its predicate, which would forbid more than one " +
+        "ended session per user. Actual definition: " +
         def,
     );
   }
@@ -141,9 +146,26 @@ export async function assertPartialIndex(prisma: RawClient): Promise<string> {
 }
 
 /** Everything the test database must satisfy before any test is trusted. */
-export async function assertProductionSchema(
-  prisma: RawClient,
-): Promise<void> {
+export async function assertProductionSchema(prisma: RawClient): Promise<void> {
   await assertMigrationsFullyApplied(prisma);
   await assertPartialIndex(prisma);
+  const constraints = await prisma.$queryRawUnsafe<Array<{ conname: string }>>(
+    `SELECT conname FROM pg_constraint WHERE conrelid = '"OnboardingAuthorityGrant"'::regclass`,
+  );
+  for (const name of [
+    "onboarding_expiration_after_creation",
+    "onboarding_revocation_after_creation",
+    "onboarding_no_self_grant",
+    "OnboardingAuthorityGrant_actorUserId_fkey",
+    "OnboardingAuthorityGrant_approvedByUserId_fkey",
+    "OnboardingAuthorityGrant_facilityId_fkey",
+  ]) {
+    if (!constraints.some((row) => row.conname === name))
+      throw new Error("Missing delegation constraint: " + name);
+  }
+  const indexes = await prisma.$queryRawUnsafe<Array<{ indexname: string }>>(
+    `SELECT indexname FROM pg_indexes WHERE tablename = 'OnboardingAuthorityGrant'`,
+  );
+  if (!indexes.some((row) => row.indexname === "onboarding_actor_scope_idx"))
+    throw new Error("Missing delegation scope index");
 }

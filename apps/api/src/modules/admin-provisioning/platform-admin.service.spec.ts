@@ -16,18 +16,16 @@ describe("platform authority and durable staff intake", () => {
   };
   function setup(role = "ADMIN") {
     const tx = {
-      $queryRaw: jest.fn(),
+      $queryRaw: jest.fn().mockResolvedValue([]),
       $executeRaw: jest.fn(),
       user: {
-        findUnique: jest
-          .fn()
-          .mockResolvedValue({
-            id: "actor",
-            role,
-            isActive: true,
-            accountStatus: "ACTIVE",
-            facilityId: "facility",
-          }),
+        findUnique: jest.fn().mockResolvedValue({
+          id: "actor",
+          role,
+          isActive: true,
+          accountStatus: "ACTIVE",
+          facilityId: "facility",
+        }),
         findFirst: jest.fn(),
         create: jest.fn(),
       },
@@ -99,7 +97,7 @@ describe("platform authority and durable staff intake", () => {
       expect(tx.administrativeAuditEvent.create).toHaveBeenCalled();
     },
   );
-  it("denies a tenant administrator attempting a staff-role invitation", async () => {
+  it("denies a tenant administrator without a scoped grant attempting a staff-role invitation", async () => {
     const { tx, service } = setup("FACILITY_ADMIN");
     await expect(
       service.invite("actor", input, "key", "FACILITY_OPERATOR"),

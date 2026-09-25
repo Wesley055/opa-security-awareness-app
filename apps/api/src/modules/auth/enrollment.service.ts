@@ -1,3 +1,4 @@
+import { onboardingAuthority } from "../onboarding/onboarding-authority";
 import {
   BadRequestException,
   ForbiddenException,
@@ -73,8 +74,24 @@ export class EnrollmentService {
       ]),
     );
     return this.prisma.$transaction(async (tx) => {
-      if (facilityId)
-        await this.authorizeInviter(tx, facilityId, actorId, requestedRole);
+      const authority = facilityId
+        ? await this.authorizeInviter(tx, facilityId, actorId, requestedRole)
+        : undefined;
+      if (authority?.authority === "DELEGATED_ONBOARDING") {
+        // Only compare the authenticated actor's own identifiers; never look
+        // up the submitted recipient before dual ownership verification.
+        const actor = await tx.user.findUniqueOrThrow({
+          where: { id: actorId! },
+          select: { email: true, phoneNumber: true },
+        });
+        if (
+          actor.email.toLowerCase() === identity.email ||
+          actor.phoneNumber === identity.phoneNumber
+        )
+          throw new ForbiddenException(
+            "Delegated employees cannot invite their own identity.",
+          );
+      }
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${digest}))`;
       const existing = await tx.enrollmentRequest.findUnique({
         where: { idempotencyDigest: digest },
@@ -108,11 +125,12 @@ export class EnrollmentService {
         await tx.administrativeAuditEvent.create({
           data: {
             actorUserId: actorId,
-            actorRole: "INSTITUTIONAL_INVITER",
+            actorRole: authority?.actorRole ?? "INSTITUTIONAL_INVITER",
             action: "ENROLLMENT_REQUESTED",
+            ...(authority ? { reason: "Staff onboarding invitation" } : {}),
             resourceId: request.id,
             facilityId,
-            afterState: { requestedRole },
+            afterState: { requestedRole, ...(authority ?? {}) },
           },
         });
       return { requestId: request.id, status: "VERIFICATION_PENDING" as const };
@@ -160,16 +178,19 @@ export class EnrollmentService {
         take: 51,
       });
       return {
-        page, hasNext: rows.length > 50,
+        page,
+        hasNext: rows.length > 50,
         requests: rows.slice(0, 50).map((row) => ({
           requestId: row.id,
           createdAt: row.createdAt,
           expiresAt: row.expiresAt,
-          status: row.revokedAt ? "REVOKED" : row.acceptedAt
-            ? "ACCEPTED"
-            : row.expiresAt <= new Date()
-              ? "EXPIRED"
-              : "VERIFICATION_PENDING",
+          status: row.revokedAt
+            ? "REVOKED"
+            : row.acceptedAt
+              ? "ACCEPTED"
+              : row.expiresAt <= new Date()
+                ? "EXPIRED"
+                : "VERIFICATION_PENDING",
         })),
       };
     });
@@ -183,6 +204,8 @@ export class EnrollmentService {
   ) {
     if (!actorId)
       throw new ForbiddenException("Enrollment authority required.");
+    if (["FACILITY_ADMIN", "FACILITY_OPERATOR"].includes(requestedRole))
+      return onboardingAuthority(tx, actorId, facilityId);
     await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${actorId}::uuid FOR SHARE`;
     const actor = await tx.user.findUnique({ where: { id: actorId } });
     if (
@@ -405,13 +428,20 @@ export class EnrollmentService {
         return { status: "ACCEPTED" as const };
       }
       if (request.facilityId) {
-        await this.authorizeInviter(
+        const authority = await this.authorizeInviter(
           tx,
           request.facilityId,
           request.invitedByUserId ?? undefined,
           request.requestedRole as
             "USER" | "FACILITY_ADMIN" | "FACILITY_OPERATOR",
         );
+        if (
+          authority?.authority === "DELEGATED_ONBOARDING" &&
+          actorId === request.invitedByUserId
+        )
+          throw new ForbiddenException(
+            "Delegated employees cannot accept their own staff invitation.",
+          );
         if (user.facilityId !== null && user.facilityId !== request.facilityId)
           throw new BadRequestException(FAILURE);
         await tx.user.update({
@@ -419,7 +449,9 @@ export class EnrollmentService {
           data: {
             facilityId: request.facilityId,
             role: request.requestedRole ?? "USER",
-            ...(user.role !== (request.requestedRole ?? "USER") ? { credentialVersion: { increment: 1 } } : {}),
+            ...(user.role !== (request.requestedRole ?? "USER")
+              ? { credentialVersion: { increment: 1 } }
+              : {}),
           },
         });
       }

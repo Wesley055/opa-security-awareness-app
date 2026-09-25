@@ -1,3 +1,4 @@
+import { onboardingAuthority } from "../onboarding/onboarding-authority";
 import {
   BadRequestException,
   ConflictException,
@@ -123,16 +124,14 @@ export class PlatformAdminService {
       });
       return {
         facility,
-        members: rows
-          .slice(0, 50)
-          .map((row) => ({
-            ...maskedPerson(row),
-            membershipState: !row.isActive
-              ? "SUSPENDED"
-              : row.accountStatus === "ACTIVE"
-                ? "ACTIVE"
-                : "PENDING_ACTIVATION",
-          })),
+        members: rows.slice(0, 50).map((row) => ({
+          ...maskedPerson(row),
+          membershipState: !row.isActive
+            ? "SUSPENDED"
+            : row.accountStatus === "ACTIVE"
+              ? "ACTIVE"
+              : "PENDING_ACTIVATION",
+        })),
         nextCursor: rows.length > 50 ? rows[49]!.id : null,
       };
     });
@@ -145,31 +144,47 @@ export class PlatformAdminService {
   ) {
     return this.enrollment.request(dto, key, dto.facilityId, actorId, role);
   }
-  async invitations(actorId: string, facilityId: string, cursor?: string) {
+  async invitations(
+    actorId: string,
+    facilityId: string,
+    cursor?: string,
+    staffOnly = false,
+  ) {
     return this.prisma.$transaction(async (tx) => {
-      await this.authority(tx, actorId);
+      if (staffOnly) await onboardingAuthority(tx, actorId, facilityId);
+      else await this.authority(tx, actorId);
       await this.facility(tx, facilityId);
       const rows = await tx.enrollmentRequest.findMany({
-        where: { facilityId, ...(cursor ? { id: { gt: cursor } } : {}) },
+        where: {
+          facilityId,
+          ...(staffOnly
+            ? {
+                requestedRole: {
+                  in: ["FACILITY_ADMIN", "FACILITY_OPERATOR"] as Array<
+                    "FACILITY_ADMIN" | "FACILITY_OPERATOR"
+                  >,
+                },
+              }
+            : {}),
+          ...(cursor ? { id: { gt: cursor } } : {}),
+        },
         select: invitationSelect,
         orderBy: { id: "asc" },
         take: 51,
       });
       return {
-        invitations: rows
-          .slice(0, 50)
-          .map((row) => ({
-            ...row,
-            status: row.revokedAt
-              ? "REVOKED"
-              : row.acceptedAt
-                ? "ACCEPTED"
-                : row.expiresAt <= new Date()
-                  ? "EXPIRED"
-                  : row.verifiedAt
-                    ? "ACCEPTANCE_PENDING"
-                    : "VERIFICATION_PENDING",
-          })),
+        invitations: rows.slice(0, 50).map((row) => ({
+          ...row,
+          status: row.revokedAt
+            ? "REVOKED"
+            : row.acceptedAt
+              ? "ACCEPTED"
+              : row.expiresAt <= new Date()
+                ? "EXPIRED"
+                : row.verifiedAt
+                  ? "ACCEPTANCE_PENDING"
+                  : "VERIFICATION_PENDING",
+        })),
         nextCursor: rows.length > 50 ? rows[49]!.id : null,
       };
     });
@@ -180,17 +195,25 @@ export class PlatformAdminService {
     id: string,
     action: "resend" | "revoke",
     reason: string,
+    staffOnly = false,
   ) {
     this.reason(reason);
     return this.prisma.$transaction(async (tx) => {
       // Same lock order as verification and worker claiming.
       await tx.$queryRaw`SELECT id FROM "EnrollmentRequest" WHERE id = ${id}::uuid FOR UPDATE`;
-      await this.authority(tx, actorId);
+      const authority = staffOnly
+        ? await onboardingAuthority(tx, actorId, facilityId)
+        : (await this.authority(tx, actorId), undefined);
       const row = await tx.enrollmentRequest.findUnique({
         where: { id },
         include: { deliveries: true },
       });
-      if (!row || row.facilityId !== facilityId)
+      if (
+        !row ||
+        row.facilityId !== facilityId ||
+        (staffOnly &&
+          !["FACILITY_ADMIN", "FACILITY_OPERATOR"].includes(row.requestedRole))
+      )
         throw new NotFoundException("Invitation not found.");
       if (row.acceptedAt || row.revokedAt)
         throw new ConflictException("Invitation is no longer eligible.");
@@ -249,7 +272,7 @@ export class PlatformAdminService {
       await tx.administrativeAuditEvent.create({
         data: {
           actorUserId: actorId,
-          actorRole: "ADMIN",
+          actorRole: authority?.actorRole ?? "ADMIN",
           action:
             action === "resend" ? "INVITATION_RESENT" : "INVITATION_REVOKED",
           resourceId: id,
@@ -259,7 +282,7 @@ export class PlatformAdminService {
             revoked: false,
             expiresAt: row.expiresAt.toISOString(),
           },
-          afterState: { action },
+          afterState: { action, ...(authority ?? {}) },
         },
       });
       return {

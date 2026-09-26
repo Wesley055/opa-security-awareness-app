@@ -524,6 +524,78 @@ export const industries = [
     boundary:
       "OPA supports authorized human decision-making and incident operations; it does not autonomously determine employee intent or disciplinary outcomes.",
   },
+  {
+    id: "energy",
+    name: "Energy & Critical Infrastructure",
+    intro:
+      "Field workforce safety, pipeline operations, remote patrol and operational telemetry direction.",
+    body:
+      "OPA provides a foundation for connecting workforce safety and incident operations with authorized infrastructure and telemetry sources.",
+    scenario:
+      "Remote workforce · Pipeline operations · Patrol coordination · Telemetry integration",
+    boundary:
+      "Telemetry, pipeline and sensor integrations depend on the applicable deployment and connected systems.",
+  },
+  {
+    id: "aviation",
+    name: "Aviation Operations",
+    intro:
+      "Ground operations, workforce safety, contractors and operational intelligence.",
+    body:
+      "OPA can extend its incident, identity and operational-context model to safety-critical aviation environments and distributed ground operations.",
+    scenario:
+      "Ground operations · Workforce · Contractors · Operational incidents",
+    boundary:
+      "Aviation-specific integrations and workflows are deployment directions and require operator, regulatory and technical validation.",
+  },
+  {
+    id: "mobility",
+    name: "Mobility & Fleets",
+    intro:
+      "Journey safety, vehicle incidents, supervised mobility and fleet intelligence.",
+    body:
+      "OPA's journey and incident architecture provides a foundation for mobility safety, fleet operations and future vehicle-context integrations.",
+    scenario:
+      "Journey safety · Fleet incidents · Vehicle context · Supervised mobility",
+    boundary:
+      "Vehicle telemetry and mobility-provider integrations require supported partner systems and deployment-specific controls.",
+  },
+  {
+    id: "workforce",
+    name: "Workforce & Staffing",
+    intro:
+      "Lone workers, deployed personnel, contractor safety and duty-of-care operations.",
+    body:
+      "OPA supports organizations responsible for people working late, travelling, operating remotely or serving at third-party locations.",
+    scenario:
+      "Lone workers · Contractors · Deployed personnel · Journey protection",
+    boundary:
+      "Routine movement remains private by default; institutional visibility follows defined authorization and emergency boundaries.",
+  },
+  {
+    id: "property",
+    name: "Property & Communities",
+    intro:
+      "Estates, facilities, residential operations and coordinated security.",
+    body:
+      "OPA connects authorized membership, emergency activation and facility-scoped incident operations for properties and managed communities.",
+    scenario:
+      "Estates · Facilities · Residents · Security operations",
+    boundary:
+      "Physical response remains with the authorized security or response organization.",
+  },
+  {
+    id: "field-operations",
+    name: "Field Operations",
+    intro:
+      "Healthcare, NGOs, distributed teams and difficult-connectivity environments.",
+    body:
+      "OPA supports organizations whose people operate beyond traditional facilities and need safety context, incident coordination and accountable review.",
+    scenario:
+      "Field teams · Healthcare travel · NGOs · Distributed operations",
+    boundary:
+      "Capabilities depend on connectivity, device conditions and the controls configured for the applicable deployment.",
+  },
 ] as const;
 export function Industries({ detailed = false }: { detailed?: boolean }) {
   return (

@@ -1,59 +1,62 @@
 // @vitest-environment node
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const session = vi.hoisted(() => ({
   apiUrl: vi.fn(),
   setOperatorSession: vi.fn(),
 }));
 
-vi.mock('@/lib/operator-session', () => ({
+vi.mock("@/lib/operator-session", () => ({
   apiUrl: session.apiUrl,
   setOperatorSession: session.setOperatorSession,
 }));
 
-import { POST } from './route';
+vi.mock("@/lib/institutional-session", () => ({
+  clearInstitutionalSession: vi.fn(),
+}));
+import { POST } from "./route";
 
 function loginRequest() {
-  return new Request('http://localhost/api/operator/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  return new Request("http://localhost/api/operator/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", origin: "http://localhost" },
     body: JSON.stringify({
-      email: 'admin@example.com',
-      password: 'StrongPassword123!',
+      email: "admin@example.com",
+      password: "StrongPassword123!",
     }),
   });
 }
 
 function mockApiLogin(role: string) {
   vi.stubGlobal(
-    'fetch',
+    "fetch",
     vi.fn().mockResolvedValue(
       new Response(
         JSON.stringify({
-          accessToken: 'access-token',
-          refreshToken: 'refresh-token',
+          accessToken: "access-token",
+          refreshToken: "refresh-token",
           user: { role },
         }),
         {
           status: 200,
-          headers: { 'Content-Type': 'application/json' },
+          headers: { "Content-Type": "application/json" },
         },
       ),
     ),
   );
 }
 
-describe('POST /api/operator/login', () => {
+describe("POST /api/operator/login", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
-    session.apiUrl.mockReturnValue('https://api.example.test');
+    session.apiUrl.mockReturnValue("https://api.example.test");
     session.setOperatorSession.mockResolvedValue(undefined);
   });
 
-  it.each(['FACILITY_OPERATOR', 'FACILITY_ADMIN'])(
-    'establishes a Viewer session for %s',
+  it.each(["FACILITY_OPERATOR", "FACILITY_ADMIN"])(
+    "establishes a Viewer session for %s",
     async (role) => {
       mockApiLogin(role);
 
@@ -63,14 +66,14 @@ describe('POST /api/operator/login', () => {
       await expect(response.json()).resolves.toEqual({ ok: true });
 
       expect(session.setOperatorSession).toHaveBeenCalledWith({
-        accessToken: 'access-token',
-        refreshToken: 'refresh-token',
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
       });
     },
   );
 
-  it.each(['USER', 'ADMIN'])(
-    'rejects %s from the facility Viewer',
+  it.each(["USER", "ADMIN"])(
+    "rejects %s from the facility Viewer",
     async (role) => {
       mockApiLogin(role);
 

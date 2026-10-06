@@ -120,3 +120,38 @@ No real-provider or deployed end-to-end acceptance is claimed. Demo/test-data re
 ## 10. Candidate status
 
 This branch is a candidate for review and acceptance testing. Production promotion remains gated on the physical acceptance above and normal release approval. It is not deployed or production-approved. The dirty C:\Projects\OPA worktree was not touched; no commit, push, reset or production-data operation was performed.
+
+
+## 10. Browser authority hardening
+
+The preserved browser DOM established that Facility B was rendered and selected. Its historical facility response and authenticated actor were not retained; current diagnostic requests returned 401. This does not establish a server-side cross-facility authorization success. The original rendering cause and reason for that particular 401 cannot be reconstructed from these observations alone.
+
+The previous workspace fetched facilities once and retained them after 401/403, focus restoration and actor changes. Regression tests reproduce that client defect. The hardened workspace clears scope on authentication/authorization failure, page/focus/visibility restoration and explicit session changes. It revalidates every five seconds while visible, applies a ten-second deadline to enumeration so a hung request fails closed, discards superseded responses, identifies the current account reference/role and resets selection when actor or authorized facility IDs change. Remote grant changes are reflected on the next successful poll (network latency applies), not by an instantaneous server push. Every privileged API operation still checks current database authority immediately, independently of rendered state.
+
+Facility enumeration includes the database actor reference and role. Privileged website requests carry that displayed context; the proxy compares it against current context using the same captured onboarding access token before forwarding. This is an additional stale-context denial, never a grant of authority. Direct API calls retain their existing database checks. ADMIN remains grant-free and both session-cookie namespaces remain separate. A failed onboarding actor login clears the previous onboarding session. Support 401 responses require explicit session restoration instead of silently retaining the workspace through an automatic refresh.
+
+Employee dropdown selection and manual-reference selection are alternative forms. Duration presets calculate absolute future expiry; the review screen requires a separate approval. Recipient eligibility, expiry, revocation, inactive facilities and self-escalation remain server-enforced. Phone inputs normalize with Nigeria as the default region and explicit international numbers accepted; malformed Nigerian international trunk prefixes and invalid lengths are rejected. Identifier-conflict messaging does not reveal which identifier exists. Enrollment links prefill the request reference only; both proofs and existing account checks remain mandatory. Configure the existing OPA_WEB_URL for delivered links. No provider dashboard is part of normal successful delivery.
+
+### Repeatable acceptance
+
+Use the integration harness only with its disposable database ending in _test. It truncates test tables. Set OPA_ONBOARDING_BROWSER=1 and run the onboarding-delegation integration suite to additionally launch a new headless Edge context and an isolated Next server on a temporary loopback port. The harness uses real password login, real proxies, PostgreSQL grants and runtime-generated synthetic credentials. It starts no external delivery worker, prints no session credentials and closes only its own browser/server. Website dependencies and Edge are prerequisites.
+
+For a human retest in a separate clean browser profile and nonproduction deployment:
+
+1. ADMIN selects the active non-ADMIN Support account from the employee dropdown, chooses Facility A, a duration and controlled reason, reviews, then grants. Do not fill the manual-reference alternative.
+2. Support signs into the onboarding workspace. Confirm the displayed account reference/USER context and capture GET /api/onboarding/facilities: A only, no B.
+3. Select A; load invitation status and create a synthetic staff invitation. Complete enrollment using the delivered link and separate proofs if checking delivery. Never reuse another account's identifiers.
+4. Attempt B invitation status through both the bounded website proxy (with the displayed actor context) and directly through the API using the existing test session. Require 403. A proxy context denial alone is not evidence of backend tenant enforcement.
+5. ADMIN revokes A without ending the Support session. Immediately retry the API operation: require 403. Confirm A and its form disappear on revalidation and that focus restoration cannot restore stale state. Expect up to the five-second polling interval plus response latency for a remote change with no local event.
+6. In another tab of the same clean profile, change the onboarding actor between ADMIN and Support. Restore workspace focus; require fresh actor context and no ADMIN-era B selection. Old-context requests must fail.
+7. Verify ADMIN can use the workspace without any ADMIN delegation grant. Inspect administrative audits for actual Support actor/USER role, Facility A, grant/approver, permission, reason, expiry and ADMIN revocation provenance. Confirm no protected identifiers or proof values appear in audit metadata.
+8. Repeat expiry, revoke-all and inactive-recipient cases. Delete only the disposable test environment when finished; retain sanitized acceptance evidence.
+
+
+### Hardening verification record
+
+On the isolated hardening checkout based on e6c04b6: 78 API unit tests (11 suites), 71 affected website tests (14 suites), and 102 PostgreSQL tests (4 suites, including the opt-in clean-browser test) passed. Both typechecks, both scoped lint checks and both production builds passed; the website used Next's webpack production build. The 36 existing migrations and their schema/index assertions were validated; no migration or schema changes were made.
+
+The clean browser used localhost with a separate temporary port/profile. Support enumeration contained only its Facility A; A returned 200; B returned 403 through both proxy and API. Revoking A left the same token denied with 403 and removed the rendered facility/form. ADMIN was grant-free, an ADMIN-to-Support switch cleared the previous selection, and audit actor/grant/facility/approval/revocation assertions passed. No external delivery provider was invoked. The original acceptance database and browser tab were not used for this run.
+
+The website build also required moving an existing projection helper out of the Super Admin route's unsupported named export into a library module. The moved allowlist/projection is text-identical and its tests remain intact.

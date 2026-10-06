@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   ConflictException,
   NotFoundException,
 } from "@nestjs/common";
@@ -19,6 +20,7 @@ describe("AdminProvisioningService", () => {
   const prisma = {
     $transaction: jest.fn(),
     $executeRaw: jest.fn(),
+    $queryRaw: jest.fn().mockResolvedValue([]),
     facility: {
       create: jest.fn(),
       findUnique: jest.fn(),
@@ -50,6 +52,7 @@ describe("AdminProvisioningService", () => {
   });
 
   it("creates a facility with server-owned lifecycle defaults", async () => {
+    prisma.user.findUnique.mockResolvedValueOnce({role:"ADMIN",isActive:true,accountStatus:"ACTIVE"});
     prisma.facility.create.mockResolvedValue({
       id: "facility-1",
     });
@@ -78,6 +81,7 @@ describe("AdminProvisioningService", () => {
   });
 
   it("creates a pending resident and queues SMS without minting a credential", async () => {
+    for (let i=0;i<3;i++) prisma.user.findUnique.mockResolvedValueOnce({ role: "ADMIN", isActive: true, accountStatus: "ACTIVE" });
     prisma.facility.findUnique.mockResolvedValue({
       id: "facility-1",
       isActive: true,
@@ -157,6 +161,7 @@ describe("AdminProvisioningService", () => {
     expect(result).not.toHaveProperty("activationPath");
   });
   it("rejects resident provisioning into an inactive or missing facility", async () => {
+    for (let i=0;i<3;i++) prisma.user.findUnique.mockResolvedValueOnce({ role: "ADMIN", isActive: true, accountStatus: "ACTIVE" });
     prisma.facility.findUnique.mockResolvedValue(null);
 
     await expect(
@@ -167,12 +172,13 @@ describe("AdminProvisioningService", () => {
         lastName: "Okafor",
         facilityId: "facility-missing",
       }),
-    ).rejects.toBeInstanceOf(NotFoundException);
+    ).rejects.toBeInstanceOf(ForbiddenException);
 
     expect(prisma.user.create).not.toHaveBeenCalled();
   });
 
   it("rejects a duplicate resident email", async () => {
+    for (let i=0;i<3;i++) prisma.user.findUnique.mockResolvedValueOnce({ role: "ADMIN", isActive: true, accountStatus: "ACTIVE" });
     prisma.facility.findUnique.mockResolvedValue({
       id: "facility-1",
       isActive: true,
@@ -196,6 +202,7 @@ describe("AdminProvisioningService", () => {
   });
 
   it("rejects a duplicate resident phone number", async () => {
+    for (let i=0;i<3;i++) prisma.user.findUnique.mockResolvedValueOnce({ role: "ADMIN", isActive: true, accountStatus: "ACTIVE" });
     prisma.facility.findUnique.mockResolvedValue({
       id: "facility-1",
       isActive: true,

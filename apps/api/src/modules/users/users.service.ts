@@ -43,6 +43,7 @@ export class UsersService {
         lastName: true,
         role: true,
         facilityId: true,
+        membershipState: true,
         isActive: true,
         createdAt: true,
 

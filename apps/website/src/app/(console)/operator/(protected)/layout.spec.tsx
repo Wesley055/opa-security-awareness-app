@@ -64,7 +64,7 @@ describe('OperatorShellLayout role-aware Viewer navigation', () => {
     expect(screen.queryByRole('link', { name: 'Members' })).toBeNull();
   });
 
-  it('preserves Incidents and Members navigation for FACILITY_OPERATOR', async () => {
+  it('preserves incident navigation without Operator directory access', async () => {
     mocks.getOperatorContext.mockResolvedValue({
       state: 'READY',
       context: {
@@ -82,10 +82,7 @@ describe('OperatorShellLayout role-aware Viewer navigation', () => {
       'href',
       '/operator',
     );
-    expect(screen.getByRole('link', { name: 'Members' })).toHaveAttribute(
-      'href',
-      '/operator/members',
-    );
+    expect(screen.queryByRole('link', { name: 'Members' })).toBeNull();
     expect(screen.queryByRole('link', { name: 'Residents' })).toBeNull();
   });
 

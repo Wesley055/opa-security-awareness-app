@@ -13,6 +13,7 @@ import { OperatorFacilityGuard } from './operator-facility.guard';
  */
 describe('OperatorFacilityGuard', () => {
   type Row = {
+    membershipState?: string;
     role: string;
     facilityId: string | null;
     isActive: boolean;
@@ -61,7 +62,7 @@ describe('OperatorFacilityGuard', () => {
     const guard = makeGuard({
       role: 'USER',
       facilityId: 'facility-1',
-      isActive: true,
+      isActive: true, membershipState: 'ACTIVE',
     });
 
     await expect(
@@ -73,7 +74,7 @@ describe('OperatorFacilityGuard', () => {
     const guard = makeGuard({
       role: 'FACILITY_OPERATOR',
       facilityId: null,
-      isActive: true,
+      isActive: true, membershipState: 'ACTIVE',
     });
 
     await expect(
@@ -90,7 +91,7 @@ describe('OperatorFacilityGuard', () => {
     const guard = makeGuard({
       role: 'ADMIN',
       facilityId: null,
-      isActive: true,
+      isActive: true, membershipState: 'ACTIVE',
     });
 
     await expect(
@@ -102,7 +103,7 @@ describe('OperatorFacilityGuard', () => {
     const guard = makeGuard({
       role: 'FACILITY_OPERATOR',
       facilityId: 'facility-1',
-      isActive: true,
+      isActive: true, membershipState: 'ACTIVE',
     });
     const request = makeRequest();
 
@@ -114,7 +115,7 @@ describe('OperatorFacilityGuard', () => {
     const guard = makeGuard({
       role: 'ADMIN',
       facilityId: 'facility-2',
-      isActive: true,
+      isActive: true, membershipState: 'ACTIVE',
     });
     const request = makeRequest();
 
@@ -122,5 +123,8 @@ describe('OperatorFacilityGuard', () => {
       guard.canActivate(makeContext(request)),
     ).rejects.toBeInstanceOf(ForbiddenException);
     expect(request.operatorFacilityId).toBeUndefined();
+  });
+  it.each(['SUSPENDED','REVOKED'])('denies %s membership with an active account', async membershipState => {
+    await expect(makeGuard({role:'FACILITY_OPERATOR',facilityId:'facility-1',isActive:true,membershipState}).canActivate(makeContext(makeRequest()))).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

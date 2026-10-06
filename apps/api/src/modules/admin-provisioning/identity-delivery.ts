@@ -1,5 +1,10 @@
+import { enrollmentDestination } from "../../shared/security/enrollment-navigation";
 import { ForbiddenException } from "@nestjs/common";
-import { onboardingAuthority } from "../onboarding/onboarding-authority";
+import {
+  enrollmentAuthority,
+  enrollmentSupportCase,
+  type InstitutionalRole,
+} from "../onboarding/support-authority";
 import type { ConfigService } from "@nestjs/config";
 import type { AccountInvitationDelivery, Prisma } from "@prisma/client";
 import { randomBytes } from "crypto";
@@ -32,36 +37,26 @@ export async function prepareIdentityDelivery(
     )
       return null;
     let organization = "OPA personal account";
-    if (request.facilityId) {
-      const inviter = await tx.user.findUnique({
-        where: { id: request.invitedByUserId! },
-      });
-      const facility = await tx.facility.findUnique({
-        where: { id: request.facilityId },
-      });
-      if (
-        !facility?.isActive ||
-        !inviter?.isActive ||
-        inviter.accountStatus !== "ACTIVE"
-      )
-        return null;
-      if (
-        ["FACILITY_ADMIN", "FACILITY_OPERATOR"].includes(request.requestedRole)
-      ) {
-        try {
-          await onboardingAuthority(tx, inviter.id, facility.id);
-        } catch (error) {
-          if (error instanceof ForbiddenException) return null;
-          throw error;
-        }
-      } else if (!(
-        inviter.role === "ADMIN" ||
-        ((request.requestedRole ?? "USER") === "USER" &&
-          inviter.role === "FACILITY_ADMIN" &&
-          inviter.facilityId === request.facilityId)
-      ))
-        return null;
-      organization = facility.name;
+    if (request.facilityId || request.requestedRole === "TECHNICAL_SUPPORT") {
+      try {
+        await enrollmentAuthority(
+          tx,
+          request.invitedByUserId ?? undefined,
+          request.facilityId,
+          request.requestedRole as InstitutionalRole,
+          await enrollmentSupportCase(tx, request.id, request.invitedByUserId),
+        );
+      } catch (error) {
+        if (error instanceof ForbiddenException) return null;
+        throw error;
+      }
+      if (request.facilityId)
+        organization = (
+          await tx.facility.findUniqueOrThrow({
+            where: { id: request.facilityId },
+          })
+        ).name;
+      else organization = "OPA support employment";
     }
     const identity = await resolveEnrollmentIdentity<EnrollmentIdentity>(
       tx,
@@ -73,6 +68,7 @@ export async function prepareIdentityDelivery(
         purpose: "ENROLLMENT_DELIVERY",
       },
     );
+    const destination = enrollmentDestination(config.get<string>("OPA_WEB_URL"), request.id, config.get<string>("OPA_ENVIRONMENT"));
     const code = randomBytes(32).toString("base64url");
     const isEmail = delivery.channel === "EMAIL";
     await tx.enrollmentRequest.update({
@@ -85,7 +81,7 @@ export async function prepareIdentityDelivery(
       channel: isEmail ? "EMAIL" : "SMS",
       recipient: isEmail ? identity.email : identity.phoneNumber,
       subject: "Verify your OPA enrollment request",
-      message: `OPA enrollment for ${organization}\nRequest: ${request.id}\n${isEmail ? "Email" : "Phone"} code: ${code}\nExpires: ${request.expiresAt.toISOString()}. Enter both codes in OPA only if you intend to enroll.${config.get<string>("OPA_WEB_URL") ? "\nEnroll: " + new URL("/enroll", config.get<string>("OPA_WEB_URL")).toString() : ""}`,
+      message: `OPA enrollment for ${organization}\nRequest: ${request.id}\n${isEmail ? "Email" : "Phone"} code: ${code}\nExpires: ${request.expiresAt.toISOString()}. Enter both codes in OPA only if you intend to enroll.\nEnroll: ${destination}`,
     };
   }
   if (delivery.purpose === "PASSWORD_RESET" && delivery.requestCiphertext) {
@@ -124,7 +120,7 @@ export async function prepareIdentityDelivery(
     const webUrl = config.get<string>("OPA_WEB_URL")?.trim();
     const link = webUrl
       ? new URL(
-          `/operator/reset-password?token=${encodeURIComponent(code)}`,
+          `/reset-password?token=${encodeURIComponent(code)}`,
           webUrl,
         ).toString()
       : "";

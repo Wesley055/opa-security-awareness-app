@@ -1,4 +1,12 @@
-import { markDeliveryFailure, deliveryDiagnostic } from "../notifications/delivery-diagnostics";
+import { randomUUID } from "node:crypto";
+import {
+  supportAuthority,
+  type Authority,
+} from "../onboarding/support-authority";
+import {
+  markDeliveryFailure,
+  deliveryDiagnostic,
+} from "../notifications/delivery-diagnostics";
 import {
   Injectable,
   NotFoundException,
@@ -29,8 +37,20 @@ export class ProtectedIdentityService {
     private readonly crypto: IdentityCrypto,
   ) {}
 
-  async actorScope(tx: Prisma.TransactionClient, actorUserId: string): Promise<string> {
-    const actor = await tx.user.findFirst({ where: { id: actorUserId, isActive: true, accountStatus: "ACTIVE", facility: { isActive: true } }, select: { facilityId: true } });
+  async actorScope(
+    tx: Prisma.TransactionClient,
+    actorUserId: string,
+  ): Promise<string> {
+    const actor = await tx.user.findFirst({
+      where: {
+        id: actorUserId,
+        isActive: true,
+        accountStatus: "ACTIVE",
+        membershipState: "ACTIVE",
+        facility: { isActive: true },
+      },
+      select: { facilityId: true },
+    });
     if (!actor?.facilityId) throw unavailable();
     return actor.facilityId;
   }
@@ -40,7 +60,26 @@ export class ProtectedIdentityService {
     tenantId: string,
     actorUserId: string,
     permission: IdentityPermission,
+    caseReference?: string,
   ) {
+    const actor = await tx.user.findUnique({
+      where: { id: actorUserId },
+      select: { role: true },
+    });
+    const support = actor?.role === "TECHNICAL_SUPPORT";
+    let supportGrantId: string | null = null;
+    let supportContext: Authority | undefined;
+    if (support) {
+      if (permission !== "RESOLVE") throw unavailable();
+      supportContext = await supportAuthority(
+        tx,
+        actorUserId,
+        "PII_RESOLVE",
+        tenantId,
+        caseReference,
+      );
+      supportGrantId = supportContext.grantId;
+    }
     const grant = await tx.identityAccessGrant.findFirst({
       where: {
         tenantId,
@@ -49,13 +88,41 @@ export class ProtectedIdentityService {
         revokedAt: null,
         expiresAt: { gt: new Date() },
         tenant: { isActive: true },
-        actor: { isActive: true, accountStatus: "ACTIVE", facilityId: tenantId, ...(permission === "DELIVERY" ? {} : { role: { in: ["ADMIN", "FACILITY_ADMIN", "FACILITY_OPERATOR"] } }) },
+        actor: {
+          isActive: true,
+          accountStatus: "ACTIVE",
+          ...(support
+            ? { role: "TECHNICAL_SUPPORT" as const }
+            : {
+                membershipState: "ACTIVE" as const,
+                facilityId: tenantId,
+                ...(permission === "DELIVERY"
+                  ? {}
+                  : {
+                      role: {
+                        in: ["ADMIN", "FACILITY_ADMIN", "FACILITY_OPERATOR"],
+                      },
+                    }),
+              }),
+        },
       },
       select: { id: true },
     });
-    if (!grant) throw permission === "DELIVERY"
-      ? markDeliveryFailure(unavailable(), "DELIVERY_AUTHORIZATION_DENIED") : unavailable();
-    return grant;
+    if (!grant)
+      throw permission === "DELIVERY"
+        ? markDeliveryFailure(unavailable(), "DELIVERY_AUTHORIZATION_DENIED")
+        : unavailable();
+    if (support) {
+      const current = await tx.$queryRaw<
+        Array<{ id: string }>
+      >`SELECT id FROM "IdentityAccessGrant" WHERE id=${grant.id}::uuid AND "revokedAt" IS NULL AND "expiresAt">clock_timestamp() FOR SHARE`;
+      if (!current[0]) throw unavailable();
+    }
+    return {
+      ...grant,
+      supportGrantId,
+      ...(supportContext ? { supportContext } : {}),
+    };
   }
 
   private async find(
@@ -67,7 +134,8 @@ export class ProtectedIdentityService {
       where: {
         id,
         tenantId,
-        tenant: { isActive: true }, subject: { facilityId: tenantId, isActive: true },
+        tenant: { isActive: true },
+        subject: { facilityId: tenantId, isActive: true },
       },
     });
     if (!row) throw unavailable();
@@ -166,7 +234,8 @@ export class ProtectedIdentityService {
           normalizationVersion: 1,
           lookupKeyVersion: key.lookupKeyVersion,
           lookupDigest: key.digest,
-          tenant: { isActive: true }, subject: { facilityId: tenantId, isActive: true },
+          tenant: { isActive: true },
+          subject: { facilityId: tenantId, isActive: true },
         },
         take: 100,
       });
@@ -193,14 +262,31 @@ export class ProtectedIdentityService {
     let resolved = false;
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const value = await this.resolveInTransaction(tx, actorUserId, tenantId, id, purpose, caseReference, expected);
+        const value = await this.resolveInTransaction(
+          tx,
+          actorUserId,
+          tenantId,
+          id,
+          purpose,
+          caseReference,
+          expected,
+        );
         resolved = true;
         return value;
       });
     } catch (error) {
       if (purpose !== "DELIVERY") throw error;
-      throw markDeliveryFailure((error instanceof NotFoundException ? error : new ServiceUnavailableException("Protected identity operation unavailable.")),
-        deliveryDiagnostic(error, resolved ? "AUDIT_PERSISTENCE_FAILED" : "SNAPSHOT_RESOLUTION_FAILED"));
+      throw markDeliveryFailure(
+        error instanceof NotFoundException
+          ? error
+          : new ServiceUnavailableException(
+              "Protected identity operation unavailable.",
+            ),
+        deliveryDiagnostic(
+          error,
+          resolved ? "AUDIT_PERSISTENCE_FAILED" : "SNAPSHOT_RESOLUTION_FAILED",
+        ),
+      );
     }
   }
 
@@ -226,6 +312,7 @@ export class ProtectedIdentityService {
       tenantId,
       actorUserId,
       purpose === "DELIVERY" ? "DELIVERY" : "RESOLVE",
+      caseReference,
     );
     const row = await this.find(tx, tenantId, id);
     if (
@@ -244,15 +331,54 @@ export class ProtectedIdentityService {
     try {
       plaintext = await this.crypto.open(this.envelope(row), row);
     } catch {
-      throw markDeliveryFailure(new ServiceUnavailableException("Protected identity operation unavailable."), "CRYPTO_DECRYPTION_FAILED");
+      throw markDeliveryFailure(
+        new ServiceUnavailableException(
+          "Protected identity operation unavailable.",
+        ),
+        "CRYPTO_DECRYPTION_FAILED",
+      );
     }
     try {
-      await tx.identityResolutionAudit.create({ data: {
-        tenantId, actorUserId, identifierId: row.id, grantId: grant.id,
-        purpose, caseReference, encryptionKeyVersion: row.encryptionKeyVersion,
-      }});
+      await tx.identityResolutionAudit.create({
+        data: {
+          tenantId,
+          actorUserId,
+          identifierId: row.id,
+          grantId: grant.id,
+          purpose,
+          caseReference,
+          encryptionKeyVersion: row.encryptionKeyVersion,
+        },
+      });
+      if (grant.supportGrantId) {
+        await tx.administrativeAuditEvent.create({
+          data: {
+            actorUserId,
+            actorRole: "TECHNICAL_SUPPORT",
+            authorityKind: "SUPPORT_CAPABILITY",
+            authorityGrantId: grant.supportGrantId,
+            action: "SUPPORT_IDENTITY_RESOLVED",
+            resourceId: row.id,
+            facilityId: tenantId,
+            reason: purpose,
+            caseReference,
+            beforeState: {},
+            correlationId: randomUUID(),
+            afterState: {
+              identityAccessGrantId: grant.id,
+              purpose,
+              authority: { ...grant.supportContext },
+            },
+          },
+        });
+      }
     } catch {
-      throw markDeliveryFailure(new ServiceUnavailableException("Protected identity operation unavailable."), "AUDIT_PERSISTENCE_FAILED");
+      throw markDeliveryFailure(
+        new ServiceUnavailableException(
+          "Protected identity operation unavailable.",
+        ),
+        "AUDIT_PERSISTENCE_FAILED",
+      );
     }
     return plaintext;
   }

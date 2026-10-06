@@ -170,7 +170,7 @@ describe("tenant isolation over HTTP and PostgreSQL", () => {
       email: randomUUID() + '@example.test', phoneNumber: '+' + String(900000000000 + i),
       firstName: 'Private', lastName: 'Identity', facilityId: a, role: 'USER' as const,
     })) });
-    for (const [seat, path] of [[opA, '/operator/facility/members'], [adminA, '/facility-admin/facility/residents']] as const) {
+    for (const [seat, path] of [[adminA, '/facility-admin/facility/residents']] as const) {
       const first = await get(seat, path).expect(200);
       const second = await get(seat, path + '?page=1').expect(200);
       expect(first.body.residentCount).toBe(53);
@@ -185,6 +185,9 @@ describe("tenant isolation over HTTP and PostgreSQL", () => {
       await get(seat, path + '?page=-1').expect(400);
       await get(seat, path + '?page=0.5').expect(400);
     }
+    await get(opA, '/operator/facility/members').expect(403);
+    await get(opA, '/operator/facility/members?page=1').expect(403);
+    await get(opA, '/operator/facility/members?search=resident').expect(400);
     await get(opA, '/facility-admin/facility/residents').expect(403);
     await get(adminA, '/operator/facility/members').expect(403);
   });
@@ -273,8 +276,7 @@ describe("tenant isolation over HTTP and PostgreSQL", () => {
       await get(op, "/operator/incidents?facilityId=" + foreignFacility).expect(
         400,
       );
-      const members = await get(op, "/operator/facility/members").expect(200);
-      expect(members.body.facility.id).toBe(side === "A" ? a : b);
+      await get(op, "/operator/facility/members").expect(403);
     },
   );
   it("denies unauthenticated, nonoperator and suspended/removed operators", async () => {

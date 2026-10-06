@@ -1,4 +1,4 @@
-﻿import { IsOptional, IsEmail, IsNotEmpty, IsString, MinLength } from 'class-validator';
+﻿import { Equals, IsEmail, IsNotEmpty, IsString } from "class-validator";
 
 export class RegisterDto {
   @IsEmail()
@@ -17,9 +17,11 @@ export class RegisterDto {
   @IsNotEmpty()
   phoneNumber!: string;
 
-  @IsString()
-  @IsOptional()
-  @MinLength(12)
+  // Registration creates intent only; never silently discard a submitted credential.
+  @Equals(undefined, {
+    message:
+      "Choose and confirm your password during enrollment verification/activation, not registration.",
+  })
   password?: string;
 
   @IsString()

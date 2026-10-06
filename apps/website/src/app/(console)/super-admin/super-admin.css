@@ -1,7 +1,7 @@
 .sa {
   min-height: 100vh;
-  background: #0a0e12;
-  color: #f5f7f6;
+  background: var(--color-base);
+  color: var(--color-ink);
 }
 .sa * {
   box-sizing: border-box;
@@ -16,10 +16,10 @@
 .sa button:focus-visible,
 .sa input:focus-visible,
 .sa select:focus-visible {
-  outline: 2px solid #17c9b2;
+  outline: 2px solid var(--color-protection);
 }
 .sa-header {
-  border-bottom: 1px solid #232e36;
+  border-bottom: 1px solid var(--color-line);
   padding: 20px clamp(20px, 4vw, 64px);
   display: flex;
   align-items: center;
@@ -37,7 +37,7 @@
   font-size: 11px;
   letter-spacing: 0.15em;
   text-transform: uppercase;
-  color: #17c9b2;
+  color: var(--color-protection);
   font-weight: 700;
 }
 .sa-body {
@@ -72,7 +72,7 @@
   flex-wrap: wrap;
 }
 .sa nav a {
-  color: #17c9b2;
+  color: var(--color-protection);
 }
 .sa-grid {
   display: grid;
@@ -81,8 +81,8 @@
   margin-top: 28px;
 }
 .sa-card {
-  background: #10161c;
-  border: 1px solid #232e36;
+  background: var(--color-panel);
+  border: 1px solid var(--color-line);
   border-radius: 16px;
   padding: clamp(20px, 3vw, 32px);
   min-width: 0;
@@ -102,11 +102,11 @@
   display: block;
   width: 100%;
   min-width: 0;
-  background: #0a0e12;
+  background: var(--color-base);
   border: 1px solid #43505c;
   border-radius: 8px;
   padding: 12px;
-  color: #f5f7f6;
+  color: var(--color-ink);
   margin: 8px 0 18px;
 }
 .sa button,
@@ -114,8 +114,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #17c9b2;
-  background: #17c9b2;
+  border: 1px solid var(--color-protection);
+  background: var(--color-protection);
   color: #061d19;
   border-radius: 8px;
   padding: 11px 18px;
@@ -130,7 +130,7 @@
 .sa .sa-secondary {
   background: transparent;
   border-color: #43505c;
-  color: #f5f7f6;
+  color: var(--color-ink);
 }
 .sa-fields {
   display: grid;
@@ -138,7 +138,7 @@
   gap: 0 16px;
 }
 .sa-notice {
-  border-left: 3px solid #17c9b2;
+  border-left: 3px solid var(--color-protection);
   background: #14242a;
   padding: 16px;
   margin: 20px 0;
@@ -178,7 +178,7 @@
 .sa th,
 .sa td {
   padding: 14px 12px;
-  border-bottom: 1px solid #232e36;
+  border-bottom: 1px solid var(--color-line);
 }
 .sa-badge {
   display: inline-block;
@@ -196,7 +196,7 @@
   display: block;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  background: #0a0e12;
+  background: var(--color-base);
   padding: 12px;
   border: 1px solid #43505c;
   border-radius: 8px;

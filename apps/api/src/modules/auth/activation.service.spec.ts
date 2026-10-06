@@ -8,6 +8,10 @@ describe("ActivationService", () => {
   const prisma = {
     $transaction: jest.fn(),
     $executeRaw: jest.fn(),
+    $queryRaw: jest.fn(),
+    facility: { findUnique: jest.fn() },
+    accountInvitationDelivery: { findFirst: jest.fn() },
+    administrativeAuditEvent: { create: jest.fn() },
     user: {
       findUnique: jest.fn(),
       update: jest.fn(),
@@ -45,6 +49,8 @@ describe("ActivationService", () => {
     id: "operator-1",
     email: "operator@example.com",
     isActive: true,
+    membershipState: "ACTIVE",
+    facilityId: "facility-1",
     role: UserRole.USER,
     accountStatus: AccountStatus.PENDING_ACTIVATION,
     activationTokenHash: TOKEN_HASH,
@@ -57,6 +63,8 @@ describe("ActivationService", () => {
       async (callback: (tx: typeof prisma) => unknown) => callback(prisma),
     );
     prisma.$executeRaw.mockResolvedValue(undefined);
+    prisma.facility.findUnique.mockResolvedValue({ isActive: true, operationalState: "ACTIVE" });
+    prisma.accountInvitationDelivery.findFirst.mockResolvedValue({ facilityId: "facility-1", status: "SENT" });
     prisma.user.update.mockResolvedValue({
       id: "operator-1",
       email: "operator@example.com",

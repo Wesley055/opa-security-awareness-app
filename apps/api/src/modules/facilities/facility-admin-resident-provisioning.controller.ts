@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   Body,
   Headers,
@@ -11,7 +12,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { AdminProvisioningService } from '../admin-provisioning/admin-provisioning.service';
-import { randomUUID } from 'crypto';
+
 import { EnrollmentService } from '../auth/enrollment.service';
 import { ReaderPageDto } from '../../shared/dto/reader-page.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -51,7 +52,7 @@ export class FacilityAdminResidentProvisioningController {
   createResident(
     @Req() request: FacilityAdminRequest,
     @Body() dto: CreateFacilityAdminResidentDto,
-    @Headers('idempotency-key') key?: string,
+    @Headers("idempotency-key") key?: string,
   ) {
     return this.enrollment.request(dto, key ?? randomUUID(), request.facilityAdminFacilityId, request.user.sub);
   }
@@ -61,7 +62,7 @@ export class FacilityAdminResidentProvisioningController {
   createResidents(
     @Req() request: FacilityAdminRequest,
     @Body() dto: CreateBulkFacilityAdminResidentsDto,
-    @Headers('idempotency-key') key?: string,
+    @Headers("idempotency-key") key?: string,
   ) {
     return this.enrollment.bulk(dto.residents, key ?? randomUUID(), request.facilityAdminFacilityId, request.user.sub);
   }

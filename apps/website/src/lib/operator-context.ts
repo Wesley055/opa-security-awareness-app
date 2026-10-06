@@ -1,6 +1,6 @@
-import 'server-only';
-import { cache } from 'react';
-import { apiUrl, getAccessToken } from '@/lib/operator-session';
+import "server-only";
+import { cache } from "react";
+import { apiUrl, getAccessToken } from "@/lib/operator-session";
 
 /**
  * Who is signed in, their facility-scoped Viewer role, and their facility. 14A-5.
@@ -50,19 +50,19 @@ export type OperatorContext = {
 };
 
 export type OperatorContextResult =
-  | { state: 'READY'; context: OperatorContext }
+  | { state: "READY"; context: OperatorContext }
   /**
    * Authenticated, but no facility to operate. An ADMIN has facilityId null
    * - admin authority is provisioning, not facility operation - and an
    * operator seat can exist before assignment. Neither is an error and
    * neither should end the session.
    */
-  | { state: 'NO_FACILITY'; role: string | null }
+  | { state: "NO_FACILITY"; role: string | null }
   /** The access token was refused. The refresh route is the recovery path. */
-  | { state: 'REJECTED' }
+  | { state: "REJECTED" }
   /** The API could not be reached, or answered unusably. Says nothing about
    *  the credential, so nothing may be cleared on it. */
-  | { state: 'UNAVAILABLE' };
+  | { state: "UNAVAILABLE" };
 
 type MeResponse = {
   id?: string;
@@ -84,8 +84,8 @@ export const getOperatorContext = cache(
     const base = apiUrl();
 
     if (!base) {
-      console.error('OPA_API_URL is not configured.');
-      return { state: 'UNAVAILABLE' };
+      console.error("OPA_API_URL is not configured.");
+      return { state: "UNAVAILABLE" };
     }
 
     const accessToken = await getAccessToken();
@@ -93,7 +93,7 @@ export const getOperatorContext = cache(
     if (!accessToken) {
       // No token to present. Indistinguishable, from here, from one that
       // was refused - and the caller's response is the same either way.
-      return { state: 'REJECTED' };
+      return { state: "REJECTED" };
     }
 
     let response: Response;
@@ -101,25 +101,21 @@ export const getOperatorContext = cache(
     try {
       response = await fetch(`${base}/users/me`, {
         headers: { Authorization: `Bearer ${accessToken}` },
-        cache: 'no-store',
+        cache: "no-store",
         signal: AbortSignal.timeout(10000),
       });
-    } catch (error) {
-      // Never log the token.
-      console.error(
-        'Operator context could not reach the API:',
-        error instanceof Error ? error.message : 'unknown error',
-      );
-      return { state: 'UNAVAILABLE' };
+    } catch {
+      console.error("Operator context could not reach the API.");
+      return { state: "UNAVAILABLE" };
     }
 
     if (response.status === 401) {
-      return { state: 'REJECTED' };
+      return { state: "REJECTED" };
     }
 
     if (!response.ok) {
       console.error(`Operator context returned ${response.status}.`);
-      return { state: 'UNAVAILABLE' };
+      return { state: "UNAVAILABLE" };
     }
 
     let me: MeResponse;
@@ -127,8 +123,8 @@ export const getOperatorContext = cache(
     try {
       me = (await response.json()) as MeResponse;
     } catch {
-      console.error('Operator context returned unreadable JSON.');
-      return { state: 'UNAVAILABLE' };
+      console.error("Operator context returned unreadable JSON.");
+      return { state: "UNAVAILABLE" };
     }
 
     const facility = me.facility;
@@ -141,20 +137,20 @@ export const getOperatorContext = cache(
     // uses facility administration. Platform ADMIN belongs to OPA platform
     // administration and is not facility operational authority.
     if (!me.facilityId || !facility?.id || !facility.name) {
-      return { state: 'NO_FACILITY', role: me.role ?? null };
+      return { state: "NO_FACILITY", role: me.role ?? null };
     }
 
     return {
-      state: 'READY',
+      state: "READY",
       context: {
-        userId: me.id ?? '',
-        firstName: me.firstName ?? '',
-        lastName: me.lastName ?? '',
-        role: me.role ?? '',
+        userId: me.id ?? "",
+        firstName: me.firstName ?? "",
+        lastName: me.lastName ?? "",
+        role: me.role ?? "",
         facility: {
           id: facility.id,
           name: facility.name,
-          type: facility.type ?? '',
+          type: facility.type ?? "",
           isActive: facility.isActive ?? false,
           isVerified: facility.isVerified ?? false,
         },

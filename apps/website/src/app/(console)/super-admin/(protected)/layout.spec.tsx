@@ -7,6 +7,7 @@ vi.mock("@/lib/super-admin-api", async (importOriginal) => {
   return { ...actual, requireAdmin: auth };
 });
 vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
   redirect: (path: string) => {
     throw new Error("REDIRECT:" + path);
   },
@@ -18,15 +19,15 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 it("renders the shell for ADMIN without requiring facility membership", async () => {
-  auth.mockResolvedValue({ name: "Platform Admin" });
+  auth.mockResolvedValue({ actorId: "platform-actor", name: "Platform Admin" });
   render(await Layout({ children: <p>Protected child</p> }));
-  expect(screen.getByText("Platform ADMIN")).toBeInTheDocument();
+  expect(screen.getByText("Platform Administrator")).toBeInTheDocument();
   expect(screen.getByText("Protected child")).toBeInTheDocument();
 });
-it("redirects an unauthenticated request to dedicated sign-in", async () => {
+it("tries bounded session renewal before requiring sign-in", async () => {
   auth.mockRejectedValue(new AdminFailure(401));
   await expect(Layout({ children: <p>Protected child</p> })).rejects.toThrow(
-    "REDIRECT:/super-admin/login",
+    "REDIRECT:/super-admin/renew",
   );
 });
 it.each([403, 503])("withholds protected children on %s", async (status) => {

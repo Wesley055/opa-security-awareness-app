@@ -31,7 +31,7 @@ describe('FacilityOperatorGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'FACILITY_OPERATOR',
       facilityId: 'facility-a',
-      isActive: true,
+      isActive: true, membershipState: 'ACTIVE',
     });
 
     await expect(guard.canActivate(context())).resolves.toBe(true);
@@ -41,7 +41,7 @@ describe('FacilityOperatorGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'FACILITY_OPERATOR',
       facilityId: 'facility-b',
-      isActive: true,
+      isActive: true, membershipState: 'ACTIVE',
     });
 
     await expect(
@@ -53,7 +53,7 @@ describe('FacilityOperatorGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'USER',
       facilityId: 'facility-a',
-      isActive: true,
+      isActive: true, membershipState: 'ACTIVE',
     });
 
     // The token also says USER. Passing a privileged token role here would
@@ -68,7 +68,7 @@ describe('FacilityOperatorGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'ADMIN',
       facilityId: null,
-      isActive: true,
+      isActive: true, membershipState: 'ACTIVE',
     });
 
     await expect(
@@ -80,7 +80,7 @@ describe('FacilityOperatorGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'USER',
       facilityId: 'facility-a',
-      isActive: true,
+      isActive: true, membershipState: 'ACTIVE',
     });
 
     await expect(

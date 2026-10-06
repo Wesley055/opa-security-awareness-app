@@ -33,7 +33,7 @@ describe('FacilityAdminGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'FACILITY_ADMIN',
       facilityId: 'facility-1',
-      isActive: true,
+      isActive: true, membershipState: 'ACTIVE',
       accountStatus: 'ACTIVE',
     });
 
@@ -47,7 +47,7 @@ describe('FacilityAdminGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'FACILITY_OPERATOR',
       facilityId: 'facility-1',
-      isActive: true,
+      isActive: true, membershipState: 'ACTIVE',
       accountStatus: 'ACTIVE',
     });
 
@@ -59,7 +59,7 @@ describe('FacilityAdminGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'ADMIN',
       facilityId: 'facility-1',
-      isActive: true,
+      isActive: true, membershipState: 'ACTIVE',
       accountStatus: 'ACTIVE',
     });
 
@@ -71,7 +71,7 @@ describe('FacilityAdminGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'FACILITY_ADMIN',
       facilityId: 'facility-1',
-      isActive: true,
+      isActive: true, membershipState: 'ACTIVE',
       accountStatus: 'PENDING_ACTIVATION',
     });
 
@@ -95,7 +95,7 @@ describe('FacilityAdminGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'FACILITY_ADMIN',
       facilityId: null,
-      isActive: true,
+      isActive: true, membershipState: 'ACTIVE',
       accountStatus: 'ACTIVE',
     });
 

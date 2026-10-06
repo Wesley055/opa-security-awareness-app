@@ -1,0 +1,63 @@
+const allowedKeys = new Set([
+  "facilities",
+  "facility",
+  "members",
+  "invitations",
+  "events",
+  "nextCursor",
+  "id",
+  "name",
+  "type",
+  "isActive",
+  "isVerified",
+  "createdAt",
+  "updatedAt",
+  "role",
+  "facilityId",
+  "accountStatus",
+  "activatedAt",
+  "invitedByUserId",
+  "membershipState",
+  "requestId",
+  "status",
+  "requestedRole",
+  "expiresAt",
+  "verifiedAt",
+  "acceptedAt",
+  "acceptedUserId",
+  "revokedAt",
+  "lastResentAt",
+  "deliveries",
+  "channel",
+  "attemptCount",
+  "queuedAt",
+  "nextAttemptAt",
+  "lastAttemptAt",
+  "sentAt",
+  "failedAt",
+  "actorUserId",
+  "actorRole",
+  "action",
+  "resourceId",
+  "previousFacilityId",
+  "reason",
+  "beforeState",
+  "afterState",
+  "userId",
+  "revoked",
+  "authority",
+  "grantId",
+  "approvedByUserId",
+  "permission",
+  "unrevokedGrants",
+]);
+export function project(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(project);
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => allowedKeys.has(key))
+        .map(([key, item]) => [key, project(item)]),
+    );
+  return value;
+}

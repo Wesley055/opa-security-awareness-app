@@ -5,7 +5,7 @@ export async function onboardingFetch(
 ) {
   const base = admin ? "/api/onboarding-admin/" : "/api/onboarding/";
   const response = await fetch(base + path, { ...init, cache: "no-store" });
-  if (response.status !== 401) return response;
+  if (!admin || response.status !== 401) return response;
   const restored = await fetch(
     admin ? "/api/super-admin/refresh" : "/api/onboarding/refresh",
     { method: "POST", cache: "no-store" },

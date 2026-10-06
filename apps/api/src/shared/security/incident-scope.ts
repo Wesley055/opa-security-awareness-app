@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
 
 export interface IncidentActor {
+  membershipState?: string;
   role: string;
   facilityId: string | null;
   isActive: boolean;
@@ -16,7 +17,7 @@ export function incidentScope(
     return { id: { in: [] } };
   if (actor.role === 'ADMIN') return {};
   const owner = { userId };
-  return actor.role === 'FACILITY_OPERATOR' && actor.facilityId
+  return ['FACILITY_OPERATOR','FACILITY_ADMIN'].includes(actor.role) && actor.membershipState === 'ACTIVE' && actor.facilityId
     ? { OR: [owner, { facilityId: actor.facilityId }] }
     : owner;
 }

@@ -1,9 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { getOperatorContext } from '@/lib/operator-context';
-import { fetchOperatorMembership } from '@/lib/operator-membership';
 import { getSessionState } from '@/lib/operator-session';
-import { FacilityMembership } from './facility-membership';
 
 export const metadata: Metadata = {
   title: 'Facility membership',
@@ -49,11 +47,5 @@ export default async function OperatorMembersPage() {
     redirect('/operator/residents');
   }
 
-  const membership = await fetchOperatorMembership();
-
-  if (membership.state === 'REJECTED') {
-    redirect('/api/operator/refresh');
-  }
-
-  return <FacilityMembership result={membership} />;
+  redirect("/operator");
 }

@@ -113,6 +113,9 @@ export class RefreshTokenService {
         isActive: true,
         accountStatus: true,
         credentialVersion: true,
+        facilityId: true,
+        membershipState: true,
+        supportEmployment: { select: { state: true } },
       },
     });
 
@@ -120,7 +123,9 @@ export class RefreshTokenService {
       !user ||
       !user.isActive ||
       user.accountStatus !== AccountStatus.ACTIVE ||
-      user.credentialVersion !== (payload.credentialVersion ?? 0)
+      user.credentialVersion !== (payload.credentialVersion ?? 0) ||
+      (user.role === 'TECHNICAL_SUPPORT' && (user.facilityId !== null || user.supportEmployment?.state !== 'ACTIVE')) ||
+      (['FACILITY_ADMIN', 'FACILITY_OPERATOR'].includes(user.role) && user.membershipState !== 'ACTIVE')
     ) {
       throw new UnauthorizedException(
         'Refresh token is invalid or expired.',

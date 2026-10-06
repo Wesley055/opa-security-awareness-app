@@ -1,3 +1,4 @@
+import { enrollmentDestination } from "../security/enrollment-navigation";
 import { z } from "zod";
 import { preflight } from "../../../../../packages/environment-policy/index.cjs";
 
@@ -25,8 +26,7 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRES_IN: z.string().default("30d"),
   BCRYPT_ROUNDS: z.coerce.number().int().min(10).max(14).default(12),
   ALLOWED_ORIGINS: z.string().min(1),
-  // Optional so password-recovery links never become a production boot dependency.
-  // When absent, reset emails retain the secure raw-token fallback.
+  // Enrollment navigation is mandatory in staging/production.
   OPA_WEB_URL: z.string().url().optional(),
   AZURE_STORAGE_CONNECTION_STRING: z.string().min(1),
   AZURE_STORAGE_CONTAINER: z.string().min(1),
@@ -34,6 +34,8 @@ const envSchema = z.object({
 
 export function validateEnv(config: Record<string, unknown>) {
   const parsed = envSchema.parse(config);
+  if (parsed.OPA_ENVIRONMENT !== "development")
+    enrollmentDestination(parsed.OPA_WEB_URL, "configuration-check");
   preflight(
     Object.fromEntries(
       Object.entries(config).filter(

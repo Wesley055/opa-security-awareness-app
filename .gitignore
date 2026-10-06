@@ -28,3 +28,10 @@ apps/mobile-app/GAP-01B-vc6-LOCKED-BACKGROUND-REPLAY-PRODUCTION-EVIDENCE.txt
 apps/mobile-app/GAP-01A-20-7-DEVICE-EVIDENCE-vc2.txt
 apps/mobile-app/GAP-01A-vc3-QSQL-DEVICE-EVIDENCE.txt
 apps/mobile-app/GAP-01A-vc4-SINGLE-OWNER-DEVICE-EVIDENCE.txt
+
+# Physical acceptance local credentials, sentinel receipts and backups
+.local/physical-acceptance/
+backups/
+*.dump
+*.pgdump
+*.backup

@@ -124,7 +124,7 @@ export class DeliveryReadService {
     const actor = await this.prisma.user.findUnique({
       where: { id: actorId },
       select: {
-        role: true,
+        membershipState: true, role: true,
         facilityId: true,
         isActive: true,
         accountStatus: true,

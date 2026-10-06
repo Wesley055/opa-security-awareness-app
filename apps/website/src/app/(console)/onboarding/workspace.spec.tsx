@@ -13,6 +13,7 @@ describe("delegated support workspace", () => {
       json: async () =>
         path === "facilities"
           ? {
+              actor: { id: "support", role: "USER" },
               facilities: [{ id: facility, name: "Assigned facility" }],
               nextCursor: null,
             }
@@ -36,14 +37,18 @@ describe("delegated support workspace", () => {
     await waitFor(() =>
       expect(fetchOnboarding).toHaveBeenCalledWith(
         `facilities/${facility}/invitations`,
-        undefined,
+        expect.objectContaining({ headers: expect.any(Headers) }),
       ),
     );
   });
   it("shows the empty state after all authority is revoked", async () => {
     fetchOnboarding.mockResolvedValue({
       ok: true,
-      json: async () => ({ facilities: [], nextCursor: null }),
+      json: async () => ({
+        actor: { id: "support", role: "USER" },
+        facilities: [],
+        nextCursor: null,
+      }),
     });
     render(<Workspace />);
     await waitFor(() => expect(fetchOnboarding).toHaveBeenCalled());

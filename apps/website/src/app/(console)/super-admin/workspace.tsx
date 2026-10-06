@@ -1,4 +1,5 @@
 "use client";
+import { normalizeEnrollmentPhone } from "@/lib/enrollment-phone";
 import { useEffect, useRef, useState } from "react";
 import { superAdminFetch } from "@/lib/super-admin-fetch";
 type Facility = {
@@ -145,7 +146,7 @@ export default function Workspace() {
     [invitations, setInvitations] = useState<Invite[]>([]),
     [events, setEvents] = useState<Audit[]>([]);
   const [cursors, setCursors] = useState<Record<string, string | null>>({}),
-    [busy, setBusy] = useState(false),
+    [activity, setActivity] = useState<Record<string, boolean>>({}),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
     [notice, setNotice] = useState(""),
@@ -153,15 +154,26 @@ export default function Workspace() {
   const [revealed, setRevealed] = useState("");
   const invitationKey = useRef<{ payload: string; key: string } | null>(null),
     selection = useRef(0);
-  async function loadDetail(id: string) {
+  const activeRequests = useRef(new Set<string>());
+  const activeFacility = useRef("");
+  const inProgress = (key: string) => activity[key] === true;
+  function mark(key: string, value: boolean) {
+    if (value) activeRequests.current.add(key);
+    else activeRequests.current.delete(key);
+    setActivity((old) => ({ ...old, [key]: value }));
+  }
+  async function loadDetail(id: string, preserve = false) {
+    activeFacility.current = id;
     const generation = ++selection.current;
     setLoading(true);
     setError("");
     setRevealed("");
-    setFacility(null);
-    setMembers([]);
-    setInvitations([]);
-    setEvents([]);
+    if (!preserve) {
+      setFacility(null);
+      setMembers([]);
+      setInvitations([]);
+      setEvents([]);
+    }
     try {
       const [detail, m, i, a] = await Promise.all([
         request("facilities/" + id),
@@ -188,6 +200,19 @@ export default function Workspace() {
   }
   useEffect(() => {
     let live = true;
+    const denied = () => {
+      selection.current++;
+      activeFacility.current = "";
+      setFacility(null);
+      setMembers([]);
+      setInvitations([]);
+      setEvents([]);
+      setFacilities([]);
+      setRevealed("");
+      setLoading(false);
+      setError("Authority expired. Sign in again.");
+    };
+    window.addEventListener("opa-super-admin-authority-lost", denied);
     const initialId = new URLSearchParams(window.location.search).get(
       "facilityId",
     );
@@ -207,10 +232,15 @@ export default function Workspace() {
       });
     return () => {
       live = false;
+      window.removeEventListener("opa-super-admin-authority-lost", denied);
     };
   }, []);
   async function mutate(path: string, body: unknown, key?: string) {
-    setBusy(true);
+    const keyName = ["operators", "facility-admins", "residents"].includes(path)
+      ? "invitation"
+      : path;
+    if (activeRequests.current.has(keyName)) return false;
+    mark(keyName, true);
     setError("");
     setNotice("");
     try {
@@ -220,22 +250,25 @@ export default function Workspace() {
           ? "Invitation " + data.requestId + ": " + data.status
           : "Access updated.",
       );
-      if (facility) await loadDetail(facility.id);
+      if (facility && activeFacility.current === facility.id)
+        void loadDetail(facility.id, true);
       return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Action unavailable.");
       return false;
     } finally {
-      setBusy(false);
+      mark(keyName, false);
     }
   }
   async function more(kind: "members" | "invitations" | "audit") {
     if (!facility || !cursors[kind]) return;
-    setBusy(true);
+    if (activeRequests.current.has("page:" + kind)) return;
+    mark("page:" + kind, true);
     try {
       const data = await request(
         "facilities/" + facility.id + "/" + kind + "?cursor=" + cursors[kind],
       );
+      if (activeFacility.current !== facility.id) return;
       if (kind === "members") setMembers((rows) => [...rows, ...data.members]);
       if (kind === "invitations")
         setInvitations((rows) => [...rows, ...data.invitations]);
@@ -244,7 +277,7 @@ export default function Workspace() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Page unavailable.");
     } finally {
-      setBusy(false);
+      mark("page:" + kind, false);
     }
   }
   return (
@@ -259,7 +292,7 @@ export default function Workspace() {
             <button
               className="sa-secondary"
               key={f.id}
-              disabled={busy || loading}
+              disabled={loading}
               onClick={() => loadDetail(f.id)}
             >
               {f.name} · {f.isActive ? "Active" : "Suspended"}
@@ -268,9 +301,10 @@ export default function Workspace() {
         </div>
         {directoryCursor && (
           <button
-            disabled={busy || loading}
+            disabled={loading}
             onClick={async () => {
-              setBusy(true);
+              if (activeRequests.current.has("directory")) return;
+              mark("directory", true);
               try {
                 const data = await request(
                   "facilities?cursor=" + directoryCursor,
@@ -282,7 +316,7 @@ export default function Workspace() {
                   err instanceof Error ? err.message : "Directory unavailable.",
                 );
               } finally {
-                setBusy(false);
+                mark("directory", false);
               }
             }}
           >
@@ -322,9 +356,21 @@ export default function Workspace() {
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
-                if (busy) return;
+                if (activeRequests.current.has("invitation")) return;
                 const form = e.currentTarget;
                 const values = Object.fromEntries(new FormData(form));
+                try {
+                  values.phoneNumber = normalizeEnrollmentPhone(
+                    String(values.phoneNumber ?? ""),
+                  );
+                } catch (err) {
+                  setError(
+                    err instanceof Error
+                      ? err.message
+                      : "Enter a valid phone number.",
+                  );
+                  return;
+                }
                 const endpoint = String(values.seat);
                 delete values.seat;
                 const body = { ...values, facilityId: facility.id };
@@ -337,7 +383,9 @@ export default function Workspace() {
                 }
               }}
             >
-              <fieldset disabled={busy || !facility.isActive}>
+              <fieldset
+                disabled={inProgress("invitation") || !facility.isActive}
+              >
                 <label>
                   Seat type
                   <select name="seat">
@@ -358,7 +406,11 @@ export default function Workspace() {
                     type="tel"
                   />
                 </div>
-                <button>{busy ? "Queuing…" : "Send secure invitation"}</button>
+                <button>
+                  {inProgress("invitation")
+                    ? "Queuing…"
+                    : "Send secure invitation"}
+                </button>
               </fieldset>
             </form>
           </section>
@@ -379,56 +431,64 @@ export default function Workspace() {
             {members.length === 0 && (
               <p>No memberships yet. Pending invitations appear below.</p>
             )}
-            {members.map((m) => (
-              <article className="sa-notice" key={m.id}>
-                <h3>{m.role.replaceAll("_", " ")}</h3>
-                <code>{m.id}</code>
-                <p>
-                  {m.membershipState} · Account: {m.accountStatus}
-                </p>
-                <div className="sa-actions">
-                  <button
-                    disabled={
-                      busy ||
-                      !reason.trim() ||
-                      (!m.isActive && m.accountStatus !== "ACTIVE")
-                    }
-                    onClick={() =>
-                      mutate(
-                        "facilities/" +
-                          facility.id +
-                          "/members/" +
-                          m.id +
-                          "/access",
-                        {
-                          reason,
-                          action: m.isActive ? "suspend" : "reactivate",
-                        },
-                      )
-                    }
-                  >
-                    {m.isActive ? "Suspend access" : "Reactivate access"}
-                  </button>
-                  <button
-                    disabled={busy || !reason.trim()}
-                    onClick={() =>
-                      mutate(
-                        "facilities/" +
-                          facility.id +
-                          "/members/" +
-                          m.id +
-                          "/access",
-                        { reason, action: "revoke" },
-                      )
-                    }
-                  >
-                    Revoke membership
-                  </button>
-                </div>
-              </article>
-            ))}
+            {members.map((m) => {
+              const busy = inProgress(
+                "facilities/" + facility.id + "/members/" + m.id + "/access",
+              );
+              return (
+                <article className="sa-notice" key={m.id}>
+                  <h3>{m.role.replaceAll("_", " ")}</h3>
+                  <code>{m.id}</code>
+                  <p>
+                    {m.membershipState} · Account: {m.accountStatus}
+                  </p>
+                  <div className="sa-actions">
+                    <button
+                      disabled={
+                        busy ||
+                        !reason.trim() ||
+                        (!m.isActive && m.accountStatus !== "ACTIVE")
+                      }
+                      onClick={() =>
+                        mutate(
+                          "facilities/" +
+                            facility.id +
+                            "/members/" +
+                            m.id +
+                            "/access",
+                          {
+                            reason,
+                            action: m.isActive ? "suspend" : "reactivate",
+                          },
+                        )
+                      }
+                    >
+                      {m.isActive ? "Suspend access" : "Reactivate access"}
+                    </button>
+                    <button
+                      disabled={busy || !reason.trim()}
+                      onClick={() =>
+                        mutate(
+                          "facilities/" +
+                            facility.id +
+                            "/members/" +
+                            m.id +
+                            "/access",
+                          { reason, action: "revoke" },
+                        )
+                      }
+                    >
+                      Revoke membership
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
             {cursors.members && (
-              <button disabled={busy} onClick={() => more("members")}>
+              <button
+                disabled={inProgress("page:members")}
+                onClick={() => more("members")}
+              >
                 More memberships
               </button>
             )}
@@ -438,60 +498,80 @@ export default function Workspace() {
             {invitations.length === 0 && (
               <p>No invitations for this facility.</p>
             )}
-            {invitations.map((i) => (
-              <article className="sa-notice" key={i.id}>
-                <h3>
-                  {i.requestedRole.replaceAll("_", " ")} · {i.status}
-                </h3>
-                <code>{i.id}</code>
-                <p>Expires {new Date(i.expiresAt).toLocaleString()}</p>
-                {i.deliveries.map((d) => (
-                  <p key={d.id}>
-                    {d.channel}: {d.status} · {d.attemptCount} attempts
-                  </p>
-                ))}
-                {!["ACCEPTED", "REVOKED"].includes(i.status) && (
-                  <div className="sa-actions">
-                    <button
-                      disabled={
-                        busy ||
-                        !reason.trim() ||
-                        i.status === "ACCEPTANCE_PENDING"
-                      }
-                      onClick={() =>
-                        mutate(
-                          "facilities/" +
-                            facility.id +
-                            "/invitations/" +
-                            i.id +
-                            "/resend",
-                          { reason },
-                        )
-                      }
-                    >
-                      Resend invitation
-                    </button>
-                    <button
-                      disabled={busy || !reason.trim()}
-                      onClick={() =>
-                        mutate(
-                          "facilities/" +
-                            facility.id +
-                            "/invitations/" +
-                            i.id +
-                            "/revoke",
-                          { reason },
-                        )
-                      }
-                    >
-                      Revoke invitation
-                    </button>
-                  </div>
-                )}
-              </article>
-            ))}
+            {invitations.map((i) => {
+              const busy =
+                inProgress(
+                  "facilities/" +
+                    facility.id +
+                    "/invitations/" +
+                    i.id +
+                    "/resend",
+                ) ||
+                inProgress(
+                  "facilities/" +
+                    facility.id +
+                    "/invitations/" +
+                    i.id +
+                    "/revoke",
+                );
+              return (
+                <article className="sa-notice" key={i.id}>
+                  <h3>
+                    {i.requestedRole.replaceAll("_", " ")} · {i.status}
+                  </h3>
+                  <code>{i.id}</code>
+                  <p>Expires {new Date(i.expiresAt).toLocaleString()}</p>
+                  {i.deliveries.map((d) => (
+                    <p key={d.id}>
+                      {d.channel}: {d.status} · {d.attemptCount} attempts
+                    </p>
+                  ))}
+                  {!["ACCEPTED", "REVOKED"].includes(i.status) && (
+                    <div className="sa-actions">
+                      <button
+                        disabled={
+                          busy ||
+                          !reason.trim() ||
+                          i.status === "ACCEPTANCE_PENDING"
+                        }
+                        onClick={() =>
+                          mutate(
+                            "facilities/" +
+                              facility.id +
+                              "/invitations/" +
+                              i.id +
+                              "/resend",
+                            { reason },
+                          )
+                        }
+                      >
+                        Resend invitation
+                      </button>
+                      <button
+                        disabled={busy || !reason.trim()}
+                        onClick={() =>
+                          mutate(
+                            "facilities/" +
+                              facility.id +
+                              "/invitations/" +
+                              i.id +
+                              "/revoke",
+                            { reason },
+                          )
+                        }
+                      >
+                        Revoke invitation
+                      </button>
+                    </div>
+                  )}
+                </article>
+              );
+            })}
             {cursors.invitations && (
-              <button disabled={busy} onClick={() => more("invitations")}>
+              <button
+                disabled={inProgress("page:invitations")}
+                onClick={() => more("invitations")}
+              >
                 More invitations
               </button>
             )}
@@ -506,8 +586,9 @@ export default function Workspace() {
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
-                if (busy) return;
-                setBusy(true);
+                if (activeRequests.current.has("reveal")) return;
+                const revealGeneration = selection.current;
+                mark("reveal", true);
                 setError("");
                 setRevealed("");
                 try {
@@ -515,17 +596,18 @@ export default function Workspace() {
                     "facilities/" + facility.id + "/reveal",
                     Object.fromEntries(new FormData(e.currentTarget)),
                   );
-                  setRevealed(data.value);
+                  if (revealGeneration === selection.current)
+                    setRevealed(data.value);
                 } catch (err) {
                   setError(
                     err instanceof Error ? err.message : "Reveal unavailable.",
                   );
                 } finally {
-                  setBusy(false);
+                  mark("reveal", false);
                 }
               }}
             >
-              <fieldset disabled={busy}>
+              <fieldset disabled={inProgress("reveal")}>
                 <Field name="identifierId" label="Protected identifier ID" />
                 <Field name="caseReference" label="Case reference ID" />
                 <label>
@@ -563,7 +645,10 @@ export default function Workspace() {
               </article>
             ))}
             {cursors.audit && (
-              <button disabled={busy} onClick={() => more("audit")}>
+              <button
+                disabled={inProgress("page:audit")}
+                onClick={() => more("audit")}
+              >
                 More audit events
               </button>
             )}

@@ -23,22 +23,8 @@ export async function onboardingAuthority(
       grantId: null,
       approvedByUserId: null,
     };
-  const grants = await tx.$queryRaw<
-    Array<{ id: string; approvedByUserId: string }>
-  >`
-    SELECT id, "approvedByUserId" FROM "OnboardingAuthorityGrant"
-    WHERE "actorUserId" = ${actorId}::uuid AND "facilityId" = ${facilityId}::uuid
-      AND permission = 'STAFF_ONBOARDING' AND "revokedAt" IS NULL
-      AND "expiresAt" > clock_timestamp()
-    ORDER BY "expiresAt" DESC, id ASC LIMIT 1 FOR SHARE`;
-  const grant = grants[0];
-  if (!grant) throw new ForbiddenException("Onboarding authority required.");
-  return {
-    actorRole: actor.role,
-    authority: "DELEGATED_ONBOARDING",
-    grantId: grant.id,
-    approvedByUserId: grant.approvedByUserId,
-  };
+  // Legacy grants are historical evidence only, including unexpired rows.
+  throw new ForbiddenException("Legacy onboarding authority is retired. Use the institutional workspace.");
 }
 
 export async function platformAuthority(

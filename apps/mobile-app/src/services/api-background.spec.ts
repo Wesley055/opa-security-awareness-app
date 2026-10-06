@@ -1,27 +1,22 @@
-jest.mock('../config/api-config', () => ({
-  API_BASE_URL: 'https://vc6.test',
+jest.mock("../config/api-config", () => ({
+  API_BASE_URL: "https://vc6.test",
 }));
 
 import axios, {
   type AxiosAdapter,
   type AxiosResponse,
   type InternalAxiosRequestConfig,
-} from 'axios';
-import * as SecureStore from 'expo-secure-store';
-import {
-  ACCESS_TOKEN_KEY,
-  backgroundApi,
-  REFRESH_TOKEN_KEY,
-} from './api';
+} from "axios";
+import * as SecureStore from "expo-secure-store";
+import { api, ACCESS_TOKEN_KEY, backgroundApi, REFRESH_TOKEN_KEY } from "./api";
 
-jest.mock('expo-secure-store', () => ({
+jest.mock("expo-secure-store", () => ({
   getItemAsync: jest.fn(),
   setItemAsync: jest.fn(),
   deleteItemAsync: jest.fn(),
 }));
 
-const mockedSecureStore =
-  SecureStore as jest.Mocked<typeof SecureStore>;
+const mockedSecureStore = SecureStore as jest.Mocked<typeof SecureStore>;
 
 interface Vault {
   [key: string]: string | undefined;
@@ -40,84 +35,76 @@ function installVault(initial: Vault): Vault {
     },
   );
 
-  mockedSecureStore.deleteItemAsync.mockImplementation(
-    async (key: string) => {
-      delete vault[key];
-    },
-  );
+  mockedSecureStore.deleteItemAsync.mockImplementation(async (key: string) => {
+    delete vault[key];
+  });
 
   return vault;
 }
 
-function okResponse(
-  config: InternalAxiosRequestConfig,
-): AxiosResponse {
+function okResponse(config: InternalAxiosRequestConfig): AxiosResponse {
   return {
     data: { ok: true },
     status: 200,
-    statusText: 'OK',
+    statusText: "OK",
     headers: {},
     config,
   };
 }
 
-function unauthorized(
-  config: InternalAxiosRequestConfig,
-) {
+function unauthorized(config: InternalAxiosRequestConfig) {
   return {
-    name: 'AxiosError',
+    name: "AxiosError",
     isAxiosError: true,
-    message: 'Request failed with status code 401',
+    message: "Request failed with status code 401",
     config,
     response: {
       data: {},
       status: 401,
-      statusText: 'Unauthorized',
+      statusText: "Unauthorized",
       headers: {},
       config,
     },
   };
 }
 
-describe('backgroundApi', () => {
+describe("backgroundApi", () => {
   beforeEach(() => {
     jest.restoreAllMocks();
     jest.clearAllMocks();
   });
 
-  it('attaches the persisted access token on a headless request', async () => {
+  it("attaches the persisted access token on a headless request", async () => {
     installVault({
-      [ACCESS_TOKEN_KEY]: 'access-123',
-      [REFRESH_TOKEN_KEY]: 'refresh-123',
+      [ACCESS_TOKEN_KEY]: "access-123",
+      [REFRESH_TOKEN_KEY]: "refresh-123",
     });
 
     let authorization: unknown;
 
-    await backgroundApi.get('/journey/fixes', {
+    await backgroundApi.get("/journey/fixes", {
       adapter: async (config) => {
         authorization = config.headers.Authorization;
         return okResponse(config);
       },
     });
 
-    expect(authorization).toBe('Bearer access-123');
+    expect(authorization).toBe("Bearer access-123");
     expect(mockedSecureStore.deleteItemAsync).not.toHaveBeenCalled();
   });
 
-  it('refreshes a background 401, persists rotated tokens, and retries once', async () => {
+  it("refreshes a background 401, persists rotated tokens, and retries once", async () => {
     const vault = installVault({
-      [ACCESS_TOKEN_KEY]: 'expired-access',
-      [REFRESH_TOKEN_KEY]: 'refresh-old',
+      [ACCESS_TOKEN_KEY]: "expired-access",
+      [REFRESH_TOKEN_KEY]: "refresh-old",
     });
 
-    const refreshPost = jest
-      .spyOn(axios, 'post')
-      .mockResolvedValue({
-        data: {
-          accessToken: 'access-new',
-          refreshToken: 'refresh-new',
-        },
-      } as Awaited<ReturnType<typeof axios.post>>);
+    const refreshPost = jest.spyOn(axios, "post").mockResolvedValue({
+      data: {
+        accessToken: "access-new",
+        refreshToken: "refresh-new",
+      },
+    } as Awaited<ReturnType<typeof axios.post>>);
 
     let attempts = 0;
     const seenAuthorization: unknown[] = [];
@@ -133,68 +120,63 @@ describe('backgroundApi', () => {
       return okResponse(config);
     };
 
-    const response = await backgroundApi.get(
-      '/journey/fixes',
-      { adapter },
-    );
+    const response = await backgroundApi.get("/journey/fixes", { adapter });
 
     expect(response.status).toBe(200);
     expect(attempts).toBe(2);
 
     expect(seenAuthorization).toEqual([
-      'Bearer expired-access',
-      'Bearer access-new',
+      "Bearer expired-access",
+      "Bearer access-new",
     ]);
 
     expect(refreshPost).toHaveBeenCalledTimes(1);
     expect(refreshPost).toHaveBeenCalledWith(
       expect.stringMatching(/\/auth\/refresh$/),
-      { refreshToken: 'refresh-old' },
+      { refreshToken: "refresh-old" },
     );
 
-    expect(vault[ACCESS_TOKEN_KEY]).toBe('access-new');
-    expect(vault[REFRESH_TOKEN_KEY]).toBe('refresh-new');
+    expect(vault[ACCESS_TOKEN_KEY]).toBe("access-new");
+    expect(vault[REFRESH_TOKEN_KEY]).toBe("refresh-new");
 
     expect(mockedSecureStore.deleteItemAsync).not.toHaveBeenCalled();
   });
 
-  it('retains credentials when background refresh fails', async () => {
+  it("retains credentials when background refresh fails", async () => {
     const vault = installVault({
-      [ACCESS_TOKEN_KEY]: 'expired-access',
-      [REFRESH_TOKEN_KEY]: 'refresh-dead',
+      [ACCESS_TOKEN_KEY]: "expired-access",
+      [REFRESH_TOKEN_KEY]: "refresh-dead",
     });
 
     jest
-      .spyOn(axios, 'post')
-      .mockRejectedValue(new Error('refresh unavailable'));
+      .spyOn(axios, "post")
+      .mockRejectedValue(new Error("refresh unavailable"));
 
     const adapter: AxiosAdapter = async (config) =>
       Promise.reject(unauthorized(config));
 
     await expect(
-      backgroundApi.get('/journey/fixes', { adapter }),
-    ).rejects.toThrow('refresh unavailable');
+      backgroundApi.get("/journey/fixes", { adapter }),
+    ).rejects.toThrow("refresh unavailable");
 
-    expect(vault[ACCESS_TOKEN_KEY]).toBe('expired-access');
-    expect(vault[REFRESH_TOKEN_KEY]).toBe('refresh-dead');
+    expect(vault[ACCESS_TOKEN_KEY]).toBe("expired-access");
+    expect(vault[REFRESH_TOKEN_KEY]).toBe("refresh-dead");
 
     expect(mockedSecureStore.deleteItemAsync).not.toHaveBeenCalled();
   });
 
-  it('does not loop if the retried request also returns 401', async () => {
+  it("does not loop if the retried request also returns 401", async () => {
     installVault({
-      [ACCESS_TOKEN_KEY]: 'expired-access',
-      [REFRESH_TOKEN_KEY]: 'refresh-loop',
+      [ACCESS_TOKEN_KEY]: "expired-access",
+      [REFRESH_TOKEN_KEY]: "refresh-loop",
     });
 
-    const refreshPost = jest
-      .spyOn(axios, 'post')
-      .mockResolvedValue({
-        data: {
-          accessToken: 'access-new',
-          refreshToken: 'refresh-new',
-        },
-      } as Awaited<ReturnType<typeof axios.post>>);
+    const refreshPost = jest.spyOn(axios, "post").mockResolvedValue({
+      data: {
+        accessToken: "access-new",
+        refreshToken: "refresh-new",
+      },
+    } as Awaited<ReturnType<typeof axios.post>>);
 
     let attempts = 0;
 
@@ -204,7 +186,7 @@ describe('backgroundApi', () => {
     };
 
     await expect(
-      backgroundApi.get('/journey/fixes', { adapter }),
+      backgroundApi.get("/journey/fixes", { adapter }),
     ).rejects.toMatchObject({
       response: { status: 401 },
     });
@@ -214,20 +196,20 @@ describe('backgroundApi', () => {
     expect(mockedSecureStore.deleteItemAsync).not.toHaveBeenCalled();
   });
 
-  it('stops calling /auth/refresh once the server has rejected the token', async () => {
+  it("stops calling /auth/refresh once the server has rejected the token", async () => {
     const vault = installVault({
-      [ACCESS_TOKEN_KEY]: 'expired-access',
-      [REFRESH_TOKEN_KEY]: 'refresh-revoked',
+      [ACCESS_TOKEN_KEY]: "expired-access",
+      [REFRESH_TOKEN_KEY]: "refresh-revoked",
     });
 
-    const refreshPost = jest.spyOn(axios, 'post').mockRejectedValue({
-      name: 'AxiosError',
+    const refreshPost = jest.spyOn(axios, "post").mockRejectedValue({
+      name: "AxiosError",
       isAxiosError: true,
-      message: 'Request failed with status code 401',
+      message: "Request failed with status code 401",
       response: {
         data: {},
         status: 401,
-        statusText: 'Unauthorized',
+        statusText: "Unauthorized",
       },
     });
 
@@ -235,12 +217,12 @@ describe('backgroundApi', () => {
       Promise.reject(unauthorized(config));
 
     await expect(
-      backgroundApi.get('/journey/fixes', { adapter }),
+      backgroundApi.get("/journey/fixes", { adapter }),
     ).rejects.toMatchObject({ response: { status: 401 } });
 
     await expect(
-      backgroundApi.get('/journey/fixes', { adapter }),
-    ).rejects.toThrow('Background refresh token was previously rejected');
+      backgroundApi.get("/journey/fixes", { adapter }),
+    ).rejects.toThrow("Background refresh token was previously rejected");
 
     /*
      * BATTERY, NOT CORRECTNESS. Durable rows are retained either way. But a
@@ -252,8 +234,52 @@ describe('backgroundApi', () => {
      */
     expect(refreshPost).toHaveBeenCalledTimes(1);
 
-    expect(vault[ACCESS_TOKEN_KEY]).toBe('expired-access');
-    expect(vault[REFRESH_TOKEN_KEY]).toBe('refresh-revoked');
+    expect(vault[ACCESS_TOKEN_KEY]).toBe("expired-access");
+    expect(vault[REFRESH_TOKEN_KEY]).toBe("refresh-revoked");
     expect(mockedSecureStore.deleteItemAsync).not.toHaveBeenCalled();
+  });
+});
+describe("foreground credential/session separation", () => {
+  it.each(["/auth/login", "/auth/password-reset/confirm"])(
+    "never refreshes a rejected %s credential",
+    async (path) => {
+      installVault({
+        [ACCESS_TOKEN_KEY]: "synthetic-stale-access",
+        [REFRESH_TOKEN_KEY]: "synthetic-refresh",
+      });
+      const refresh = jest.spyOn(axios, "post");
+      await expect(
+        api.post(
+          path,
+          {},
+          { adapter: async (config) => Promise.reject(unauthorized(config)) },
+        ),
+      ).rejects.toMatchObject({ response: { status: 401 } });
+      expect(refresh).not.toHaveBeenCalled();
+      expect(mockedSecureStore.deleteItemAsync).not.toHaveBeenCalled();
+    },
+  );
+  it("bounds foreground refresh and retries the protected request once", async () => {
+    installVault({ [REFRESH_TOKEN_KEY]: "synthetic-refresh" });
+    const refresh = jest
+      .spyOn(axios, "post")
+      .mockResolvedValue({ data: { accessToken: "synthetic-new" } });
+    let attempts = 0;
+    await api.get("/users/me", {
+      adapter: async (config) =>
+        ++attempts === 1
+          ? Promise.reject(unauthorized(config))
+          : okResponse(config),
+    });
+    expect(refresh).toHaveBeenCalledWith(
+      "https://vc6.test/auth/refresh",
+      { refreshToken: "synthetic-refresh" },
+      { timeout: 10000 },
+    );
+    expect(attempts).toBe(2);
+  });
+  beforeEach(() => {
+    jest.restoreAllMocks();
+    jest.clearAllMocks();
   });
 });

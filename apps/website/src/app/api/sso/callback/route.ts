@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { apiUrl, setOperatorSession } from '@/lib/operator-session';
+import { clearInstitutionalSession } from '@/lib/institutional-session';
 import {
   boundedBody,
   clearPendingSso,
@@ -70,6 +71,7 @@ async function callback(request: Request, saml: boolean) {
       !['FACILITY_OPERATOR', 'FACILITY_ADMIN'].includes(result.user?.role ?? '')
     )
       return failure(403);
+    await clearInstitutionalSession();
     await setOperatorSession({
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,

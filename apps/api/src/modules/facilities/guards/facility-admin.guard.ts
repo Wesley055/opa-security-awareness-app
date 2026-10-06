@@ -29,7 +29,7 @@ export class FacilityAdminGuard implements CanActivate {
     const user = await this.prisma.user.findUnique({
       where: { id: request.user.sub },
       select: {
-        role: true,
+        membershipState: true, role: true,
         facilityId: true,
         isActive: true,
         accountStatus: true,
@@ -48,7 +48,7 @@ export class FacilityAdminGuard implements CanActivate {
       throw new ForbiddenException('Facility administrator access required.');
     }
 
-    if (!user.facilityId) {
+    if (user.membershipState !== 'ACTIVE' || !user.facilityId) {
       throw new ForbiddenException('No facility is assigned to this account.');
     }
 

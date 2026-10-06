@@ -1,3 +1,4 @@
+import { RefreshTokenService } from "../../src/modules/refresh-token/refresh-token.service";
 import type { NotificationResponse } from "../../src/modules/notifications/providers/notification-provider.interface";
 import { DeliveryLedgerService } from "../../src/modules/notifications/delivery-ledger.service";
 import type { INestApplication } from "@nestjs/common";
@@ -8,7 +9,7 @@ import { PassportModule } from "@nestjs/passport";
 import { ThrottlerModule } from "@nestjs/throttler";
 import { JwtService } from "@nestjs/jwt";
 import type { User } from "@prisma/client";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID, randomBytes } from "crypto";
 import request from "supertest";
 import * as bcrypt from "bcrypt";
 import { prismaTest } from "./prisma-test-client";
@@ -27,12 +28,13 @@ import { InvitationDeliveryWorker } from "../../src/modules/admin-provisioning/i
 import { hashActivationCredential } from "../../src/shared/security/activation-code";
 
 const testSettings = {
-  JWT_ACCESS_SECRET: "enrollment-integration-secret-only-32",
-  JWT_REFRESH_SECRET: "enrollment-integration-refresh-only-32",
+  OPA_WEB_URL: "https://viewer.example.test",
+  JWT_ACCESS_SECRET: randomBytes(32).toString("hex"),
+  JWT_REFRESH_SECRET: randomBytes(32).toString("hex"),
   JWT_ACCESS_EXPIRES_IN: "15m",
   JWT_REFRESH_EXPIRES_IN: "30d",
   BCRYPT_ROUNDS: 4,
-  ENROLLMENT_ENCRYPTION_KEY: "ab".repeat(32),
+  ENROLLMENT_ENCRYPTION_KEY: randomBytes(32).toString("hex"),
 };
 const config = new ConfigService(testSettings);
 // Isolate the HTTP fixture from developer .env values; ConfigService v3 otherwise
@@ -49,7 +51,7 @@ const input = (): EnrollmentIdentity => ({
   firstName: "Test",
   lastName: "Enrollment",
 });
-const password = "TestOnlyPassword123!";
+const password = randomBytes(24).toString("hex") + "aA1!";
 
 describe("verification-first enrollment HTTP, signed JWT and PostgreSQL", () => {
   let app: INestApplication,
@@ -166,25 +168,224 @@ describe("verification-first enrollment HTTP, signed JWT and PostgreSQL", () => 
       accept: true as const,
     };
   }
+
+  it("rejects a registration password instead of silently discarding it", async () => {
+    await post("/auth/register")
+      .send({ ...input(), password })
+      .expect(400);
+    expect(await prismaTest.enrollmentRequest.count()).toBe(0);
+  });
+  it.each([
+    "USER",
+    "FACILITY_ADMIN",
+    "FACILITY_OPERATOR",
+    "TECHNICAL_SUPPORT",
+  ] as const)(
+    "verification establishes exactly the chosen credential for %s",
+    async (role) => {
+      const platform = await prismaTest.user.create({
+        data: { ...input(), role: "ADMIN" },
+      });
+      const identity = input();
+      const r =
+        role === "USER"
+          ? (await post("/auth/register").send(identity).expect(202)).body
+          : await service.request(
+              identity,
+              randomUUID(),
+              role === "TECHNICAL_SUPPORT" ? undefined : facility,
+              platform.id,
+              role,
+            );
+      expect(
+        await prismaTest.user.findUnique({ where: { email: identity.email } }),
+      ).toBeNull();
+      await post("/auth/login")
+        .send({ email: identity.email, password })
+        .expect(401);
+      const chosen = randomBytes(24).toString("hex");
+      const result = await service.verify({
+        ...(await proofs(r)),
+        password: chosen,
+      });
+      expect(result.status).toBe("ACCEPTED");
+      const created = await prismaTest.user.findUniqueOrThrow({
+        where: { email: identity.email },
+      });
+      expect(created.role).toBe(role);
+      expect(await bcrypt.compare(chosen, created.passwordHash!)).toBe(true);
+      expect(await bcrypt.compare(password, created.passwordHash!)).toBe(false);
+      const login = await post("/auth/login")
+        .send({ email: identity.email, password: chosen })
+        .expect(200);
+      expect(login.body.user.role).toBe(role);
+    },
+  );
+  it.each([
+    "ADMIN",
+    "TECHNICAL_SUPPORT",
+    "FACILITY_ADMIN",
+    "FACILITY_OPERATOR",
+    "USER",
+  ] as const)(
+    "recovery for %s invalidates old credentials and tokens, preserves authority and audits",
+    async (role) => {
+      const person = await prismaTest.user.create({
+        data: {
+          ...input(),
+          role,
+          facilityId:
+            role === "ADMIN" || role === "TECHNICAL_SUPPORT" ? null : facility,
+          passwordHash: await bcrypt.hash(password, 4),
+        },
+      });
+      if (role === "TECHNICAL_SUPPORT")
+        await prismaTest.supportEmployment.create({
+          data: {
+            userId: person.id,
+            appointedByUserId: admin.id,
+            state: "ACTIVE",
+          },
+        });
+      const employment = await prismaTest.supportEmployment.findUnique({
+        where: { userId: person.id },
+      });
+      const before = (
+        await post("/auth/login")
+          .send({ email: person.email, password })
+          .expect(200)
+      ).body;
+      const refresh = new RefreshTokenService(jwt, config, prismaTest as never);
+      const strategy = app.get(JwtStrategy);
+      await strategy.validate(jwt.decode(before.accessToken) as never);
+      await refresh.rotate(before.refreshToken);
+      const resets = app.get(PasswordResetService);
+      await resets.requestReset({ email: person.email });
+      await worker.tick();
+      const message = messages.find((m) =>
+        m.message.includes("/reset-password?token="),
+      );
+      expect(message).toBeDefined();
+      const raw = message!.message.match(/token=([a-f0-9]{64})/)![1]!;
+      const chosen = randomBytes(24).toString("hex");
+      await resets.confirmReset({ token: raw, password: chosen });
+      await post("/auth/login")
+        .send({ email: person.email, password })
+        .expect(401);
+      const afterLogin = (
+        await post("/auth/login")
+          .send({ email: person.email, password: chosen })
+          .expect(200)
+      ).body;
+      expect(afterLogin.user.role).toBe(role);
+      await expect(
+        strategy.validate(jwt.decode(before.accessToken) as never),
+      ).rejects.toThrow();
+      await expect(refresh.rotate(before.refreshToken)).rejects.toThrow();
+      await strategy.validate(jwt.decode(afterLogin.accessToken) as never);
+      await refresh.rotate(afterLogin.refreshToken);
+      await expect(
+        resets.confirmReset({ token: raw, password }),
+      ).rejects.toThrow();
+      const after = await prismaTest.user.findUniqueOrThrow({
+        where: { id: person.id },
+      });
+      expect({
+        ...after,
+        passwordHash: person.passwordHash,
+        credentialVersion: person.credentialVersion,
+        updatedAt: person.updatedAt,
+      }).toEqual(person);
+      expect(
+        await prismaTest.supportEmployment.findUnique({
+          where: { userId: person.id },
+        }),
+      ).toEqual(employment);
+      const audit = await prismaTest.administrativeAuditEvent.findMany({
+        where: { actorUserId: person.id, action: "LOCAL_PASSWORD_RESET" },
+      });
+      expect(audit).toHaveLength(1);
+      expect(audit[0]).toMatchObject({
+        actorRole: role,
+        resourceId: person.id,
+        authorityKind: "SINGLE_USE_RECOVERY_TOKEN",
+      });
+      expect(JSON.stringify(audit)).not.toContain(raw);
+      expect(JSON.stringify(audit)).not.toContain(chosen);
+    },
+  );
+  it("expired recovery is rejected without changing credentials or audit", async () => {
+    const raw = randomBytes(32).toString("hex");
+    await prismaTest.passwordResetToken.create({
+      data: {
+        userId: existing.id,
+        tokenHash: createHash("sha256").update(raw).digest("hex"),
+        expiresAt: new Date(0),
+      },
+    });
+    await expect(
+      app.get(PasswordResetService).confirmReset({
+        token: raw,
+        password: randomBytes(24).toString("hex"),
+      }),
+    ).rejects.toThrow();
+    expect(
+      (await prismaTest.user.findUniqueOrThrow({ where: { id: existing.id } }))
+        .passwordHash,
+    ).toBe(existing.passwordHash);
+    expect(
+      await prismaTest.administrativeAuditEvent.count({
+        where: { action: "LOCAL_PASSWORD_RESET" },
+      }),
+    ).toBe(0);
+  });
+
   const receipt = (body: unknown) =>
     expect(body).toEqual({
       requestId: expect.any(String),
       status: "VERIFICATION_PENDING",
     });
 
-  it('reports stored revocation and expiry without claiming membership activation', async () => {
-    const revoked = await service.request(input(), randomUUID(), facility, admin.id);
-    const expired = await service.request(input(), randomUUID(), facility, admin.id);
-    await prismaTest.enrollmentRequest.update({ where: { id: revoked.requestId }, data: { revokedAt: new Date() } });
-    await prismaTest.enrollmentRequest.update({ where: { id: expired.requestId }, data: { expiresAt: new Date(0) } });
-    const result = await request(app.getHttpServer()).get('/facility-admin/facility/residents/enrollments').set('Authorization', 'Bearer ' + token(admin)).expect(200);
+  it("reports stored revocation and expiry without claiming membership activation", async () => {
+    const revoked = await service.request(
+      input(),
+      randomUUID(),
+      facility,
+      admin.id,
+    );
+    const expired = await service.request(
+      input(),
+      randomUUID(),
+      facility,
+      admin.id,
+    );
+    await prismaTest.enrollmentRequest.update({
+      where: { id: revoked.requestId },
+      data: { revokedAt: new Date() },
+    });
+    await prismaTest.enrollmentRequest.update({
+      where: { id: expired.requestId },
+      data: { expiresAt: new Date(0) },
+    });
+    const result = await request(app.getHttpServer())
+      .get("/facility-admin/facility/residents/enrollments")
+      .set("Authorization", "Bearer " + token(admin))
+      .expect(200);
     expect(result.body.page).toBe(0);
     expect(result.body.hasNext).toBe(false);
-    expect(result.body.requests).toEqual(expect.arrayContaining([
-      expect.objectContaining({ requestId: revoked.requestId, status: 'REVOKED' }),
-      expect.objectContaining({ requestId: expired.requestId, status: 'EXPIRED' }),
-    ]));
-    expect(JSON.stringify(result.body)).not.toContain('@');
+    expect(result.body.requests).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          requestId: revoked.requestId,
+          status: "REVOKED",
+        }),
+        expect.objectContaining({
+          requestId: expired.requestId,
+          status: "EXPIRED",
+        }),
+      ]),
+    );
+    expect(JSON.stringify(result.body)).not.toContain("@");
   });
 
   it.each(["unknown", "email", "phone"])(
@@ -195,7 +396,12 @@ describe("verification-first enrollment HTTP, signed JWT and PostgreSQL", () => 
       if (kind === "phone") data.phoneNumber = existing.phoneNumber;
       const before = await prismaTest.user.count();
       const r = await post("/auth/register").send(data).expect(202);
-      receipt(r.body);
+      expect(r.body).toEqual({
+        requestId: expect.any(String),
+        status: "VERIFICATION_PENDING",
+        credentialStep: "SET_PASSWORD_DURING_VERIFICATION",
+        message: expect.stringContaining("No login credential"),
+      });
       expect(await prismaTest.user.count()).toBe(before);
       expect(
         await prismaTest.accountInvitationDelivery.count({
@@ -250,6 +456,46 @@ describe("verification-first enrollment HTTP, signed JWT and PostgreSQL", () => 
       .expect(403);
     expect(await prismaTest.enrollmentRequest.count()).toBe(0);
   });
+  it.each(["FACILITY_OPERATOR", "TECHNICAL_SUPPORT"] as const)(
+    "bulk onboarding denies %s without resident onboarding authority",
+    async (role) => {
+      const actor = await prismaTest.user.create({
+        data: {
+          ...input(),
+          role,
+          facilityId: role === "FACILITY_OPERATOR" ? facility : null,
+        },
+      });
+      if (role === "TECHNICAL_SUPPORT") {
+        const approver = await prismaTest.user.create({
+          data: { ...input(), role: "ADMIN" },
+        });
+        await prismaTest.supportEmployment.create({
+          data: {
+            userId: actor.id,
+            appointedByUserId: approver.id,
+            state: "ACTIVE",
+          },
+        });
+      }
+      await post("/facility-admin/facility/residents/bulk", actor)
+        .send({ residents: [input(), input()] })
+        .expect(403);
+      expect(await prismaTest.enrollmentRequest.count()).toBe(0);
+      expect(await prismaTest.accountInvitationDelivery.count()).toBe(0);
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
+  it("bulk validates every E.164 phone before creating any enrollment or delivery", async () => {
+    await post("/facility-admin/facility/residents/bulk", admin)
+      .send({
+        residents: [input(), { ...input(), phoneNumber: "invalid-number" }],
+      })
+      .expect(400);
+    expect(await prismaTest.enrollmentRequest.count()).toBe(0);
+    expect(await prismaTest.accountInvitationDelivery.count()).toBe(0);
+    expect(send).not.toHaveBeenCalled();
+  });
   it("bulk accepts mixed global conflicts without row-dependent failures", async () => {
     const residents = [
       input(),
@@ -270,14 +516,24 @@ describe("verification-first enrollment HTTP, signed JWT and PostgreSQL", () => 
     expect(await prismaTest.user.count()).toBe(2);
   });
   it("resumes a partially committed bulk intent through the guarded HTTP path without duplicate work", async () => {
-    const residents = [input(), input(), input()], key = randomUUID();
+    const residents = [input(), input(), input()],
+      key = randomUUID();
     // A prior attempt committed row zero before its response/remaining work was lost.
-    const first = await service.request(residents[0]!, key + ":0", facility, admin.id);
+    const first = await service.request(
+      residents[0]!,
+      key + ":0",
+      facility,
+      admin.id,
+    );
     const beforeMembers = await prismaTest.user.count();
-    const results = await Promise.all(Array.from({ length: 3 }, () =>
-      post("/facility-admin/facility/residents/bulk", admin)
-        .set("Idempotency-Key", key).send({ residents }).expect(202),
-    ));
+    const results = await Promise.all(
+      Array.from({ length: 3 }, () =>
+        post("/facility-admin/facility/residents/bulk", admin)
+          .set("Idempotency-Key", key)
+          .send({ residents })
+          .expect(202),
+      ),
+    );
     for (const result of results) {
       expect(result.body).toEqual(results[0]!.body);
       expect(result.body.requests).toHaveLength(3);
@@ -285,27 +541,62 @@ describe("verification-first enrollment HTTP, signed JWT and PostgreSQL", () => 
       expect(JSON.stringify(result.body)).not.toContain(residents[0]!.email);
       expect(JSON.stringify(result.body)).not.toContain("activationToken");
     }
-    expect(await prismaTest.enrollmentRequest.count({ where: { facilityId: facility } })).toBe(3);
+    expect(
+      await prismaTest.enrollmentRequest.count({
+        where: { facilityId: facility },
+      }),
+    ).toBe(3);
     expect(await prismaTest.accountInvitationDelivery.count()).toBe(6);
-    expect(await prismaTest.administrativeAuditEvent.count({ where: { action: "ENROLLMENT_REQUESTED", facilityId: facility } })).toBe(3);
+    expect(
+      await prismaTest.administrativeAuditEvent.count({
+        where: { action: "ENROLLMENT_REQUESTED", facilityId: facility },
+      }),
+    ).toBe(3);
     expect(await prismaTest.user.count()).toBe(beforeMembers);
     expect(send).not.toHaveBeenCalled();
   });
 
   it("scopes an identical bulk retry key to the current inviter and tenant", async () => {
-    const residents = [input()], key = randomUUID();
-    const otherAdmin = await prismaTest.user.create({ data: { ...input(), role: "FACILITY_ADMIN", facilityId: other } });
-    const a = await post("/facility-admin/facility/residents/bulk", admin).set("Idempotency-Key", key).send({ residents }).expect(202);
-    const b = await post("/facility-admin/facility/residents/bulk", otherAdmin).set("Idempotency-Key", key).send({ residents }).expect(202);
+    const residents = [input()],
+      key = randomUUID();
+    const otherAdmin = await prismaTest.user.create({
+      data: { ...input(), role: "FACILITY_ADMIN", facilityId: other },
+    });
+    const a = await post("/facility-admin/facility/residents/bulk", admin)
+      .set("Idempotency-Key", key)
+      .send({ residents })
+      .expect(202);
+    const b = await post("/facility-admin/facility/residents/bulk", otherAdmin)
+      .set("Idempotency-Key", key)
+      .send({ residents })
+      .expect(202);
     expect(a.body.requests[0].requestId).not.toBe(b.body.requests[0].requestId);
-    for (const [actor, expected] of [[admin, a], [otherAdmin, b]] as const) {
-      const replay = await post("/facility-admin/facility/residents/bulk", actor).set("Idempotency-Key", key).send({ residents }).expect(202);
+    for (const [actor, expected] of [
+      [admin, a],
+      [otherAdmin, b],
+    ] as const) {
+      const replay = await post(
+        "/facility-admin/facility/residents/bulk",
+        actor,
+      )
+        .set("Idempotency-Key", key)
+        .send({ residents })
+        .expect(202);
       expect(replay.body).toEqual(expected.body);
     }
     expect(await prismaTest.enrollmentRequest.count()).toBe(2);
     expect(await prismaTest.accountInvitationDelivery.count()).toBe(4);
-    await prismaTest.user.update({ where: { id: admin.id }, data: { isActive: false } });
-    await post("/facility-admin/facility/residents/bulk", admin).set("Idempotency-Key", key).send({ residents }).expect(401);
+    await prismaTest.user.create({
+      data: { ...input(), role: "FACILITY_ADMIN", facilityId: facility },
+    });
+    await prismaTest.user.update({
+      where: { id: admin.id },
+      data: { isActive: false },
+    });
+    await post("/facility-admin/facility/residents/bulk", admin)
+      .set("Idempotency-Key", key)
+      .send({ residents })
+      .expect(401);
     expect(await prismaTest.enrollmentRequest.count()).toBe(2);
   });
 
@@ -463,6 +754,35 @@ describe("verification-first enrollment HTTP, signed JWT and PostgreSQL", () => 
       "VERIFICATION_PENDING",
     );
   });
+  it("rejects client facility injection before verification creates any account", async () => {
+    const data = input(), receipt = await service.request(data, randomUUID(), facility, admin.id), dto = await proofs(receipt);
+    await post("/auth/enrollment/verify").send({ ...dto, facilityId: other }).expect(400);
+    expect(await prismaTest.user.count({ where: { email: data.email } })).toBe(0);
+    expect((await prismaTest.enrollmentRequest.findUniqueOrThrow({ where: { id: receipt.requestId } })).facilityId).toBe(facility);
+  });
+  it("does not move a verified existing account from a newly assigned foreign facility", async () => {
+    await prismaTest.user.update({ where: { id: existing.id }, data: { facilityId: null } });
+    const receipt = await service.request(existing, randomUUID(), facility, admin.id), dto = await proofs(receipt);
+    const verified = await service.verify(dto);
+    if (verified.status !== "AUTHENTICATION_REQUIRED") throw new Error("Expected verified existing-account continuation");
+    await prismaTest.user.update({ where: { id: existing.id }, data: { facilityId: other } });
+    await post("/auth/enrollment/accept", existing).send({ requestId: receipt.requestId, acceptanceToken: verified.acceptanceToken }).expect(400);
+    expect((await prismaTest.user.findUniqueOrThrow({ where: { id: existing.id } })).facilityId).toBe(other);
+    expect(await prismaTest.administrativeAuditEvent.count({ where: { resourceId: receipt.requestId, action: "ENROLLMENT_ACCEPTED" } })).toBe(0);
+  });
+  it("puts only the opaque request reference in both actionable invitation links", async () => {
+    const receipt = await service.request(input(), randomUUID(), facility, admin.id);
+    await proofs(receipt);
+    const sent = messages.filter(message => message.message.includes(receipt.requestId));
+    expect(sent).toHaveLength(2);
+    for (const message of sent) {
+      const destination = new URL(message.message.split("Enroll: ")[1]!);
+      expect(destination.protocol).toBe("https:");
+      expect(destination.pathname).toBe("/enroll");
+      expect([...destination.searchParams.entries()]).toEqual([["requestId", receipt.requestId]]);
+      expect(destination.hash).toBe("");
+    }
+  });
   it.each(["suspended", "removed", "facility-disabled"])(
     "rechecks %s inviter authority at completion",
     async (kind) => {
@@ -478,13 +798,20 @@ describe("verification-first enrollment HTTP, signed JWT and PostgreSQL", () => 
           where: { id: facility },
           data: { isActive: false },
         });
-      else
+      else {
+        // Keep the commissioned facility staffed while revoking this inviter.
+        await prismaTest.user.create({
+          data: { ...input(), role: "FACILITY_ADMIN", facilityId: facility },
+        });
         await prismaTest.user.update({
           where: { id: admin.id },
           data: kind === "removed" ? { facilityId: null } : { isActive: false },
         });
+      }
       await expect(service.verify(dto)).rejects.toThrow();
-      expect(await prismaTest.user.count()).toBe(2);
+      expect(await prismaTest.user.count()).toBe(
+        kind === "facility-disabled" ? 2 : 3,
+      );
     },
   );
   it("serializes duplicate verification submissions", async () => {
@@ -558,6 +885,9 @@ describe("verification-first enrollment HTTP, signed JWT and PostgreSQL", () => 
     ).toBe("SENT");
   });
   it("cancels stale queued enrollment proofs after inviter removal without exposing eligibility in status", async () => {
+    await prismaTest.user.create({
+      data: { ...input(), role: "FACILITY_ADMIN", facilityId: facility },
+    });
     const r = await service.request(input(), randomUUID(), facility, admin.id);
     await prismaTest.user.update({
       where: { id: admin.id },
@@ -634,10 +964,116 @@ describe("verification-first enrollment HTTP, signed JWT and PostgreSQL", () => 
     ).toBe(hashActivationCredential(raw));
     await resets.confirmReset({
       token: raw,
-      password: "AnotherTestPassword123!",
+      password: randomBytes(24).toString("hex") + "aA1!",
     });
     await expect(
       resets.confirmReset({ token: raw, password }),
     ).rejects.toThrow();
+  });
+  it("continuation requires authentication and both original proofs", async () => {
+    const r = await service.request(existing, randomUUID(), facility, admin.id);
+    await post("/auth/enrollment/continue")
+      .send({ requestId: r.requestId })
+      .expect(401);
+    await post("/auth/enrollment/continue", existing)
+      .send({ requestId: r.requestId })
+      .expect(400);
+    expect(
+      (
+        await prismaTest.enrollmentRequest.findUniqueOrThrow({
+          where: { id: r.requestId },
+        })
+      ).verifiedAt,
+    ).toBeNull();
+  });
+  it("continuation rotates a lost acceptance token without bypassing normal acceptance", async () => {
+    await prismaTest.user.update({
+      where: { id: existing.id },
+      data: { facilityId: facility },
+    });
+    const r = await service.request(existing, randomUUID(), facility, admin.id);
+    const dto = await proofs(r);
+    const original = await service.verify(dto);
+    const resumed = await post("/auth/enrollment/continue", existing)
+      .send({ requestId: r.requestId })
+      .expect(200);
+    expect(resumed.body.status).toBe("AUTHENTICATION_REQUIRED");
+    expect(
+      (
+        await prismaTest.enrollmentRequest.findUniqueOrThrow({
+          where: { id: r.requestId },
+        })
+      ).acceptedAt,
+    ).toBeNull();
+    await expect(
+      service.accept(existing.id, {
+        requestId: r.requestId,
+        acceptanceToken: ("acceptanceToken" in original
+          ? original.acceptanceToken
+          : "")!,
+      }),
+    ).rejects.toThrow();
+    await post("/auth/enrollment/accept", existing)
+      .send({
+        requestId: r.requestId,
+        acceptanceToken: resumed.body.acceptanceToken,
+      })
+      .expect(200);
+    const completed = await post("/auth/enrollment/continue", existing)
+      .send({ requestId: r.requestId })
+      .expect(200);
+    expect(completed.body).toEqual({ status: "ACCEPTED", role: "USER" });
+  });
+  it.each(["revoked", "expired", "exhausted"])(
+    "continuation denies %s verified requests",
+    async (kind) => {
+      const r = await service.request(
+        existing,
+        randomUUID(),
+        facility,
+        admin.id,
+      );
+      await service.verify(await proofs(r));
+      await prismaTest.enrollmentRequest.update({
+        where: { id: r.requestId },
+        data:
+          kind === "revoked"
+            ? { revokedAt: new Date() }
+            : kind === "expired"
+              ? { expiresAt: new Date(0) }
+              : { proofAttempts: 5 },
+      });
+      await expect(
+        service.continueVerified(existing.id, r.requestId),
+      ).rejects.toThrow();
+    },
+  );
+  it("continuation rejects an email/phone collision belonging to a different identity", async () => {
+    const identity = { ...input(), phoneNumber: existing.phoneNumber };
+    const r = await service.request(identity, randomUUID(), facility, admin.id);
+    await service.verify(await proofs(r));
+    await expect(
+      service.continueVerified(existing.id, r.requestId),
+    ).rejects.toThrow();
+    expect(
+      (
+        await prismaTest.enrollmentRequest.findUniqueOrThrow({
+          where: { id: r.requestId },
+        })
+      ).acceptedAt,
+    ).toBeNull();
+  });
+  it("continuation reconciles a newly created account after a lost verification response", async () => {
+    const identity = input();
+    const r = await service.request(identity, randomUUID(), facility, admin.id);
+    const result = await service.verify(await proofs(r));
+    if (result.status !== "ACCEPTED")
+      throw Error("Expected synthetic enrollment completion");
+    expect(await service.continueVerified(result.user.id, r.requestId)).toEqual(
+      { status: "ACCEPTED", role: "USER" },
+    );
+    expect(
+      await prismaTest.user.count({ where: { email: identity.email } }),
+    ).toBe(1);
   });
 });

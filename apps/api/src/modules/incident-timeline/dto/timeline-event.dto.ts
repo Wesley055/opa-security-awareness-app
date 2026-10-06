@@ -28,11 +28,10 @@
  * type, occurredAt and source. AN AUDIT TRAIL THAT SILENTLY DROPS AN EVENT
  * IT CANNOT LABEL IS WORSE THAN ONE SHOWING A BARE LABEL.
  *
- * actorUserId IS EXCLUDED, and not only because it is a UUID. On the
- * production sample it was the RESIDENT on every event, including the three
- * the orchestrator wrote. It means "on whose behalf", not "who did this",
- * and rendering it as an actor would mislead. source - MOBILE versus
- * INCIDENT_ORCHESTRATOR - carries the distinction that actually matters.
+ * actorUserId is excluded from this minimal reader projection. Legacy events
+ * can represent the subject; institutional and operational events persist the
+ * actual authenticated actor. Authorized administrative audit reads expose
+ * actor/grant provenance separately without broadening the reader payload.
  */
 
 export type TimelineDisplay = Record<string, unknown>;
@@ -58,25 +57,32 @@ export type ReaderTimelineEvent = {
  * and every key absent from a listed type, is dropped.
  */
 const DISPLAY_ALLOWLIST: Readonly<Record<string, readonly string[]>> = {
-  INCIDENT_CREATED: ['trigger', 'silentMode'],
-  LOCATION_ATTACHED: ['latitude', 'longitude'],
-  NOTIFICATIONS_QUEUED: ['queued'],
+  OPERATOR_ESCALATION: ["note", "actorRole"],
+  OPERATIONAL_EXCEPTION: ["kind", "policyVersion", "observedAt", "statement"],
+  OPERATIONAL_ESCALATION: ["kind", "policyVersion", "channel", "externalDelivery"],
+  OPERATOR_SEEN: ["note", "actorRole"],
+  OPERATOR_ACKNOWLEDGED: ["note", "actorRole"],
+  OPERATOR_DISPATCHED: ["note", "actorRole"],
+  OPERATOR_RESPONSE_PROGRESS: ["note", "actorRole"],
+  INCIDENT_CREATED: ["trigger", "silentMode"],
+  LOCATION_ATTACHED: ["latitude", "longitude"],
+  NOTIFICATIONS_QUEUED: ["queued"],
   // close() writes both, and resolvedAt distinguishes them on the incident
   // row. Same fields here; the type is what separates them.
-  INCIDENT_RESOLVED: ['reason', 'previousStatus', 'newStatus'],
-  INCIDENT_CANCELLED: ['reason', 'previousStatus', 'newStatus'],
+  INCIDENT_RESOLVED: ["reason", "previousStatus", "newStatus"],
+  INCIDENT_CANCELLED: ["reason", "previousStatus", "newStatus"],
   SOS_RETRIGGERED: [
-    'triggerMethod',
-    'latitude',
-    'longitude',
-    'retriggerCount',
+    "triggerMethod",
+    "latitude",
+    "longitude",
+    "retriggerCount",
     // The operationally interesting one: re-triggered after 45 seconds
     // reads very differently from after 20 minutes, and repeated taps may
     // signal rising distress. Elapsed time is audit context only; it no
     // longer determines whether a second OPEN incident is created.
-    'secondsSinceInitialTrigger',
+    "secondsSinceInitialTrigger",
   ],
-  EVIDENCE_ADDED: ['evidenceType', 'sizeBytes'],
+  EVIDENCE_ADDED: ["evidenceType", "sizeBytes"],
 };
 
 /**
@@ -101,7 +107,11 @@ function buildDisplay(type: string, payload: unknown): TimelineDisplay {
 
   // payload is Json? in Prisma - it can be null, and jsonb can hold an
   // array or a scalar. None of those have allowlisted keys.
-  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
+  if (
+    payload === null ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
     return {};
   }
 

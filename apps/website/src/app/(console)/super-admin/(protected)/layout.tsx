@@ -1,5 +1,5 @@
+import { PlatformSession } from "@/components/console/platform-session";
 import { redirect } from "next/navigation";
-import { LogoMark } from "@/components/brand/Logo";
 import { AdminFailure, requireAdmin } from "@/lib/super-admin-api";
 import SignOut from "../sign-out";
 export const dynamic = "force-dynamic";
@@ -8,12 +8,12 @@ export default async function ProtectedLayout({
 }: {
   children: React.ReactNode;
 }) {
-  let name: string;
+  let actor: Awaited<ReturnType<typeof requireAdmin>>;
   try {
-    name = (await requireAdmin()).name;
+    actor = await requireAdmin();
   } catch (error) {
     if (error instanceof AdminFailure && error.status === 401)
-      redirect("/super-admin/login");
+      redirect("/super-admin/renew");
     const forbidden = error instanceof AdminFailure && error.status === 403;
     return (
       <main className="sa-body">
@@ -39,27 +39,19 @@ export default async function ProtectedLayout({
       <a href="#admin-main" className="sr-only focus:not-sr-only">
         Skip to content
       </a>
-      <header className="sa-header">
-        <a href="/super-admin" className="sa-brand">
-          <LogoMark size={36} />
-          <span>
-            OPA <span className="sa-muted">/ Super Admin</span>
-          </span>
-        </a>
-        <div className="sa-actions">
-          <span className="sa-badge">Platform ADMIN</span>
-          <span className="sa-muted">{name}</span>
-          <SignOut />
-        </div>
-      </header>
-      <main id="admin-main" className="sa-body">
-        <nav aria-label="Super Admin">
-          <a href="/super-admin">Facility workspace</a>
-          <a href="/super-admin/facilities/new">Create facility</a>
-          <a href="/super-admin/onboarding">Onboarding delegation</a>
-        </nav>
-        {children}
-      </main>
+      <PlatformSession
+        initial={{ id: actor.actorId ?? "", name: actor.name, role: "ADMIN" }}
+      >
+        <main id="admin-main" className="sa-body">
+          <nav aria-label="Super Admin">
+            <a href="/super-admin/organization">Platform Overview</a>
+            <a href="/super-admin">Facilities</a>
+            <a href="/super-admin/facilities/new">Create facility</a>
+            <a href="/super-admin/technical-support">Technical Support</a>
+          </nav>
+          {children}
+        </main>
+      </PlatformSession>
     </>
   );
 }

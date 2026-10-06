@@ -1,5 +1,7 @@
-import { NextResponse } from 'next/server';
-import { clearOperatorSession } from '@/lib/operator-session';
+import { sameOriginSessionPost } from "@/lib/session-post-origin";
+import { clearInstitutionalSession } from "@/lib/institutional-session";
+import { NextResponse } from "next/server";
+import { clearOperatorSession } from "@/lib/operator-session";
 
 /**
  * Clears the operator session cookies.
@@ -15,7 +17,7 @@ import { clearOperatorSession } from '@/lib/operator-session';
  * "signing out everywhere".
  */
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 /**
  * REDIRECTS, IT DOES NOT RETURN JSON. The sign-out control is a plain HTML
@@ -27,15 +29,22 @@ export const dynamic = 'force-dynamic';
  * reason it is a form rather than a fetch.
  */
 export async function POST(request: Request) {
+  if (!sameOriginSessionPost(request))
+    return NextResponse.json(
+      { ok: false, error: "Request rejected." },
+      { status: 403 },
+    );
+
   await clearOperatorSession();
+  await clearInstitutionalSession();
 
   const response = NextResponse.redirect(
-    new URL('/operator/login', request.url),
+    new URL("/operator/login", request.url),
     { status: 303 },
   );
 
-  response.headers.set('Cache-Control', 'no-store, private');
-  response.headers.set('Referrer-Policy', 'no-referrer');
+  response.headers.set("Cache-Control", "no-store, private");
+  response.headers.set("Referrer-Policy", "no-referrer");
 
   return response;
 }

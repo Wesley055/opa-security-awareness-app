@@ -1,3 +1,4 @@
+import { InsightModule } from './modules/insight/insight.module';
 import { ProtectedIdentityModule } from './modules/protected-identity/protected-identity.module';
 import { SsoModule } from './modules/sso/sso.module';
 import {
@@ -40,6 +41,7 @@ import { RequestLoggingMiddleware } from './shared/middleware/request-logging.mi
       },
     ]),
     PrismaModule,
+    InsightModule,
     ProtectedIdentityModule,
     ScheduleModule.forRoot(),
     RedisModule,

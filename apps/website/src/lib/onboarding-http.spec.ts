@@ -25,13 +25,14 @@ vi.mock("./onboarding-session", () => ({
   clearOnboardingSession: mocks.clear,
 }));
 import { onboardingProxy } from "./onboarding-proxy";
+import { AdminFailure } from "./super-admin-api";
 const id = "00000000-0000-4000-8000-000000000001";
+beforeEach(() => {
+  Object.values(mocks).forEach((m) => m.mockReset());
+  mocks.access.mockResolvedValue("support-token");
+  mocks.requireAdmin.mockResolvedValue({ access: "admin-token" });
+});
 describe("onboarding HTTP boundary", () => {
-  beforeEach(() => {
-    Object.values(mocks).forEach((m) => m.mockReset());
-    mocks.access.mockResolvedValue("support-token");
-    mocks.requireAdmin.mockResolvedValue({ access: "admin-token" });
-  });
   it("rejects cross-origin writes before contacting the API", async () => {
     const response = await onboardingProxy(
       new Request("https://opa.test/api/onboarding/operators", {
@@ -108,4 +109,76 @@ describe("onboarding HTTP boundary", () => {
     expect(mocks.save).not.toHaveBeenCalled();
     expect(JSON.stringify(await response.json())).not.toContain("Token");
   });
+});
+
+it.each([undefined, "previous:ADMIN"])(
+  "rejects missing or previous actor context %s",
+  async (expected) => {
+    mocks.upstream.mockResolvedValue({
+      actor: { id: "support", role: "USER" },
+      facilities: [{ id }],
+    });
+    const headers = new Headers();
+    if (expected) headers.set("x-onboarding-actor", expected);
+    const response = await onboardingProxy(
+      new Request(
+        "https://opa.test/api/onboarding/facilities/" + id + "/invitations",
+        { headers },
+      ),
+      ["facilities", id, "invitations"],
+      false,
+    );
+    expect(response.status).toBe(403);
+    expect(mocks.upstream).not.toHaveBeenCalledWith(
+      expect.stringContaining("/invitations"),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    );
+  },
+);
+it("checks current context using the captured support token before a bounded operation", async () => {
+  mocks.upstream
+    .mockResolvedValueOnce({
+      actor: { id: "support", role: "USER" },
+      facilities: [{ id }],
+    })
+    .mockResolvedValueOnce({ invitations: [], nextCursor: null });
+  const response = await onboardingProxy(
+    new Request(
+      "https://opa.test/api/onboarding/facilities/" + id + "/invitations",
+      { headers: { "x-onboarding-actor": "support:USER" } },
+    ),
+    ["facilities", id, "invitations"],
+    false,
+  );
+  expect(response.status).toBe(200);
+  expect(mocks.upstream).toHaveBeenLastCalledWith(
+    "/onboarding/facilities/" + id + "/invitations",
+    "support-token",
+    undefined,
+    undefined,
+  );
+});
+
+it("a failed actor login clears the previous onboarding cookie and saves no replacement", async () => {
+  mocks.upstream.mockRejectedValue(new AdminFailure(401));
+  const response = await onboardingProxy(
+    new Request("https://opa.test/api/onboarding/login", {
+      method: "POST",
+      headers: { origin: "https://opa.test" },
+      body: JSON.stringify({
+        email: randomUUID() + "@example.test",
+        password: randomBytes(24).toString("hex") + "aA1!",
+      }),
+    }),
+    ["login"],
+    false,
+  );
+  expect(response.status).toBe(401);
+  expect(mocks.clear).toHaveBeenCalledOnce();
+  expect(mocks.save).not.toHaveBeenCalled();
+  expect(mocks.clear.mock.invocationCallOrder[0]).toBeLessThan(
+    mocks.upstream.mock.invocationCallOrder[0],
+  );
 });

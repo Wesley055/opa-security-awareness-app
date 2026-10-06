@@ -1,25 +1,10 @@
-import { OperatorMembersController } from './operator-members.controller';
-
-describe('OperatorMembersController', () => {
-  it('uses the facility id established by OperatorFacilityGuard', async () => {
-    const facilitiesService = {
-      listMembersForOperator: jest.fn().mockResolvedValue({
-        facility: { id: 'facility-1', name: 'OPA Demo Estate' },
-        operators: [],
-        residents: [],
-      }),
-    };
-
-    const controller = new OperatorMembersController(facilitiesService as never);
-
-    // The request carries operatorFacilityId and nothing else the handler
-    // reads. A facility id arriving any other way would be browser-supplied.
-    await controller.listMyFacilityMembers({
-      operatorFacilityId: 'facility-1',
-    } as never);
-
-    expect(facilitiesService.listMembersForOperator).toHaveBeenCalledWith(
-      'facility-1', undefined,
-    );
+import { ForbiddenException } from "@nestjs/common";
+import { OperatorMembersController } from "./operator-members.controller";
+describe("Operator directory boundary", () => {
+  it("denies enumeration before reading members", () => {
+    const service = { listMembersForOperator: jest.fn() };
+    const controller = new OperatorMembersController(service as never);
+    expect(() => controller.listMyFacilityMembers({ operatorFacilityId: "facility" } as never, { page: 0 })).toThrow(ForbiddenException);
+    expect(service.listMembersForOperator).not.toHaveBeenCalled();
   });
 });

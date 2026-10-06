@@ -1,12 +1,14 @@
-import { BadRequestException } from '@nestjs/common';
-import { AccountStatus } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
-import { createHash } from 'crypto';
-import { PasswordResetService } from './password-reset.service';
+import { BadRequestException } from "@nestjs/common";
+import { AccountStatus } from "@prisma/client";
+import * as bcrypt from "bcrypt";
+import { createHash, randomBytes } from "crypto";
+import { PasswordResetService } from "./password-reset.service";
 
-describe('PasswordResetService', () => {
+describe("PasswordResetService", () => {
+  const encryptionKey = randomBytes(32).toString("hex");
+  const chosenPassword = randomBytes(24).toString("hex");
   const genericMessage =
-    'If an eligible OPA account exists for that email, password reset instructions will be sent.';
+    "If an eligible OPA account exists for that email, password reset instructions will be sent.";
 
   const emailProvider = {
     send: jest.fn(),
@@ -15,8 +17,8 @@ describe('PasswordResetService', () => {
   const config = {
     get: jest.fn<string | undefined, [string]>(() => undefined),
     getOrThrow: jest.fn((key: string) => {
-      if (key === 'ENROLLMENT_ENCRYPTION_KEY') return 'ab'.repeat(32);
-      if (key === 'BCRYPT_ROUNDS') {
+      if (key === "ENROLLMENT_ENCRYPTION_KEY") return encryptionKey;
+      if (key === "BCRYPT_ROUNDS") {
         return 4;
       }
       throw new Error(`Unexpected config key: ${key}`);
@@ -24,6 +26,7 @@ describe('PasswordResetService', () => {
   };
 
   const tx = {
+    administrativeAuditEvent: { create: jest.fn() },
     $executeRaw: jest.fn(),
     passwordResetToken: {
       findUnique: jest.fn(),
@@ -49,17 +52,14 @@ describe('PasswordResetService', () => {
     ),
   };
 
-  const service = new PasswordResetService(
-    prisma as never,
-    config as never,
-  );
+  const service = new PasswordResetService(prisma as never, config as never);
 
   const activeUser = {
-    id: '00000000-0000-0000-0000-000000000001',
-    email: 'ada@example.com',
+    id: "00000000-0000-0000-0000-000000000001",
+    email: "ada@example.com",
     isActive: true,
     accountStatus: AccountStatus.ACTIVE,
-    passwordHash: 'existing-hash',
+    passwordHash: "existing-hash",
   };
 
   beforeEach(() => {
@@ -68,85 +68,96 @@ describe('PasswordResetService', () => {
     prisma.user.findUnique.mockResolvedValue(activeUser);
     emailProvider.send.mockResolvedValue({
       success: true,
-      provider: 'Email',
-      messageId: 'email-1',
+      provider: "Email",
+      messageId: "email-1",
     });
 
     tx.$executeRaw.mockResolvedValue(0);
     tx.passwordResetToken.updateMany.mockResolvedValue({ count: 1 });
-    tx.passwordResetToken.create.mockResolvedValue({ id: 'reset-1' });
+    tx.passwordResetToken.create.mockResolvedValue({ id: "reset-1" });
     tx.user.update.mockResolvedValue({ id: activeUser.id });
     prisma.passwordResetToken.updateMany.mockResolvedValue({ count: 1 });
   });
 
-  it.each([null, { ...activeUser }, { ...activeUser, isActive: false }])('durably queues identical reset work without querying identity or calling a provider (%p)', async (candidate) => {
-    prisma.user.findUnique.mockResolvedValue(candidate);
-    const result = await service.requestReset({ email: 'ADA@EXAMPLE.COM' });
-    expect(result).toEqual({ message: genericMessage });
-    expect(prisma.user.findUnique).not.toHaveBeenCalled();
-    expect(emailProvider.send).not.toHaveBeenCalled();
-    expect(tx.passwordResetToken.create).not.toHaveBeenCalled();
-    expect(prisma.accountInvitationDelivery.create).toHaveBeenCalledTimes(1);
-    const data = prisma.accountInvitationDelivery.create.mock.calls[0][0].data;
-    expect(data).toEqual({ purpose: 'PASSWORD_RESET', channel: 'EMAIL', recipient: '', status: 'QUEUED', requestCiphertext: expect.any(String) });
-    expect(JSON.stringify(data)).not.toContain('example.com');
-  });
+  it.each([null, { ...activeUser }, { ...activeUser, isActive: false }])(
+    "durably queues identical reset work without querying identity or calling a provider (%p)",
+    async (candidate) => {
+      prisma.user.findUnique.mockResolvedValue(candidate);
+      const result = await service.requestReset({ email: "ADA@EXAMPLE.COM" });
+      expect(result).toEqual({ message: genericMessage });
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+      expect(emailProvider.send).not.toHaveBeenCalled();
+      expect(tx.passwordResetToken.create).not.toHaveBeenCalled();
+      expect(prisma.accountInvitationDelivery.create).toHaveBeenCalledTimes(1);
+      const data =
+        prisma.accountInvitationDelivery.create.mock.calls[0][0].data;
+      expect(data).toEqual({
+        purpose: "PASSWORD_RESET",
+        channel: "EMAIL",
+        recipient: "",
+        status: "QUEUED",
+        requestCiphertext: expect.any(String),
+      });
+      expect(JSON.stringify(data)).not.toContain("example.com");
+    },
+  );
 
-  it('rejects an unknown reset token before bcrypt or transaction work', async () => {
+  it("rejects an unknown reset token before bcrypt or transaction work", async () => {
     prisma.passwordResetToken.findUnique.mockResolvedValue(null);
 
     await expect(
       service.confirmReset({
-        token: 'a'.repeat(64),
-        password: 'NewStrongPassword123!',
+        token: "a".repeat(64),
+        password: chosenPassword,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('rejects an expired token under the per-user lock', async () => {
+  it("rejects an expired token under the per-user lock", async () => {
     prisma.passwordResetToken.findUnique.mockResolvedValue({
-      id: 'reset-1',
+      id: "reset-1",
       userId: activeUser.id,
     });
 
     tx.passwordResetToken.findUnique.mockResolvedValue({
-      id: 'reset-1',
+      id: "reset-1",
       userId: activeUser.id,
-      tokenHash: createHash('sha256')
-        .update('b'.repeat(64))
-        .digest('hex'),
+      tokenHash: createHash("sha256").update("b".repeat(64)).digest("hex"),
       expiresAt: new Date(Date.now() - 60_000),
       consumedAt: null,
       user: {
         id: activeUser.id,
         isActive: true,
         accountStatus: AccountStatus.ACTIVE,
+        role: "ADMIN",
+        facilityId: null,
+        credentialVersion: 0,
       },
     });
 
     await expect(
       service.confirmReset({
-        token: 'b'.repeat(64),
-        password: 'NewStrongPassword123!',
+        token: "b".repeat(64),
+        password: chosenPassword,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(tx.user.update).not.toHaveBeenCalled();
   });
 
-  it('rejects an already-consumed token', async () => {
-    const rawToken = 'c'.repeat(64);
-    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+  it("rejects an already-consumed token", async () => {
+    const rawToken = "c".repeat(64);
+    const tokenHash = createHash("sha256").update(rawToken).digest("hex");
 
     prisma.passwordResetToken.findUnique.mockResolvedValue({
-      id: 'reset-1',
+      id: "reset-1",
       userId: activeUser.id,
     });
 
     tx.passwordResetToken.findUnique.mockResolvedValue({
-      id: 'reset-1',
+      id: "reset-1",
       userId: activeUser.id,
       tokenHash,
       expiresAt: new Date(Date.now() + 60_000),
@@ -155,30 +166,33 @@ describe('PasswordResetService', () => {
         id: activeUser.id,
         isActive: true,
         accountStatus: AccountStatus.ACTIVE,
+        role: "ADMIN",
+        facilityId: null,
+        credentialVersion: 0,
       },
     });
 
     await expect(
       service.confirmReset({
         token: rawToken,
-        password: 'NewStrongPassword123!',
+        password: chosenPassword,
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(tx.user.update).not.toHaveBeenCalled();
   });
 
-  it('updates the password, increments credentialVersion, and consumes all live reset tokens', async () => {
-    const rawToken = 'd'.repeat(64);
-    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+  it("updates the password, increments credentialVersion, and consumes all live reset tokens", async () => {
+    const rawToken = "d".repeat(64);
+    const tokenHash = createHash("sha256").update(rawToken).digest("hex");
 
     prisma.passwordResetToken.findUnique.mockResolvedValue({
-      id: 'reset-1',
+      id: "reset-1",
       userId: activeUser.id,
     });
 
     tx.passwordResetToken.findUnique.mockResolvedValue({
-      id: 'reset-1',
+      id: "reset-1",
       userId: activeUser.id,
       tokenHash,
       expiresAt: new Date(Date.now() + 60_000),
@@ -187,15 +201,30 @@ describe('PasswordResetService', () => {
         id: activeUser.id,
         isActive: true,
         accountStatus: AccountStatus.ACTIVE,
+        role: "ADMIN",
+        facilityId: null,
+        credentialVersion: 0,
       },
     });
 
     const result = await service.confirmReset({
       token: rawToken,
-      password: 'NewStrongPassword123!',
+      password: chosenPassword,
     });
 
     expect(result.message).toMatch(/password has been reset/i);
+    expect(tx.administrativeAuditEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: "LOCAL_PASSWORD_RESET",
+        actorUserId: activeUser.id,
+        actorRole: "ADMIN",
+        beforeState: { credentialVersion: 0 },
+        afterState: { credentialVersion: 1, sessionsRevoked: true },
+      }),
+    });
+    expect(
+      JSON.stringify(tx.administrativeAuditEvent.create.mock.calls),
+    ).not.toContain(chosenPassword);
 
     expect(tx.user.update).toHaveBeenCalledWith({
       where: {
@@ -210,9 +239,9 @@ describe('PasswordResetService', () => {
     });
 
     const update = tx.user.update.mock.calls[0][0];
-    expect(update.data.passwordHash).not.toBe('NewStrongPassword123!');
+    expect(update.data.passwordHash).not.toBe(chosenPassword);
     await expect(
-      bcrypt.compare('NewStrongPassword123!', update.data.passwordHash),
+      bcrypt.compare(chosenPassword, update.data.passwordHash),
     ).resolves.toBe(true);
 
     expect(tx.passwordResetToken.updateMany).toHaveBeenCalledWith({
@@ -226,18 +255,18 @@ describe('PasswordResetService', () => {
     });
   });
 
-  it('cannot successfully consume the same token twice', async () => {
-    const rawToken = 'e'.repeat(64);
-    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+  it("cannot successfully consume the same token twice", async () => {
+    const rawToken = "e".repeat(64);
+    const tokenHash = createHash("sha256").update(rawToken).digest("hex");
 
     prisma.passwordResetToken.findUnique.mockResolvedValue({
-      id: 'reset-1',
+      id: "reset-1",
       userId: activeUser.id,
     });
 
     tx.passwordResetToken.findUnique
       .mockResolvedValueOnce({
-        id: 'reset-1',
+        id: "reset-1",
         userId: activeUser.id,
         tokenHash,
         expiresAt: new Date(Date.now() + 60_000),
@@ -246,10 +275,13 @@ describe('PasswordResetService', () => {
           id: activeUser.id,
           isActive: true,
           accountStatus: AccountStatus.ACTIVE,
+          role: "ADMIN",
+          facilityId: null,
+          credentialVersion: 0,
         },
       })
       .mockResolvedValueOnce({
-        id: 'reset-1',
+        id: "reset-1",
         userId: activeUser.id,
         tokenHash,
         expiresAt: new Date(Date.now() + 60_000),
@@ -258,13 +290,16 @@ describe('PasswordResetService', () => {
           id: activeUser.id,
           isActive: true,
           accountStatus: AccountStatus.ACTIVE,
+          role: "ADMIN",
+          facilityId: null,
+          credentialVersion: 0,
         },
       });
 
     await expect(
       service.confirmReset({
         token: rawToken,
-        password: 'NewStrongPassword123!',
+        password: chosenPassword,
       }),
     ).resolves.toEqual(
       expect.objectContaining({
@@ -275,7 +310,7 @@ describe('PasswordResetService', () => {
     await expect(
       service.confirmReset({
         token: rawToken,
-        password: 'AnotherStrongPassword123!',
+        password: randomBytes(24).toString("hex"),
       }),
     ).rejects.toBeInstanceOf(BadRequestException);
 

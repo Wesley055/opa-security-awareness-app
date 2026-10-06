@@ -10,6 +10,7 @@ import {
 const uuid =
   "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 const allowed = new Set([
+  "actor",
   "users",
   "grants",
   "facilities",
@@ -136,6 +137,8 @@ export async function onboardingProxy(
           throw error;
         }
       } else {
+        // A failed actor switch must not retain the previous onboarding session.
+        await clearOnboardingSession();
         const body = await request.json();
         await saveTokens(
           await upstream("/auth/login", undefined, {
@@ -152,6 +155,15 @@ export async function onboardingProxy(
       ? (await requireAdmin()).access
       : await onboardingAccess();
     if (!access) throw new AdminFailure(401);
+    if (!admin && action.join("/") !== "facilities") {
+      const expected = request.headers.get("x-onboarding-actor");
+      const context = await upstream("/onboarding/facilities", access);
+      if (
+        !expected ||
+        expected !== context.actor?.id + ":" + context.actor?.role
+      )
+        throw new AdminFailure(403);
+    }
     const cursor = new URL(request.url).searchParams.get("cursor");
     if (cursor && !new RegExp(`^${uuid}$`).test(cursor))
       throw new AdminFailure(400);

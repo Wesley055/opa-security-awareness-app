@@ -17,3 +17,7 @@ export class AcceptEnrollmentDto {
   @IsUUID() requestId!: string;
   @IsString() @MaxLength(100) acceptanceToken!: string;
 }
+
+export class ContinueEnrollmentDto {
+  @IsUUID() requestId!: string;
+}

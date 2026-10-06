@@ -1,3 +1,4 @@
+import { PasswordInput } from "../../src/components/PasswordInput";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -18,6 +19,7 @@ export default function EnrollmentScreen() {
   const [emailCode, setEmailCode] = useState("");
   const [phoneCode, setPhoneCode] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [email, setEmail] = useState("");
   const [acceptanceToken, setAcceptanceToken] = useState<string | null>(null);
   const [consent, setConsent] = useState(false);
@@ -29,6 +31,13 @@ export default function EnrollmentScreen() {
     setError("");
     if (!consent) {
       setError("Confirm that you intend to accept this enrollment.");
+      return;
+    }
+    if (
+      !acceptanceToken &&
+      (password.length < 12 || password !== confirmPassword)
+    ) {
+      setError("Choose and confirm the same password, at least 12 characters.");
       return;
     }
     setBusy(true);
@@ -51,6 +60,7 @@ export default function EnrollmentScreen() {
           accept: true,
         });
         setPassword("");
+        setConfirmPassword("");
         if (result.status === "ACCEPTED") router.replace("/");
         else {
           setAcceptanceToken(result.acceptanceToken);
@@ -58,9 +68,14 @@ export default function EnrollmentScreen() {
           setPhoneCode("");
         }
       }
-    } catch {
+    } catch (error) {
       setError(
-        "Enrollment could not be completed. Check your codes or sign-in details and try again. Expired requests require a new enrollment request.",
+        error &&
+          typeof error === "object" &&
+          "response" in error &&
+          error.response
+          ? "Enrollment was not accepted. Check your codes or sign-in details. Expired requests require a new enrollment."
+          : "Enrollment result is unknown. Try signing in with your chosen password, or open the original enrollment link and choose Resume before retrying.",
       );
     } finally {
       setBusy(false);
@@ -74,13 +89,14 @@ export default function EnrollmentScreen() {
       <Text style={styles.title}>
         {acceptanceToken
           ? "Sign in to accept enrollment"
-          : "Verify your enrollment"}
+          : "Accept your institutional invitation"}
       </Text>
       <Text style={styles.text}>
         {acceptanceToken
           ? "Ownership is verified. Sign in with your existing account password to accept. Enrollment cannot move an account between organizations."
-          : "Your request is pending. No account or membership has been created. Enter the request ID and both codes sent to your email and phone. Choose a password for a new account."}
+          : "Your request is pending. No account or membership has been created. Open the enrollment link in your invitation to prefill its reference, or enter that reference below. Enter both codes sent to your email and phone. Choose and confirm your password. Both proofs and your chosen credential must be accepted before the account is active."}
       </Text>
+      <TouchableOpacity onPress={() => router.push("/(auth)/activate")} disabled={busy}><Text style={styles.text}>Have an older short invitation code instead?</Text></TouchableOpacity>
       {error ? (
         <Text accessibilityRole="alert" style={styles.error}>
           {error}
@@ -88,15 +104,17 @@ export default function EnrollmentScreen() {
       ) : null}
       {!acceptanceToken ? (
         <>
+          <Text style={styles.text}>Invitation reference from your message</Text>
           <TextInput
-            accessibilityLabel="Request ID"
-            placeholder="Request ID"
+            accessibilityLabel="Invitation reference"
+            placeholder="Invitation reference"
             style={styles.input}
             value={requestId}
             onChangeText={setRequestId}
             autoCapitalize="none"
             editable={!busy}
           />
+          <Text style={styles.text}>Email verification code</Text>
           <TextInput
             accessibilityLabel="Email code"
             placeholder="Email code"
@@ -107,6 +125,7 @@ export default function EnrollmentScreen() {
             autoCorrect={false}
             editable={!busy}
           />
+          <Text style={styles.text}>Phone verification code</Text>
           <TextInput
             accessibilityLabel="Phone code"
             placeholder="Phone code"
@@ -130,7 +149,8 @@ export default function EnrollmentScreen() {
           editable={!busy}
         />
       )}
-      <TextInput
+      <PasswordInput
+        textContentType={acceptanceToken ? "password" : "newPassword"}
         accessibilityLabel="Password"
         placeholder={
           acceptanceToken
@@ -140,9 +160,26 @@ export default function EnrollmentScreen() {
         style={styles.input}
         value={password}
         onChangeText={setPassword}
-        secureTextEntry
         editable={!busy}
       />
+      {!acceptanceToken ? (
+        <PasswordInput
+          accessibilityLabel="Confirm password"
+          placeholder="Confirm password"
+          style={styles.input}
+          value={confirmPassword}
+          onChangeText={setConfirmPassword}
+          textContentType="newPassword"
+          editable={!busy}
+        />
+      ) : (
+        <TouchableOpacity
+          onPress={() => router.push("/(auth)/forgot-password")}
+          disabled={busy}
+        >
+          <Text style={styles.text}>Forgot password?</Text>
+        </TouchableOpacity>
+      )}
       <TouchableOpacity
         accessibilityRole="checkbox"
         accessibilityState={{ checked: consent }}
@@ -164,7 +201,9 @@ export default function EnrollmentScreen() {
           <ActivityIndicator />
         ) : (
           <Text>
-            {acceptanceToken ? "Sign in and accept" : "Verify and accept"}
+            {acceptanceToken
+              ? "Sign in and accept"
+              : "Verify and activate account"}
           </Text>
         )}
       </TouchableOpacity>

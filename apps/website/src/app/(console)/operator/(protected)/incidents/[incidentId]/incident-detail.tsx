@@ -10,6 +10,7 @@ import type {
 import { viewerSessionFetch } from "@/lib/viewer-session-fetch";
 import { DeliveryConfirmation } from "@/components/console/delivery-confirmation";
 import { EvidenceAvailability } from "@/components/console/evidence-availability";
+import { IncidentOperations, operationLabels } from "./incident-operations";
 import { IncidentTimeline } from "./incident-timeline";
 
 /**
@@ -351,6 +352,14 @@ export function IncidentDetailView({
     }
   }, [initialIncident.id]);
 
+  const denyOperations = useCallback(() => {
+    stopped.current = true;
+    setStatus("stopped");
+    setNotice(
+      "Current incident authority could not be confirmed. Return to Command Center.",
+    );
+  }, []);
+
   const poll = useCallback(async () => {
     if (stopped.current || inFlight.current) return;
     inFlight.current = true;
@@ -388,6 +397,7 @@ export function IncidentDetailView({
         return;
       }
 
+      if (stopped.current) return;
       setIncident(data.incident);
       if (data.serverTime) setServerTime(data.serverTime);
       setStatus("live");
@@ -410,12 +420,26 @@ export function IncidentDetailView({
         }
       }
     } catch {
-      setStatus("stale");
-      setNotice("Updates are temporarily unavailable.");
+      if (!stopped.current) {
+        setStatus("stale");
+        setNotice("Updates are temporarily unavailable.");
+      }
     } finally {
       inFlight.current = false;
     }
   }, [initialIncident.id, refreshTimeline, refreshTracking]);
+
+  const refreshAfterOperation = async () => {
+    while (inFlight.current && !stopped.current)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    await poll();
+  };
+
+  useEffect(() => {
+    window.addEventListener("opa:access-changed", denyOperations);
+    return () =>
+      window.removeEventListener("opa:access-changed", denyOperations);
+  }, [denyOperations]);
 
   useEffect(() => {
     if (status === "stopped") return;
@@ -474,6 +498,23 @@ export function IncidentDetailView({
     ? formatAge(tracking.lastFixReceivedAt, tracking.serverTime)
     : null;
 
+  const latestOperation = [...timeline]
+    .reverse()
+    .find(
+      (event) =>
+        event.type.startsWith("OPERATOR_") &&
+        operationLabels[event.type.slice(9)],
+    );
+  const activationSource = incident.safeWalkEmergency?.source === "SAFEWALK_EXPLICIT" ? "SafeWalk emergency" : timeline.some(
+    (event) =>
+      event.type === "INCIDENT_CREATED" && event.display.silentMode === true,
+  )
+    ? "Silent SOS"
+    : incident.trigger === "VOICE_HELP_HELP"
+      ? "Voice SOS"
+      : incident.trigger === "SOS_BUTTON"
+        ? "SOS button"
+        : formatEnum(incident.trigger);
   const phrase = displayVoicePhrase(incident.voicePhrase);
   const isClosed =
     incident.status === "RESOLVED" || incident.status === "CANCELLED";
@@ -500,7 +541,7 @@ export function IncidentDetailView({
                     : "mt-3 inline-flex rounded-full border border-emergency/30 bg-emergency/10 px-2.5 py-1 font-mono text-xs uppercase tracking-widest text-emergency"
               }
             >
-              {formatEnum(incident.status)}
+              Incident state: {formatEnum(incident.status)}
             </span>
           </div>
 
@@ -650,6 +691,15 @@ export function IncidentDetailView({
             )}
           </Row>
 
+          {tracking?.latest ? (
+            <>
+              <Row label="Location captured">{formatLocalDateTime(tracking.latest.recordedAt)}</Row>
+              <Row label="Location received">{tracking.latest.receivedAt ? formatLocalDateTime(tracking.latest.receivedAt) : "Receipt timestamp unavailable for activation fallback."}</Row>
+              <Row label="Location accuracy">{tracking.latest.accuracy != null ? `${tracking.latest.accuracy} metres` : "Accuracy not provided."}</Row>
+              <Row label="Location freshness">{trackingHealth === "live" && tracking.state === "RECEIVING" && tracking.latest.origin === "TRACKED" && new Date(serverTime).getTime() - new Date(tracking.latest.recordedAt).getTime() >= 0 && new Date(serverTime).getTime() - new Date(tracking.latest.recordedAt).getTime() <= 120000 ? "Recent capture at last successful check; not a guarantee of current position." : "Last known position; stale or current freshness unconfirmed."}</Row>
+            </>
+          ) : <Row label="Location availability">{tracking?.state === "AWAITING_FIRST_FIX" ? "Waiting for the device to provide location. Permission/device failure is not known." : "Location unavailable. No device failure or permission state has been confirmed."}</Row>}
+
           {incident.status === "RESOLVED" ? (
             <Row label="Resolved">
               {incident.resolvedAt ? (
@@ -685,12 +735,26 @@ export function IncidentDetailView({
       </section>
 
       <section className="rounded-xl border border-line bg-panel p-4 text-ink">
-        <h2 className="text-xl font-bold">Incident actions</h2>
-        <p className="mt-2 text-sm text-muted">
-          Operator acknowledgement and closure are not available. Closure is
-          currently restricted to the incident owner.
+        <h2 className="text-xl font-bold">Operational state</h2>
+        <p>
+          {!timelineAvailable
+            ? "Unknown"
+            : latestOperation
+              ? operationLabels[latestOperation.type.slice(9)]
+              : "No operational activity recorded"}
         </p>
+        {timelineStale && (
+          <p>Last known history; current operational state is unconfirmed.</p>
+        )}
+        <p>Activation source: {activationSource}</p>
+        {incident.safeWalkEmergency && <><p>Journey protection: Escalated to emergency</p><p>Emergency started: <time dateTime={incident.safeWalkEmergency.emergencyStartedAt}>{formatLocalDateTime(incident.safeWalkEmergency.emergencyStartedAt)}</time></p></>}
       </section>
+      <IncidentOperations
+        incidentId={incident.id}
+        enabled={incident.status === "OPEN" && status === "live"}
+        refresh={refreshAfterOperation}
+        denied={denyOperations}
+      />
       <DeliveryConfirmation
         key={initialIncident.id}
         incidentId={initialIncident.id}

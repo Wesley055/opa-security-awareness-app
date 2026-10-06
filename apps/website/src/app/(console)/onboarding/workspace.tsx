@@ -1,7 +1,13 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
+import {
+  useOnboardingScope,
+  signalOnboardingSession,
+  type Scope,
+} from "@/lib/onboarding-scope";
+import { normalizeEnrollmentPhone } from "@/lib/enrollment-phone";
 import { onboardingFetch } from "@/lib/onboarding-fetch";
-type Facility = { id: string; name: string };
+
 type Invitation = {
   id: string;
   requestedRole: string;
@@ -19,10 +25,41 @@ type Invitation = {
   }[];
 };
 export default function Workspace() {
+  const authority = useOnboardingScope();
+  if (!authority.scope)
+    return (
+      <section role="status">
+        <p>{authority.error}</p>
+        <button onClick={authority.retry}>Retry authority check</button>
+        <a href="/onboarding/login">Restore session</a>
+      </section>
+    );
+  const scope = authority.scope;
+  return (
+    <ScopedWorkspace
+      key={
+        scope.actor.id +
+        ":" +
+        scope.actor.role +
+        ":" +
+        scope.facilities.map((f) => f.id).join(",")
+      }
+      scope={scope}
+      invalidate={authority.invalidate}
+    />
+  );
+}
+function ScopedWorkspace({
+  scope,
+  invalidate,
+}: {
+  scope: Scope;
+  invalidate: () => void;
+}) {
   const [checkedAt, setCheckedAt] = useState(0);
-  const [facilities, setFacilities] = useState<Facility[]>([]),
-    [facility, setFacility] = useState(""),
-    [facilityCursor, setFacilityCursor] = useState<string | null>(null);
+  const facilities = scope.facilities;
+  const [selection, setFacility] = useState("");
+  const facility = facilities.some((f) => f.id === selection) ? selection : "";
   const [rows, setRows] = useState<Invitation[]>([]),
     [cursor, setCursor] = useState<string | null>(null),
     [busy, setBusy] = useState(false),
@@ -30,28 +67,17 @@ export default function Workspace() {
   const revision = useRef(0),
     retry = useRef<{ body: string; key: string } | null>(null);
   async function read(path: string, init?: RequestInit) {
-    const response = await onboardingFetch(path, init);
+    const headers = new Headers(init?.headers);
+    headers.set("x-onboarding-actor", scope.actor.id + ":" + scope.actor.role);
+    const response = await onboardingFetch(path, { ...init, headers });
+    if ([401, 403].includes(response.status)) {
+      invalidate();
+      throw new Error("Current authority required.");
+    }
     const data = await response.json();
     if (!response.ok) throw new Error(data.error ?? "Request failed.");
     return data;
   }
-  useEffect(() => {
-    let active = true;
-    read("facilities")
-      .then((data) => {
-        if (active) {
-          setFacilities(data.facilities);
-          setFacilityCursor(data.nextCursor);
-        }
-      })
-      .catch(() => {
-        if (active)
-          setMessage("Facilities unavailable. Restore your session or reload.");
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
   async function load(id: string, after?: string) {
     const version = ++revision.current;
     setBusy(true);
@@ -106,12 +132,19 @@ export default function Workspace() {
   }
   return (
     <>
+      <p role="status">
+        Authenticated account: {scope.actor.id} · {scope.actor.role} ·{" "}
+        {scope.actor.role === "ADMIN"
+          ? "Platform authority"
+          : "Delegated onboarding"}
+      </p>
       <div className="sa-actions">
         <a href="/onboarding/login">Restore session</a>
         <button
           className="sa-secondary"
           onClick={async () => {
             await fetch("/api/onboarding/logout", { method: "POST" });
+            signalOnboardingSession();
             window.location.assign("/onboarding/login");
           }}
         >
@@ -139,25 +172,6 @@ export default function Workspace() {
           ))}
         </select>
       </label>
-      {facilityCursor && (
-        <button
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            try {
-              const data = await read("facilities?cursor=" + facilityCursor);
-              setFacilities((old) => [...old, ...data.facilities]);
-              setFacilityCursor(data.nextCursor);
-            } catch {
-              setMessage("Could not load more facilities.");
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          More facilities
-        </button>
-      )}
       {!facilities.length && <p>No authorized facilities are available.</p>}
       {message && (
         <p role="status" className="sa-notice">
@@ -173,12 +187,23 @@ export default function Workspace() {
                 e.preventDefault();
                 const form = new FormData(e.currentTarget);
                 const role = String(form.get("role"));
+                let phoneNumber: string;
+                try {
+                  phoneNumber = normalizeEnrollmentPhone(
+                    String(form.get("phoneNumber") ?? ""),
+                  );
+                } catch {
+                  setMessage(
+                    "Enter a valid phone number. Use a country code outside Nigeria.",
+                  );
+                  return;
+                }
                 const body = {
                   facilityId: facility,
                   firstName: form.get("firstName"),
                   lastName: form.get("lastName"),
                   email: form.get("email"),
-                  phoneNumber: form.get("phoneNumber"),
+                  phoneNumber,
                 };
                 const serialized = JSON.stringify({ role, body });
                 if (retry.current?.body !== serialized)

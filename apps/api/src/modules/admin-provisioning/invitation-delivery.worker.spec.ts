@@ -49,11 +49,13 @@ describe("InvitationDeliveryWorker", () => {
     createdAt: new Date("2026-08-31T10:00:00.000Z"),
     updatedAt: new Date("2026-08-31T10:00:01.000Z"),
     facility: {
+      operationalState: "ACTIVE",
       name: "Ikeja Gardens",
       isActive: true,
     },
     user: {
       id: "resident-1",
+      membershipState: "ACTIVE",
       role: UserRole.USER,
       isActive: true,
       accountStatus: AccountStatus.PENDING_ACTIVATION as AccountStatus,
@@ -140,7 +142,7 @@ describe("InvitationDeliveryWorker", () => {
 
     expect(request.recipient).toBe("+2348024662124");
     expect(request.message).toMatch(
-      /^OPA: Ikeja Gardens has added you to emergency protection\.\n\nYour code: [0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}\n\nOpen OPA and enter this code\. Expires in 24 hours\.$/,
+      /^OPA: Ikeja Gardens invited you\.\nYour code: [0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}\n\nInstall\/open OPA using your facility instructions\. Choose Activate Account\. Expires in 24 hours\.$/,
     );
     expect(request.message.length).toBeLessThanOrEqual(160);
 
@@ -154,6 +156,7 @@ describe("InvitationDeliveryWorker", () => {
   it("sanitizes non-GSM facility characters and shortens only at word boundaries", async () => {
     await queueOneClaim({
       facility: {
+        operationalState: "ACTIVE",
         name: "Ikeja Gardens Residents Association Phase 2 Extension Ã°Å¸ÂÂ¡",
         isActive: true,
       },

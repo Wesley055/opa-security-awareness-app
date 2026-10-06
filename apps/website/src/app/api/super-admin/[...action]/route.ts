@@ -1,3 +1,5 @@
+import { sameOriginSessionPost } from "@/lib/session-post-origin";
+import { project } from "@/lib/super-admin-projection";
 import { NextResponse } from "next/server";
 import {
   AdminFailure,
@@ -13,69 +15,6 @@ import {
 export const dynamic = "force-dynamic";
 type Context = { params: Promise<{ action: string[] }> };
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const allowedKeys = new Set([
-  "facilities",
-  "facility",
-  "members",
-  "invitations",
-  "events",
-  "nextCursor",
-  "id",
-  "name",
-  "type",
-  "isActive",
-  "isVerified",
-  "createdAt",
-  "updatedAt",
-  "role",
-  "facilityId",
-  "accountStatus",
-  "activatedAt",
-  "invitedByUserId",
-  "membershipState",
-  "requestId",
-  "status",
-  "requestedRole",
-  "expiresAt",
-  "verifiedAt",
-  "acceptedAt",
-  "acceptedUserId",
-  "revokedAt",
-  "lastResentAt",
-  "deliveries",
-  "channel",
-  "attemptCount",
-  "queuedAt",
-  "nextAttemptAt",
-  "lastAttemptAt",
-  "sentAt",
-  "failedAt",
-  "actorUserId",
-  "actorRole",
-  "action",
-  "resourceId",
-  "previousFacilityId",
-  "reason",
-  "beforeState",
-  "afterState",
-  "userId",
-  "revoked",
-  "authority",
-  "grantId",
-  "approvedByUserId",
-  "permission",
-  "unrevokedGrants",
-]);
-export function project(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(project);
-  if (value && typeof value === "object")
-    return Object.fromEntries(
-      Object.entries(value)
-        .filter(([key]) => allowedKeys.has(key))
-        .map(([key, item]) => [key, project(item)]),
-    );
-  return value;
-}
 function json(body: unknown, status = 200) {
   return NextResponse.json(body, {
     status,
@@ -113,6 +52,10 @@ async function saveTokens(result: {
 export async function GET(request: Request, context: Context) {
   try {
     const action = (await context.params).action;
+    if (action.length === 1 && action[0] === "context") {
+      const actor = await requireAdmin();
+      return json({ id: actor.actorId, name: actor.name, role: "ADMIN" });
+    }
     if (
       action[0] !== "facilities" ||
       !(
@@ -141,10 +84,16 @@ export async function GET(request: Request, context: Context) {
 }
 export async function POST(request: Request, context: Context) {
   try {
-    if (request.headers.get("origin") !== new URL(request.url).origin)
-      throw new AdminFailure(403);
     const action = (await context.params).action,
       name = action[0];
+    const sessionAction =
+      action.length === 1 && ["login", "logout", "refresh"].includes(name);
+    if (
+      sessionAction
+        ? !sameOriginSessionPost(request)
+        : request.headers.get("origin") !== new URL(request.url).origin
+    )
+      throw new AdminFailure(403);
     const simple =
       action.length === 1 &&
       [

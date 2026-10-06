@@ -27,7 +27,7 @@ describe("protected identity authorization and audit", () => {
       create: jest.fn(),
       findMany: jest.fn(),
     },
-    user: { findFirst: jest.fn() },
+    user: { findFirst: jest.fn(), findUnique: jest.fn() },
     identityResolutionAudit: { create: jest.fn() },
   };
   const prisma = {
@@ -40,6 +40,7 @@ describe("protected identity authorization and audit", () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    tx.user.findUnique.mockResolvedValue({role:"FACILITY_ADMIN"});
     tx.identityAccessGrant.findFirst.mockResolvedValue({ id: "grant" });
     tx.user.findFirst.mockResolvedValue({ tenantId });
     tx.protectedIdentifier.findFirst.mockResolvedValue({

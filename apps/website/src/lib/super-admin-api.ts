@@ -53,6 +53,7 @@ export async function requireAdmin(token?: string) {
     throw new AdminFailure(403);
   return {
     access,
+    actorId: typeof me.id === "string" ? me.id : null,
     facilityId: typeof me.facilityId === "string" ? me.facilityId : null,
     name: [me.firstName, me.lastName]
       .filter((v) => typeof v === "string")

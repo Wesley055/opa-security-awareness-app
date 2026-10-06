@@ -1,6 +1,12 @@
-import { onboardingAuthority } from "../onboarding/onboarding-authority";
+import { enrollmentDestination } from "../../shared/security/enrollment-navigation";
+import {
+  enrollmentAuthority,
+  enrollmentSupportCase,
+  type InstitutionalRole,
+} from "../onboarding/support-authority";
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   UnauthorizedException,
@@ -50,9 +56,22 @@ export class EnrollmentService {
     idempotencyKey: string,
     facilityId?: string,
     actorId?: string,
-    requestedRole: "USER" | "FACILITY_ADMIN" | "FACILITY_OPERATOR" = "USER",
+    requestedRole: InstitutionalRole = "USER",
+    auditContext?: {
+      reason: string;
+      caseReference?: string;
+      correlationId: string;
+    },
+    firstFacilityAdmin = false,
   ) {
-    if (requestedRole !== "USER" && (!facilityId || !actorId))
+    if (["production", "staging"].includes(this.config.get<string>("OPA_ENVIRONMENT") ?? ""))
+      enrollmentDestination(this.config.get<string>("OPA_WEB_URL"), "configuration-check");
+    if (auditContext && !auditContext.reason.trim())
+      throw new BadRequestException("Reason required.");
+    if (
+      requestedRole !== "USER" &&
+      (!actorId || (requestedRole !== "TECHNICAL_SUPPORT" && !facilityId))
+    )
       throw new ForbiddenException("Platform authority required.");
     const identity = {
       email: input.email.trim().toLowerCase(),
@@ -71,13 +90,29 @@ export class EnrollmentService {
         identity,
         requestedRole,
         idempotencyKey,
+        ...(auditContext ? [auditContext] : []),
       ]),
     );
     return this.prisma.$transaction(async (tx) => {
-      const authority = facilityId
-        ? await this.authorizeInviter(tx, facilityId, actorId, requestedRole)
-        : undefined;
-      if (authority?.authority === "DELEGATED_ONBOARDING") {
+      const authority =
+        facilityId || requestedRole === "TECHNICAL_SUPPORT"
+          ? await this.authorizeInviter(
+              tx,
+              facilityId ?? null,
+              actorId,
+              requestedRole,
+              auditContext?.caseReference,
+            )
+          : undefined;
+      if (
+        firstFacilityAdmin &&
+        (requestedRole !== "FACILITY_ADMIN" ||
+          authority?.provisioningMode !== "FIRST_FACILITY_ADMIN")
+      )
+        throw new ForbiddenException(
+          "Current assigned Technical Support commissioning authority required.",
+        );
+      if (authority?.authority === "SUPPORT_CAPABILITY") {
         // Only compare the authenticated actor's own identifiers; never look
         // up the submitted recipient before dual ownership verification.
         const actor = await tx.user.findUniqueOrThrow({
@@ -89,8 +124,36 @@ export class EnrollmentService {
           actor.phoneNumber === identity.phoneNumber
         )
           throw new ForbiddenException(
-            "Delegated employees cannot invite their own identity.",
+            "Technical Support employees cannot invite their own identity.",
           );
+      }
+      if (actorId && auditContext) {
+        // The ADMIN operation receipt and canonical enrollment digest must agree.
+        // This lock is shared with support receipt reconciliation; no new enrollment implementation.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${actorId + ":canonical:" + auditContext.correlationId}))`;
+        const prior = await tx.administrativeAuditEvent.findFirst({
+          where: {
+            actorUserId: actorId,
+            correlationId: auditContext.correlationId,
+          },
+        });
+        if (prior) {
+          const same = await tx.enrollmentRequest.findUnique({
+            where: { idempotencyDigest: digest },
+            select: { id: true },
+          });
+          if (
+            prior.action !== "ENROLLMENT_REQUESTED" ||
+            same?.id !== prior.resourceId
+          )
+            throw new ConflictException(
+              "Operation reference was already used for a different request.",
+            );
+          return {
+            requestId: same.id,
+            status: "VERIFICATION_PENDING" as const,
+          };
+        }
       }
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${digest}))`;
       const existing = await tx.enrollmentRequest.findUnique({
@@ -127,7 +190,17 @@ export class EnrollmentService {
             actorUserId: actorId,
             actorRole: authority?.actorRole ?? "INSTITUTIONAL_INVITER",
             action: "ENROLLMENT_REQUESTED",
-            ...(authority ? { reason: "Staff onboarding invitation" } : {}),
+            ...(authority
+              ? {
+                  reason: auditContext?.reason ?? "Staff onboarding invitation",
+                }
+              : {}),
+            ...(auditContext
+              ? {
+                  caseReference: auditContext.caseReference,
+                  correlationId: auditContext.correlationId,
+                }
+              : {}),
             resourceId: request.id,
             facilityId,
             afterState: { requestedRole, ...(authority ?? {}) },
@@ -198,33 +271,18 @@ export class EnrollmentService {
 
   private async authorizeInviter(
     tx: Prisma.TransactionClient,
-    facilityId: string,
+    facilityId: string | null,
     actorId?: string,
-    requestedRole: "USER" | "FACILITY_ADMIN" | "FACILITY_OPERATOR" = "USER",
+    requestedRole: InstitutionalRole = "USER",
+    caseReference?: string,
   ) {
-    if (!actorId)
-      throw new ForbiddenException("Enrollment authority required.");
-    if (["FACILITY_ADMIN", "FACILITY_OPERATOR"].includes(requestedRole))
-      return onboardingAuthority(tx, actorId, facilityId);
-    await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${actorId}::uuid FOR SHARE`;
-    const actor = await tx.user.findUnique({ where: { id: actorId } });
-    if (
-      !actor?.isActive ||
-      actor.accountStatus !== "ACTIVE" ||
-      !(
-        actor.role === "ADMIN" ||
-        (requestedRole === "USER" &&
-          actor.role === "FACILITY_ADMIN" &&
-          actor.facilityId === facilityId)
-      )
-    )
-      throw new ForbiddenException("Enrollment authority required.");
-    await tx.$queryRaw`SELECT id FROM "Facility" WHERE id = ${facilityId}::uuid FOR SHARE`;
-    const facility = await tx.facility.findUnique({
-      where: { id: facilityId },
-    });
-    if (!facility?.isActive)
-      throw new ForbiddenException("Enrollment authority required.");
+    return enrollmentAuthority(
+      tx,
+      actorId,
+      facilityId,
+      requestedRole,
+      caseReference,
+    );
   }
 
   private async locked(tx: Prisma.TransactionClient, id: string) {
@@ -287,6 +345,7 @@ export class EnrollmentService {
             phoneNumber: true,
             role: true,
             facilityId: true,
+            membershipState: true,
             accountStatus: true,
             isActive: true,
           },
@@ -310,6 +369,7 @@ export class EnrollmentService {
           existing &&
           existing.accountStatus === "PENDING_ACTIVATION" &&
           existing.isActive &&
+          existing.membershipState === "ACTIVE" &&
           existing.email === identity.email &&
           existing.phoneNumber === identity.phoneNumber &&
           existing.role === request.requestedRole &&
@@ -321,6 +381,11 @@ export class EnrollmentService {
             request.facilityId!,
             request.invitedByUserId ?? undefined,
             request.requestedRole as "FACILITY_OPERATOR" | "FACILITY_ADMIN",
+            await enrollmentSupportCase(
+              tx,
+              request.id,
+              request.invitedByUserId,
+            ),
           );
           const claimed = await tx.user.updateMany({
             where: {
@@ -353,13 +418,17 @@ export class EnrollmentService {
             status: "AUTHENTICATION_REQUIRED" as const,
             acceptanceToken,
           };
-        if (request.facilityId)
+        if (request.facilityId || request.requestedRole === "TECHNICAL_SUPPORT")
           await this.authorizeInviter(
             tx,
             request.facilityId,
             request.invitedByUserId ?? undefined,
-            request.requestedRole as
-              "USER" | "FACILITY_ADMIN" | "FACILITY_OPERATOR",
+            request.requestedRole as InstitutionalRole,
+            await enrollmentSupportCase(
+              tx,
+              request.id,
+              request.invitedByUserId,
+            ),
           );
         const user = await tx.user.create({
           data: {
@@ -386,6 +455,79 @@ export class EnrollmentService {
       });
     if (!outcome) throw new BadRequestException(FAILURE);
     return outcome;
+  }
+
+  /** Recovery only after both original proofs, authenticated exact identity and current authority. */
+  async continueVerified(actorId: string, requestId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const request = await this.locked(tx, requestId);
+      if (
+        !request ||
+        request.revokedAt ||
+        !request.verifiedAt ||
+        request.expiresAt <= new Date() ||
+        request.proofAttempts >= 5
+      )
+        throw new BadRequestException(FAILURE);
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${actorId}))`;
+      await tx.$queryRaw`SELECT id FROM "User" WHERE id=${actorId}::uuid FOR UPDATE`;
+      const user = await tx.user.findUnique({ where: { id: actorId } });
+      if (
+        !user?.isActive ||
+        user.accountStatus !== "ACTIVE" ||
+        user.membershipState !== "ACTIVE"
+      )
+        throw new UnauthorizedException(FAILURE);
+      const identity = await resolveEnrollmentIdentity<EnrollmentIdentity>(
+        tx,
+        this.config,
+        request.identityCiphertext,
+        {
+          sourceId: request.id,
+          facilityId: request.facilityId,
+          actorUserId: actorId,
+          purpose: "ENROLLMENT_ACCEPT",
+        },
+      );
+      if (
+        user.email !== identity.email ||
+        user.phoneNumber !== identity.phoneNumber
+      )
+        throw new UnauthorizedException(FAILURE);
+      if (
+        user.role === "TECHNICAL_SUPPORT" &&
+        (user.facilityId !== null ||
+          (
+            await tx.supportEmployment.findUnique({
+              where: { userId: actorId },
+            })
+          )?.state !== "ACTIVE")
+      )
+        throw new UnauthorizedException(FAILURE);
+      if (request.acceptedAt) {
+        if (
+          request.acceptedUserId !== actorId ||
+          user.role !== request.requestedRole ||
+          user.facilityId !== request.facilityId
+        )
+          throw new UnauthorizedException(FAILURE);
+        return { status: "ACCEPTED" as const, role: user.role };
+      }
+      if (request.facilityId || request.requestedRole === "TECHNICAL_SUPPORT")
+        await this.authorizeInviter(
+          tx,
+          request.facilityId,
+          request.invitedByUserId ?? undefined,
+          request.requestedRole as InstitutionalRole,
+          await enrollmentSupportCase(tx, request.id, request.invitedByUserId),
+        );
+      const acceptanceToken = randomBytes(32).toString("base64url");
+      await tx.enrollmentRequest.update({
+        where: { id: request.id },
+        data: { acceptanceTokenHash: hash(acceptanceToken) },
+      });
+      return { status: "AUTHENTICATION_REQUIRED" as const, acceptanceToken };
+    });
   }
 
   async accept(actorId: string, dto: AcceptEnrollmentDto) {
@@ -425,24 +567,30 @@ export class EnrollmentService {
       if (request.acceptedAt) {
         if (request.acceptedUserId !== actorId)
           throw new BadRequestException(FAILURE);
-        return { status: "ACCEPTED" as const };
+        return {
+          status: "ACCEPTED" as const,
+          role: request.requestedRole ?? "USER",
+        };
       }
-      if (request.facilityId) {
+      if (request.facilityId || request.requestedRole === "TECHNICAL_SUPPORT") {
         const authority = await this.authorizeInviter(
           tx,
           request.facilityId,
           request.invitedByUserId ?? undefined,
-          request.requestedRole as
-            "USER" | "FACILITY_ADMIN" | "FACILITY_OPERATOR",
+          request.requestedRole as InstitutionalRole,
+          await enrollmentSupportCase(tx, request.id, request.invitedByUserId),
         );
         if (
-          authority?.authority === "DELEGATED_ONBOARDING" &&
+          authority?.authority === "SUPPORT_CAPABILITY" &&
           actorId === request.invitedByUserId
         )
           throw new ForbiddenException(
-            "Delegated employees cannot accept their own staff invitation.",
+            "Technical Support employees cannot accept their own staff invitation.",
           );
-        if (user.facilityId !== null && user.facilityId !== request.facilityId)
+        if (
+          user.membershipState !== "ACTIVE" ||
+          (user.facilityId !== null && user.facilityId !== request.facilityId)
+        )
           throw new BadRequestException(FAILURE);
         await tx.user.update({
           where: { id: user.id, facilityId: user.facilityId },
@@ -456,7 +604,10 @@ export class EnrollmentService {
         });
       }
       await this.complete(tx, request, user.id);
-      return { status: "ACCEPTED" as const };
+      return {
+        status: "ACCEPTED" as const,
+        role: request.requestedRole ?? "USER",
+      };
     });
   }
 
@@ -465,6 +616,23 @@ export class EnrollmentService {
     request: EnrollmentRequest,
     userId: string,
   ) {
+    if (request.requestedRole === "TECHNICAL_SUPPORT") {
+      await enrollmentAuthority(
+        tx,
+        request.invitedByUserId ?? undefined,
+        null,
+        "TECHNICAL_SUPPORT",
+      );
+      await tx.supportEmployment.upsert({
+        where: { userId },
+        create: {
+          userId,
+          appointedByUserId: request.invitedByUserId!,
+          state: "ACTIVE",
+        },
+        update: {},
+      });
+    }
     await tx.enrollmentRequest.update({
       where: { id: request.id },
       data: { acceptedAt: new Date(), acceptedUserId: userId },

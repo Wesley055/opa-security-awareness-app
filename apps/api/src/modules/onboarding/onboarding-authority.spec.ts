@@ -8,7 +8,7 @@ import { GUARDS_METADATA } from "@nestjs/common/constants";
 import { AdminGuard } from "../../shared/guards/admin.guard";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 
-describe("bounded onboarding authority", () => {
+describe("retired onboarding authority boundary", () => {
   const employee = {
     id: "employee",
     role: "USER",
@@ -45,24 +45,19 @@ describe("bounded onboarding authority", () => {
       ),
     ).toMatchObject({ actorRole: "ADMIN", grantId: null });
   });
-  it("preserves employee role and grant provenance", async () => {
-    expect(
-      await onboardingAuthority(client() as never, "employee", "facility"),
-    ).toEqual({
-      actorRole: "USER",
-      authority: "DELEGATED_ONBOARDING",
-      grantId: "grant",
-      approvedByUserId: "admin",
-    });
+  it("retired grants never authorize a non-platform actor, even when present", async () => {
+    await expect(
+      onboardingAuthority(client() as never, "employee", "facility"),
+    ).rejects.toThrow("retired");
   });
-  it("fails closed without a current matching database grant", async () => {
+  it("missing grants cannot restore retired authority", async () => {
     await expect(
       onboardingAuthority(
         client(employee, []) as never,
         "employee",
         "facility",
       ),
-    ).rejects.toThrow("Onboarding authority");
+    ).rejects.toThrow("retired");
   });
   it.each([
     { ...employee, isActive: false },

@@ -267,7 +267,7 @@ describe('SSO PostgreSQL authorization and atomic replay', () => {
       member.id,
     );
   });
-  it.each(['suspended', 'membership-revoked', 'facility-suspended', 'admin'])(
+  it.each(['suspended', 'membership-revoked', 'membership-suspended', 'facility-suspended', 'admin'])(
     'denies %s after verification',
     async (mode) => {
       await linked();
@@ -280,8 +280,10 @@ describe('SSO PostgreSQL authorization and atomic replay', () => {
       if (mode === 'membership-revoked')
         await db.user.update({
           where: { id: member.id },
-          data: { facilityId: null, credentialVersion: { increment: 1 } },
+          data: { membershipState: 'REVOKED', credentialVersion: { increment: 1 } },
         });
+      if (mode === 'membership-suspended')
+        await db.user.update({where:{id:member.id},data:{membershipState:'SUSPENDED'}});
       if (mode === 'facility-suspended')
         await db.facility.update({
           where: { id: facilityId },

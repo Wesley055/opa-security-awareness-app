@@ -19,6 +19,7 @@ import { apiUrl, getAccessToken } from '@/lib/operator-session';
  */
 
 export type IncidentDetail = {
+  safeWalkEmergency?: {source:"SAFEWALK_EXPLICIT";emergencyStartedAt:string};
   id: string;
   status: string;
   trigger: string;

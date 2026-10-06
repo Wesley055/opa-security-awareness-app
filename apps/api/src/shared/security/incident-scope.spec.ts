@@ -1,5 +1,6 @@
 import { incidentScope } from './incident-scope';
 const active = {
+  membershipState: 'ACTIVE',
   role: 'FACILITY_OPERATOR',
   facilityId: 'a',
   isActive: true,
@@ -14,7 +15,7 @@ describe('incident scope', () => {
       });
     },
   );
-  it.each(['USER', 'RESPONDER', 'FACILITY_ADMIN'])(
+  it.each(['USER', 'RESPONDER', 'TECHNICAL_SUPPORT'])(
     'does not grant operator access to %s',
     (role) => {
       expect(incidentScope('owner', { ...active, role })).toEqual({
@@ -36,4 +37,6 @@ describe('incident scope', () => {
   ])('fails closed for unavailable account state %#', (actor) => {
     expect(incidentScope('operator', actor)).toEqual({ id: { in: [] } });
   });
+  it('grants Facility Admin own-facility oversight only',()=>expect(incidentScope('admin',{...active,role:'FACILITY_ADMIN'})).toEqual({OR:[{userId:'admin'},{facilityId:'a'}]}));
+  it.each(['SUSPENDED','REVOKED',undefined])('never derives tenant authority from unavailable membership %s',membershipState=>expect(incidentScope('owner',{...active,membershipState})).toEqual({userId:'owner'}));
 });

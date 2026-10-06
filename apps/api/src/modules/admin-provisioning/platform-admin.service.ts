@@ -1,7 +1,9 @@
+import { applyEnrollmentDeliveryAction } from "../onboarding/enrollment-delivery-action";
+import { changeMembership } from "../onboarding/membership-lifecycle";
+import { randomUUID } from "crypto";
 import { onboardingAuthority } from "../onboarding/onboarding-authority";
 import {
   BadRequestException,
-  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
@@ -215,60 +217,11 @@ export class PlatformAdminService {
           !["FACILITY_ADMIN", "FACILITY_OPERATOR"].includes(row.requestedRole))
       )
         throw new NotFoundException("Invitation not found.");
-      if (row.acceptedAt || row.revokedAt)
-        throw new ConflictException("Invitation is no longer eligible.");
-      if (action === "revoke") {
-        await tx.enrollmentRequest.update({
-          where: { id },
-          data: {
-            revokedAt: new Date(),
-            emailTokenHash: null,
-            phoneTokenHash: null,
-            acceptanceTokenHash: null,
-          },
-        });
-        await tx.accountInvitationDelivery.updateMany({
-          where: { enrollmentId: id, status: "QUEUED" },
-          data: { status: "CANCELLED" },
-        });
-      } else {
-        const facility = await this.facility(tx, facilityId);
-        if (!facility.isActive || row.verifiedAt || row.proofAttempts >= 5)
-          throw new ConflictException("Invitation is no longer eligible.");
-        const cooldown = Math.max(
-          row.createdAt.getTime(),
-          row.lastResentAt?.getTime() ?? 0,
-          ...row.deliveries.map((d) => d.lastAttemptAt?.getTime() ?? 0),
-        );
-        if (
-          Date.now() - cooldown < 300000 ||
-          row.deliveries.some(
-            (d) => d.status === "QUEUED" || d.status === "SENDING",
-          )
-        )
-          throw new ConflictException(
-            "Wait five minutes and until delivery completes before resending.",
-          );
-        await tx.enrollmentRequest.update({
-          where: { id },
-          data: {
-            lastResentAt: new Date(),
-            expiresAt: new Date(Date.now() + 86400000),
-            emailTokenHash: null,
-            phoneTokenHash: null,
-          },
-        });
-        // Reuse the channel-unique outbox rows, retaining monotonically increasing attempts.
-        await tx.accountInvitationDelivery.updateMany({
-          where: { enrollmentId: id },
-          data: {
-            status: "QUEUED",
-            nextAttemptAt: new Date(),
-            lastError: null,
-            failedAt: null,
-          },
-        });
-      }
+      const facilityActive =
+        action === "resend"
+          ? (await this.facility(tx, facilityId)).isActive
+          : true;
+      await applyEnrollmentDeliveryAction(tx, row, action, facilityActive);
       await tx.administrativeAuditEvent.create({
         data: {
           actorUserId: actorId,
@@ -305,61 +258,18 @@ export class PlatformAdminService {
     reason: string,
   ) {
     this.reason(reason);
-    return this.prisma.$transaction(async (tx) => {
-      await this.authority(tx, actorId);
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
-      await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId}::uuid FOR UPDATE`;
-      const user = await tx.user.findUnique({
-        where: { id: userId },
-        select: memberSelect,
-      });
-      if (
-        !user ||
-        user.facilityId !== facilityId ||
-        !["USER", "FACILITY_OPERATOR", "FACILITY_ADMIN"].includes(user.role)
-      )
-        throw new NotFoundException("Membership not found.");
-      const facility = await this.facility(tx, facilityId);
-      if (
-        action === "reactivate" &&
-        (!facility.isActive || user.accountStatus !== "ACTIVE")
-      )
-        throw new ConflictException(
-          "Only accepted accounts in active facilities can be reactivated.",
-        );
-      const updated = await tx.user.update({
-        where: { id: userId },
-        data: {
-          isActive: action === "reactivate",
-          ...(action === "revoke" ? { facilityId: null } : {}),
-          credentialVersion: { increment: 1 },
-          activationTokenHash: null,
-          activationExpiresAt: null,
-        },
-        select: memberSelect,
-      });
-      if (action !== "reactivate")
-        await tx.accountInvitationDelivery.updateMany({
-          where: { userId, facilityId, status: "QUEUED" },
-          data: { status: "CANCELLED" },
-        });
-      await tx.administrativeAuditEvent.create({
-        data: {
-          actorUserId: actorId,
-          actorRole: "ADMIN",
-          action: "MEMBERSHIP_" + action.toUpperCase(),
-          resourceId: userId,
-          facilityId,
-          reason,
-          beforeState: { facilityId: user.facilityId, isActive: user.isActive },
-          afterState: {
-            facilityId: updated.facilityId,
-            isActive: updated.isActive,
-          },
-        },
-      });
-      return maskedPerson(updated);
-    });
+    // ADMIN revalidation and mutation share the same transaction and locks.
+    return this.prisma.$transaction((tx) =>
+      changeMembership(
+        tx,
+        actorId,
+        facilityId,
+        userId,
+        action === "reactivate" ? "restore" : action,
+        { reason, caseReference: randomUUID(), correlationId: randomUUID() },
+        true,
+      ),
+    );
   }
   async audit(actorId: string, facilityId: string, cursor?: string) {
     return this.prisma.$transaction(async (tx) => {

@@ -1,7 +1,7 @@
 import type {
   TimelineEvent,
   TimelineVerification,
-} from '@/lib/operator-timeline';
+} from "@/lib/operator-timeline";
 
 /**
  * The incident timeline. 14A-9. PURELY PRESENTATIONAL - it fetches nothing.
@@ -23,29 +23,37 @@ import type {
  */
 
 const TYPE_LABELS: Record<string, string> = {
-  INCIDENT_CREATED: 'Incident created',
-  LOCATION_ATTACHED: 'Location attached',
-  NOTIFICATIONS_QUEUED: 'Notifications queued',
-  SOS_RETRIGGERED: 'SOS re-triggered',
-  EVIDENCE_ADDED: 'Evidence added',
-  INCIDENT_RESOLVED: 'Incident resolved',
-  INCIDENT_CANCELLED: 'Incident cancelled',
+  INCIDENT_CREATED: "Incident created",
+  ACTIVATION_RECORDED: "Activation recorded",
+  OPERATOR_SEEN: "Operator seen",
+  OPERATOR_ACKNOWLEDGED: "Operator acknowledged",
+  OPERATOR_DISPATCHED: "Operator dispatched",
+  OPERATOR_RESPONSE_PROGRESS: "Response progress",
+  OPERATOR_ESCALATION: "Operator escalation",
+  OPERATIONAL_EXCEPTION: "Response milestone overdue",
+  OPERATIONAL_ESCALATION: "Institutional response escalation",
+  LOCATION_ATTACHED: "Location attached",
+  NOTIFICATIONS_QUEUED: "Notifications queued",
+  SOS_RETRIGGERED: "SOS re-triggered",
+  EVIDENCE_ADDED: "Evidence added",
+  INCIDENT_RESOLVED: "Incident resolved",
+  INCIDENT_CANCELLED: "Incident cancelled",
 };
 
 /** USER_SAFE reads better as a sentence than as a formatted enum. */
 const REASON_LABELS: Record<string, string> = {
-  USER_SAFE: 'Resident reported safe',
-  FALSE_ALARM: 'Reported as a false alarm',
+  USER_SAFE: "Resident reported safe",
+  FALSE_ALARM: "Reported as a false alarm",
 };
 
 function formatEnum(value: string): string {
   return value
-    .split('_')
+    .split("_")
     .filter(Boolean)
     .map((word) =>
       word.length <= 3 ? word : word.charAt(0) + word.slice(1).toLowerCase(),
     )
-    .join(' ');
+    .join(" ");
 }
 
 function label(type: string): string {
@@ -53,17 +61,19 @@ function label(type: string): string {
 }
 
 function text(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
 function num(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function coords(display: Record<string, unknown>): string | null {
   const lat = num(display.latitude);
   const lng = num(display.longitude);
-  return lat === null || lng === null ? null : `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  return lat === null || lng === null
+    ? null
+    : `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
 }
 
 /**
@@ -77,25 +87,36 @@ function detailLine(event: TimelineEvent): string | null {
   const d = event.display;
 
   switch (event.type) {
-    case 'INCIDENT_CREATED': {
+    case "INCIDENT_CREATED": {
       const trigger = text(d.trigger);
       const parts: string[] = [];
       if (trigger) parts.push(formatEnum(trigger));
-      if (d.silentMode === true) parts.push('Silent activation');
-      return parts.length ? parts.join(' \u00b7 ') : null;
+      if (d.silentMode === true) parts.push("Silent activation");
+      return parts.length ? parts.join(" \u00b7 ") : null;
     }
 
-    case 'LOCATION_ATTACHED':
+    case "OPERATOR_SEEN":
+    case "OPERATOR_ACKNOWLEDGED":
+    case "OPERATOR_DISPATCHED":
+    case "OPERATOR_RESPONSE_PROGRESS":
+    case "OPERATOR_ESCALATION":
+      return (
+        [text(d.actorRole), text(d.note)].filter(Boolean).join(" · ") || null
+      );
+
+    case "LOCATION_ATTACHED":
       return coords(d);
 
-    case 'NOTIFICATIONS_QUEUED': {
+    case "NOTIFICATIONS_QUEUED": {
       const queued = num(d.queued);
       if (queued === null) return null;
       // Zero is a real answer and an operator needs it: nobody was reached.
-      return queued === 1 ? '1 recipient queued' : `${queued} recipients queued`;
+      return queued === 1
+        ? "1 recipient queued"
+        : `${queued} recipients queued`;
     }
 
-    case 'SOS_RETRIGGERED': {
+    case "SOS_RETRIGGERED": {
       const parts: string[] = [];
       const method = text(d.triggerMethod);
       if (method) parts.push(formatEnum(method));
@@ -105,20 +126,20 @@ function detailLine(event: TimelineEvent): string | null {
       if (count !== null) parts.push(`re-trigger ${count}`);
       const since = num(d.secondsSinceInitialTrigger);
       if (since !== null) parts.push(`${since}s after the first`);
-      return parts.length ? parts.join(' \u00b7 ') : null;
+      return parts.length ? parts.join(" \u00b7 ") : null;
     }
 
-    case 'EVIDENCE_ADDED': {
+    case "EVIDENCE_ADDED": {
       const parts: string[] = [];
       const kind = text(d.evidenceType);
       if (kind) parts.push(formatEnum(kind));
       const size = num(d.sizeBytes);
       if (size !== null) parts.push(`${Math.round(size / 1024)} kB`);
-      return parts.length ? parts.join(' \u00b7 ') : null;
+      return parts.length ? parts.join(" \u00b7 ") : null;
     }
 
-    case 'INCIDENT_RESOLVED':
-    case 'INCIDENT_CANCELLED': {
+    case "INCIDENT_RESOLVED":
+    case "INCIDENT_CANCELLED": {
       const reason = text(d.reason);
       if (reason) return REASON_LABELS[reason] ?? formatEnum(reason);
       // close() omits reason when none was given. Fall back to the
@@ -137,13 +158,13 @@ function detailLine(event: TimelineEvent): string | null {
 
 function clockTime(iso: string): string {
   const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return '';
+  if (!Number.isFinite(d.getTime())) return "";
 
-  return new Intl.DateTimeFormat('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    timeZoneName: 'short',
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZoneName: "short",
   }).format(d);
 }
 
@@ -210,16 +231,22 @@ export function IncidentTimeline({
             Incident record integrity check failed
           </p>
           <p className="mt-1 text-sm text-ink">
-            {typeof verification?.brokenAtSequence === 'number'
+            {typeof verification?.brokenAtSequence === "number"
               ? `Timeline entry ${verification.brokenAtSequence} could not be verified.`
-              : 'This timeline could not be verified.'}{' '}
+              : "This timeline could not be verified."}{" "}
             Treat this history as potentially incomplete or altered.
           </p>
         </div>
       ) : null}
 
-      {stale ? <p role="status" className="mt-4 text-sm text-muted">Timeline updates are unavailable. History may be incomplete or stale.</p> : null}
-      {!available ? <p className="mt-4 text-sm text-muted">Timeline could not be loaded.</p> : events.length === 0 ? (
+      {stale ? (
+        <p role="status" className="mt-4 text-sm text-muted">
+          Timeline updates are unavailable. History may be incomplete or stale.
+        </p>
+      ) : null}
+      {!available ? (
+        <p className="mt-4 text-sm text-muted">Timeline could not be loaded.</p>
+      ) : events.length === 0 ? (
         <p className="mt-6 text-sm text-muted">
           No timeline entries have been recorded for this incident.
         </p>
@@ -248,7 +275,9 @@ export function IncidentTimeline({
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-ink">
                     {label(event.type)}
-                    <span className="ml-2 text-xs text-muted">Source: {event.source}</span>
+                    <span className="ml-2 text-xs text-muted">
+                      Source: {event.source}
+                    </span>
                   </p>
 
                   {line ? (

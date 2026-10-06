@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { PasswordInput } from "../../src/components/PasswordInput";
+import { useState } from "react";
 import {
   Text,
   TextInput,
@@ -7,15 +8,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
-  View,
-} from 'react-native';
-import { router } from 'expo-router';
-import { useAuthStore } from '../../src/store/authStore';
+} from "react-native";
+import { router } from "expo-router";
+import { useAuthStore } from "../../src/store/authStore";
 
 export default function LoginScreen() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const login = useAuthStore((state) => state.login);
@@ -23,16 +22,16 @@ export default function LoginScreen() {
   const handleLogin = async (): Promise<void> => {
     setError(null);
     if (!email || !password) {
-      setError('Enter your email and password.');
+      setError("Enter your email and password.");
       return;
     }
     setIsSubmitting(true);
     try {
       await login(email.trim().toLowerCase(), password);
-      router.replace('/');
+      router.replace("/");
     } catch (error: unknown) {
       const responseMessage =
-        typeof error === 'object' && error !== null && 'response' in error
+        typeof error === "object" && error !== null && "response" in error
           ? (
               error as {
                 response?: { data?: { message?: string | string[] } };
@@ -42,8 +41,8 @@ export default function LoginScreen() {
 
       setError(
         Array.isArray(responseMessage)
-          ? responseMessage.join('\n')
-          : responseMessage ?? 'Login failed. Please try again.',
+          ? responseMessage.join("\n")
+          : (responseMessage ?? "Login failed. Please try again."),
       );
     } finally {
       setIsSubmitting(false);
@@ -53,7 +52,7 @@ export default function LoginScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <Text style={styles.logo}>OPA</Text>
       <Text style={styles.subtitle}>Sign in to continue</Text>
@@ -72,32 +71,20 @@ export default function LoginScreen() {
         editable={!isSubmitting}
       />
 
-      <View style={styles.passwordWrapper}>
-        <TextInput
-          style={styles.passwordInput}
-          placeholder="Password"
-          placeholderTextColor="#8B949E"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry={!showPassword}
-          textContentType="password"
-          editable={!isSubmitting}
-          returnKeyType="done"
-          onSubmitEditing={handleLogin}
-        />
-        <TouchableOpacity
-          style={styles.showToggle}
-          onPress={() => setShowPassword((prev) => !prev)}
-          disabled={isSubmitting}
-        >
-          <Text style={styles.showToggleText}>
-            {showPassword ? 'Hide' : 'Show'}
-          </Text>
-        </TouchableOpacity>
-      </View>
+      <PasswordInput
+        style={styles.passwordInput}
+        placeholder="Password"
+        placeholderTextColor="#8B949E"
+        value={password}
+        onChangeText={setPassword}
+        textContentType="password"
+        editable={!isSubmitting}
+        returnKeyType="done"
+        onSubmitEditing={handleLogin}
+      />
 
       <TouchableOpacity
-        onPress={() => router.push('/(auth)/forgot-password')}
+        onPress={() => router.push("/(auth)/forgot-password")}
         disabled={isSubmitting}
       >
         <Text style={styles.forgotLink}>Forgot password?</Text>
@@ -124,15 +111,15 @@ export default function LoginScreen() {
 
       <TouchableOpacity
         style={styles.secondaryButton}
-        onPress={() => router.push('/(auth)/activate')}
+        onPress={() => router.push("/(auth)/enroll")}
         disabled={isSubmitting}
         activeOpacity={0.85}
       >
-        <Text style={styles.secondaryButtonText}>Activate my OPA account</Text>
+        <Text style={styles.secondaryButtonText}>Accept an institutional invitation</Text>
       </TouchableOpacity>
 
       <TouchableOpacity
-        onPress={() => router.push('/(auth)/register')}
+        onPress={() => router.push("/(auth)/register")}
         disabled={isSubmitting}
         activeOpacity={0.85}
       >
@@ -147,114 +134,114 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#08111A',
-    justifyContent: 'center',
+    backgroundColor: "#08111A",
+    justifyContent: "center",
     paddingHorizontal: 24,
   },
   logo: {
     fontSize: 48,
-    fontWeight: '900',
-    color: '#17C964',
-    textAlign: 'center',
+    fontWeight: "900",
+    color: "#17C964",
+    textAlign: "center",
     marginBottom: 4,
   },
   subtitle: {
     fontSize: 15,
-    color: '#8B949E',
-    textAlign: 'center',
+    color: "#8B949E",
+    textAlign: "center",
     marginBottom: 32,
   },
   error: {
-    color: '#FF5A36',
-    textAlign: 'center',
+    color: "#FF5A36",
+    textAlign: "center",
     marginBottom: 16,
     fontSize: 13,
   },
   input: {
-    backgroundColor: '#151D24',
+    backgroundColor: "#151D24",
     borderWidth: 1,
-    borderColor: '#232E36',
+    borderColor: "#232E36",
     borderRadius: 8,
     padding: 14,
-    color: '#FFFFFF',
+    color: "#FFFFFF",
     marginBottom: 12,
     fontSize: 15,
   },
   passwordWrapper: {
-    position: 'relative',
-    justifyContent: 'center',
+    position: "relative",
+    justifyContent: "center",
     marginBottom: 8,
   },
   passwordInput: {
-    backgroundColor: '#151D24',
+    backgroundColor: "#151D24",
     borderWidth: 1,
-    borderColor: '#232E36',
+    borderColor: "#232E36",
     borderRadius: 8,
     padding: 14,
     paddingRight: 60,
-    color: '#FFFFFF',
+    color: "#FFFFFF",
     fontSize: 15,
   },
   showToggle: {
-    position: 'absolute',
+    position: "absolute",
     right: 14,
   },
   showToggleText: {
-    color: '#17C964',
+    color: "#17C964",
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   forgotLink: {
-    color: '#8B949E',
-    textAlign: 'right',
+    color: "#8B949E",
+    textAlign: "right",
     marginBottom: 8,
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   button: {
-    backgroundColor: '#17C964',
+    backgroundColor: "#17C964",
     borderRadius: 8,
     padding: 16,
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 8,
   },
   buttonDisabled: {
     opacity: 0.6,
   },
   buttonText: {
-    color: '#08111A',
-    fontWeight: '700',
+    color: "#08111A",
+    fontWeight: "700",
     fontSize: 16,
   },
   orText: {
-    color: '#8B949E',
-    textAlign: 'center',
+    color: "#8B949E",
+    textAlign: "center",
     marginTop: 18,
     marginBottom: 12,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: "700",
   },
   invitationText: {
-    color: '#8B949E',
-    textAlign: 'center',
+    color: "#8B949E",
+    textAlign: "center",
     fontSize: 13,
     marginBottom: 10,
   },
   secondaryButton: {
     borderWidth: 1,
-    borderColor: '#17C964',
+    borderColor: "#17C964",
     borderRadius: 8,
     padding: 14,
-    alignItems: 'center',
+    alignItems: "center",
   },
   secondaryButtonText: {
-    color: '#17C964',
-    fontWeight: '700',
+    color: "#17C964",
+    fontWeight: "700",
     fontSize: 14,
   },
   link: {
-    color: '#17C964',
-    textAlign: 'center',
+    color: "#17C964",
+    textAlign: "center",
     marginTop: 16,
     fontSize: 14,
   },

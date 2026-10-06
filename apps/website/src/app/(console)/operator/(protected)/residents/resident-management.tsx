@@ -94,14 +94,14 @@ export function ResidentManagement({ initialResult }: { initialResult: InitialRe
         return;
       }
 
-      setNotice('Enrollment request accepted. Membership will appear only after verification and acceptance.');
+      setNotice('Enrollment request accepted. Open the enrollment link in the invitation and verify both email and phone codes. Membership appears only after verification and acceptance.');
       requestKey.current = null;
       setEnrollments(current => [{ ...body.enrollment }, ...current]);
       setForm(emptyForm);
       setShowAdd(false);
 
     } catch {
-      setError('Enrollment request could not be accepted. Check the connection and try again.');
+      setError('Invitation result is unknown. Check the resident list before retrying.');
     } finally {
       setBusy(false);
     }
@@ -142,8 +142,9 @@ export function ResidentManagement({ initialResult }: { initialResult: InitialRe
       }
 
       const result = body.result;
-      setNotice(`${result.requests.length} enrollment request(s) accepted for verification. No membership has been created by submission.`);
+      setNotice(`${result.requests.length} enrollment requests accepted for verification. No membership has been created by submission.`);
       requestKey.current = null;
+
       setEnrollments(current => [...result.requests, ...current]);
       setBulkText('');
       setShowBulk(false);
@@ -344,7 +345,7 @@ export function ResidentManagement({ initialResult }: { initialResult: InitialRe
         {residents.length === 0 ? (
           <div className="px-4 py-10 text-center sm:px-5">
             <p className="font-display font-bold text-ink">No residents yet</p>
-            <p className="mt-1 text-sm text-muted">Request enrollment to invite a resident to verify and accept membership.</p>
+            <p className="mt-1 text-sm text-muted">Invite a resident to verify email and phone ownership using the enrollment link in the invitation.</p>
           </div>
         ) : (
           <ul className="divide-y divide-line">

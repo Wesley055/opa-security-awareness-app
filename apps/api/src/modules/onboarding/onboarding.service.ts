@@ -226,6 +226,17 @@ export class OnboardingService {
       const actor = await tx.user.findUnique({ where: { id: actorId } });
       if (!actor?.isActive || actor.accountStatus !== "ACTIVE")
         throw new ForbiddenException("Onboarding authority required.");
+      if (actor.role === "TECHNICAL_SUPPORT") {
+        await tx.$queryRaw`SELECT "userId" FROM "SupportEmployment" WHERE "userId"=${actorId}::uuid FOR SHARE`;
+        if (
+          (
+            await tx.supportEmployment.findUnique({
+              where: { userId: actorId },
+            })
+          )?.state !== "ACTIVE"
+        )
+          throw new ForbiddenException("Active employment required.");
+      }
       const rows = await tx.facility.findMany({
         where: {
           isActive: true,
@@ -248,6 +259,7 @@ export class OnboardingService {
         take: 51,
       });
       return {
+        actor: { id: actor.id, role: actor.role },
         facilities: rows.slice(0, 50),
         nextCursor: rows.length > 50 ? rows[49]!.id : null,
       };

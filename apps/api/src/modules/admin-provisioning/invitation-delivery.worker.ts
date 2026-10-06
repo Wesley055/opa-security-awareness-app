@@ -86,9 +86,9 @@ function buildInvitationMessage(facilityName: string, code: string): string {
   const displayCode = `${code.slice(0, 4)}-${code.slice(4)}`;
   const prefix = "OPA: ";
   const afterName =
-    " has added you to emergency protection.\n\n" +
+    " invited you.\n" +
     `Your code: ${displayCode}\n\n` +
-    "Open OPA and enter this code. Expires in 24 hours.";
+    "Install/open OPA using your facility instructions. Choose Activate Account. Expires in 24 hours.";
 
   const fittedName = fitFacilityName(
     facilityName,
@@ -176,6 +176,11 @@ export class InvitationDeliveryWorker {
         await tx.$queryRaw`SELECT id FROM "EnrollmentRequest" WHERE id = ${candidate.enrollmentId}::uuid FOR UPDATE`;
       }
 
+      if (candidate.userId && candidate.purpose === "LEGACY_INVITATION") {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${candidate.userId}))`;
+        await tx.$queryRaw`SELECT id FROM "User" WHERE id=${candidate.userId}::uuid FOR UPDATE`;
+        if (candidate.facilityId) await tx.$queryRaw`SELECT id FROM "Facility" WHERE id=${candidate.facilityId}::uuid FOR SHARE`;
+      }
       const attempt = await this.ledger.claim(tx, {
         kind: "invitation",
         id: candidate.id,
@@ -185,12 +190,13 @@ export class InvitationDeliveryWorker {
       const delivery = await tx.accountInvitationDelivery.findUnique({
         where: { id: candidate.id },
         include: {
-          facility: { select: { name: true, isActive: true } },
+          facility: { select: { name: true, isActive: true, operationalState: true } },
           user: {
             select: {
               id: true,
               role: true,
               isActive: true,
+              membershipState: true,
               accountStatus: true,
               facilityId: true,
             },
@@ -242,6 +248,8 @@ export class InvitationDeliveryWorker {
         !delivery.facility ||
         !delivery.userId ||
         !delivery.facility.isActive ||
+        ["SUSPENDED", "DECOMMISSIONED"].includes(delivery.facility.operationalState) ||
+        delivery.user.membershipState !== "ACTIVE" ||
         !delivery.user.isActive ||
         delivery.user.role !== UserRole.USER ||
         delivery.user.accountStatus !== AccountStatus.PENDING_ACTIVATION ||

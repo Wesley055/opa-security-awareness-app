@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { PasswordInput } from "../../src/components/PasswordInput";
+import { useState } from "react";
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -8,17 +9,15 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
-} from 'react-native';
-import { router } from 'expo-router';
-import { api } from '../../src/services/api';
+} from "react-native";
+import { router } from "expo-router";
+import { api } from "../../src/services/api";
 
 export default function ResetPasswordScreen() {
-  const [token, setToken] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [done, setDone] = useState(false);
+  const [token, setToken] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -27,28 +26,31 @@ export default function ResetPasswordScreen() {
     setError(null);
 
     if (!normalizedToken) {
-      setError('Paste the reset token from your OPA email.');
+      setError("Paste the reset token from your OPA email.");
       return;
     }
     if (password.length < 12) {
-      setError('Password must be at least 12 characters.');
+      setError("Password must be at least 12 characters.");
       return;
     }
     if (password !== confirmPassword) {
-      setError('The passwords do not match.');
+      setError("The passwords do not match.");
       return;
     }
 
     setIsSubmitting(true);
     try {
-      await api.post('/auth/password-reset/confirm', {
+      await api.post("/auth/password-reset/confirm", {
         token: normalizedToken,
         password,
       });
-      router.replace('/(auth)/login');
+      setPassword("");
+      setConfirmPassword("");
+      setToken("");
+      setDone(true);
     } catch (error: unknown) {
       const responseMessage =
-        typeof error === 'object' && error !== null && 'response' in error
+        typeof error === "object" && error !== null && "response" in error
           ? (
               error as {
                 response?: { data?: { message?: string | string[] } };
@@ -58,19 +60,35 @@ export default function ResetPasswordScreen() {
 
       setError(
         Array.isArray(responseMessage)
-          ? responseMessage.join('\n')
-          : responseMessage ??
-              'The reset token is invalid or expired. Request a new one.',
+          ? responseMessage.join("\n")
+          : (responseMessage ??
+              "Reset result is unknown. Try signing in with the new password before requesting another reset."),
       );
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  if (done)
+    return (
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <Text style={styles.title}>Password reset complete</Text>
+        <Text style={styles.subtitle}>
+          Previous credentials and sessions are invalid. Your role and authority
+          are unchanged. Sign in with your new password.
+        </Text>
+        <TouchableOpacity
+          accessibilityRole="button"
+          onPress={() => router.replace("/(auth)/login")}
+        >
+          <Text style={styles.secondaryLink}>Sign in</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    );
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <ScrollView
         contentContainerStyle={styles.scrollContent}
@@ -79,8 +97,8 @@ export default function ResetPasswordScreen() {
         <Text style={styles.logo}>OPA</Text>
         <Text style={styles.title}>Choose a new password</Text>
         <Text style={styles.subtitle}>
-          Paste the secure token from your email. Reset tokens expire after
-          30 minutes and can be used only once.
+          Paste the secure token from your email. Reset tokens expire after 30
+          minutes and can be used only once.
         </Text>
 
         {error ? <Text style={styles.error}>{error}</Text> : null}
@@ -96,21 +114,21 @@ export default function ResetPasswordScreen() {
           editable={!isSubmitting}
         />
 
-        <PasswordField
-          label="New password, minimum 12 characters"
+        <PasswordInput
+          style={styles.passwordInput}
+          textContentType="newPassword"
+          placeholder="New password, minimum 12 characters"
           value={password}
-          onChange={setPassword}
-          visible={showPassword}
-          onToggle={() => setShowPassword((v) => !v)}
+          onChangeText={setPassword}
           editable={!isSubmitting}
         />
 
-        <PasswordField
-          label="Confirm new password"
+        <PasswordInput
+          style={styles.passwordInput}
+          textContentType="newPassword"
+          placeholder="Confirm new password"
           value={confirmPassword}
-          onChange={setConfirmPassword}
-          visible={showConfirmPassword}
-          onToggle={() => setShowConfirmPassword((v) => !v)}
+          onChangeText={setConfirmPassword}
           editable={!isSubmitting}
         />
 
@@ -127,7 +145,7 @@ export default function ResetPasswordScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          onPress={() => router.replace('/(auth)/login')}
+          onPress={() => router.replace("/(auth)/login")}
           disabled={isSubmitting}
         >
           <Text style={styles.secondaryLink}>Back to sign in</Text>
@@ -137,131 +155,91 @@ export default function ResetPasswordScreen() {
   );
 }
 
-function PasswordField({
-  label,
-  value,
-  onChange,
-  visible,
-  onToggle,
-  editable,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  visible: boolean;
-  onToggle: () => void;
-  editable: boolean;
-}) {
-  return (
-    <View style={styles.passwordWrapper}>
-      <TextInput
-        style={styles.passwordInput}
-        placeholder={label}
-        placeholderTextColor="#8B949E"
-        value={value}
-        onChangeText={onChange}
-        secureTextEntry={!visible}
-        textContentType="newPassword"
-        editable={editable}
-      />
-      <TouchableOpacity
-        style={styles.showToggle}
-        onPress={onToggle}
-        disabled={!editable}
-      >
-        <Text style={styles.showToggleText}>
-          {visible ? 'Hide' : 'Show'}
-        </Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#08111A' },
+  container: { flex: 1, backgroundColor: "#08111A" },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
+    justifyContent: "center",
     paddingHorizontal: 24,
     paddingVertical: 40,
   },
   logo: {
     fontSize: 42,
-    fontWeight: '900',
-    color: '#17C964',
-    textAlign: 'center',
+    fontWeight: "900",
+    color: "#17C964",
+    textAlign: "center",
     marginBottom: 6,
   },
   title: {
-    color: '#FFFFFF',
+    color: "#FFFFFF",
     fontSize: 24,
-    fontWeight: '800',
-    textAlign: 'center',
+    fontWeight: "800",
+    textAlign: "center",
   },
   subtitle: {
-    color: '#8B949E',
+    color: "#8B949E",
     fontSize: 14,
-    textAlign: 'center',
+    textAlign: "center",
     lineHeight: 20,
     marginTop: 8,
     marginBottom: 24,
   },
   error: {
-    color: '#FF5A36',
-    textAlign: 'center',
+    color: "#FF5A36",
+    textAlign: "center",
     marginBottom: 14,
     fontSize: 13,
   },
   input: {
-    backgroundColor: '#151D24',
+    backgroundColor: "#151D24",
     borderWidth: 1,
-    borderColor: '#232E36',
+    borderColor: "#232E36",
     borderRadius: 8,
     padding: 14,
-    color: '#FFFFFF',
+    color: "#FFFFFF",
     fontSize: 15,
     marginBottom: 12,
   },
   tokenInput: {
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
   },
   passwordWrapper: {
-    position: 'relative',
-    justifyContent: 'center',
+    position: "relative",
+    justifyContent: "center",
     marginBottom: 12,
   },
   passwordInput: {
-    backgroundColor: '#151D24',
+    backgroundColor: "#151D24",
     borderWidth: 1,
-    borderColor: '#232E36',
+    borderColor: "#232E36",
     borderRadius: 8,
     padding: 14,
     paddingRight: 60,
-    color: '#FFFFFF',
+    color: "#FFFFFF",
     fontSize: 15,
   },
-  showToggle: { position: 'absolute', right: 14 },
+  showToggle: { position: "absolute", right: 14 },
   showToggleText: {
-    color: '#17C964',
+    color: "#17C964",
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: "600",
   },
   button: {
-    backgroundColor: '#17C964',
+    backgroundColor: "#17C964",
     borderRadius: 8,
     padding: 16,
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 8,
   },
   buttonDisabled: { opacity: 0.6 },
   buttonText: {
-    color: '#08111A',
-    fontWeight: '700',
+    color: "#08111A",
+    fontWeight: "700",
     fontSize: 15,
   },
   secondaryLink: {
-    color: '#8B949E',
-    textAlign: 'center',
+    color: "#8B949E",
+    textAlign: "center",
     marginTop: 16,
     fontSize: 13,
   },

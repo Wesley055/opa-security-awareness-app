@@ -9,6 +9,11 @@ function getApiBaseUrl(): string | null {
 }
 
 export async function POST(request: Request) {
+  if (request.headers.get("origin") !== new URL(request.url).origin)
+    return NextResponse.json(
+      { ok: false, error: "Request origin rejected." },
+      { status: 403 },
+    );
   const baseUrl = getApiBaseUrl();
   if (!baseUrl)
     return NextResponse.json(

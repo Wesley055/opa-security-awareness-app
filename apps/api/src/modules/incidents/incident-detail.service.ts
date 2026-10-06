@@ -1,3 +1,4 @@
+import { safeWalkEmergencyProvenance } from "./safewalk-emergency-read";
 import { maskedPerson } from '../protected-identity/masked-person';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
@@ -62,6 +63,13 @@ const DETAIL_SELECT = {
   resolvedAt: true,
 
   journeySessionId: true,
+  journeySession: {
+    select: {
+      purpose: true,
+      safeWalkEmergencyIncidentId: true,
+      safeWalkEmergencyAt: true,
+    },
+  },
 
   user: {
     select: { firstName: true, lastName: true },
@@ -86,6 +94,15 @@ export class IncidentDetailService {
       throw new NotFoundException('Incident not found.');
     }
 
-    return { ...incident, user: maskedPerson(incident.user) };
+    const { journeySession, ...detail } = incident;
+    const safeWalkEmergency = safeWalkEmergencyProvenance(
+      incident.id,
+      journeySession,
+    );
+    return {
+      ...detail,
+      ...(safeWalkEmergency ? { safeWalkEmergency } : {}),
+      user: maskedPerson(incident.user),
+    };
   }
 }

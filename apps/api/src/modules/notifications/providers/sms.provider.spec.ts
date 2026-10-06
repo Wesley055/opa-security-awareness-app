@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import type { SmsProvider as SmsProviderType } from "./sms.provider";
 /**
  * Provider truthfulness.
@@ -16,6 +17,15 @@ describe("SmsProvider send-time status handling", () => {
   const REQUEST = { recipient: "+2347037119196", message: "test" };
 
   let sendMock: jest.Mock;
+  const isolatedKeys = [
+    "AFRICASTALKING_API_KEY",
+    "AFRICASTALKING_USERNAME",
+    "OPA_ENVIRONMENT",
+    "EAS_BUILD_PROFILE",
+    "WEBSITE_INSTANCE_ID",
+    "OPA_DEPLOYMENT_RESOURCE_ID",
+  ];
+  let prior: Record<string, string | undefined>;
 
   // LOADED DYNAMICALLY, AFTER THE MOCK EXISTS. A static
   // `import { SmsProvider }` at the top of this file would bind the class
@@ -28,7 +38,12 @@ describe("SmsProvider send-time status handling", () => {
 
   beforeEach(() => {
     jest.resetModules();
-    process.env.AFRICASTALKING_API_KEY = "test-key";
+    prior = Object.fromEntries(
+      isolatedKeys.map((key) => [key, process.env[key]]),
+    );
+    for (const key of isolatedKeys) delete process.env[key];
+    process.env.OPA_ENVIRONMENT = "development";
+    process.env.AFRICASTALKING_API_KEY = randomBytes(32).toString("hex");
     process.env.AFRICASTALKING_USERNAME = "test-user";
 
     sendMock = jest.fn();
@@ -41,8 +56,10 @@ describe("SmsProvider send-time status handling", () => {
   });
 
   afterEach(() => {
-    delete process.env.AFRICASTALKING_API_KEY;
-    delete process.env.AFRICASTALKING_USERNAME;
+    for (const key of isolatedKeys) {
+      if (prior[key] === undefined) delete process.env[key];
+      else process.env[key] = prior[key];
+    }
     jest.dontMock("africastalking");
   });
 

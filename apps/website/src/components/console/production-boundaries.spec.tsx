@@ -100,18 +100,13 @@ it("whitelists the bridge projection and refuses plaintext identities", () => {
     }),
   ).toBeNull();
 });
-it("provides four reporting areas without fabricated data", () => {
+it("offers real reports without fabricating data or unfinished authoring", () => {
   render(<ReportingShell />);
-  for (const name of [
-    "Reports",
-    "After-Incident Reports",
-    "Aggregate Analytics",
-    "Corrective Actions",
-  ])
-    expect(screen.getByRole("heading", { name })).toBeVisible();
-  expect(screen.getAllByRole("status")).toHaveLength(4);
-  for (const status of screen.getAllByRole("status"))
-    expect(status).toHaveTextContent(
-      "Not enabled / backend capability pending",
-    );
+  expect(
+    screen.getByRole("heading", { name: "Reports & Analytics" }),
+  ).toBeVisible();
+  expect(screen.getByRole("button", { name: "Load report" })).toBeVisible();
+  expect(screen.getByRole("status")).toHaveTextContent("Choose a date window");
+  expect(screen.getByText(/JSON export are backend only/)).toBeVisible();
+  expect(screen.queryByText("Notification outcomes")).toBeNull();
 });

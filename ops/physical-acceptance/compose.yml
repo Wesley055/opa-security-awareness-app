@@ -1,0 +1,30 @@
+name: opa-physical-acceptance
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: opa-physical-acceptance-persistent
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: opa_acceptance
+      POSTGRES_DB: opa_delegation_acceptance
+      POSTGRES_PASSWORD: ${OPA_PHYSICAL_POSTGRES_PASSWORD:?Run physical-acceptance init first}
+    ports:
+      - "127.0.0.1:55442:5432"
+    volumes:
+      - type: volume
+        source: physical_pgdata
+        target: /var/lib/postgresql/data
+        volume:
+          nocopy: true
+    labels:
+      opa.purpose: physical-acceptance
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opa_acceptance -d opa_delegation_acceptance"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+volumes:
+  physical_pgdata:
+    name: opa_delegation_physical_acceptance_pgdata
+    labels:
+      opa.purpose: physical-acceptance

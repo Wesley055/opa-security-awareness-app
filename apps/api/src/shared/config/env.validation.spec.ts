@@ -26,6 +26,10 @@ describe("validateEnv", () => {
     AZURE_STORAGE_CONTAINER: "evidence",
   };
 
+  it.each(["staging", "production"])("requires usable HTTPS invitation navigation in %s", environment => {
+    expect(() => validateEnv({ ...required, OPA_ENVIRONMENT: environment })).toThrow("OPA_WEB_URL");
+    expect(() => validateEnv({ ...required, OPA_ENVIRONMENT: environment, OPA_WEB_URL: "http://localhost:3003" })).toThrow("OPA_WEB_URL");
+  });
   it("validates with REDIS_URL ABSENT - the production boot case", () => {
     const parsed = validateEnv({ ...required });
     expect(parsed.REDIS_URL).toBeUndefined();

@@ -1,3 +1,4 @@
+import { clearAdminSession } from "@/lib/super-admin-session";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/super-admin-api", () => ({
   AdminFailure: class extends Error {
@@ -15,24 +16,73 @@ vi.mock("@/lib/super-admin-session", () => ({
   setAdminSession: vi.fn(),
 }));
 import { requireAdmin, upstream } from "@/lib/super-admin-api";
-import { GET, POST, project } from "./route";
+import { GET, POST } from "./route";
+import { project } from "@/lib/super-admin-projection";
 const id = "00000000-0000-4000-8000-000000000001";
 describe("durable Super Admin bridge", () => {
-  it('requires same-facility scope before asking the PII service to reveal', async () => {
-    vi.mocked(requireAdmin).mockResolvedValue({access:'server-token', name:'Admin', facilityId:null});
-    const response=await POST(new Request('https://opa.test/api/super-admin/facilities/'+id+'/reveal', {method:'POST',headers:{origin:'https://opa.test'},body:JSON.stringify({identifierId:id,caseReference:id,purpose:'SUPPORT_CASE'})}), {params:Promise.resolve({action:['facilities',id,'reveal']})});
-    expect(response.status).toBe(403); expect(upstream).not.toHaveBeenCalled();
+  it("requires same-facility scope before asking the PII service to reveal", async () => {
+    vi.mocked(requireAdmin).mockResolvedValue({
+      actorId: id,
+      access: "server-token",
+      name: "Admin",
+      facilityId: null,
+    });
+    const response = await POST(
+      new Request(
+        "https://opa.test/api/super-admin/facilities/" + id + "/reveal",
+        {
+          method: "POST",
+          headers: { origin: "https://opa.test" },
+          body: JSON.stringify({
+            identifierId: id,
+            caseReference: id,
+            purpose: "SUPPORT_CASE",
+          }),
+        },
+      ),
+      { params: Promise.resolve({ action: ["facilities", id, "reveal"] }) },
+    );
+    expect(response.status).toBe(403);
+    expect(upstream).not.toHaveBeenCalled();
   });
-  it('uses the existing PII resolution endpoint and returns one value only', async () => {
-    vi.mocked(requireAdmin).mockResolvedValue({access:'server-token', name:'Admin', facilityId:id});
-    vi.mocked(upstream).mockResolvedValue({value:'authorized@example.test',unexpected:'secret'});
-    const response=await POST(new Request('https://opa.test/api/super-admin/facilities/'+id+'/reveal', {method:'POST',headers:{origin:'https://opa.test'},body:JSON.stringify({identifierId:id,caseReference:id,purpose:'SUPPORT_CASE'})}), {params:Promise.resolve({action:['facilities',id,'reveal']})});
-    expect(response.status).toBe(200); expect(await response.json()).toEqual({value:'authorized@example.test'});
-    expect(upstream).toHaveBeenCalledWith('/protected-identities/'+id+'/resolve','server-token',{caseReference:id,purpose:'SUPPORT_CASE'});
+  it("uses the existing PII resolution endpoint and returns one value only", async () => {
+    vi.mocked(requireAdmin).mockResolvedValue({
+      actorId: id,
+      access: "server-token",
+      name: "Admin",
+      facilityId: id,
+    });
+    vi.mocked(upstream).mockResolvedValue({
+      value: "authorized@example.test",
+      unexpected: "secret",
+    });
+    const response = await POST(
+      new Request(
+        "https://opa.test/api/super-admin/facilities/" + id + "/reveal",
+        {
+          method: "POST",
+          headers: { origin: "https://opa.test" },
+          body: JSON.stringify({
+            identifierId: id,
+            caseReference: id,
+            purpose: "SUPPORT_CASE",
+          }),
+        },
+      ),
+      { params: Promise.resolve({ action: ["facilities", id, "reveal"] }) },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ value: "authorized@example.test" });
+    expect(upstream).toHaveBeenCalledWith(
+      "/protected-identities/" + id + "/resolve",
+      "server-token",
+      { caseReference: id, purpose: "SUPPORT_CASE" },
+    );
   });
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(requireAdmin).mockResolvedValue({
+      actorId: id,
       access: "server-token",
       name: "Admin",
       facilityId: null,
@@ -116,5 +166,49 @@ describe("durable Super Admin bridge", () => {
     );
     expect(response.status).toBe(400);
     expect(upstream).not.toHaveBeenCalled();
+  });
+});
+
+it("Super Admin logout accepts the no-referrer form but rejects cross-site metadata", async () => {
+  vi.mocked(clearAdminSession).mockClear();
+  const headers = {
+    origin: "null",
+    "sec-fetch-site": "same-origin",
+    "sec-fetch-mode": "navigate",
+    "sec-fetch-dest": "document",
+  };
+  const make = () =>
+    new Request("https://opa.test/api/super-admin/logout", {
+      method: "POST",
+      headers,
+    });
+  expect(
+    (await POST(make(), { params: Promise.resolve({ action: ["logout"] }) }))
+      .status,
+  ).toBe(200);
+  expect(clearAdminSession).toHaveBeenCalledTimes(1);
+  headers["sec-fetch-site"] = "cross-site";
+  expect(
+    (await POST(make(), { params: Promise.resolve({ action: ["logout"] }) }))
+      .status,
+  ).toBe(403);
+  expect(clearAdminSession).toHaveBeenCalledTimes(1);
+});
+
+it("projects only the current authenticated platform identity", async () => {
+  vi.mocked(requireAdmin).mockResolvedValue({
+    actorId: id,
+    name: "Current Administrator",
+    access: "server-only-placeholder",
+    facilityId: null,
+  });
+  const response = await GET(
+    new Request("https://opa.test/api/super-admin/context"),
+    { params: Promise.resolve({ action: ["context"] }) },
+  );
+  expect(await response.json()).toEqual({
+    id,
+    name: "Current Administrator",
+    role: "ADMIN",
   });
 });

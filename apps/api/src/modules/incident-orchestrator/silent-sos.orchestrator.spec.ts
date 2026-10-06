@@ -4,7 +4,7 @@ import { ActivationMode, ActivationSource, EmergencyTriggerType, TriggerMode } f
 
 function fixture(mode: ActivationMode, recent: Record<string, unknown> | null = null) {
   const tx = {
-    $executeRaw: jest.fn(), user: { findUnique: jest.fn(async () => ({ facilityId: 'facility-a' })) },
+    $executeRaw: jest.fn(), user: { findUnique: jest.fn(async () => ({ facilityId: 'facility-a', membershipState: 'ACTIVE' })) },
     journeySession: { findFirst: jest.fn(async () => null) },
     incident: {
       findFirst: jest.fn(async () => recent),

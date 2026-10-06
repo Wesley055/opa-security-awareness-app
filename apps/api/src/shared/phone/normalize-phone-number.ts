@@ -1,5 +1,8 @@
 import { BadRequestException } from '@nestjs/common';
-import { parsePhoneNumberFromString, type CountryCode } from 'libphonenumber-js';
+import {
+  parsePhoneNumberFromString,
+  type CountryCode,
+} from 'libphonenumber-js';
 
 /**
  * THE SINGLE CANONICAL PHONE RULE FOR OPA.
@@ -65,7 +68,10 @@ function normaliseOrNull(
   }
 
   const trimmed = input.trim();
-  if (trimmed === '') {
+  if (
+    trimmed === '' ||
+    /^(?:\+234|234)0/.test(trimmed.replace(/[\s()-]/g, ''))
+  ) {
     return null;
   }
 

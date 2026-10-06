@@ -3,12 +3,16 @@ import { beforeEach, describe, it, expect, vi } from 'vitest';
 const mock = vi.hoisted(() => ({
   apiUrl: vi.fn(),
   setOperatorSession: vi.fn(),
+  clearInstitutionalSession: vi.fn(),
   pendingSso: vi.fn(),
   clearPendingSso: vi.fn(),
 }));
 vi.mock('@/lib/operator-session', () => ({
   apiUrl: mock.apiUrl,
   setOperatorSession: mock.setOperatorSession,
+}));
+vi.mock('@/lib/institutional-session', () => ({
+  clearInstitutionalSession: mock.clearInstitutionalSession,
 }));
 vi.mock('@/lib/sso-bridge', () => ({
   ssoOrigin: () => 'https://opa.example.test',
@@ -55,6 +59,7 @@ describe('SSO Command Center session bridge', () => {
       expect(result.headers.get('location')).toBe(
         'https://opa.example.test/operator',
       );
+      expect(mock.clearInstitutionalSession).toHaveBeenCalledTimes(1);
       expect(mock.setOperatorSession).toHaveBeenCalledWith({
         accessToken: 'OPA-access',
         refreshToken: 'OPA-refresh',
@@ -76,6 +81,7 @@ describe('SSO Command Center session bridge', () => {
         ).status,
       ).toBe(403);
       expect(mock.setOperatorSession).not.toHaveBeenCalled();
+      expect(mock.clearInstitutionalSession).not.toHaveBeenCalled();
     },
   );
   it('requires the browser correlation cookie', async () => {

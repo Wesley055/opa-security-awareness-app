@@ -65,6 +65,9 @@ describe('toE164', () => {
   describe('invalid input is rejected, never guessed at', () => {
     it.each([
       ['empty', ''],
+      ['international trunk prefix', '+23408024662124'],
+      ['bare international trunk prefix', '23408024662124'],
+      ['short Nigerian number', '0707939047'],
       ['whitespace', '   '],
       ['too short', '123'],
       ['letters', 'not-a-number'],

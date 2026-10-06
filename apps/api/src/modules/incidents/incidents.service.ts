@@ -1,21 +1,24 @@
+import { institutionalAuthority } from "../onboarding/support-authority";
+import type { ActionContext } from "../onboarding/membership-lifecycle";
 import {
   BadRequestException,
+  ForbiddenException,
   ConflictException,
   Injectable,
   NotFoundException,
-} from '@nestjs/common';
+} from "@nestjs/common";
 import {
   IncidentStatus,
   IncidentTrigger,
   JourneySessionEndReason,
   type Prisma,
-} from '@prisma/client';
-import { PrismaService } from '../../prisma/prisma.service';
-import { IncidentAccessTokenService } from '../incident-access/incident-access-token.service';
-import { IncidentTimelineService } from '../incident-timeline/incident-timeline.service';
-import { JourneySessionService } from '../journey/journey-session.service';
-import type { CloseIncidentDto } from './dto/close-incident.dto';
-import type { CreateIncidentDto } from './dto/create-incident.dto';
+} from "@prisma/client";
+import { PrismaService } from "../../prisma/prisma.service";
+import { IncidentAccessTokenService } from "../incident-access/incident-access-token.service";
+import { IncidentTimelineService } from "../incident-timeline/incident-timeline.service";
+import { JourneySessionService } from "../journey/journey-session.service";
+import type { CloseIncidentDto } from "./dto/close-incident.dto";
+import type { CreateIncidentDto } from "./dto/create-incident.dto";
 
 /**
  * A lifecycle transition takes CLASSID 3 - the SAME per-incident key the
@@ -52,13 +55,18 @@ export class IncidentsService {
     private readonly journeySessions: JourneySessionService,
   ) {}
 
-  async create(userId: string, dto: CreateIncidentDto, tx?: Prisma.TransactionClient, provenance?: { activationMode: string; activationSource: string }) {
+  async create(
+    userId: string,
+    dto: CreateIncidentDto,
+    tx?: Prisma.TransactionClient,
+    provenance?: { activationMode: string; activationSource: string },
+  ) {
     if (
       dto.trigger === IncidentTrigger.VOICE_HELP_HELP &&
-      dto.voicePhrase?.toUpperCase() !== 'HELP HELP'
+      dto.voicePhrase?.toUpperCase() !== "HELP HELP"
     ) {
       throw new BadRequestException(
-        'Voice-triggered incidents require phrase HELP HELP.',
+        "Voice-triggered incidents require phrase HELP HELP.",
       );
     }
 
@@ -76,13 +84,16 @@ export class IncidentsService {
       // not in a comment here asserting a contract nothing keeps.
       const membership = await db.user.findUnique({
         where: { id: userId },
-        select: { facilityId: true },
+        select: { facilityId: true, membershipState: true },
       });
 
       return db.incident.create({
         data: {
           userId,
-          facilityId: membership?.facilityId ?? null,
+          facilityId:
+            membership?.membershipState === "ACTIVE"
+              ? membership.facilityId
+              : null,
           trigger: dto.trigger,
           latitude: dto.latitude,
           longitude: dto.longitude,
@@ -94,7 +105,9 @@ export class IncidentsService {
           // the legacy time-window filter and has not been converged.
           lastTriggeredAt: new Date(),
           metadata: {
-            ...(provenance ? { ...provenance, presentationMode: provenance.activationMode } : {}),
+            ...(provenance
+              ? { ...provenance, presentationMode: provenance.activationMode }
+              : {}),
             redisDispatchPrepared: true,
             notificationFanoutPrepared: true,
           },
@@ -112,7 +125,7 @@ export class IncidentsService {
   listForUser(userId: string) {
     return this.prisma.incident.findMany({
       where: { userId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       take: 50,
     });
   }
@@ -132,7 +145,12 @@ export class IncidentsService {
    * happened and is over" very differently.
    */
   cancel(incidentId: string, userId: string, dto?: CloseIncidentDto) {
-    return this.close(incidentId, userId, IncidentStatus.CANCELLED, dto?.reason);
+    return this.close(
+      incidentId,
+      userId,
+      IncidentStatus.CANCELLED,
+      dto?.reason,
+    );
   }
 
   /**
@@ -195,7 +213,7 @@ export class IncidentsService {
       });
 
       if (!incident || incident.userId !== userId) {
-        throw new NotFoundException('Incident not found.');
+        throw new NotFoundException("Incident not found.");
       }
 
       if (incident.status !== IncidentStatus.OPEN) {
@@ -215,11 +233,10 @@ export class IncidentsService {
       // now represent a live emergency and MUST NOT be cancelled.
       if (
         incident.lastTriggeredAt === null ||
-        incident.lastTriggeredAt.getTime() !==
-          expectedLastTriggeredAt.getTime()
+        incident.lastTriggeredAt.getTime() !== expectedLastTriggeredAt.getTime()
       ) {
         throw new ConflictException(
-          'Incident was retriggered after the reconciliation plan was computed.',
+          "Incident was retriggered after the reconciliation plan was computed.",
         );
       }
 
@@ -242,7 +259,7 @@ export class IncidentsService {
         evidence.createdAt <= incident.createdAt
       ) {
         throw new BadRequestException(
-          'A later RESOLVED incident for the same user is required as reconciliation evidence.',
+          "A later RESOLVED incident for the same user is required as reconciliation evidence.",
         );
       }
 
@@ -290,17 +307,17 @@ export class IncidentsService {
       await this.timeline.recordEvent(
         {
           incidentId,
-          type: 'INCIDENT_CANCELLED',
+          type: "INCIDENT_CANCELLED",
           payload: {
             previousStatus: IncidentStatus.OPEN,
             newStatus: IncidentStatus.CANCELLED,
-            reason: 'LEGACY_DUPLICATE_RECONCILIATION',
+            reason: "LEGACY_DUPLICATE_RECONCILIATION",
             evidenceIncidentId: evidence.id,
             evidenceResolvedAt: evidence.resolvedAt.toISOString(),
             revokedTokens,
             endedJourneySessionId: endedSessionId,
           },
-          source: 'SYSTEM_RECONCILIATION',
+          source: "SYSTEM_RECONCILIATION",
           occurredAt: reconciledAt,
         },
         tx,
@@ -318,11 +335,89 @@ export class IncidentsService {
     });
   }
 
+  async resolveInstitutional(
+    incidentId: string,
+    actorId: string,
+    context: ActionContext,
+  ) {
+    if (!context.reason.trim())
+      throw new BadRequestException("Resolution reason required.");
+    // Resolve the owner lock key only; this read grants no authority.
+    const incident = await this.prisma.incident.findUnique({
+      where: { id: incidentId },
+      select: { userId: true },
+    });
+    if (!incident) throw new NotFoundException("Incident not found.");
+    return this.close(
+      incidentId,
+      incident.userId,
+      IncidentStatus.RESOLVED,
+      context.reason,
+      { actorId, context },
+    );
+  }
+
+  async operationalEvent(
+    incidentId: string,
+    actorId: string,
+    type: "SEEN" | "ACKNOWLEDGED" | "DISPATCHED" | "RESPONSE_PROGRESS" | "ESCALATION",
+    note: string,
+    correlationId: string,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(3, hashtext(${incidentId}))`;
+      await tx.$queryRaw`SELECT id FROM "User" WHERE id=${actorId}::uuid FOR SHARE`;
+      const actor = await tx.user.findUnique({ where: { id: actorId } });
+      const incident = await tx.incident.findUnique({
+        where: { id: incidentId },
+      });
+      if (
+        !actor?.isActive ||
+        actor.accountStatus !== "ACTIVE" ||
+        actor.role !== "FACILITY_OPERATOR" ||
+        actor.membershipState !== "ACTIVE" ||
+        !actor.facilityId ||
+        incident?.facilityId !== actor.facilityId
+      )
+        throw new ForbiddenException("Operator incident authority required.");
+      const existing = await tx.incidentTimelineEvent.findFirst({
+        where: { incidentId, actorUserId: actorId, correlationId },
+      });
+      if (existing) {
+        if (
+          existing.type !== "OPERATOR_" + type ||
+          (existing.payload as { note?: string })?.note !== note
+        )
+          throw new ConflictException("Operation reference already used.");
+        return { eventId: existing.id, status: incident.status };
+      }
+      if (incident.status !== "OPEN")
+        throw new ConflictException("Incident is no longer open.");
+      const event = await this.timeline.recordEvent(
+        {
+          incidentId,
+          type: "OPERATOR_" + type,
+          source: "COMMAND_CENTER",
+          actorUserId: actorId,
+          correlationId,
+          payload: {
+            note,
+            actorRole: actor.role,
+            facilityId: actor.facilityId,
+          },
+        },
+        tx,
+      );
+      return { eventId: event.id, status: incident.status };
+    });
+  }
+
   private async close(
     incidentId: string,
     userId: string,
     target: typeof IncidentStatus.RESOLVED | typeof IncidentStatus.CANCELLED,
     reason?: string,
+    institutional?: { actorId: string; context: ActionContext },
   ) {
     const occurredAt = new Date();
 
@@ -346,6 +441,7 @@ export class IncidentsService {
         select: {
           id: true,
           userId: true,
+          facilityId: true,
           status: true,
           journeySessionId: true,
         },
@@ -355,9 +451,23 @@ export class IncidentsService {
       // that an incident exists to somebody who does not own it discloses
       // that a particular person raised an emergency.
       if (!incident || incident.userId !== userId) {
-        throw new NotFoundException('Incident not found.');
+        throw new NotFoundException("Incident not found.");
       }
 
+      const authority =
+        institutional && incident.facilityId
+          ? await institutionalAuthority(
+              tx,
+              institutional.actorId,
+              incident.facilityId,
+              "INCIDENT_RESOLVE",
+              institutional.context.caseReference,
+            )
+          : null;
+      if (institutional && !authority)
+        throw new ForbiddenException(
+          "Institutional resolution requires a facility.",
+        );
       if (incident.status !== IncidentStatus.OPEN) {
         throw new ConflictException(
           `Incident is already ${incident.status} and cannot be closed again.`,
@@ -432,22 +542,49 @@ export class IncidentsService {
           incidentId,
           type:
             target === IncidentStatus.RESOLVED
-              ? 'INCIDENT_RESOLVED'
-              : 'INCIDENT_CANCELLED',
+              ? "INCIDENT_RESOLVED"
+              : "INCIDENT_CANCELLED",
           payload: {
+            ...(authority
+              ? {
+                  actorRole: authority.actorRole,
+                  authority: authority.authority,
+                  grantId: authority.grantId,
+                  caseReference: institutional!.context.caseReference,
+                }
+              : {}),
             previousStatus: IncidentStatus.OPEN,
             newStatus: target,
             ...(reason === undefined ? {} : { reason }),
             revokedTokens,
             endedJourneySessionId: endedSessionId,
           },
-          source: 'MOBILE',
-          actorUserId: userId,
+          source: institutional ? "COMMAND_CENTER" : "MOBILE",
+          actorUserId: institutional?.actorId ?? userId,
+          correlationId: institutional?.context.correlationId,
           occurredAt,
         },
         tx,
       );
 
+      if (institutional && authority)
+        await tx.administrativeAuditEvent.create({
+          data: {
+            actorUserId: institutional.actorId,
+            actorRole: authority.actorRole,
+            authorityKind: authority.authority,
+            authorityGrantId: authority.grantId,
+            action: "INCIDENT_RESOLVED",
+            resourceId: incidentId,
+            facilityId: incident.facilityId,
+            ...institutional.context,
+            beforeState: { status: incident.status },
+            afterState: {
+              status: target,
+              resolvedAt: occurredAt.toISOString(),
+            },
+          },
+        });
       return {
         id: updated.id,
         status: updated.status,

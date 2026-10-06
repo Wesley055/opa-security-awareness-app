@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 const GENERIC_MESSAGE =
-  "If an eligible OPA account exists for that email, password reset instructions have been sent.";
+  "If an eligible OPA account exists for that email, password reset instructions will be sent.";
 
 function getApiBaseUrl(): string | null {
   const value = environmentApiUrl()?.trim();
@@ -11,6 +11,11 @@ function getApiBaseUrl(): string | null {
 }
 
 export async function POST(request: Request) {
+  if (request.headers.get("origin") !== new URL(request.url).origin)
+    return NextResponse.json(
+      { ok: false, error: "Request origin rejected." },
+      { status: 403 },
+    );
   const baseUrl = getApiBaseUrl();
   if (!baseUrl)
     return NextResponse.json(

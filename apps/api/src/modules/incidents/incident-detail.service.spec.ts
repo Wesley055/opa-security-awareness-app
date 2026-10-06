@@ -67,6 +67,7 @@ describe('IncidentDetailService.getDetail', () => {
       updatedAt: true,
       resolvedAt: true,
       journeySessionId: true,
+      journeySession: {select:{purpose:true,safeWalkEmergencyIncidentId:true,safeWalkEmergencyAt:true}},
       user: { select: { firstName: true, lastName: true } },
     });
   });

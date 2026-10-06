@@ -26,12 +26,9 @@ import type { ActivateProvisionedUserDto } from "./dto/activate-provisioned-user
 const ACTIVATION_FAILED = "This activation link is not valid.";
 
 /**
- * Claims a provisioned operator or resident account.
- *
- * The only unauthenticated write path into User apart from registration. An
- * administrator creates the account in AdminProvisioningService with a random
- * 32-byte token; only its SHA-256 digest is stored. This exchanges the raw
- * token, once, for a password of the operator's choosing.
+ * Claims an older provisioned resident account only.
+ * The delivery worker mints a short credential and stores its digest.
+ * Current institutional invitations use EnrollmentService dual-proof intake.
  */
 @Injectable()
 export class ActivationService {
@@ -99,6 +96,8 @@ export class ActivationService {
           isActive: true,
           role: true,
           accountStatus: true,
+          membershipState: true,
+          facilityId: true,
           activationTokenHash: true,
           activationExpiresAt: true,
         },
@@ -113,6 +112,8 @@ export class ActivationService {
         // Legacy resident compatibility only. Staff must complete both
         // enrollment proofs; old staff activation secrets no longer grant access.
         user.role !== UserRole.USER ||
+        user.membershipState !== "ACTIVE" ||
+        !user.facilityId ||
         user.activationTokenHash !== tokenHash ||
         !user.activationExpiresAt ||
         user.activationExpiresAt <= now
@@ -120,9 +121,18 @@ export class ActivationService {
         throw new UnauthorizedException(ACTIVATION_FAILED);
       }
 
+      await tx.$queryRaw`SELECT id FROM "Facility" WHERE id=${user.facilityId}::uuid FOR SHARE`;
+      const facility = await tx.facility.findUnique({ where: { id: user.facilityId } });
+      if (!facility?.isActive || ["SUSPENDED", "DECOMMISSIONED"].includes(facility.operationalState))
+        throw new UnauthorizedException(ACTIVATION_FAILED);
+      const invitation = await tx.accountInvitationDelivery.findFirst({ where: { userId: user.id, purpose: "LEGACY_INVITATION", lastAttemptAt: { not: null } }, orderBy: [{ lastAttemptAt: "desc" }, { id: "desc" }], select: { facilityId: true, status: true } });
+      if (!invitation || invitation.facilityId !== user.facilityId || invitation.status === "CANCELLED")
+        throw new UnauthorizedException(ACTIVATION_FAILED);
+      await tx.administrativeAuditEvent.create({ data: { actorUserId: user.id, actorRole: "USER", action: "RESIDENT_ACTIVATED", resourceId: user.id, facilityId: user.facilityId, authorityKind: "RESIDENT_ACTIVATION", afterState: { accountStatus: "ACTIVE" } } });
+
       // Nulling the hash is the single-use mechanism. The column is unique
       // and nullable, and PostgreSQL permits many NULLs under a unique
-      // index, so every activated operator can hold null at once.
+      // index, so every activated resident can hold null at once.
       return tx.user.update({
         where: { id: user.id },
         data: {

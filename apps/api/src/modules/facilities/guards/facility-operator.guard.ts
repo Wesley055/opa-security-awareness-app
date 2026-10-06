@@ -36,7 +36,7 @@ export class FacilityOperatorGuard implements CanActivate {
 
     const user = await this.prisma.user.findUnique({
       where: { id: request.user.sub },
-      select: { role: true, facilityId: true, isActive: true },
+      select: { membershipState: true, role: true, facilityId: true, isActive: true },
     });
 
     if (!user) {
@@ -64,7 +64,7 @@ export class FacilityOperatorGuard implements CanActivate {
       throw new ForbiddenException('Not authorized for facility access.');
     }
 
-    if (!user.facilityId || user.facilityId !== requestedFacilityId) {
+    if (user.membershipState !== 'ACTIVE' || !user.facilityId || user.facilityId !== requestedFacilityId) {
       throw new ForbiddenException(
         'Not authorized for this facility.',
       );

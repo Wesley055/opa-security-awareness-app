@@ -56,7 +56,7 @@ describe('OperatorMembersPage role routing', () => {
     expect(mocks.fetchOperatorMembership).not.toHaveBeenCalled();
   });
 
-  it('keeps FACILITY_OPERATOR on the operational membership path', async () => {
+  it('redirects FACILITY_OPERATOR without fetching any directory', async () => {
     mocks.getOperatorContext.mockResolvedValue({
       state: 'READY',
       context: {
@@ -84,9 +84,8 @@ describe('OperatorMembersPage role routing', () => {
       },
     });
 
-    await OperatorMembersPage();
-
-    expect(mocks.fetchOperatorMembership).toHaveBeenCalledTimes(1);
-    expect(mocks.redirect).not.toHaveBeenCalled();
+    await expect(OperatorMembersPage()).rejects.toThrow();
+    expect(mocks.fetchOperatorMembership).not.toHaveBeenCalled();
+    expect(mocks.redirect).toHaveBeenCalledWith('/operator');
   });
 });

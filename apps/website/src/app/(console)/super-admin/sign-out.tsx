@@ -12,6 +12,13 @@ export default function SignOut() {
               method: "POST",
             });
             if (!response.ok) throw new Error();
+            window.dispatchEvent(new Event("opa-super-admin-authority-lost"));
+            try {
+              localStorage.setItem(
+                "opa-super-admin-session",
+                crypto.randomUUID(),
+              );
+            } catch {}
             window.location.assign("/super-admin/login");
           } catch {
             setError(true);

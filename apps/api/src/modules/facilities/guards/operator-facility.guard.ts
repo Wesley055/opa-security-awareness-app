@@ -52,7 +52,7 @@ export class OperatorFacilityGuard implements CanActivate {
 
     const user = await this.prisma.user.findUnique({
       where: { id: request.user.sub },
-      select: { role: true, facilityId: true, isActive: true },
+      select: { membershipState: true, role: true, facilityId: true, isActive: true },
     });
 
     if (!user) {
@@ -71,7 +71,7 @@ export class OperatorFacilityGuard implements CanActivate {
       throw new ForbiddenException('Not authorized for facility access.');
     }
 
-    if (!user.facilityId) {
+    if (user.membershipState !== 'ACTIVE' || !user.facilityId) {
       // Distinct message: the caller may be perfectly legitimate and simply
       // unassigned. The console turns this into an explanation rather than
       // a dead end.

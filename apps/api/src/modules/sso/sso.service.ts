@@ -125,7 +125,11 @@ export class SsoService {
       user.credentialVersion !== actor.credentialVersion ||
       (admin &&
         user.role !== "ADMIN" &&
-        !(user.role === "FACILITY_ADMIN" && user.facilityId === facilityId))
+        !(
+          user.role === "FACILITY_ADMIN" &&
+          user.membershipState === "ACTIVE" &&
+          user.facilityId === facilityId
+        ))
     )
       throw new SsoDenied();
     return user;
@@ -135,8 +139,9 @@ export class SsoService {
     userId: string,
     facilityId: string,
   ) {
-    await tx.$queryRaw`SELECT id FROM "Facility" WHERE id=${facilityId}::uuid FOR SHARE`;
+    // Match membership lifecycle: user serialization and row lock, then facility.
     const user = await this.lockUser(tx, userId);
+    await tx.$queryRaw`SELECT id FROM "Facility" WHERE id=${facilityId}::uuid FOR SHARE`;
     const facility = await tx.facility.findUnique({
       where: { id: facilityId },
     });
@@ -146,7 +151,10 @@ export class SsoService {
       userActive: user?.isActive === true,
       accountActivated: user?.accountStatus === "ACTIVE",
       organizationActive: facility?.isActive === true,
-      membershipActive: user?.facilityId === facilityId && user.isActive,
+      membershipActive:
+        user?.facilityId === facilityId &&
+        user.isActive &&
+        user.membershipState === "ACTIVE",
       operatorSuspended: user?.isActive !== true,
       credentialVersion: user?.credentialVersion ?? -1,
       opaRole: user?.role ?? "",

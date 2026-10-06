@@ -1,4 +1,6 @@
-import { execSync } from 'child_process';
+import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+const loadNodeModule = createRequire(__filename);
 import { PrismaClient } from '@prisma/client';
 import { API_ROOT, loadTestEnv } from './env';
 import { firstRow } from './rows';
@@ -19,12 +21,17 @@ export default async function globalSetup(): Promise<void> {
 
   console.log('\n[int-harness] target database: ' + dbName);
 
-  execSync('npx prisma migrate deploy', {
+  const migrationStarted = Date.now();
+  console.log('[int-harness] applying migrations with installed Prisma CLI');
+  execFileSync(process.execPath, [loadNodeModule.resolve('prisma/build/index.js'), 'migrate', 'deploy'], {
     cwd: API_ROOT,
     stdio: 'inherit',
+    timeout: 60000,
+    windowsHide: true,
     env: Object.assign({}, process.env, { DATABASE_URL: url }),
   });
 
+  console.log('[int-harness] migration phase completed in ' + (Date.now() - migrationStarted) + 'ms');
   const prisma = new PrismaClient({ datasourceUrl: url });
 
   try {

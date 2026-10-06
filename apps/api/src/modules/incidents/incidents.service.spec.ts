@@ -62,7 +62,7 @@ describe('IncidentsService', () => {
   });
 
   it('snapshots the resident facility onto the incident', async () => {
-    prisma.user.findUnique.mockResolvedValue({ facilityId: 'facility-a' });
+    prisma.user.findUnique.mockResolvedValue({ facilityId: 'facility-a', membershipState: 'ACTIVE' });
     prisma.incident.create.mockResolvedValue({
       id: 'incident-id',
       facilityId: 'facility-a',
@@ -77,7 +77,7 @@ describe('IncidentsService', () => {
 
     expect(prisma.user.findUnique).toHaveBeenCalledWith({
       where: { id: 'user-id' },
-      select: { facilityId: true },
+      select: { facilityId: true, membershipState: true },
     });
     expect(prisma.incident.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -121,7 +121,7 @@ describe('IncidentsService', () => {
   // difference between "we route incidents to facilities" and "a client can
   // post an emergency into any estate's queue".
   it('ignores a facilityId supplied by the caller', async () => {
-    prisma.user.findUnique.mockResolvedValue({ facilityId: 'facility-a' });
+    prisma.user.findUnique.mockResolvedValue({ facilityId: 'facility-a', membershipState: 'ACTIVE' });
     prisma.incident.create.mockResolvedValue({ id: 'incident-id' });
     const service = makeService();
 
@@ -142,7 +142,7 @@ describe('IncidentsService', () => {
   });
 
   it('wraps the direct create path in one transaction', async () => {
-    prisma.user.findUnique.mockResolvedValue({ facilityId: 'facility-a' });
+    prisma.user.findUnique.mockResolvedValue({ facilityId: 'facility-a', membershipState: 'ACTIVE' });
     prisma.incident.create.mockResolvedValue({ id: 'incident-id' });
     const service = makeService();
 

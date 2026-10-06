@@ -1,3 +1,4 @@
+import { sameOriginSessionPost } from "./session-post-origin";
 import 'server-only';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
@@ -11,7 +12,7 @@ export function ssoOrigin(): string {
   return value;
 }
 export function sameOrigin(request: Request): boolean {
-  return request.headers.get('origin') === ssoOrigin();
+  return new URL(request.url).origin === ssoOrigin() && sameOriginSessionPost(request);
 }
 export async function pendingSso() {
   const store = await cookies();

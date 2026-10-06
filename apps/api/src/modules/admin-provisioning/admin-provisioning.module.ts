@@ -1,8 +1,12 @@
-import { OnboardingService } from "../onboarding/onboarding.service";
+import { OperationalOversightService } from "../onboarding/operational-oversight.service";
+import { IncidentTimelineModule } from "../incident-timeline/incident-timeline.module";
+import { CanonicalOrganizationService } from "../onboarding/canonical-organization.service";
+import { OrganizationGovernanceController, CanonicalInstitutionalController } from "../onboarding/canonical-organization.controller";
+import { InstitutionalService } from "../onboarding/institutional.service";
 import {
-  OnboardingController,
-  OnboardingGrantsController,
-} from "../onboarding/onboarding.controller";
+  InstitutionalController,
+  SupportAdministrationController,
+} from "../onboarding/institutional.controller";
 import { PlatformAdminService } from "./platform-admin.service";
 import { EnrollmentModule } from "../auth/enrollment.module";
 import { ProtectedIdentityModule } from "../protected-identity/protected-identity.module";
@@ -16,19 +20,24 @@ import { InvitationDeliveryWorker } from "./invitation-delivery.worker";
 
 @Module({
   imports: [
+    IncidentTimelineModule,
     EnrollmentModule,
     ProtectedIdentityModule,
     PrismaModule,
     NotificationModule,
   ],
   controllers: [
+    OrganizationGovernanceController,
+    CanonicalInstitutionalController,
+    InstitutionalController,
+    SupportAdministrationController,
     AdminProvisioningController,
-    OnboardingController,
-    OnboardingGrantsController,
   ],
   providers: [
+    OperationalOversightService,
+    CanonicalOrganizationService,
+    InstitutionalService,
     PlatformAdminService,
-    OnboardingService,
     AdminProvisioningService,
     AdminGuard,
     InvitationDeliveryWorker,

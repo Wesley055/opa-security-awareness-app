@@ -1,5 +1,5 @@
-import axios from 'axios';
-import * as SecureStore from 'expo-secure-store';
+import axios from "axios";
+import * as SecureStore from "expo-secure-store";
 
 // Resolved, not hardcoded - see src/config/api-config.ts. The previous
 // literal was correct on one machine on one network and frozen
@@ -9,10 +9,10 @@ import * as SecureStore from 'expo-secure-store';
 // below, and again in the refresh interceptor, which calls raw axios
 // deliberately so the refresh request does not recurse through its own
 // 401 handler. Both call sites use the resolved value.
-import { API_BASE_URL } from '../config/api-config';
+import { API_BASE_URL } from "../config/api-config";
 
-const ACCESS_TOKEN_KEY = 'opa_access_token';
-const REFRESH_TOKEN_KEY = 'opa_refresh_token';
+const ACCESS_TOKEN_KEY = "opa_access_token";
+const REFRESH_TOKEN_KEY = "opa_refresh_token";
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -70,26 +70,22 @@ async function refreshBackgroundAccessToken(): Promise<string> {
   }
 
   backgroundRefreshInFlight = (async () => {
-    const refreshToken =
-      await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+    const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
 
     if (!refreshToken) {
-      throw new Error('No refresh token available');
+      throw new Error("No refresh token available");
     }
 
     if (refreshToken === rejectedBackgroundRefreshToken) {
-      throw new Error(
-        'Background refresh token was previously rejected',
-      );
+      throw new Error("Background refresh token was previously rejected");
     }
 
     let data: { accessToken?: string; refreshToken?: string } | undefined;
 
     try {
-      ({ data } = await axios.post(
-        `${API_BASE_URL}/auth/refresh`,
-        { refreshToken },
-      ));
+      ({ data } = await axios.post(`${API_BASE_URL}/auth/refresh`, {
+        refreshToken,
+      }));
     } catch (error) {
       /*
        * ONLY a 401 from /auth/refresh itself marks this token dead.
@@ -104,21 +100,15 @@ async function refreshBackgroundAccessToken(): Promise<string> {
     }
 
     if (!data?.accessToken) {
-      throw new Error('Refresh response missing access token');
+      throw new Error("Refresh response missing access token");
     }
 
     rejectedBackgroundRefreshToken = null;
 
-    await SecureStore.setItemAsync(
-      ACCESS_TOKEN_KEY,
-      data.accessToken,
-    );
+    await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, data.accessToken);
 
     if (data.refreshToken) {
-      await SecureStore.setItemAsync(
-        REFRESH_TOKEN_KEY,
-        data.refreshToken,
-      );
+      await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, data.refreshToken);
     }
 
     return data.accessToken as string;
@@ -147,11 +137,9 @@ backgroundApi.interceptors.response.use(
     originalRequest._opaBackgroundRetry = true;
 
     try {
-      const accessToken =
-        await refreshBackgroundAccessToken();
+      const accessToken = await refreshBackgroundAccessToken();
 
-      originalRequest.headers.Authorization =
-        `Bearer ${accessToken}`;
+      originalRequest.headers.Authorization = `Bearer ${accessToken}`;
 
       // IMPORTANT: retry with the headless-safe client,
       // never the foreground api client.
@@ -180,19 +168,36 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    if (error.response?.status === 401 && !originalRequest._retry && !isRefreshing) {
+    // A rejected local credential is not a request to restore another session.
+    const credentialRequest = [
+      "/auth/login",
+      "/auth/register",
+      "/auth/activate",
+      "/auth/enrollment/verify",
+      "/auth/password-reset/request",
+      "/auth/password-reset/confirm",
+    ].includes(originalRequest?.url?.split("?")[0] ?? "");
+    if (
+      error.response?.status === 401 &&
+      !credentialRequest &&
+      originalRequest &&
+      !originalRequest._retry &&
+      !isRefreshing
+    ) {
       originalRequest._retry = true;
       isRefreshing = true;
 
       try {
         const refreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
         if (!refreshToken) {
-          throw new Error('No refresh token available');
+          throw new Error("No refresh token available");
         }
 
-        const { data } = await axios.post(`${API_BASE_URL}/auth/refresh`, {
-          refreshToken,
-        });
+        const { data } = await axios.post(
+          `${API_BASE_URL}/auth/refresh`,
+          { refreshToken },
+          { timeout: 10000 },
+        );
 
         await SecureStore.setItemAsync(ACCESS_TOKEN_KEY, data.accessToken);
         if (data.refreshToken) {
@@ -210,7 +215,7 @@ api.interceptors.response.use(
         // Closes the store/token drift gap: the store finds out
         // immediately that the session is dead, instead of staying
         // isAuthenticated=true against tokens that no longer exist.
-        const { notifyForceLogout } = await import('../store/authStore');
+        const { notifyForceLogout } = await import("../store/authStore");
         notifyForceLogout();
 
         return Promise.reject(refreshError);
@@ -218,7 +223,7 @@ api.interceptors.response.use(
     }
 
     return Promise.reject(error);
-  }
+  },
 );
 
 export { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY };

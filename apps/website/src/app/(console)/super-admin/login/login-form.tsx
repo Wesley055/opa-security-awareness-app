@@ -1,4 +1,5 @@
 "use client";
+import { PasswordInput } from "@/components/auth/password-input";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 export default function LoginForm() {
@@ -8,30 +9,60 @@ export default function LoginForm() {
   async function submit(body?: { email: string; password: string }) {
     setBusy(true);
     setError("");
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const controller = new AbortController();
     try {
-      const response = await fetch(
-        "/api/super-admin/" + (body ? "login" : "refresh"),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          ...(body ? { body: JSON.stringify(body) } : {}),
-          cache: "no-store",
-        },
+      await Promise.race([
+        (async () => {
+          const response = await fetch(
+            "/api/super-admin/" + (body ? "login" : "refresh"),
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              ...(body ? { body: JSON.stringify(body) } : {}),
+              cache: "no-store",
+              signal: controller.signal,
+            },
+          );
+          if (!response.ok) {
+            const data = await response.json();
+            setError(
+              response.status === 401 && body
+                ? "Invalid email or password."
+                : (data.error ?? "Sign-in is unavailable."),
+            );
+          } else {
+            if (body) {
+              try {
+                localStorage.setItem(
+                  "opa-super-admin-session",
+                  crypto.randomUUID(),
+                );
+              } catch {}
+            }
+            router.replace("/super-admin");
+            router.refresh();
+          }
+        })(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            controller.abort();
+            reject(
+              new Error(
+                "Result unknown. Try signing in or restoring your session again.",
+              ),
+            );
+          }, 15000);
+        }),
+      ]);
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Sign-in result unknown. Try again.",
       );
-      if (!response.ok) {
-        const data = await response.json();
-        setError(
-          response.status === 401 && body
-            ? "Invalid email or password."
-            : (data.error ?? "Sign-in is unavailable."),
-        );
-      } else {
-        router.replace("/super-admin");
-        router.refresh();
-      }
-    } catch {
-      setError("Sign-in is temporarily unavailable. Try again.");
     } finally {
+      if (timer) clearTimeout(timer);
       setBusy(false);
     }
   }
@@ -59,9 +90,10 @@ export default function LoginForm() {
         </label>
         <label>
           Password
-          <input
+          <PasswordInput
+            aria-label="Password"
             name="password"
-            type="password"
+
             autoComplete="current-password"
             required
             disabled={busy}
@@ -76,6 +108,9 @@ export default function LoginForm() {
           {busy ? "Checking access…" : "Sign in"}
         </button>
       </form>
+      <p>
+        <a href="/forgot-password">Forgot password / recover access</a>
+      </p>
       <p className="sa-muted">
         If your access session expired, you can restore your existing session.
       </p>

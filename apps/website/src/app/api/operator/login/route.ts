@@ -1,5 +1,7 @@
-import { NextResponse } from 'next/server';
-import { apiUrl, setOperatorSession } from '@/lib/operator-session';
+import { sameOriginSessionPost } from "@/lib/session-post-origin";
+import { clearInstitutionalSession } from "@/lib/institutional-session";
+import { NextResponse } from "next/server";
+import { apiUrl, setOperatorSession } from "@/lib/operator-session";
 
 /**
  * Same-origin login bridge for the operator console.
@@ -14,16 +16,21 @@ import { apiUrl, setOperatorSession } from '@/lib/operator-session';
  * devtools, and in any error reporter the page ever gains.
  */
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  if (!sameOriginSessionPost(request))
+    return NextResponse.json(
+      { ok: false, error: "Request rejected." },
+      { status: 403 },
+    );
   const base = apiUrl();
 
   if (!base) {
     // Fail loudly rather than rendering a login that silently never works.
-    console.error('OPA_API_URL is not configured.');
+    console.error("OPA_API_URL is not configured.");
     return NextResponse.json(
-      { ok: false, error: 'Sign-in is unavailable.' },
+      { ok: false, error: "Sign-in is unavailable." },
       { status: 503 },
     );
   }
@@ -37,24 +44,24 @@ export async function POST(request: Request) {
     password = body.password;
   } catch {
     return NextResponse.json(
-      { ok: false, error: 'Invalid request.' },
+      { ok: false, error: "Invalid request." },
       { status: 400 },
     );
   }
 
-  if (typeof email !== 'string' || typeof password !== 'string') {
+  if (typeof email !== "string" || typeof password !== "string") {
     return NextResponse.json(
-      { ok: false, error: 'Enter your email and password.' },
+      { ok: false, error: "Enter your email and password." },
       { status: 400 },
     );
   }
 
   try {
     const response = await fetch(`${base}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
-      cache: 'no-store',
+      cache: "no-store",
       signal: AbortSignal.timeout(10000),
     });
 
@@ -64,7 +71,7 @@ export async function POST(request: Request) {
       // enrich it. Telling an unauthenticated caller which one it was
       // discloses that an account exists.
       return NextResponse.json(
-        { ok: false, error: 'Invalid email or password.' },
+        { ok: false, error: "Invalid email or password." },
         { status: 401 },
       );
     }
@@ -76,9 +83,9 @@ export async function POST(request: Request) {
     };
 
     if (!result.accessToken || !result.refreshToken) {
-      console.error('Login succeeded but returned no tokens.');
+      console.error("Login succeeded but returned no tokens.");
       return NextResponse.json(
-        { ok: false, error: 'Sign-in is unavailable.' },
+        { ok: false, error: "Sign-in is unavailable." },
         { status: 502 },
       );
     }
@@ -92,13 +99,14 @@ export async function POST(request: Request) {
     // USER belongs in the mobile app.
     // ADMIN belongs in OPA platform administration, not facility operations.
     const role = result.user?.role;
-    if (role !== 'FACILITY_OPERATOR' && role !== 'FACILITY_ADMIN') {
+    if (role !== "FACILITY_OPERATOR" && role !== "FACILITY_ADMIN") {
       return NextResponse.json(
-        { ok: false, error: 'This account cannot use the facility Viewer.' },
+        { ok: false, error: "This account cannot use the facility Viewer." },
         { status: 403 },
       );
     }
 
+    await clearInstitutionalSession();
     await setOperatorSession({
       accessToken: result.accessToken,
       refreshToken: result.refreshToken,
@@ -109,19 +117,19 @@ export async function POST(request: Request) {
       { ok: true },
       {
         headers: {
-          'Cache-Control': 'no-store, private',
-          'Referrer-Policy': 'no-referrer',
+          "Cache-Control": "no-store, private",
+          "Referrer-Policy": "no-referrer",
         },
       },
     );
   } catch (error) {
     // Never log the credentials or the response body.
     console.error(
-      'Operator login request failed:',
-      error instanceof Error ? error.message : 'unknown error',
+      "Operator login request failed:",
+      error instanceof Error ? error.message : "unknown error",
     );
     return NextResponse.json(
-      { ok: false, error: 'Sign-in is unavailable.' },
+      { ok: false, error: "Sign-in is unavailable." },
       { status: 503 },
     );
   }

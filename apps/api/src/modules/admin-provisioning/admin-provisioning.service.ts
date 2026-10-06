@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { enrollmentAuthority } from "../onboarding/support-authority";
+import { platformAuthority } from "../onboarding/onboarding-authority";
 import { maskedPerson } from "../protected-identity/masked-person";
 import {
   ConflictException,
@@ -31,6 +34,7 @@ export class AdminProvisioningService {
     const phoneNumber = dto.phoneNumber ? toE164(dto.phoneNumber) : undefined;
 
     return this.prisma.$transaction(async (tx) => {
+      await platformAuthority(tx, actorUserId);
       const facility = await tx.facility.create({
         data: {
           name: dto.name.trim(),
@@ -75,7 +79,9 @@ export class AdminProvisioningService {
   async createBulkResidentInvites(
     adminUserId: string,
     residents: CreateResidentDto[],
+    key?: string,
   ) {
+    residents.forEach(row => toE164(row.phoneNumber));
     const results: Array<
       | {
           index: number;
@@ -99,7 +105,7 @@ export class AdminProvisioningService {
 
     for (const [index, dto] of residents.entries()) {
       try {
-        const created = await this.createResidentInvite(adminUserId, dto);
+        const created = await this.createResidentInvite(adminUserId, dto, undefined, key ? `${key}:${index}` : undefined);
         results.push({
           index,
           status: "QUEUED",
@@ -154,8 +160,8 @@ export class AdminProvisioningService {
       results,
     };
   }
-  async createResidentInvite(adminUserId: string, dto: CreateResidentDto) {
-    return this.createResidentWithQueuedInvitation(adminUserId, dto);
+  async createResidentInvite(adminUserId: string, dto: CreateResidentDto, context?: { reason: string; correlationId: string }, key?: string) {
+    return this.createResidentWithQueuedInvitation(adminUserId, dto, context, key);
   }
 
   /**
@@ -168,11 +174,27 @@ export class AdminProvisioningService {
   private async createResidentWithQueuedInvitation(
     adminUserId: string,
     dto: CreateResidentDto,
+    context?: { reason: string; correlationId: string },
+    key?: string,
   ) {
     const email = dto.email.trim().toLowerCase();
     const phoneNumber = toE164(dto.phoneNumber);
+    const digest = key ? createHash("sha256").update(`${adminUserId}:${dto.facilityId}:${key}`).digest("hex") : null;
+    const correlationId = context?.correlationId ?? (digest ? `${digest.slice(0,8)}-${digest.slice(8,12)}-${digest.slice(12,16)}-${digest.slice(16,20)}-${digest.slice(20,32)}` : undefined);
 
     return this.prisma.$transaction(async (tx) => {
+      const authority = await enrollmentAuthority(tx, adminUserId, dto.facilityId, "USER");
+      if (correlationId) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(17, hashtext(${correlationId}))`;
+        const previous = await tx.administrativeAuditEvent.findFirst({ where: { actorUserId: adminUserId, correlationId } });
+        if (previous) {
+          const user = await tx.user.findUnique({ where: { id: previous.resourceId } });
+          if (previous.action !== "RESIDENT_INVITATION_QUEUED" || previous.facilityId !== dto.facilityId || !user || user.email !== email || user.phoneNumber !== phoneNumber || user.firstName !== dto.firstName.trim() || user.lastName !== dto.lastName.trim() || user.role !== "USER" || user.facilityId !== dto.facilityId || previous.reason !== (context?.reason ?? null))
+            throw new ConflictException("Invitation reference already used for different input.");
+          const delivery = await tx.accountInvitationDelivery.findFirstOrThrow({ where: { userId: user.id, facilityId: dto.facilityId }, orderBy: { createdAt: "asc" }, select: { id: true, channel: true, status: true, queuedAt: true, nextAttemptAt: true } });
+          return { user: maskedPerson({ id: user.id, email: user.email, phoneNumber: user.phoneNumber, firstName: user.firstName, lastName: user.lastName, role: user.role, facilityId: user.facilityId, isActive: user.isActive, accountStatus: user.accountStatus, activationExpiresAt: user.activationExpiresAt, invitedByUserId: user.invitedByUserId }), delivery };
+        }
+      }
       const facility = await tx.facility.findUnique({
         where: { id: dto.facilityId },
         select: { id: true, isActive: true },
@@ -228,6 +250,7 @@ export class AdminProvisioningService {
           lastName: true,
           role: true,
           facilityId: true,
+          isActive: true,
           accountStatus: true,
           activationExpiresAt: true,
           invitedByUserId: true,
@@ -253,6 +276,7 @@ export class AdminProvisioningService {
         },
       });
 
+      await tx.administrativeAuditEvent.create({ data: { actorUserId: adminUserId, actorRole: authority.actorRole, action: "RESIDENT_INVITATION_QUEUED", reason: context?.reason, correlationId, resourceId: user.id, facilityId: dto.facilityId, authorityKind: authority.authority, authorityGrantId: authority.grantId, afterState: { role: "USER", accountStatus: "PENDING_ACTIVATION" } } });
       return {
         user: maskedPerson(user),
         delivery: { ...delivery, recipient: "[protected]" },

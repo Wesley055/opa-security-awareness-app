@@ -205,13 +205,12 @@ describe("Delivery confirmation PostgreSQL invariants", () => {
         prismaTest as never,
         new ProtectedIdentityService(prismaTest as never, crypto),
       );
+      let auditsBeforeSend = 0;
       const provider = {
         send: jest.fn().mockImplementation(async () => {
-          expect(
-            await prismaTest.identityResolutionAudit.count({
-              where: { purpose: "DELIVERY" },
-            }),
-          ).toBe(1);
+          auditsBeforeSend = await prismaTest.identityResolutionAudit.count({
+            where: { purpose: "DELIVERY", tenantId: facility.id },
+          });
           return { success: true, provider: "Email", messageId: "only-send" };
         }),
       };
@@ -250,6 +249,13 @@ describe("Delivery confirmation PostgreSQL invariants", () => {
         service.dispatchNotification(id),
       ]);
       expect(provider.send).toHaveBeenCalledTimes(1);
+      // Both workers audit resolution before competing for the single send claim.
+      expect(auditsBeforeSend).toBeGreaterThanOrEqual(1);
+      expect(
+        await prismaTest.identityResolutionAudit.count({
+          where: { identifierId: stored.protectedSnapshotId!, purpose: "DELIVERY" },
+        }),
+      ).toBe(2);
       expect((await get(id)).attemptCount).toBe(1);
       expect((await get(id)).deliveryStatus).toBe("PROVIDER_ACCEPTED");
       const page = await new DeliveryReadService(

@@ -91,6 +91,22 @@ describe('IncidentDetailView live tracking', () => {
     expect(row).toHaveTextContent('sequence 10');
   });
 
+  it("shows capture/receipt/accuracy and qualifies freshness", () => {
+    renderView();
+    for (const label of ["Location captured", "Location received", "Location accuracy", "Location freshness"]) expect(screen.getByText(label)).toBeInTheDocument();
+    expect(screen.getByText("5 metres")).toBeInTheDocument();
+    expect(screen.getByText(/Recent capture at last successful check/)).toBeInTheDocument();
+  });
+  it("does not call an old buffered capture fresh just because its receipt is recent", () => {
+    render(<IncidentDetailView initialIncident={INCIDENT} initialServerTime="2026-08-22T09:00:06.000Z" initialTracking={INITIAL_TRACKING} initialTimeline={[]} initialVerification={null} />);
+    expect(screen.getByText(/Last known position; stale/)).toBeInTheDocument();
+  });
+  it.each(["NO_SESSION", "AWAITING_FIRST_FIX"] as const)("explains absent coordinates for %s without inventing a cause", state => {
+    render(<IncidentDetailView initialIncident={{ ...INCIDENT, latitude: null, longitude: null }} initialServerTime="2026-08-22T08:00:06.000Z" initialTracking={{ ...INITIAL_TRACKING, state, latest: null }} initialTimeline={[]} initialVerification={null} />);
+    expect(screen.getByText("Location availability")).toBeInTheDocument();
+    expect(screen.getByText(/No usable tracked position/)).toBeInTheDocument();
+    expect(screen.queryByText(/Recent capture at last/)).toBeNull();
+  });
   it('updates tracking through the existing five-second incident poll', async () => {
     vi.useFakeTimers();
 

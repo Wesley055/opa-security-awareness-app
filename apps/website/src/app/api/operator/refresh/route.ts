@@ -1,10 +1,11 @@
-import { NextResponse } from 'next/server';
+import { AdminFailure, upstream } from "@/lib/super-admin-api";
+import { NextResponse } from "next/server";
 import {
   apiUrl,
   clearOperatorSession,
   getRefreshToken,
   setOperatorSession,
-} from '@/lib/operator-session';
+} from "@/lib/operator-session";
 
 /**
  * Token rotation for the operator console. 14A-3.
@@ -41,15 +42,9 @@ import {
  *   restarted. The cookies are PRESERVED and the operator is told it is
  *   temporary.
  *
- * NO ROLE CHECK HERE, AND THAT IS DELIBERATE. POST /auth/refresh returns
- * { accessToken, refreshToken } and no user object, so there is no role to
- * check without decoding the token - which would mean trusting a claim the
- * three API guards all deliberately ignore. The role gate on login is UX,
- * not authorization: the API re-reads role from the database on every
- * guarded request and that is what decides. The cost is that an operator
- * demoted mid-session keeps the console shell until their refresh token
- * expires, seeing 403s from every call. Revisit if /auth/refresh ever
- * returns a user.
+ * After rotation, /institutional/context revalidates the current viewer role
+ * and facility before cookies are written. A rejected fresh access token ends
+ * the session; it is never redirected back into another automatic rotation.
  *
  * NO SINGLE-FLIGHT LOCK, AND THIS DEPENDS ON A BACKEND PROPERTY. rotate()
  * performs no writes and nothing persists refresh-token state - there is no
@@ -60,51 +55,47 @@ import {
  * polling path in 14A-6 needs a single-flight guard.
  */
 
-export const dynamic = 'force-dynamic';
+export const dynamic = "force-dynamic";
 
-type RotateOutcome = 'rotated' | 'rejected' | 'unavailable';
+type RotateOutcome = "rotated" | "rejected" | "unavailable";
 
 async function rotateSession(): Promise<RotateOutcome> {
   const base = apiUrl();
 
   if (!base) {
-    console.error('OPA_API_URL is not configured.');
-    return 'unavailable';
+    console.error("OPA_API_URL is not configured.");
+    return "unavailable";
   }
 
   const refreshToken = await getRefreshToken();
 
   if (!refreshToken) {
-    return 'rejected';
+    return "rejected";
   }
 
   let response: Response;
 
   try {
     response = await fetch(`${base}/auth/refresh`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refreshToken }),
-      cache: 'no-store',
+      cache: "no-store",
       signal: AbortSignal.timeout(10000),
     });
-  } catch (error) {
-    // Never log the token.
-    console.error(
-      'Operator token refresh could not reach the API:',
-      error instanceof Error ? error.message : 'unknown error',
-    );
-    return 'unavailable';
+  } catch {
+    console.error("Operator token refresh could not reach the API.");
+    return "unavailable";
   }
 
   // The one authoritative rejection. Everything else is an outage.
   if (response.status === 401) {
-    return 'rejected';
+    return "rejected";
   }
 
   if (!response.ok) {
     console.error(`Operator token refresh returned ${response.status}.`);
-    return 'unavailable';
+    return "unavailable";
   }
 
   let result: { accessToken?: string; refreshToken?: string };
@@ -112,26 +103,45 @@ async function rotateSession(): Promise<RotateOutcome> {
   try {
     result = (await response.json()) as typeof result;
   } catch {
-    console.error('Operator token refresh returned unreadable JSON.');
-    return 'unavailable';
+    console.error("Operator token refresh returned unreadable JSON.");
+    return "unavailable";
   }
 
   if (!result.accessToken || !result.refreshToken) {
-    console.error('Operator token refresh returned no tokens.');
-    return 'unavailable';
+    console.error("Operator token refresh returned no tokens.");
+    return "unavailable";
   }
 
+  // A successful rotation is not enough: the fresh credential must yield current viewer authority.
+  // This also ends redirect loops when refresh succeeds but the resulting access token is rejected.
+  try {
+    const context = await upstream(
+      "/institutional/context",
+      result.accessToken,
+    );
+    if (
+      !["FACILITY_OPERATOR", "FACILITY_ADMIN"].includes(context?.actor?.role) ||
+      !Array.isArray(context.facilities) ||
+      context.facilities.length !== 1 ||
+      !context.facilities[0]?.id
+    )
+      return "rejected";
+  } catch (error) {
+    return error instanceof AdminFailure && [401, 403].includes(error.status)
+      ? "rejected"
+      : "unavailable";
+  }
   await setOperatorSession({
     accessToken: result.accessToken,
     refreshToken: result.refreshToken,
   });
 
-  return 'rotated';
+  return "rotated";
 }
 
 function noStore(response: NextResponse) {
-  response.headers.set('Cache-Control', 'no-store, private');
-  response.headers.set('Referrer-Policy', 'no-referrer');
+  response.headers.set("Cache-Control", "no-store, private");
+  response.headers.set("Referrer-Policy", "no-referrer");
   return response;
 }
 
@@ -159,21 +169,21 @@ export async function GET(request: Request) {
   // never back to /operator - that is what would loop.
   if (!(await getRefreshToken())) {
     return noStore(
-      NextResponse.redirect(new URL('/operator/login', request.url)),
+      NextResponse.redirect(new URL("/operator/login", request.url)),
     );
   }
 
   const outcome = await rotateSession();
 
-  if (outcome === 'rotated') {
-    return noStore(NextResponse.redirect(new URL('/operator', request.url)));
+  if (outcome === "rotated") {
+    return noStore(NextResponse.redirect(new URL("/operator", request.url)));
   }
 
-  if (outcome === 'rejected') {
+  if (outcome === "rejected") {
     await clearOperatorSession();
     return noStore(
       NextResponse.redirect(
-        new URL('/operator/login?reason=session-ended', request.url),
+        new URL("/operator/login?reason=session-ended", request.url),
       ),
     );
   }
@@ -181,7 +191,7 @@ export async function GET(request: Request) {
   // Outage. The cookies are left exactly as they are.
   return noStore(
     NextResponse.redirect(
-      new URL('/operator/login?reason=unavailable', request.url),
+      new URL("/operator/login?reason=unavailable", request.url),
     ),
   );
 }
@@ -197,15 +207,15 @@ export async function GET(request: Request) {
 export async function POST() {
   const outcome = await rotateSession();
 
-  if (outcome === 'rotated') {
+  if (outcome === "rotated") {
     return noStore(NextResponse.json({ ok: true }));
   }
 
-  if (outcome === 'rejected') {
+  if (outcome === "rejected") {
     await clearOperatorSession();
     return noStore(
       NextResponse.json(
-        { ok: false, error: 'Your session ended.' },
+        { ok: false, error: "Your session ended." },
         { status: 401 },
       ),
     );
@@ -213,7 +223,7 @@ export async function POST() {
 
   return noStore(
     NextResponse.json(
-      { ok: false, error: 'Sign-in is temporarily unavailable.' },
+      { ok: false, error: "Sign-in is temporarily unavailable." },
       { status: 503 },
     ),
   );

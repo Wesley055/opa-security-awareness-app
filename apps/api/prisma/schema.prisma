@@ -8,6 +8,7 @@ datasource db {
 }
 
 enum UserRole {
+  TECHNICAL_SUPPORT
   USER
   RESPONDER
   ADMIN
@@ -82,6 +83,21 @@ enum EvidenceStatus {
 }
 
 model User {
+  responsePolicies FacilityResponsePolicy[] @relation("ResponsePolicyAuthor")
+  organizationsCreated Organization[] @relation("OrganizationCreator")
+  facilitySupportAssignments FacilitySupportAssignment[] @relation("AssignedSupport")
+  facilitySupportApprovals FacilitySupportAssignment[] @relation("AssignmentApprover")
+  supportCasesReported SupportCase[] @relation("CaseReporter")
+  supportCasesAssigned SupportCase[] @relation("CaseAssignee")
+  temporaryElevations TemporaryElevation[] @relation("ElevationActor")
+  elevationApprovals TemporaryElevation[] @relation("ElevationApprover")
+  commissioningEvidence CommissioningEvidence[] @relation("CommissioningRecorder")
+  trainingEvidence CommissioningEvidence[] @relation("TrainingRecipient")
+  membershipState FacilityMembershipState @default(ACTIVE)
+  supportAppointments SupportEmployment[] @relation("SupportAppointer")
+  supportEmployment SupportEmployment?
+  supportGrants SupportCapabilityGrant[] @relation("SupportActor")
+  supportApprovals SupportCapabilityGrant[] @relation("SupportApprover")
   onboardingGrants OnboardingAuthorityGrant[] @relation("OnboardingActor")
   onboardingApprovals OnboardingAuthorityGrant[] @relation("OnboardingApprover")
   ssoIdentities SsoExternalIdentity[]
@@ -364,6 +380,18 @@ model AccountInvitationDelivery {
 }
 
 model Facility {
+  responsePolicy FacilityResponsePolicy?
+  organizationId String? @db.Uuid
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  operationalState FacilityOperationalState @default(CREATED)
+  supportAssignments FacilitySupportAssignment[]
+  supportCases SupportCase[]
+  temporaryElevations TemporaryElevation[]
+  commissioningEvidence CommissioningEvidence[]
+  @@index([organizationId])
+  @@index([operationalState])
+  commissionedAt DateTime?
+  supportGrants SupportCapabilityGrant[]
   onboardingGrants OnboardingAuthorityGrant[]
   ssoConfigurations SsoConfiguration[]
   identityGrants IdentityAccessGrant[]
@@ -647,6 +675,10 @@ model EmergencyIntelligenceSnapshot {
 
 /// Durable administrative provenance, retained independently of actor/resource deletion.
 model AdministrativeAuditEvent {
+  authorityKind String?
+  authorityGrantId String? @db.Uuid
+  caseReference String? @db.Uuid
+  correlationId String? @db.Uuid
   id String @id @default(uuid()) @db.Uuid
   actorUserId String @db.Uuid
   actorRole String
@@ -1090,4 +1122,243 @@ model OnboardingAuthorityGrant {
   @@index([actorUserId, facilityId, permission, revokedAt, expiresAt], map: "onboarding_actor_scope_idx")
   @@index([facilityId])
   @@index([approvedByUserId])
+}
+
+enum FacilityMembershipState {
+  ACTIVE
+  SUSPENDED
+  REVOKED
+}
+enum SupportEmploymentState {
+  ACTIVE
+  SUSPENDED
+  ENDED
+}
+enum SupportCapability {
+  FACILITY_READ
+  STAFF_READ
+  STAFF_PROVISION
+  STAFF_SUSPEND
+  STAFF_RECOVER_ACCESS
+  OPERATOR_MANAGE
+  ENROLLMENT_DIAGNOSTICS
+  ENROLLMENT_RETRY
+  DELIVERY_DIAGNOSTICS
+  COMMAND_CENTER_DIAGNOSTICS
+  INCIDENT_SUPPORT_READ
+  INCIDENT_RESOLVE
+  AUDIT_READ
+  SERVICE_HEALTH_READ
+  PII_RESOLVE
+  RESIDENT_SUPPORT_OVERRIDE
+  FACILITY_ADMIN_DEPROVISION
+}
+model SupportEmployment {
+  userId String @id @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  state SupportEmploymentState @default(ACTIVE)
+  appointedByUserId String @db.Uuid
+  appointedBy User @relation("SupportAppointer", fields: [appointedByUserId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+model SupportCapabilityGrant {
+  id String @id @default(uuid()) @db.Uuid
+  actorUserId String @db.Uuid
+  actor User @relation("SupportActor", fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  approvedByUserId String @db.Uuid
+  approver User @relation("SupportApprover", fields: [approvedByUserId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  facilityId String? @db.Uuid
+  facility Facility? @relation(fields: [facilityId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  capability SupportCapability
+  expiresAt DateTime?
+  revokedAt DateTime?
+  reason String @db.VarChar(500)
+  createdAt DateTime @default(now())
+  @@index([actorUserId, capability, facilityId, revokedAt, expiresAt], map: "SupportCapabilityGrant_actorUserId_capability_facilityId_revok_")
+}
+
+/// Organizational ownership; existing facilities require deliberate association.
+model Organization {
+  id String @id @default(uuid()) @db.Uuid
+  name String @db.VarChar(160)
+  createdByUserId String @db.Uuid
+  createdBy User @relation("OrganizationCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+  facilities Facility[]
+}
+
+enum FacilityOperationalState {
+  CREATED
+  COMMISSIONING
+  OPERATIONAL
+  SUSPENDED
+  DECOMMISSIONED
+}
+
+/// Historical rows are retained. SQL enforces one unrevoked owner per facility.
+model FacilitySupportAssignment {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String @db.Uuid
+  actorUserId String @db.Uuid
+  assignedByUserId String @db.Uuid
+  reason String @db.VarChar(500)
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  actor User @relation("AssignedSupport", fields: [actorUserId], references: [id], onDelete: Restrict)
+  approver User @relation("AssignmentApprover", fields: [assignedByUserId], references: [id], onDelete: Restrict)
+  @@index([actorUserId, facilityId, revokedAt])
+}
+
+enum SupportCaseStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+  CLOSED
+}
+model SupportCase {
+  id String @id @default(uuid()) @db.Uuid
+  sequence Int @unique @default(autoincrement())
+  facilityId String @db.Uuid
+  reportedByUserId String @db.Uuid
+  assignedToUserId String @db.Uuid
+  category String @db.VarChar(80)
+  summary String @db.VarChar(500)
+  priority String @db.VarChar(16)
+  status SupportCaseStatus @default(OPEN)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  reporter User @relation("CaseReporter", fields: [reportedByUserId], references: [id], onDelete: Restrict)
+  assignee User @relation("CaseAssignee", fields: [assignedToUserId], references: [id], onDelete: Restrict)
+  elevations TemporaryElevation[]
+  evidence CommissioningEvidence[]
+  @@unique([id, facilityId])
+  @@index([facilityId, status, createdAt])
+  @@index([assignedToUserId, status])
+}
+model TemporaryElevation {
+  id String @id @default(uuid()) @db.Uuid
+  actorUserId String @db.Uuid
+  facilityId String @db.Uuid
+  supportCaseId String @db.Uuid
+  capability SupportCapability
+  approvedByUserId String @db.Uuid
+  reason String @db.VarChar(500)
+  startsAt DateTime @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  actor User @relation("ElevationActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  approver User @relation("ElevationApprover", fields: [approvedByUserId], references: [id], onDelete: Restrict)
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  supportCase SupportCase @relation(fields: [supportCaseId, facilityId], references: [id, facilityId], onDelete: Restrict)
+  @@index([actorUserId, facilityId, capability, revokedAt, expiresAt])
+  @@index([supportCaseId, facilityId])
+}
+/// Append-only evidence: a later record supersedes a gate without erasing history.
+model CommissioningEvidence {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String @db.Uuid
+  supportCaseId String @db.Uuid
+  recordedByUserId String @db.Uuid
+  facilityAdminUserId String? @db.Uuid
+  gate String @db.VarChar(80)
+  passed Boolean
+  evidence String @db.VarChar(1000)
+  createdAt DateTime @default(now())
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  supportCase SupportCase @relation(fields: [supportCaseId, facilityId], references: [id, facilityId], onDelete: Restrict)
+  recorder User @relation("CommissioningRecorder", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+  facilityAdmin User? @relation("TrainingRecipient", fields: [facilityAdminUserId], references: [id], onDelete: Restrict)
+  @@index([facilityId, gate, createdAt])
+  @@index([supportCaseId, facilityId])
+}
+
+/// Explicit facility policy; no invented universal response SLA.
+model FacilityResponsePolicy {
+  facilityId String @id @db.Uuid
+  acknowledgementSeconds Int
+  dispatchSeconds Int
+  progressSeconds Int
+  unattendedSeconds Int
+  closureSeconds Int
+  version Int @default(1)
+  updatedByUserId String @db.Uuid
+  updatedAt DateTime @updatedAt
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  updatedBy User @relation("ResponsePolicyAuthor", fields: [updatedByUserId], references: [id], onDelete: Restrict)
+}
+
+/// Rebuildable allowlisted projection. Incident remains authoritative.
+model ReportingProjection {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String @db.Uuid
+  incidentId String @db.Uuid
+  sourceDigest String @db.VarChar(64)
+  generatorVersion String @db.VarChar(64)
+  sourceCutoff DateTime
+  document Json
+  updatedAt DateTime @updatedAt
+  @@unique([facilityId, incidentId])
+  @@index([facilityId, updatedAt])
+}
+
+/// Stored snapshots are never regenerated on read. Supersession is an appended version.
+model AfterIncidentReport {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String @db.Uuid
+  incidentId String @db.Uuid
+  version Int
+  requestKey String @db.Uuid
+  schemaVersion Int
+  generatorVersion String @db.VarChar(64)
+  generatedAt DateTime @default(now())
+  generatedBy String @db.Uuid
+  sourceCutoff DateTime
+  sourceDigest String @db.VarChar(64)
+  supersedesId String? @db.Uuid
+  correctiveActions CorrectiveAction[]
+  @@unique([id, facilityId, incidentId])
+  document Json
+  @@unique([facilityId, incidentId, version])
+  @@unique([facilityId, incidentId, requestKey])
+  @@index([facilityId, generatedAt])
+}
+
+enum CorrectiveActionStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  VERIFIED
+  CANCELLED
+}
+
+/// OVERDUE is derived, never a stored lifecycle transition.
+model CorrectiveAction {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String @db.Uuid
+  incidentId String @db.Uuid
+  airId String @db.Uuid
+  air AfterIncidentReport @relation(fields: [airId, facilityId, incidentId], references: [id, facilityId, incidentId], onDelete: Restrict)
+  requestKey String @db.Uuid
+  category String @db.VarChar(64)
+  title String @db.VarChar(160)
+  description String @db.VarChar(500)
+  ownerId String @db.Uuid
+  dueAt DateTime
+  priority String @db.VarChar(16)
+  status CorrectiveActionStatus @default(OPEN)
+  version Int @default(1)
+  createdBy String @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  completionEvidenceId String? @db.Uuid
+  completedAt DateTime?
+  verifiedBy String? @db.Uuid
+  verifiedAt DateTime?
+  @@unique([facilityId, requestKey])
+  @@index([facilityId, incidentId])
+  @@index([facilityId, status, dueAt])
 }

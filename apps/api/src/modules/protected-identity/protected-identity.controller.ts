@@ -26,15 +26,38 @@ export class ResolveIdentityDto {
 @Controller("protected-identities")
 @UseGuards(JwtAuthGuard)
 export class ProtectedIdentityController {
-  constructor(private readonly identities: ProtectedIdentityService, private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly identities: ProtectedIdentityService,
+    private readonly prisma: PrismaService,
+  ) {}
 
+  @Post("facilities/:facilityId/:id/resolve")
+  @Header("Cache-Control", "no-store")
+  async scopedResolve(
+    @Req() request: Request & { user: JwtPayload },
+    @Param("facilityId", ParseUUIDPipe) facilityId: string,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: ResolveIdentityDto,
+  ) {
+    return {
+      value: await this.identities.resolve(
+        request.user.sub,
+        facilityId,
+        id,
+        dto.purpose,
+        dto.caseReference,
+      ),
+    };
+  }
   @Get(":id")
   @Header("Cache-Control", "no-store")
   async read(
     @Req() request: Request & { user: JwtPayload },
     @Param("id", ParseUUIDPipe) id: string,
   ) {
-    const tenantId = await this.prisma.$transaction(tx => this.identities.actorScope(tx, request.user.sub));
+    const tenantId = await this.prisma.$transaction((tx) =>
+      this.identities.actorScope(tx, request.user.sub),
+    );
     return this.identities.readMasked(request.user.sub, tenantId, id);
   }
 
@@ -45,7 +68,9 @@ export class ProtectedIdentityController {
     @Param("id", ParseUUIDPipe) id: string,
     @Body() dto: ResolveIdentityDto,
   ) {
-    const tenantId = await this.prisma.$transaction(tx => this.identities.actorScope(tx, request.user.sub));
+    const tenantId = await this.prisma.$transaction((tx) =>
+      this.identities.actorScope(tx, request.user.sub),
+    );
     return {
       value: await this.identities.resolve(
         request.user.sub,

@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { signalOnboardingSession } from "@/lib/onboarding-scope";
+import GrantForm from "./grant-form";
 import { onboardingFetch } from "@/lib/onboarding-fetch";
 type User = {
   id: string;
@@ -87,6 +89,7 @@ export default function Delegation() {
     setMessage("");
     try {
       await api(path, body);
+      signalOnboardingSession();
       await load(employee);
       setMessage("Delegation updated.");
     } catch (error) {
@@ -139,7 +142,15 @@ export default function Delegation() {
           >
             <option value="">Select user</option>
             {users.map((u) => (
-              <option key={u.id} value={u.id}>
+              <option
+                key={u.id}
+                value={u.id}
+                disabled={
+                  u.role === "ADMIN" ||
+                  !u.isActive ||
+                  u.accountStatus !== "ACTIVE"
+                }
+              >
                 {u.id} · {u.role} · {u.isActive ? u.accountStatus : "SUSPENDED"}
               </option>
             ))}
@@ -153,26 +164,29 @@ export default function Delegation() {
             More users
           </button>
         )}
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const id = String(new FormData(e.currentTarget).get("employee"));
-            setEmployee(id);
-            setGrants([]);
-            void load(id);
-          }}
-        >
-          <label>
-            Or enter existing user reference
-            <input
-              name="employee"
-              required
-              pattern="[0-9a-fA-F-]{36}"
-              disabled={busy}
-            />
-          </label>
-          <button disabled={busy}>Select reference</button>
-        </form>
+        <details>
+          <summary>Use a manual reference instead</summary>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const id = String(new FormData(e.currentTarget).get("employee"));
+              setEmployee(id);
+              setGrants([]);
+              void load(id);
+            }}
+          >
+            <label>
+              Or enter existing user reference
+              <input
+                name="employee"
+                required
+                pattern="[0-9a-fA-F-]{36}"
+                disabled={busy}
+              />
+            </label>
+            <button disabled={busy}>Select reference</button>
+          </form>
+        </details>
       </section>
       {message && (
         <p role="status" className="sa-notice">
@@ -184,45 +198,13 @@ export default function Delegation() {
           <section className="sa-card">
             <h2>Grant staff onboarding</h2>
             <p>Selected employee: {employee}</p>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                const f = new FormData(e.currentTarget);
-                void mutate(`employees/${employee}/grants`, {
-                  facilityId: f.get("facility"),
-                  expiresAt: new Date(String(f.get("expires"))).toISOString(),
-                  reason: f.get("reason"),
-                });
-              }}
-            >
-              <fieldset disabled={busy}>
-                <label>
-                  Existing facility
-                  <select name="facility" required>
-                    <option value="">Select facility</option>
-                    {facilities
-                      .filter((f) => f.isActive)
-                      .map((f) => (
-                        <option key={f.id} value={f.id}>
-                          {f.name}
-                        </option>
-                      ))}
-                  </select>
-                </label>
-                <label>
-                  Expiration (your local time)
-                  <input type="datetime-local" name="expires" required />
-                </label>
-                <label>
-                  Reason
-                  <select name="reason">
-                    <option>Approved customer onboarding assignment</option>
-                    <option>Temporary technical support coverage</option>
-                  </select>
-                </label>
-                <button>Grant authority</button>
-              </fieldset>
-            </form>
+            <GrantForm
+              key={employee}
+              employee={employee}
+              facilities={facilities}
+              busy={busy}
+              grant={(draft) => mutate(`employees/${employee}/grants`, draft)}
+            />
             {facilityCursor && (
               <button
                 disabled={busy}

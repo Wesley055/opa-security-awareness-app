@@ -59,6 +59,15 @@ let identityId: string;
 let token: string;
 const caseReference = randomUUID();
 
+// These role/tenant-change tests must leave an accepted active administrator behind.
+async function retainFacilityAdministrator() {
+  const replacement = await createUser();
+  await prismaTest.user.update({
+    where: { id: replacement.id },
+    data: { role: "FACILITY_ADMIN", facilityId: tenantId, membershipState: "ACTIVE" },
+  });
+}
+
 beforeAll(async () => {
   const module = await Test.createTestingModule({
     imports: [PassportModule],
@@ -182,6 +191,7 @@ describe("protected identity real PostgreSQL and authenticated HTTP", () => {
     expect(new Set(audits.map((audit) => audit.id)).size).toBe(8);
   });
   it("denies interactive resolution after an actor loses their institutional role", async () => {
+    await retainFacilityAdministrator();
     await prismaTest.user.update({
       where: { id: actorId },
       data: { role: "USER" },
@@ -217,6 +227,7 @@ describe("protected identity real PostgreSQL and authenticated HTTP", () => {
     expect(JSON.stringify(audit)).not.toContain("private.person");
   });
   it("does not elevate ADMIN to decryptor", async () => {
+    await retainFacilityAdministrator();
     await prismaTest.user.update({
       where: { id: actorId },
       data: { role: "ADMIN" },
@@ -228,6 +239,7 @@ describe("protected identity real PostgreSQL and authenticated HTTP", () => {
     expect(await prismaTest.identityResolutionAudit.count()).toBe(0);
   });
   it("makes foreign and missing references indistinguishable", async () => {
+    await retainFacilityAdministrator();
     await prismaTest.user.update({
       where: { id: actorId },
       data: { facilityId: foreignTenantId },
@@ -497,6 +509,7 @@ describe("protected recipient snapshot cutover and real workers", () => {
     ).toBeNull();
   });
   it("rejects source ownership from another tenant without inferring facility scope", async () => {
+    await retainFacilityAdministrator();
     const source = await invitation();
     await prismaTest.user.update({
       where: { id: actorId },

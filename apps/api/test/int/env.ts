@@ -27,6 +27,9 @@ export function loadTestEnv(): TestDbInfo {
     const gates = loadNodeModule("../../scripts/staging-gates.cjs");
     const context = gates.environment(process.env);
     const url = process.env.DATABASE_URL;
+    loadNodeModule(
+      "../../scripts/destructive-test-target.cjs",
+    ).assertNotPhysical(url);
     gates.databaseUrl(url, context);
     if (process.env.NODE_ENV !== "test")
       throw new Error("GATE_TEST_ENVIRONMENT");
@@ -42,7 +45,8 @@ export function loadTestEnv(): TestDbInfo {
   }
 
   const parsedEnv = dotenv.parse(fs.readFileSync(envPath, "utf8"));
-  const url = parsedEnv.DATABASE_URL;
+  const url =
+    process.env.OPA_INTEGRATION_DATABASE_URL || parsedEnv.DATABASE_URL;
 
   if (!url) {
     throw new Error(".env.test.local does not define DATABASE_URL.");
@@ -56,6 +60,9 @@ export function loadTestEnv(): TestDbInfo {
   }
 
   const dbName = decodeURIComponent(parsedUrl.pathname.replace(/^\//, ""));
+  loadNodeModule(
+    "../../scripts/destructive-test-target.cjs",
+  ).assertDisposableTestUrl(url, process.env.OPA_DESTRUCTIVE_TEST_DATABASE);
 
   if (!dbName.endsWith("_test")) {
     throw new Error(

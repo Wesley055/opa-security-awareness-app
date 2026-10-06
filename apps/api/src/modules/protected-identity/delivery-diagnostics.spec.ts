@@ -6,7 +6,7 @@ describe("protected delivery safe failure stages", () => {
   const env = {...process.env};
   afterEach(() => { process.env = {...env}; });
   function fixture() {
-    const tx = { identityAccessGrant: {findFirst: jest.fn().mockResolvedValue({id: "grant"})}, protectedIdentifier: {findFirst: jest.fn().mockResolvedValue({ id: "snapshot", kind: "NOTIFICATION_SNAPSHOT", formatVersion: 1, normalizationVersion: 1 })}, identityResolutionAudit: {create: jest.fn().mockResolvedValue({})} };
+    const tx = { user: {findUnique: jest.fn().mockResolvedValue({role: "FACILITY_ADMIN"})}, identityAccessGrant: {findFirst: jest.fn().mockResolvedValue({id: "grant"})}, protectedIdentifier: {findFirst: jest.fn().mockResolvedValue({ id: "snapshot", kind: "NOTIFICATION_SNAPSHOT", formatVersion: 1, normalizationVersion: 1 })}, identityResolutionAudit: {create: jest.fn().mockResolvedValue({})} };
     const db = {$transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx))};
     const crypto = {open: jest.fn().mockResolvedValue("private plaintext")};
     const service = new ProtectedIdentityService(db as never, crypto as never);

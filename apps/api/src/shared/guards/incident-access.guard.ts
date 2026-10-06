@@ -21,7 +21,7 @@ export class IncidentAccessGuard implements CanActivate {
     const actor = await this.prisma.user.findUnique({
       where: { id: request.user.sub },
       select: {
-        role: true,
+        membershipState: true, role: true,
         facilityId: true,
         isActive: true,
         accountStatus: true,

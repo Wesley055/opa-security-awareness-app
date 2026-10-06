@@ -15,7 +15,7 @@ import { PlatformAdminService } from "../../src/modules/admin-provisioning/platf
 import { InvitationDeliveryWorker } from "../../src/modules/admin-provisioning/invitation-delivery.worker";
 
 const secret = "super-admin-integration-only-secret";
-const values: Record<string, string | number> = { JWT_ACCESS_SECRET: secret, ENROLLMENT_ENCRYPTION_KEY: 'ab'.repeat(32), BCRYPT_ROUNDS: 4 };
+const values: Record<string, string | number> = { OPA_WEB_URL: "https://console.example.test", JWT_ACCESS_SECRET: secret, ENROLLMENT_ENCRYPTION_KEY: 'ab'.repeat(32), BCRYPT_ROUNDS: 4 };
 const config = { get: (key: string) => values[key], getOrThrow: (key: string) => { if(values[key] === undefined) throw new Error('Missing test configuration'); return values[key]; } } as unknown as ConfigService;
 const jwt = new JwtService({ secret });
 const identity = () => ({
@@ -315,8 +315,9 @@ describe("production Super Admin / PostgreSQL", () => {
     const user = await prismaTest.user.findUniqueOrThrow({
       where: { id: operator },
     });
-    expect(user.facilityId).toBeNull();
-    expect(user.isActive).toBe(false);
+    expect(user.facilityId).toBe(facility);
+    expect(user.membershipState).toBe("REVOKED");
+    expect(user.isActive).toBe(true);
     expect(
       await prismaTest.administrativeAuditEvent.count({
         where: { resourceId: operator },

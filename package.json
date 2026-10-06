@@ -67,6 +67,7 @@
     "@nestjs/common": {
       "file-type": "21.3.2"
     },
-    "qs": "6.16.0"
+    "qs": "6.16.0",
+    "proxy-addr": "2.0.8"
   }
 }

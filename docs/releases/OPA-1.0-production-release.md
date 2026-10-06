@@ -715,7 +715,7 @@ rerun successfully.
 
 ## 23. Release History
 
-### 2026-10-05 / 2026-10-06 — Institutional Production Candidate
+### 2026-10-05 / 2026-10-06 â€” Institutional Production Candidate
 
 Candidate:
 9e6a0b0
@@ -769,7 +769,7 @@ WHEN deployment occurred
 HOW rollback/forward recovery works
 
 
-### 2026-10-06 — Dependency Topology Investigation
+### 2026-10-06 â€” Dependency Topology Investigation
 
 No dependency changes made yet.
 
@@ -807,7 +807,7 @@ Decision:
 - Remediate each dependency family deliberately and rerun affected regression gates.
 
 
-### 2026-10-06 — Dependency Remediation Targets
+### 2026-10-06 â€” Dependency Remediation Targets
 
 Registry investigation completed before package modification.
 
@@ -842,7 +842,7 @@ No blind Nest major upgrade.
 No blind Expo/React Native upgrade.
 
 
-### 2026-10-06 — Dependency Remediation #1: proxy-addr
+### 2026-10-06 â€” Dependency Remediation #1: proxy-addr
 
 Status: CLOSED
 
@@ -882,7 +882,7 @@ Current npm is 10.9.8.
 No npm/toolchain change made yet.
 
 
-### 2026-10-06 — API Production Dependency Checkpoint
+### 2026-10-06 â€” API Production Dependency Checkpoint
 
 Production audit after proxy-addr remediation:
 
@@ -918,7 +918,7 @@ Status:
 API dependency certification remains OPEN, but critical finding is CLOSED.
 
 
-## 25. Apple App Review — 2026-10-06
+## 25. Apple App Review â€” 2026-10-06
 
 Submission ID:
 3dce3b60-c847-4be8-a642-3f3d5f9cd2f9
@@ -932,7 +932,7 @@ iPad Air 11-inch (M3)
 Result:
 REJECTED / ACTION REQUIRED
 
-### Guideline 2.1 — App Completeness / Information Needed
+### Guideline 2.1 â€” App Completeness / Information Needed
 
 Apple reported that the supplied App Review demo account could not sign in.
 
@@ -946,7 +946,7 @@ Production requirement:
 Status:
 OPEN
 
-### Guideline 5.1.5 — Privacy / Location Services
+### Guideline 5.1.5 â€” Privacy / Location Services
 
 Apple requires:
 
@@ -984,3 +984,114 @@ requirements before resubmission.
 
 Final iOS buildNumber:
 PENDING
+
+### 2026-10-06 â€” Website Next.js Security Remediation
+
+Status: IN PROGRESS
+
+Framework remediation:
+- Next.js 16.2.10 -> 16.3.8
+- eslint-config-next 16.2.10 -> 16.3.8
+- @next/swc-win32-x64-msvc 16.3.8 verified
+- sharp 0.35.5
+- Next internal postcss 8.5.23
+
+Validation:
+- Website TypeScript: PASS
+- Website lint: 0 errors / 2 navigation warnings
+- Website tests: PASS
+  - 83 / 83 test files
+  - 531 / 531 tests
+- Production Next build: PASS
+  - compiled successfully
+  - TypeScript completed
+  - page-data collection completed
+  - 24 / 24 static pages generated
+
+Production dependency audit before remediation:
+- 5 vulnerabilities
+- 1 critical
+- 3 high
+- 1 moderate
+
+Production dependency audit after Next 16.3.8:
+- 2 vulnerabilities
+- 0 critical
+- 1 high
+- 1 moderate
+
+CLOSED:
+- Critical Next.js production advisory family
+
+REMAINING WEBSITE FINDINGS:
+- source-map-js 1.2.1
+  severity: HIGH
+  safe available version observed: 1.2.2
+- baseline-browser-mapping 2.10.43
+  severity: MODERATE
+  safe available version observed: 2.11.27
+
+Additional release observations:
+- Next middleware convention emits a deprecation warning recommending proxy.
+  No canary codemod was executed during release hardening.
+- ESLint reports two internal-navigation warnings involving
+  window.location.assign().
+  No warning suppression applied.
+- Existing React test act(...) warnings remain test-quality cleanup items and
+  did not cause test failures.
+
+Final website dependency certification remains OPEN pending remediation or
+formal disposition of the remaining HIGH and MODERATE findings.
+
+
+### 2026-10-06 â€” Website Production Dependency Gate CLOSED
+
+Final production dependency state:
+
+- Next.js: 16.3.8
+- eslint-config-next: 16.3.8
+- source-map-js: 1.2.2 overridden
+- baseline-browser-mapping: 2.11.27 overridden
+- @next/swc-win32-x64-msvc: 16.3.8
+- sharp: 0.35.5
+- Next internal postcss: 8.5.23
+
+Production audit:
+
+FOUND 0 VULNERABILITIES
+
+Validation:
+
+- TypeScript: PASS
+- Lint: PASS with 0 errors / 2 navigation warnings
+- Website tests: PASS
+  - 83 / 83 test files
+  - 531 / 531 tests
+- Production build: PASS
+  - compilation PASS
+  - TypeScript PASS
+  - page data PASS
+  - 24 / 24 static pages generated
+
+Security improvement:
+
+Before remediation:
+- 5 production vulnerabilities
+- 1 critical
+- 3 high
+- 1 moderate
+
+After remediation:
+- 0 production vulnerabilities
+
+No npm audit fix --force.
+No React major change.
+No broad 99-package audit-fix expansion accepted.
+
+Remaining non-blocking cleanup observations:
+- two Next internal-navigation lint warnings
+- middleware -> proxy convention deprecation warning
+- existing React test act(...) warnings
+
+Website production dependency security gate:
+CLOSED

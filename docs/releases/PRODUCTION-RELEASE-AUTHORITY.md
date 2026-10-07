@@ -357,10 +357,10 @@ Before issuing a new production endpoint policy:
 As of 2026-10-06:
 
 - historical production private authority: NOT RECOVERED
-- successor production authority `opa-production-release-20261006`: NOT YET GENERATED
-- successor public key: NOT YET ENROLLED
+- successor production authority `opa-production-release-20261006`: GENERATED; see completed successor enrollment below
+- successor public key: ENROLLED in `a02073b`; fingerprint recorded below
 - fresh production endpoint policy: NOT YET ISSUED
-- live production migration count for the 42-migration candidate: NOT YET MEASURED
+- live production migration count: directly verified 35 active / 0 unfinished / 0 rolled back; seven forward migrations pending
 - migration/cutover/recovery authorization: PENDING
 - iOS successor build after Apple build 5: PENDING
 
@@ -705,3 +705,35 @@ Future production releases MUST follow:
 19. then create EAS production builds.
 
 Never migrate after deploying schema-dependent application code.
+
+## Permanent production migration mechanism — implementation under review
+
+Canonical execution/privilege/backup/recovery runbook: `ops/production/README.md`.
+
+Tooling lives in `ops/production/`: isolated exact-SHA artifact builder, reviewed seven-migration contract, migration-only signed-policy runner, database/ownership/data preflight, administrator SQL generator, explicit sanitized receipt schema and offline/disposable PostgreSQL tests. No migration CLI was added to API runtime dependencies. The existing production workflow and its fail-closed migration guard remain unchanged.
+
+The last verified production snapshot is deployed build `b02a851f6fbe369661e3e3fc68d02898851278ba`, with 35 active migrations and seven forward migrations pending. This implementation performed NO production database/Azure changes, GRANT/REVOKE, migration, deployment, signing or EAS build. A production mutation remains unauthorized.
+
+The dedicated migration login temporarily inherits a narrowly scoped NOLOGIN owner, receives public CREATE and migration-ledger INSERT/UPDATE, and loses them through independently owned administrator cleanup. Runtime never inherits ownership/DDL. Initial ownership transfers, effective PUBLIC/inherited ACL inspection, TEMP revocation, VM/private-network/IAM provisioning, credential delivery, backup/PITR evidence and a hard cleanup deadline are external administrator prerequisites. No privileges expire automatically. A failed migration or missing receipt requires cleanup and incident review; never repair migration history as a shortcut.
+
+The migration policy must be separately signed with purpose=migration and bind exact candidate SHA, complete artifact hash, migration role/database, approved production VM/private addresses, signed sentinel hash, fresh backup evidence and explicit operator approval. API/endpoint policy substitution fails. The production signer rotation is complete and is not redesigned. This work issues no policy.
+
+Mandatory order: administrator/infrastructure/backup review -> explicit approval -> initial scoped owner preparation (once) -> temporary activation -> exact 35-row/checksum/data preflight -> explicitly authorized bundled Prisma 6.19.3 migrate deploy -> verify all 42 rows/schema/sentinel -> independent administrator cleanup -> verify-cleanup and verify-post -> separately approve deployment of the same SHA -> API environment readiness -> separately authorized endpoint signing/EAS. Never deploy schema-dependent code before migration.
+
+GO/NO-GO: NO-GO for production until a reviewed committed target-platform artifact, actual production ownership/ACL inventory, approved private runner/secret custody, backup/recovery evidence, external cleanup supervisor and explicit human authorization are recorded. Tests or a commit/push do not authorize production.
+
+### Mandatory migration handover additions
+
+Every `Production Release Authority` handover MUST also carry the migration runbook reference, approved candidate/artifact/Prisma hashes and platform, exact baseline/forward/candidate migration checksums, runner/private-network/lease approval references, signed migration-policy digest/expiry, backup/PITR/recovery reference, administrator activation/cleanup script hashes, effective owner/migration/runtime posture, sanitized preflight/execution/post/cleanup receipts, external teardown evidence and remaining NO-GO gates. Carry forward the stale root-prisma warning and the migrate-before-deploy rule. Never copy credentials, URLs, private keys, connection strings, tokens or raw child/SQL exception output.
+
+### Implementation verification — 2026-10-07
+
+Focused Windows/PostgreSQL tests: 44/44 PASS (43 tooling cases plus one full real Prisma 6.19.3/PostgreSQL 14 rehearsal). Linux Node 22 isolated artifact install/engine/tamper proof: PASS, 50 locked packages, lock unchanged. Existing environment-policy/HTTPS/staging migration-path/diagnostics tests: 157/157 PASS. API TypeScript check: PASS under cached Node 22 with a read-only source mount and no network; the initial host Node 26 attempt exhausted memory. Final diff/secret scans accompany the review artifact.
+
+The rehearsal applies 35 actual historical migrations, then seven exact forward migrations with the dedicated identity, checks all 42 ledger rows and datamodel, proves metadata-only REFERENCES works after cleanup without application SELECT, repeats cleanup, tests revoked old-owner data ACLs, rejects unapproved role delegation, and proves a failed ownership reconciliation cannot undo already committed privilege revokes. This is a disposable local database, not production evidence.
+
+Idle migration posture also retains REFERENCES on exactly 33 baseline and 12 new application tables for Prisma schema metadata. It retains no application SELECT/DML, sequence authority, ownership, default grants to others or role delegation. Scoped owner ordinary SELECT/UPDATE/TRIGGER/type-USAGE rights are explicit; transfer alone is not assumed to restore them.
+
+The final release artifact cannot be issued from this uncommitted review state. After code review and a committed approved SHA, build and independently verify the exact target-platform artifact, then separately approve migration-policy issuance and the production window. Implementation approval does not authorize production mutation. No commit/push or production operation occurred in this work.
+
+Non-superuser administrator rehearsal: PASS. Generated administrator SQL temporarily borrows scoped-role memberships within each transaction, removes newly borrowed memberships before commit, and preserves prior membership. The administrator must have INHERIT and authorized role-membership, database/schema ACL and old-object ownership authority. No permanent administrator membership or migration-role elevation is installed.

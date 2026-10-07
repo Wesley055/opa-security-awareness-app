@@ -4,7 +4,7 @@ This package is Node-only. API bootstrap, Expo dynamic config and website upstre
 
 ## Deliberate onboarding gate
 
-trusted-signers.json is empty. No staging endpoint, production secret, cloud ID, actual signing key or deployable environment manifest was created during local implementation. Hosted configurations fail closed until reviewed identities and policies are supplied. Explicit OPA_ENVIRONMENT=development enables local work; this is not an implicit fallback and is rejected for Azure deployments and incompatible EAS profiles.
+The original local implementation shipped without enrolled signers, endpoints or deployable environment manifests. Current production signer enrollment and custody continuity are recorded in docs/releases/PRODUCTION-RELEASE-AUTHORITY.md. Hosted configurations fail closed until reviewed identities and policies are supplied. Explicit OPA_ENVIRONMENT=development enables local work; this is not an implicit fallback and is rejected for Azure deployments and incompatible EAS profiles.
 
 The signing registry maps environment -> key ID -> Ed25519 public-key PEM. Private signing keys stay in the approved release system. Do not add a test key to this registry. Tests pass ephemeral keys directly to the pure verifier; production entry points always read the checked-in trust registry.
 
@@ -52,3 +52,7 @@ Denials return success=false, retryable=false, REJECTED and no messageId. The du
 ## Production rollout dependency
 
 Existing production notification semantics and optional Redis behavior are retained after valid configuration. Missing classification now intentionally rejects startup, including production. Do not deploy this code until production has a reviewed signed policy, independently verified key/resource provenance, a read-only identity sentinel and the complete migration chain. The existing production migration guard is unchanged. Actual production configuration has not been modified.
+
+## Dedicated production migration runner
+
+The reusable production path is documented in `ops/production/README.md`. Its separately signed purpose=migration payload uses this package's enrolled-signer envelope verification and strict database URL binding, plus production-specific artifact, approved VM/private-address, sentinel, backup and operator bindings. It deliberately carries only the migration DATABASE_URL secret binding, not API/provider/PII credentials; API and staging preflight contracts are unchanged. The runner independently verifies live identity, exact 35-to-42 checksums, scoped ownership/data compatibility, datamodel and administrator cleanup. API/endpoint policy substitution fails closed. Policy expiry does not revoke PostgreSQL grants; an independent administrator must own the bounded cleanup lifecycle. Production execution remains separately human-authorized.

@@ -1111,3 +1111,9 @@ Every future OPA engineering/release handover MUST include a `Production Release
 Do not reconstruct release-authority state from historical handovers, shell history, chat history or old artifacts when the canonical runbook contains the answer.
 
 Private signing material, passwords, tokens, secret values and recovery material MUST NEVER be copied into this ledger or any handover.
+
+## Production migration execution hardening — implementation review
+
+Permanent runbook: `ops/production/README.md`; continuity: `docs/releases/PRODUCTION-RELEASE-AUTHORITY.md`. The 35-to-42 migration contract now has an isolated exact-candidate Prisma 6.19.3 artifact, dedicated-role signed runner, scoped owner activation and independently verified administrator cleanup, sanitized receipts and failure-path/disposable PostgreSQL tests. No production mutation, signing, deployment or EAS build was executed. Production release remains NO-GO pending the runbook's external gates and explicit human approval. Validation results accompany the implementation review; no committed candidate/artifact approval is implied.
+
+Validation completed 2026-10-07: 44/44 focused Windows/PostgreSQL tests; Linux Node 22 isolated artifact install/engine/tamper proof with 50 locked packages; 157/157 existing boundary/migration tests; API TypeScript PASS in Node 22. Production remains NO-GO until the recorded external gates and explicit approval are satisfied. No commit/push was made.

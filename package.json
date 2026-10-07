@@ -18,7 +18,9 @@
     "dependencies:audit": "npm audit --audit-level=high",
     "dependencies:test": "node --test apps/api/scripts/dependency-security-regression.cjs",
     "brand:generate": "node scripts/brand-assets.cjs",
-    "brand:check": "node scripts/brand-assets.cjs --check"
+    "brand:check": "node scripts/brand-assets.cjs --check",
+    "artifact:migration": "node ops/production/build-artifact.cjs",
+    "migration:tooling:test": "node --test ops/production/production.test.cjs"
   },
   "engines": {
     "node": ">=22.12.0",

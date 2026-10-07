@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Sanitized OPA production migration receipt",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "environment", "mode", "startedAt", "status", "cleanupRequired"],
+  "properties": {
+    "version": {"const": 1},
+    "environment": {"const": "production"},
+    "mode": {"enum": ["preflight", "execute", "verify-cleanup", "verify-post"]},
+    "startedAt": {"type": "string", "format": "date-time"},
+    "status": {"enum": ["rejected", "failed", "preflight-passed", "execution-started", "migrated-awaiting-admin-cleanup", "cleanup-verified", "verified"]},
+    "cleanupRequired": {"type": "boolean"},
+    "connectionClosed": {"type": "boolean"},
+    "build": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+    "artifactSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "policySha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "sentinelSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "approvalId": {"type": "string", "pattern": "^[a-zA-Z0-9_-]{1,80}$"},
+    "activeMigrations": {"enum": [35, 42]},
+    "compatibility": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "supportTenant": {"const": 0}, "enrollment": {"const": 0},
+        "institutional": {"const": 0}, "operationalExceptions": {"const": 0}
+      }
+    },
+    "posture": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "runtimeDdl": {"const": false}, "migrationActive": {"type": "boolean"}, "sentinelMutable": {"const": false}
+      }
+    }
+  }
+}

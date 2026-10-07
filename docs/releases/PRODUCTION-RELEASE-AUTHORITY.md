@@ -402,3 +402,50 @@ Before any real successor production authority was generated:
 - disposable authority material was deleted after the proof
 
 The successor production authority MUST be generated using this committed tooling or a subsequently reviewed/superseding implementation whose commit is recorded here.
+
+## Successor signer enrollment — completed 2026-10-06
+
+Active successor signer:
+
+`opa-production-release-20261006`
+
+Public-key SHA-256:
+
+`a3243b027e87ae180822b9a5e6fa8f962ba832d4eb7fe5c2cb6b387ce2755106`
+
+Custody:
+
+`Windows DPAPI / current user`
+
+Canonical non-secret custody reference:
+
+`%LOCALAPPDATA%\OPA\Production\ReleaseAuthority-20261006\authority.dpapi`
+
+Do not copy, open, export or commit the protected authority.
+
+Independent post-creation verification confirmed:
+
+- protected authority exists
+- protected artifact size observed: 342 bytes
+- recovered Ed25519 public fingerprint exactly matched the creation receipt
+- private material was not exported
+
+Successor public-key enrollment commit:
+
+`a02073b`
+
+Commit subject:
+
+`security(production): enroll successor release signer`
+
+The historical signer:
+
+`opa-production-release-20260919`
+
+remains enrolled for historical policy verification.
+
+After actual successor enrollment, the complete environment-policy/HTTPS suite passed 32/32 with zero failures.
+
+The successor signer is now ENROLLED.
+
+A fresh production endpoint policy has NOT yet been issued. Endpoint policy issuance must bind the exact approved/deployed release SHA and must occur only after production migration/readiness and `/health/environment` verification.

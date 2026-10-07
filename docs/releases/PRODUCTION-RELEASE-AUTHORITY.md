@@ -379,3 +379,26 @@ Every future OPA handover MUST:
 7. update this canonical runbook when release-authority architecture changes.
 
 This requirement is mandatory.
+
+## Successor authority tooling provenance
+
+Permanent protected-authority tooling was introduced by:
+
+`af17954`
+
+Commit subject:
+
+`security(release): add protected production authority tooling`
+
+Before any real successor production authority was generated:
+
+- authority custody tests passed 6/6
+- CLI boundary tests passed 6/6
+- combined test result passed 12/12
+- an end-to-end disposable CLI authority creation succeeded
+- only a DPAPI-protected `authority.dpapi` artifact was created
+- no plaintext private authority artifact was produced
+- repeat creation failed closed with `AUTHORITY_ALREADY_EXISTS`
+- disposable authority material was deleted after the proof
+
+The successor production authority MUST be generated using this committed tooling or a subsequently reviewed/superseding implementation whose commit is recorded here.

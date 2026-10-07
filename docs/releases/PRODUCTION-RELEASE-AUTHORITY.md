@@ -860,3 +860,11 @@ The migration runner must have:
 - independently owned cleanup/termination procedure
 
 Future handovers MUST carry this topology forward and MUST NOT rediscover or guess the production subnet layout.
+
+## Permanent bounded runner infrastructure contract — 2026-10-07
+
+Use `ops/production/infrastructure/README.md` and its offline tools; the committed migration mechanism is unchanged. Topology: existing opa-api-productionSubnet 10.0.0.0/24, subject to fresh empty-occupancy/delegation/route/NSG proof; dedicated NIC NSG, no subnet-wide attachment, no public IP/inbound listener. No new subnet is authorized. Approved immutable Ubuntu 24.04 Linux x64/Node22 image, Standard_D2s_v5, prebuilt exact artifact, private PostgreSQL/DNS and pre-existing private artifact/Key Vault endpoints. Managed Run Command requires agent/provider rehearsal and explicitly approved AzureCloud TCP443 residual egress; NSGs do not filter FQDNs.
+
+One temporary user-assigned identity has only secret-resource Key Vault Secrets User and artifact-container Storage Blob Data Reader. No database administrator credential on the runner. Non-secret bootstrap/custody, image provenance, live inventory, operator/cleanup RBAC and independent one-hour teardown scheduling are external approval gates; no service availability is assumed. Independent teardown uses exact validated resource/assignment IDs, never group/wildcard deletion, and preserves VNet, all subnets/DNS/database/App and unrelated resources. Missing/ambiguous ownership fails closed.
+
+Every handover MUST carry plan/hash, image/artifact hashes, VM/NIC/OS-disk/NSG/identity IDs, principal and exact two RBAC assignment IDs/scopes, private addresses, lease/cleanup owner and external cleanup job, management authority, inventory/receipt references, database privilege cleanup status and independent Azure teardown verification. Tags alone do not expire resources; VM deletion does not revoke PostgreSQL privileges. No production read/mutation, SQL, credential access, signing, migration, deployment, EAS, commit or push was performed for this implementation. Production provisioning remains NO-GO pending external gates and explicit human review/approval.

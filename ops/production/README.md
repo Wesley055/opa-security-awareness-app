@@ -395,3 +395,7 @@ NO-GO until those external gates are evidenced and explicit human production
 approval is recorded. Tests and generated scripts authorize no production action.
 Future releases with a different migration set require a reviewed new contract,
 compatibility queries, exact checksum delta, ownership scope and rehearsal.
+
+## Permanent Azure runner provisioning contract
+
+The reviewed offline infrastructure contract, read-only inventory command generator, fail-closed preflight/post-verification, provisioning and teardown command generators are in `infrastructure/README.md`. Use the existing nondelegated general subnet only after a fresh empty-occupancy proof, with a dedicated NIC NSG, no public IP and Managed Run Command; never modify App/DB delegated subnets. Provisioning is separately human-authorized. Image/artifact/private endpoint/credential custody and independently scheduled teardown remain external prerequisites. This infrastructure work executes no Azure/SQL/secret/signing/migration/deployment actions.

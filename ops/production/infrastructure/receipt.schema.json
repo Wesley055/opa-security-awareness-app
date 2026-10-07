@@ -1,0 +1,15 @@
+{
+ "$schema":"https://json-schema.org/draft/2020-12/schema",
+ "title":"OPA migration infrastructure receipt",
+ "type":"object","additionalProperties":false,
+ "required":["version","phase","status","job","planSha256","expiresAt","cleanupOwner","resources"],
+ "properties":{
+  "version":{"const":1},"phase":{"enum":["preflight","post-provision","post-teardown"]},"status":{"const":"verified"},
+  "job":{"type":"string","pattern":"^[a-z0-9]{8,24}$"},"planSha256":{"type":"string","pattern":"^[a-f0-9]{64}$"},
+  "expiresAt":{"type":"string","format":"date-time"},"cleanupOwner":{"type":"string","pattern":"^[A-Za-z0-9_.@-]{1,100}$"},
+  "resources":{"type":"object","additionalProperties":false,"required":["vm","nic","nsg","identity","disk","tags"],"properties":{
+   "vm":{"type":"string"},"nic":{"type":"string"},"nsg":{"type":"string"},"identity":{"type":"string"},"disk":{"type":"string"},
+   "tags":{"type":"object","additionalProperties":false,"required":["opaMigrationJob","expiresAt","cleanupOwner","approvalId","planSha256"],"properties":{"opaMigrationJob":{"type":"string"},"expiresAt":{"type":"string"},"cleanupOwner":{"type":"string"},"approvalId":{"type":"string"},"planSha256":{"type":"string"}}}
+  }}
+ }
+}

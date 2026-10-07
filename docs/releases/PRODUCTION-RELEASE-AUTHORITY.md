@@ -737,3 +737,126 @@ Idle migration posture also retains REFERENCES on exactly 33 baseline and 12 new
 The final release artifact cannot be issued from this uncommitted review state. After code review and a committed approved SHA, build and independently verify the exact target-platform artifact, then separately approve migration-policy issuance and the production window. Implementation approval does not authorize production mutation. No commit/push or production operation occurred in this work.
 
 Non-superuser administrator rehearsal: PASS. Generated administrator SQL temporarily borrows scoped-role memberships within each transaction, removes newly borrowed memberships before commit, and preserves prior membership. The administrator must have INHERIT and authorized role-membership, database/schema ACL and old-object ownership authority. No permanent administrator membership or migration-role elevation is installed.
+
+## Production private migration network topology — verified 2026-10-07
+
+Azure production VNet:
+
+`opa-api-productionVnet`
+
+Address space:
+
+`10.0.0.0/16`
+
+Subnets:
+
+### General production subnet
+
+`opa-api-productionSubnet`
+
+CIDR:
+
+`10.0.0.0/24`
+
+Observed:
+
+- no Azure service delegation
+- no NSG attached
+- no route table attached
+
+This is the candidate subnet for a bounded private production migration runner.
+
+Do not provision a migration runner here until its reviewed network controls exist.
+
+### App Service integration subnet
+
+`opa-api-productionAppSubnet`
+
+CIDR:
+
+`10.0.1.0/24`
+
+Delegated to:
+
+`Microsoft.Web/serverfarms`
+
+Production App Service VNet integration was directly confirmed against this subnet.
+
+Do NOT use this subnet for the migration VM.
+
+### PostgreSQL delegated subnet
+
+`opa-api-productionDbSubnet`
+
+CIDR:
+
+`10.0.2.0/24`
+
+Delegated to:
+
+`Microsoft.DBforPostgreSQL/flexibleServers`
+
+Production PostgreSQL Flexible Server is directly bound to this subnet.
+
+Do NOT use this subnet for the migration VM.
+
+### PostgreSQL network binding
+
+Server:
+
+`opa-api-production-server`
+
+Database:
+
+`opa-api-production-database`
+
+Public network access:
+
+`Disabled`
+
+PostgreSQL private DNS zone:
+
+`privatelink.postgres.database.azure.com`
+
+The private DNS zone is linked successfully to:
+
+`opa-api-productionVnet`
+
+Therefore approved resources in the production VNet can use the production private DNS resolution path, subject to their own network/security controls.
+
+### Redis private DNS
+
+Zone:
+
+`privatelink.redis.cache.windows.net`
+
+It is also linked to the production VNet.
+
+Redis is not required for the production migration runner.
+
+### Network-security discovery
+
+As of 2026-10-07:
+
+- no NSGs were listed in resource group `opa-production`
+- `opa-api-productionSubnet` had no NSG
+- no existing production VM was present
+- no existing approved migration runner was present
+
+Do not create a migration VM first and secure it afterward.
+
+The runner network/security boundary must be reviewed and established before VM creation.
+
+The migration runner must have:
+
+- no public IP
+- private production VNet placement
+- no placement in App Service or PostgreSQL delegated subnets
+- bounded ingress; interactive administration must use an approved private management path
+- outbound access restricted to the minimum required release dependencies and production PostgreSQL/approved Azure services
+- no inbound Internet exposure
+- bounded lifetime/lease
+- separately reviewed managed identity/secret-read scope
+- independently owned cleanup/termination procedure
+
+Future handovers MUST carry this topology forward and MUST NOT rediscover or guess the production subnet layout.

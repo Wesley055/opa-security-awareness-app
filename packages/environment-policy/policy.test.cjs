@@ -158,3 +158,137 @@ test("unknown EAS profile fails", () =>
       policy,
     ),
   ));
+
+test("production signer rotation preserves historical signer and accepts enrolled successor", () => {
+  const oldPair = crypto.generateKeyPairSync("ed25519");
+  const newPair = crypto.generateKeyPairSync("ed25519");
+
+  const keys = {
+    production: {
+      "opa-production-release-old": oldPair.publicKey,
+      "opa-production-release-new": newPair.publicKey,
+    },
+  };
+
+  const makeEnvelope = (keyId, pair) => {
+    const payload = Buffer.from(
+      JSON.stringify({
+        version: 1,
+        environment: "production",
+        purpose: "endpoint",
+        apiOrigin: "https://production.example.test",
+        build: "fixture-build",
+        httpsVerifiedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      }),
+    );
+
+    return {
+      keyId,
+      payload: payload.toString("base64"),
+      signature: crypto.sign(null, payload, pair.privateKey).toString("base64"),
+    };
+  };
+
+  assert.equal(
+    verifyEnvelope(
+      makeEnvelope("opa-production-release-old", oldPair),
+      "production",
+      "endpoint",
+      keys,
+    ).build,
+    "fixture-build",
+  );
+
+  assert.equal(
+    verifyEnvelope(
+      makeEnvelope("opa-production-release-new", newPair),
+      "production",
+      "endpoint",
+      keys,
+    ).build,
+    "fixture-build",
+  );
+});
+
+test("production signer rotation fails closed for unknown and substituted key IDs", () => {
+  const oldPair = crypto.generateKeyPairSync("ed25519");
+  const newPair = crypto.generateKeyPairSync("ed25519");
+
+  const keys = {
+    production: {
+      "opa-production-release-old": oldPair.publicKey,
+      "opa-production-release-new": newPair.publicKey,
+    },
+  };
+
+  const payload = Buffer.from(
+    JSON.stringify({
+      version: 1,
+      environment: "production",
+      purpose: "endpoint",
+      apiOrigin: "https://production.example.test",
+      build: "fixture-build",
+      httpsVerifiedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }),
+  );
+
+  const signature = crypto.sign(null, payload, oldPair.privateKey).toString("base64");
+
+  assert.throws(() =>
+    verifyEnvelope(
+      {
+        keyId: "opa-production-release-unknown",
+        payload: payload.toString("base64"),
+        signature,
+      },
+      "production",
+      "endpoint",
+      keys,
+    ),
+  );
+
+  assert.throws(() =>
+    verifyEnvelope(
+      {
+        keyId: "opa-production-release-new",
+        payload: payload.toString("base64"),
+        signature,
+      },
+      "production",
+      "endpoint",
+      keys,
+    ),
+  );
+});
+
+test("production policy cannot be authorized by staging signer", () => {
+  const pair = crypto.generateKeyPairSync("ed25519");
+
+  const payload = Buffer.from(
+    JSON.stringify({
+      version: 1,
+      environment: "production",
+      purpose: "endpoint",
+      apiOrigin: "https://production.example.test",
+      build: "fixture-build",
+      httpsVerifiedAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    }),
+  );
+
+  const envelope = {
+    keyId: "opa-staging-release-fixture",
+    payload: payload.toString("base64"),
+    signature: crypto.sign(null, payload, pair.privateKey).toString("base64"),
+  };
+
+  assert.throws(() =>
+    verifyEnvelope(envelope, "production", "endpoint", {
+      staging: {
+        "opa-staging-release-fixture": pair.publicKey,
+      },
+    }),
+  );
+});

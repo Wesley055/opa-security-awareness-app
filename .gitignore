@@ -35,3 +35,9 @@ backups/
 *.dump
 *.pgdump
 *.backup
+
+# Local release-authority/private signing material must never enter Git.
+.local/release-authority/
+*.private.pem
+*.private.key
+*.authority.dpapi

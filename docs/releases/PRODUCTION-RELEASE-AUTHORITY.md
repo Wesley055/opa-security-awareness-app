@@ -449,3 +449,45 @@ After actual successor enrollment, the complete environment-policy/HTTPS suite p
 The successor signer is now ENROLLED.
 
 A fresh production endpoint policy has NOT yet been issued. Endpoint policy issuance must bind the exact approved/deployed release SHA and must occur only after production migration/readiness and `/health/environment` verification.
+
+## Production migration delta verified — 2026-10-06
+
+Live `/health/environment` reported:
+
+- environment: `production`
+- build: `b02a851f6fbe369661e3e3fc68d02898851278ba`
+- databaseEnvironment: `production`
+- migrationReadiness: `ready`
+- notificationMode: `live`
+- redisEnvironment: `not-configured`
+- ssoEnabled: `false`
+
+Repository inspection of exact deployed build:
+
+`b02a851f6fbe369661e3e3fc68d02898851278ba`
+
+confirmed that build contains exactly 35 migration directories.
+
+The current release candidate contains exactly 42 migration directories.
+
+Repository/build delta is therefore exactly seven forward migrations:
+
+1. `20260922230000_bounded_onboarding_authority`
+2. `20260928010000_support_role`
+3. `20260928010100_institutional_authority`
+4. `20260929090000_support_enrollment_provenance`
+5. `20260930010000_canonical_organization`
+6. `20260930010100_operational_response_policy`
+7. `20261004010000_reporting_foundation_reconciled`
+
+The deployed environment verifier validates database identity, signed database/role binding, `_prisma_migrations` existence, completed active rows, migration checksums, duplicate active migration names and exact migration count before reporting `migrationReadiness=ready`.
+
+Therefore the live `ready` result proves production satisfies the 35-migration contract embedded in deployed build `b02a851`.
+
+This does NOT authorize migration automatically.
+
+Before any production mutation, directly inspect the live production migration ledger from an approved environment inside the production private network and reconcile the exact 35 applied names/checksums against the 42-migration candidate.
+
+Production migration sequence remains:
+
+read-only ledger verification -> reviewed cutover/recovery approval -> backup/PITR confirmation -> apply seven forward migrations -> verify all 42 names/checksums -> verify identity sentinel/role -> deploy exact candidate -> verify `/health/environment` reports exact candidate SHA and `migrationReadiness=ready`.

@@ -123,3 +123,64 @@ test('CLI deadline terminates a stalled process and never reports success',{time
     await assert.rejects(run.cli(dir,[],{PATH:process.env.PATH,SystemRoot:process.env.SystemRoot},new Date(Date.now()+100).toISOString()));
   }finally{assert(path.resolve(dir).startsWith(path.resolve(os.tmpdir())+path.sep));fs.rmSync(dir,{recursive:true,force:true});}
 });
+
+test('exact production App Service is accepted as bounded migration runner',()=>{
+  const f=policyFixture();
+  const productionSub='/subscriptions/b79ffdb2-0cf1-4915-89b4-2b6b7cae0299/resourceGroups/opa-production/providers/';
+  const app=productionSub+'Microsoft.Web/sites/opa-api-production';
+  const vault=productionSub+'Microsoft.KeyVault/vaults/opa-test-only';
+
+  f.env.OPA_DEPLOYMENT_RESOURCE_ID=app;
+  f.p.resources.app.id=app;
+  f.p.resources.database.id=productionSub+'Microsoft.DBforPostgreSQL/flexibleServers/opa-api-production-server';
+  f.p.resources.vault.id=vault;
+  f.p.secrets.DATABASE_URL.vaultId=vault;
+  f.p.runner.kind='azure-app-service';
+  f.p.runner.resourceId=app;
+
+  assert.equal(
+    run.policyInputs(root,f.artifact,f.env,f.bytes,'execute',()=>f.p),
+    f.p
+  );
+});
+
+test('App Service runner rejects any non-production App Service resource',()=>{
+  const f=policyFixture();
+  const productionSub='/subscriptions/b79ffdb2-0cf1-4915-89b4-2b6b7cae0299/resourceGroups/opa-production/providers/';
+  const app=productionSub+'Microsoft.Web/sites/opa-api-production';
+  const vault=productionSub+'Microsoft.KeyVault/vaults/opa-test-only';
+
+  f.env.OPA_DEPLOYMENT_RESOURCE_ID=app;
+  f.p.resources.app.id=app;
+  f.p.resources.database.id=productionSub+'Microsoft.DBforPostgreSQL/flexibleServers/opa-api-production-server';
+  f.p.resources.vault.id=vault;
+  f.p.secrets.DATABASE_URL.vaultId=vault;
+  f.p.runner.kind='azure-app-service';
+  f.p.runner.resourceId=productionSub+'Microsoft.Web/sites/not-opa-production';
+
+  assert.throws(
+    ()=>run.policyInputs(root,f.artifact,f.env,f.bytes,'execute',()=>f.p),
+    /RUNNER_BINDING/
+  );
+});
+
+test('App Service runner still requires private runner addresses',()=>{
+  const f=policyFixture();
+  const productionSub='/subscriptions/b79ffdb2-0cf1-4915-89b4-2b6b7cae0299/resourceGroups/opa-production/providers/';
+  const app=productionSub+'Microsoft.Web/sites/opa-api-production';
+  const vault=productionSub+'Microsoft.KeyVault/vaults/opa-test-only';
+
+  f.env.OPA_DEPLOYMENT_RESOURCE_ID=app;
+  f.p.resources.app.id=app;
+  f.p.resources.database.id=productionSub+'Microsoft.DBforPostgreSQL/flexibleServers/opa-api-production-server';
+  f.p.resources.vault.id=vault;
+  f.p.secrets.DATABASE_URL.vaultId=vault;
+  f.p.runner.kind='azure-app-service';
+  f.p.runner.resourceId=app;
+  f.p.runner.privateAddresses=['8.8.8.8'];
+
+  assert.throws(
+    ()=>run.policyInputs(root,f.artifact,f.env,f.bytes,'execute',()=>f.p),
+    /PRIVATE_ADDRESSES/
+  );
+});

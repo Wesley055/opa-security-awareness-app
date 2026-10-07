@@ -37,7 +37,10 @@ function policyInputs(root, artifact, env, backupBytes, mode, readPolicy) {
   for(const [object,keys] of [[p.resources,['app','database','vault']],[app,['environment','id']],[db,['environment','id','host','port','database','role']],[vault,['environment','id','secretOrigin']],[p.secrets.DATABASE_URL,['environment','vaultId','secretId','sha256']],[p.runner,['kind','resourceId','privateAddresses','databaseAddresses']]])C.onlyKeys(object,keys,'POLICY_FIELDS');
   boundary.databaseBinding(env.DATABASE_URL,db);
   R(env.DATABASE_URL && new URL(env.DATABASE_URL).password,'DATABASE_CREDENTIAL');
-  R(p.runner?.kind==='azure-vm' && id.test(p.runner.resourceId || '') && /\/Microsoft.Compute\/virtualMachines\/[a-zA-Z0-9_-]+$/.test(p.runner.resourceId),'RUNNER_BINDING');
+  const productionAppRunner='/subscriptions/b79ffdb2-0cf1-4915-89b4-2b6b7cae0299/resourceGroups/opa-production/providers/Microsoft.Web/sites/opa-api-production';
+  const vmRunner=p.runner?.kind==='azure-vm' && id.test(p.runner.resourceId || '') && /\/Microsoft.Compute\/virtualMachines\/[a-zA-Z0-9_-]+$/.test(p.runner.resourceId);
+  const appRunner=p.runner?.kind==='azure-app-service' && p.runner.resourceId===productionAppRunner && p.runner.resourceId===app.id;
+  R(vmRunner || appRunner,'RUNNER_BINDING');
   for (const addresses of [p.runner.privateAddresses,p.runner.databaseAddresses]) R(Array.isArray(addresses) && addresses.length>0 && addresses.length<=8 && addresses.every(privateIPv4) && new Set(addresses).size===addresses.length,'PRIVATE_ADDRESSES');
   R(p.runner.resourceId.split('/')[2].toLowerCase()===db.id.split('/')[2].toLowerCase(),'RUNNER_SUBSCRIPTION');
   if (mode==='execute') R(env.OPA_MIGRATION_CONFIRMATION===`MIGRATE_OPA_PRODUCTION:${p.build}:${p.artifactSha256}:${p.approvalId}`,'EXPLICIT_AUTHORIZATION');

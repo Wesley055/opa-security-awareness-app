@@ -1095,3 +1095,19 @@ Remaining non-blocking cleanup observations:
 
 Website production dependency security gate:
 CLOSED
+
+---
+
+## Production Release Authority Continuity
+
+Canonical runbook:
+
+`docs/releases/PRODUCTION-RELEASE-AUTHORITY.md`
+
+This runbook is the authoritative non-secret continuity record for production signer custody, signer rotation, endpoint-policy issuance, policy expiry/build binding, release verification and handover requirements.
+
+Every future OPA engineering/release handover MUST include a `Production Release Authority` section and carry forward the current non-secret state from that runbook.
+
+Do not reconstruct release-authority state from historical handovers, shell history, chat history or old artifacts when the canonical runbook contains the answer.
+
+Private signing material, passwords, tokens, secret values and recovery material MUST NEVER be copied into this ledger or any handover.

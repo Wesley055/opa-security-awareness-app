@@ -491,3 +491,217 @@ Before any production mutation, directly inspect the live production migration l
 Production migration sequence remains:
 
 read-only ledger verification -> reviewed cutover/recovery approval -> backup/PITR confirmation -> apply seven forward migrations -> verify all 42 names/checksums -> verify identity sentinel/role -> deploy exact candidate -> verify `/health/environment` reports exact candidate SHA and `migrationReadiness=ready`.
+
+## Production migration execution discovery — 2026-10-06
+
+This section is mandatory continuity information. Future releases MUST begin here instead of rediscovering the production migration topology.
+
+### Authoritative deployed artifact
+
+Azure App Service:
+
+`opa-api-production`
+
+Running process observed:
+
+`node apps/api/dist/main.js`
+
+The authoritative deployed API migration tree is:
+
+`/home/site/wwwroot/apps/api/prisma/migrations`
+
+It contained exactly 35 migrations and matched deployed build:
+
+`b02a851f6fbe369661e3e3fc68d02898851278ba`
+
+The running environment verifier is:
+
+`/home/site/wwwroot/apps/api/dist/shared/config/environment.js`
+
+### Critical stale-root trap
+
+DO NOT use:
+
+`/home/site/wwwroot/prisma`
+
+for production migration decisions or execution.
+
+On 2026-10-06 that stale root tree contained only 22 migrations while the actual running API artifact contained 35.
+
+Likewise, do not rely on the accidental root Prisma CLI merely because:
+
+`/home/site/wwwroot/node_modules/prisma`
+
+exists.
+
+The production artifact intentionally installs production dependencies with `npm ci --omit=dev`; Prisma CLI is an API devDependency. Its presence in the App Service root is historical/accidental runtime residue and is not the canonical migration architecture.
+
+Future handovers MUST carry this warning forward.
+
+### Direct live production migration ledger
+
+Read-only production verification from the running API Prisma client established:
+
+- environment: `production`
+- database: `opa-api-production-database`
+- runtime role: `opa_production_runtime`
+- total `_prisma_migrations` rows: 35
+- active migrations: 35
+- unfinished migrations: 0
+- rolled-back migrations: 0
+
+The exact active migration list matched the 35 migrations embedded in deployed build `b02a851`.
+
+Current candidate contains 42 migrations.
+
+Confirmed forward delta: exactly seven.
+
+### Existing production facility compatibility snapshot
+
+Before the seven-migration rollout, production contained:
+
+- users: 19
+- facility-linked inactive users: 0
+- active facility admins: 1
+- facilities: 2
+- active facilities: 2
+- inactive facilities: 0
+- enrollment requests: 0
+- asymmetric enrollment provenance rows: 0
+- duplicate OPERATIONAL_EXCEPTION groups: 0
+
+Facility-level reconciliation identified:
+
+`OPA Demo Estate`
+- active
+- one active facility admin
+- eight attached users
+
+`pilot test`
+- active
+- zero active facility admins
+- zero attached users
+
+Do not delete or manually convert either record during migration.
+
+The seven-migration design intentionally retains historical facilities/authority and requires explicit association/commissioning under the new canonical institutional model.
+
+### Runtime database role
+
+Role:
+
+`opa_production_runtime`
+
+Observed effective privileges:
+
+- database CREATE: false
+- public schema CREATE: false
+- opa_deployment schema CREATE: false
+- environment sentinel SELECT: true
+- environment sentinel UPDATE: false
+
+This is the intended least-privileged runtime posture.
+
+NEVER grant production migration/DDL authority to `opa_production_runtime` merely to make a release easier.
+
+### Dedicated production migration role
+
+Dedicated role already exists:
+
+`opa_production_migrations`
+
+Observed PostgreSQL role properties:
+
+- LOGIN: true
+- SUPERUSER: false
+- CREATEDB: false
+- CREATEROLE: false
+
+Observed effective privileges on 2026-10-06:
+
+- database CONNECT: true
+- database CREATE: false
+- public schema USAGE: true
+- public schema CREATE: false
+- opa_deployment schema USAGE: true
+- opa_deployment schema CREATE: false
+- environment sentinel SELECT: true
+- environment sentinel UPDATE: false
+- `_prisma_migrations` SELECT: false
+
+Therefore the migration identity exists but is NOT currently authorized to execute the seven pending DDL migrations.
+
+Do not work around this by using the runtime role, stale App Service Prisma tooling, superuser access, or broad permanent grants.
+
+The production migration execution design must explicitly establish the minimum temporary/permanent privileges required for the reviewed migration set and migration ledger, execute through the dedicated migration identity, verify the complete 42-migration history/checksums, and preserve sentinel immutability.
+
+### Production database infrastructure snapshot
+
+Azure PostgreSQL Flexible Server:
+
+`opa-api-production-server`
+
+Resource group:
+
+`opa-production`
+
+Observed:
+
+- state: Ready
+- public network access: Disabled
+- backup retention: 7 days
+- PITR available
+- PostgreSQL 14
+- South Africa North
+- 128 GiB storage
+- Standard_B1ms
+- HA: NotEnabled
+
+Production database access is private-network/VNet constrained.
+
+### Seven pending migration integrity
+
+Candidate migration tree was clean with no migration worktree modifications.
+
+The seven forward migration SHA-256 values are:
+
+- `20260922230000_bounded_onboarding_authority`
+  `ef567ceafd4f36c80e0ee647ee81c757d16865c6db77bb22e6b7c94e63bd0bce`
+- `20260928010000_support_role`
+  `fc96270a51700f30e5dca348bf2155b3a514eb67f0cbed131de889a5eb6b12d9`
+- `20260928010100_institutional_authority`
+  `460aaa54c3e385bfc7df55d7cc0be2b614c433bbb89cb535ea574f45c0afb5e0`
+- `20260929090000_support_enrollment_provenance`
+  `63b5099f6ca3e18834465f897230f9873bd7c454ef41f4d0129747718d9be8ce`
+- `20260930010000_canonical_organization`
+  `6e85451094f5d44c0b43415e07179eb9e2c95bae7a92435afe55c35e4b9e57fc`
+- `20260930010100_operational_response_policy`
+  `a99e91d1a1f833f9e6b5ace5561f6f9f0e0c1cf97d72fbceb4d6c158ec9f2195`
+- `20261004010000_reporting_foundation_reconciled`
+  `b8e7be2e4690c770ac12b56863ed9ed27d154d60810fc8ff2fa91b0a070245a9`
+
+### Mandatory future migration sequence
+
+Future production releases MUST follow:
+
+1. identify exact release candidate SHA;
+2. verify production `/health/environment`;
+3. verify authoritative `apps/api/prisma/migrations` tree, never stale root `prisma`;
+4. read live `_prisma_migrations` ledger;
+5. verify environment sentinel/database/runtime identity;
+6. compare exact candidate migration names and checksums;
+7. run production-data compatibility preflight for new constraints/indexes;
+8. verify PITR/backup posture;
+9. use dedicated `opa_production_migrations` identity;
+10. verify migration-role privileges without elevating runtime;
+11. use reviewed migration execution artifact/tooling, not accidental App Service dependencies;
+12. apply only reviewed forward migrations;
+13. verify every migration finished, none rolled back and all checksums match;
+14. verify exact candidate migration count;
+15. verify sentinel remains immutable to runtime/migration identities except as explicitly designed;
+16. deploy application code only after required migrations;
+17. verify `/health/environment` reports exact deployed SHA and `migrationReadiness=ready`;
+18. only then issue the fresh signed endpoint policy;
+19. then create EAS production builds.
+
+Never migrate after deploying schema-dependent application code.

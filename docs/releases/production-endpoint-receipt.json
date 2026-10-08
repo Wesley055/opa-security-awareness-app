@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "purpose": "production-endpoint-policy-issuance",
+  "environment": "production",
+  "keyId": "opa-production-release-20261006",
+  "signerFingerprintSha256": "a3243b027e87ae180822b9a5e6fa8f962ba832d4eb7fe5c2cb6b387ce2755106",
+  "apiOrigin": "https://opa-api-production-g4f6cxdyanfbaub0.southafricanorth-01.azurewebsites.net",
+  "build": "b02a851f6fbe369661e3e3fc68d02898851278ba",
+  "observedMigrationReadiness": "ready",
+  "httpsVerifiedAt": "2026-10-08T02:33:18.807Z",
+  "expiresAt": "2027-01-06T02:33:18.807Z",
+  "policySha256": "e950af415b72f4b2800c2a20ab316c7f4aa27f36441235cc40a327fa8b6503cb",
+  "envelopeSha256": "b46eb9210ecae349bbd71a76d76d91a216168040286550eabebeacff7090ae43",
+  "policyPath": "packages/environment-policy/release/production-endpoint.json",
+  "signatureVerified": true
+}

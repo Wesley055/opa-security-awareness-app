@@ -63,7 +63,7 @@ function imds() {
   });
 }
 async function runner(p) {
-  if(p.runner?.kind==='azure-app-service') await appIdentity.verifyAppIdentity(p);
+  if(p.runner?.kind==='azure-app-service') return require('./app-service-network.cjs').verifyAppNetwork(p);
   else { R(p.runner?.kind==='azure-vm','RUNNER_BINDING');const metadata=await imds(); R(metadata.resourceId===p.runner.resourceId,'RUNNER_IDENTITY'); }
   const addresses=Object.values(os.networkInterfaces()).flat().filter(Boolean).filter(a=>!a.internal && a.family==='IPv4').map(a=>a.address);
   R(p.runner.privateAddresses.some(a=>addresses.includes(a)),'RUNNER_PRIVATE_NIC');

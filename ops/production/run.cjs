@@ -3,6 +3,7 @@ const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_pro
 const C=require('./contract.cjs'), I=require('./inspect.cjs'), {walk}=require('./build-artifact.cjs');
 const {requireThat:R,hash}=C;
 const appIdentity=require('./app-service-identity.cjs');
+const emergencyWriters=require('./emergency-writers.cjs');
 function verifyArtifact(root) {
   const bytes=fs.readFileSync(path.join(root,'migration-artifact.json')), m=JSON.parse(bytes);
   R(m.version===1 && /^[a-f0-9]{40}$/.test(m.build || '') && m.baselineBuild===C.BASE && m.prisma==='6.19.3' && m.nodeMajor===22 && m.executionReady===true,'ARTIFACT_CONTRACT');
@@ -20,13 +21,14 @@ function policyInputs(root, artifact, env, backupBytes, mode, readPolicy) {
   const boundary=require(path.join(root,'packages/environment-policy/index.cjs'));
   const p=(readPolicy || boundary.readPolicy)(env.OPA_ENVIRONMENT_POLICY_FILE,'production','migration');
   R(p.purpose==='migration' && p.environment==='production' && p.version===1 && p.build===artifact.manifest.build,'POLICY_SCOPE');
-  C.onlyKeys(p,['version','environment','purpose','build','approvedAt','expiresAt','approvalId','action','writersQuiesced','artifactSha256','backupSha256','sentinelSha256','resources','secrets','runner'],'POLICY_FIELDS');
+  C.onlyKeys(p,['version','environment','purpose','build','approvedAt','expiresAt','approvalId','action','writersQuiesced','emergencyWriterException','artifactSha256','backupSha256','sentinelSha256','resources','secrets','runner'],'POLICY_FIELDS');
   const now=Date.now();
   R(Number.isFinite(Date.parse(p.approvedAt)) && Date.parse(p.approvedAt)<=now && Date.parse(p.expiresAt)>now && Date.parse(p.expiresAt)-Date.parse(p.approvedAt)<=3600000,'POLICY_WINDOW');
   R(p.artifactSha256===artifact.manifestSha256 && p.backupSha256===hash(backupBytes),'POLICY_ARTIFACT_BACKUP');
   R(/^[a-f0-9]{64}$/.test(p.sentinelSha256 || ''),'POLICY_SENTINEL');
   const b=JSON.parse(backupBytes); C.backupEvidence(b);
-  R(/^[a-zA-Z0-9_-]{1,80}$/.test(p.approvalId || '') && p.approvalId===b.approvalId && p.action==='MIGRATE_OPA_PRODUCTION' && p.writersQuiesced===true,'OPERATOR_APPROVAL');
+  R(/^[a-zA-Z0-9_-]{1,80}$/.test(p.approvalId || '') && p.approvalId===b.approvalId && p.action==='MIGRATE_OPA_PRODUCTION' ,'OPERATOR_APPROVAL');
+  emergencyWriters.validate(p,artifact,env);
   const db=p.resources?.database, app=p.resources?.app, vault=p.resources?.vault;
   R(db?.environment==='production' && db.host===C.HOST && db.port===5432 && db.database===C.DB && db.role===C.MIGRATOR,'DATABASE_BINDING');
   const id=/^\/subscriptions\/[a-f0-9-]{36}\/resourceGroups\/opa-production\/providers\//i;
@@ -103,7 +105,9 @@ async function executeLifecycle({client,artifact,policy,mode,invoke,receipt,save
   let before;
   try {
     await client.connect();
+    if(policy.emergencyWriterException && ['preflight','execute'].includes(mode)) await emergencyWriters.verifyTimeouts(client);
     before=await I.identity(client,policy); receipt.sentinelSha256=before;
+    if(policy.emergencyWriterException && ['verify-cleanup','verify-post'].includes(mode)) { await emergencyWriters.verifyRestoredTimeouts(client);receipt.timeoutOverridesRestored=true; }
     if(mode==='verify-cleanup') {
       receipt.posture=await I.posture(client,false);receipt.status='cleanup-verified';receipt.cleanupRequired=false;
     } else if(mode==='verify-post') {
@@ -119,6 +123,10 @@ async function executeLifecycle({client,artifact,policy,mode,invoke,receipt,save
         // must be treated as an uncertain mutation requiring admin cleanup.
         receipt.status='execution-started';save();
         R(Date.parse(policy.expiresAt)>Date.now(),'EXECUTION_POLICY_EXPIRED');
+        if(policy.emergencyWriterException) {
+          R(Date.now()>=Date.parse(policy.emergencyWriterException.start) && Date.now()<Date.parse(policy.emergencyWriterException.end),'EMERGENCY_WINDOW');
+          await emergencyWriters.verifyTimeouts(client);
+        }
         await invoke(['migrate','deploy','--schema','apps/api/prisma/schema.prisma']);
         await I.history(client,artifact.manifest.candidate); receipt.activeMigrations=42; await I.structure(client); await I.posture(client,true);
         await invoke(['migrate','diff','--from-schema-datasource','apps/api/prisma/schema.prisma','--to-schema-datamodel','apps/api/prisma/schema.prisma','--exit-code']);

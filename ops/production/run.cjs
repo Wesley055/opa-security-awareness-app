@@ -2,6 +2,7 @@
 const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process'),http=require('node:http'),dns=require('node:dns').promises,os=require('node:os');
 const C=require('./contract.cjs'), I=require('./inspect.cjs'), {walk}=require('./build-artifact.cjs');
 const {requireThat:R,hash}=C;
+const appIdentity=require('./app-service-identity.cjs');
 function verifyArtifact(root) {
   const bytes=fs.readFileSync(path.join(root,'migration-artifact.json')), m=JSON.parse(bytes);
   R(m.version===1 && /^[a-f0-9]{40}$/.test(m.build || '') && m.baselineBuild===C.BASE && m.prisma==='6.19.3' && m.nodeMajor===22 && m.executionReady===true,'ARTIFACT_CONTRACT');
@@ -34,13 +35,14 @@ function policyInputs(root, artifact, env, backupBytes, mode, readPolicy) {
   R(vault?.environment==='production' && /^\/subscriptions\/[a-f0-9-]{36}\/resourceGroups\/[a-zA-Z0-9_.()-]+\/providers\/Microsoft.KeyVault\/vaults\/[a-zA-Z0-9-]+$/i.test(vault.id || '') && vault.id.split('/')[2].toLowerCase()===db.id.split('/')[2].toLowerCase() && vault.secretOrigin===`https://${vault.id.split('/').at(-1)}.vault.azure.net`,'VAULT_BINDING');
   R(p.secrets?.DATABASE_URL?.environment==='production' && p.secrets.DATABASE_URL.sha256===hash(env.DATABASE_URL || '') && /^https:\/\/[a-z0-9-]+\.vault\.azure\.net\/secrets\/[a-zA-Z0-9-]+\/[a-f0-9]{32}$/.test(p.secrets.DATABASE_URL.secretId || ''),'DATABASE_SECRET_BINDING');
   R(p.secrets.DATABASE_URL.vaultId===vault.id && p.secrets.DATABASE_URL.secretId.startsWith(vault.secretOrigin+'/secrets/') && Object.keys(p.secrets).length===1 && boundary.secretNames.filter(n=>n!=='DATABASE_URL').every(n=>!env[n]),'MIGRATION_SECRET_SCOPE');
-  for(const [object,keys] of [[p.resources,['app','database','vault']],[app,['environment','id']],[db,['environment','id','host','port','database','role']],[vault,['environment','id','secretOrigin']],[p.secrets.DATABASE_URL,['environment','vaultId','secretId','sha256']],[p.runner,['kind','resourceId','privateAddresses','databaseAddresses']]])C.onlyKeys(object,keys,'POLICY_FIELDS');
+  for(const [object,keys] of [[p.resources,['app','database','vault']],[app,['environment','id']],[db,['environment','id','host','port','database','role']],[vault,['environment','id','secretOrigin']],[p.secrets.DATABASE_URL,['environment','vaultId','secretId','sha256']],[p.runner,p.runner?.kind==='azure-app-service'?['kind','resourceId','privateAddresses','databaseAddresses','identity']:['kind','resourceId','privateAddresses','databaseAddresses']]])C.onlyKeys(object,keys,'POLICY_FIELDS');
   boundary.databaseBinding(env.DATABASE_URL,db);
   R(env.DATABASE_URL && new URL(env.DATABASE_URL).password,'DATABASE_CREDENTIAL');
   const productionAppRunner='/subscriptions/b79ffdb2-0cf1-4915-89b4-2b6b7cae0299/resourceGroups/opa-production/providers/Microsoft.Web/sites/opa-api-production';
   const vmRunner=p.runner?.kind==='azure-vm' && id.test(p.runner.resourceId || '') && /\/Microsoft.Compute\/virtualMachines\/[a-zA-Z0-9_-]+$/.test(p.runner.resourceId);
   const appRunner=p.runner?.kind==='azure-app-service' && p.runner.resourceId===productionAppRunner && p.runner.resourceId===app.id;
   R(vmRunner || appRunner,'RUNNER_BINDING');
+  if(appRunner)appIdentity.identityBinding(p.runner);
   for (const addresses of [p.runner.privateAddresses,p.runner.databaseAddresses]) R(Array.isArray(addresses) && addresses.length>0 && addresses.length<=8 && addresses.every(privateIPv4) && new Set(addresses).size===addresses.length,'PRIVATE_ADDRESSES');
   R(p.runner.resourceId.split('/')[2].toLowerCase()===db.id.split('/')[2].toLowerCase(),'RUNNER_SUBSCRIPTION');
   if (mode==='execute') R(env.OPA_MIGRATION_CONFIRMATION===`MIGRATE_OPA_PRODUCTION:${p.build}:${p.artifactSha256}:${p.approvalId}`,'EXPLICIT_AUTHORIZATION');
@@ -61,7 +63,8 @@ function imds() {
   });
 }
 async function runner(p) {
-  const metadata=await imds(); R(metadata.resourceId===p.runner.resourceId,'RUNNER_IDENTITY');
+  if(p.runner?.kind==='azure-app-service') await appIdentity.verifyAppIdentity(p);
+  else { R(p.runner?.kind==='azure-vm','RUNNER_BINDING');const metadata=await imds(); R(metadata.resourceId===p.runner.resourceId,'RUNNER_IDENTITY'); }
   const addresses=Object.values(os.networkInterfaces()).flat().filter(Boolean).filter(a=>!a.internal && a.family==='IPv4').map(a=>a.address);
   R(p.runner.privateAddresses.some(a=>addresses.includes(a)),'RUNNER_PRIVATE_NIC');
   const db=await dns.lookup(C.HOST,{all:true});

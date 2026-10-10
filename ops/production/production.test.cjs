@@ -136,6 +136,7 @@ test('exact production App Service is accepted as bounded migration runner',()=>
   f.p.resources.vault.id=vault;
   f.p.secrets.DATABASE_URL.vaultId=vault;
   f.p.runner.kind='azure-app-service';
+  f.p.runner.identity={principalId:'ed24b331-4dfe-4e07-8aa9-83f835ce7b6c',tenantId:'adb3fb59-1ac3-42c2-b39a-d70c7006ccbc'};
   f.p.runner.resourceId=app;
 
   assert.equal(
@@ -156,6 +157,7 @@ test('App Service runner rejects any non-production App Service resource',()=>{
   f.p.resources.vault.id=vault;
   f.p.secrets.DATABASE_URL.vaultId=vault;
   f.p.runner.kind='azure-app-service';
+  f.p.runner.identity={principalId:'ed24b331-4dfe-4e07-8aa9-83f835ce7b6c',tenantId:'adb3fb59-1ac3-42c2-b39a-d70c7006ccbc'};
   f.p.runner.resourceId=productionSub+'Microsoft.Web/sites/not-opa-production';
 
   assert.throws(
@@ -176,6 +178,7 @@ test('App Service runner still requires private runner addresses',()=>{
   f.p.resources.vault.id=vault;
   f.p.secrets.DATABASE_URL.vaultId=vault;
   f.p.runner.kind='azure-app-service';
+  f.p.runner.identity={principalId:'ed24b331-4dfe-4e07-8aa9-83f835ce7b6c',tenantId:'adb3fb59-1ac3-42c2-b39a-d70c7006ccbc'};
   f.p.runner.resourceId=app;
   f.p.runner.privateAddresses=['8.8.8.8'];
 

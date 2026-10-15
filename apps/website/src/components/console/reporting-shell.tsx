@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { viewerSessionFetch } from "@/lib/viewer-session-fetch";
 import { validReportWindow } from "@/lib/insight-contract";
 import type { InsightSummary } from "@/lib/insight-contract";
+import { InsightReports } from "./insight-reports";
 function Breakdown({
   title,
   values,
@@ -184,6 +185,7 @@ export function ReportingShell({
         </button>
       </form>
       <p role="status">{message}</p>
+      <InsightReports from={from} to={to} facilityId={facilityId} transport={transport} />
       {summary && (
         <div className="mt-5 grid gap-4 lg:grid-cols-2">
           <Breakdown
@@ -232,10 +234,8 @@ export function ReportingShell({
         </div>
       )}
       <p className="mt-6 text-sm text-muted">
-        Provider acceptance is not confirmed delivery. Structured versioned
-        after-incident reports and JSON export are backend only.
-        Corrective-action authoring is not enabled here. PDF, CSV and AI
-        reporting are not enabled.
+        Provider acceptance is not confirmed delivery. Reports preserve source
+        cutoffs and immutable version history. PDF and CSV export are unavailable.
       </p>
     </section>
   );

@@ -60,9 +60,9 @@ function lifecycleFixture(failAt,mode='execute'){
     calls.push(name);if(failAt===name)throw Error('secret DATABASE_URL=test');return name==='identity'?'digest':{};
   };
   const client={connect:async()=>{calls.push('connect');if(failAt==='connect')throw Error('secret');},end:async()=>{calls.push('end');if(failAt==='end')throw Error('secret');}};
-  return {calls,saved,receipt,restore:()=>Object.assign(I,old),args:{client,artifact:{manifest:{baseline:{},candidate:{}}},policy:{expiresAt:new Date(Date.now()+60000).toISOString()},mode,receipt,save:()=>saved.push({...receipt}),invoke:async args=>{calls.push(args[1]);if(failAt===args[1])throw Error('password');}}};
+  return {calls,saved,receipt,restore:()=>Object.assign(I,old),args:{client,artifact:{manifest:{baseline:{},candidate:{}}},policy:{expiresAt:new Date(Date.now()+60000).toISOString()},mode,receipt,save:()=>saved.push({...receipt}),verifyRecovery:async()=>{calls.push('recovery');if(failAt==='recovery')throw Error('unavailable');return {status:'ready'}},invoke:async args=>{calls.push(args[1]);if(failAt===args[1])throw Error('password');}}};
 }
-for(const failure of ['connect','identity','posture','history','preStructure','compatibility','deploy','structure','diff','end'])test(`failure at ${failure} closes connection and retains cleanup obligation`,async()=>{
+for(const failure of ['connect','identity','posture','history','preStructure','compatibility','recovery','deploy','structure','diff','end'])test(`failure at ${failure} closes connection and retains cleanup obligation`,async()=>{
   const f=lifecycleFixture(failure);try{await assert.rejects(run.executeLifecycle(f.args));assert(f.calls.includes('end'));assert.equal(f.receipt.status,'failed');assert.equal(f.receipt.cleanupRequired,true);assert(!JSON.stringify(f.saved).includes('password'));if(['structure','diff'].includes(failure))assert.equal(f.receipt.activeMigrations,42);}finally{f.restore();}
 });
 test('successful migration cannot represent privilege cleanup as completed',async()=>{
@@ -97,7 +97,7 @@ for(const [name,mutate] of Object.entries({
   wrong_host:f=>f.p.resources.database.host='wrong.invalid',
   staging_app:f=>f.p.resources.app.environment='staging',
   stale_policy:f=>f.p.expiresAt='2000-01-01T00:00:00Z',
-  excessive_window:f=>f.p.expiresAt=new Date(Date.now()+7200000).toISOString(),
+  excessive_window:f=>f.p.expiresAt=new Date(Date.now()+8*86400000).toISOString(),
   changed_sentinel:f=>f.p.sentinelSha256='',
   changed_backup:f=>f.p.backupSha256='e'.repeat(64),
   different_vault:f=>f.p.secrets.DATABASE_URL.vaultId='wrong',
@@ -186,4 +186,44 @@ test('App Service runner still requires private runner addresses',()=>{
     ()=>run.policyInputs(root,f.artifact,f.env,f.bytes,'execute',()=>f.p),
     /PRIVATE_ADDRESSES/
   );
+});
+test('release-scoped migration approval accepts a practical 72-hour admission window',()=>{
+ const f=policyFixture();f.p.expiresAt=new Date(Date.now()+72*3600000).toISOString();f.p.executionTimeoutSeconds=14400;
+ assert.equal(run.policyInputs(root,f.artifact,f.env,f.bytes,'execute',()=>f.p),f.p);
+});
+test('reviewed backup binding has no arbitrary one-hour stale cutoff',()=>{
+ const b=backup();b.observedAt=new Date(Date.now()-2*86400000).toISOString();b.restorePoint=new Date(Date.now()-2*86400000-60000).toISOString();b.earliestRestoreDate=new Date(Date.now()-3*86400000).toISOString();C.backupEvidence(b);
+});
+test('already admitted migration completes after approval expiry within execution deadline',async()=>{
+ const f=lifecycleFixture();let clock=Date.now();f.args.policy.expiresAt=new Date(clock+1000).toISOString();f.args.policy.executionTimeoutSeconds=60;f.args.now=()=>clock;
+ const invoke=f.args.invoke;f.args.invoke=async(args,deadline)=>{assert(deadline);await invoke(args);if(args[1]==='deploy')clock+=2000};
+ try{await run.executeLifecycle(f.args);assert.equal(f.receipt.status,'migrated-awaiting-admin-cleanup');assert(Date.parse(f.receipt.executionDeadline)>Date.parse(f.args.policy.expiresAt))}
+ finally{f.restore()}
+});
+test('expiry during recovery verification cannot admit new migration work',async()=>{
+ const f=lifecycleFixture();let clock=Date.now();f.args.now=()=>clock;f.args.policy.expiresAt=new Date(clock+1000).toISOString();
+ f.args.verifyRecovery=async()=>{clock+=2000;return {status:'ready'}};
+ try{await assert.rejects(run.executeLifecycle(f.args));assert(!f.calls.includes('deploy'));assert.equal(f.receipt.cleanupRequired,true)}finally{f.restore()}
+});
+test('an expired approval cannot open a fresh operation',async()=>{
+ const f=lifecycleFixture();f.args.policy.expiresAt='2000-01-01T00:00:00Z';
+ try{await assert.rejects(run.executeLifecycle(f.args));assert(!f.calls.includes('connect'));assert(!f.calls.includes('deploy'))}finally{f.restore()}
+});
+test('execution deadline remains a hard bound independent of admission expiry',async()=>{
+ const f=lifecycleFixture();let clock=Date.now();f.args.now=()=>clock;f.args.policy.executionTimeoutSeconds=60;
+ f.args.invoke=async args=>{f.calls.push(args[1]);clock+=61000};
+ try{await assert.rejects(run.executeLifecycle(f.args));assert(!f.calls.includes('diff'));assert.equal(f.receipt.cleanupRequired,true)}finally{f.restore()}
+});
+test('CLI cannot start an unbounded execution',async()=>{
+ await assert.rejects(run.cli(root,[],{},new Date(Date.now()+25*3600000).toISOString()),/PRISMA_EXECUTION_BOUND/);
+});
+test('live recovery readiness verifies retained backup, private server and PITR coverage',()=>{
+ const recovery=require('./recovery-readiness.cjs'),f=policyFixture(),clock=Date.now(),id=f.p.resources.database.id;
+ const server={id,properties:{state:'Ready',network:{publicNetworkAccess:'Disabled'},backup:{backupRetentionDays:7,earliestRestoreDate:new Date(clock-6*86400000).toISOString()}}};
+ const list={value:[{id:id+'/backups/automatic',properties:{completedTime:new Date(clock-86400000).toISOString()}}]};
+ assert.equal(recovery.evaluate(f.p,server,list,clock).status,'ready');
+ for(const mutate of [s=>s.properties.state='Updating',s=>s.properties.network.publicNetworkAccess='Enabled',s=>s.properties.backup.backupRetentionDays=1,s=>s.properties.backup.earliestRestoreDate=new Date(clock+1000).toISOString()]){
+  const changed=structuredClone(server);mutate(changed);assert.throws(()=>recovery.evaluate(f.p,changed,list,clock))
+ }
+ assert.throws(()=>recovery.evaluate(f.p,server,{value:[]},clock));
 });

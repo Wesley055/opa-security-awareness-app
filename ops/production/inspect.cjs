@@ -49,13 +49,13 @@ async function preStructure(client) {
     [[...C.TABLES,...C.SEQUENCES,'operational_exception_once'],C.TYPES,C.FUNCTIONS])).rows[0];
   R(drift?.drift===false,'UNLEDGERED_SCHEMA_DRIFT');
 }
-async function posture(client, active) {
+async function posture(client, active, runtimeFenced=false) {
   const roles = (await client.query(`SELECT rolname,rolsuper,rolcreatedb,rolcreaterole,rolreplication,rolbypassrls,rolcanlogin,rolinherit
     FROM pg_roles WHERE rolname=ANY($1::text[])`, [[C.RUNTIME,C.MIGRATOR,C.OWNER]])).rows;
   R(roles.length===3,'ROLE_MISSING');
   for (const role of roles) {
     R(!role.rolsuper && !role.rolcreatedb && !role.rolcreaterole && !role.rolreplication && !role.rolbypassrls,'ROLE_ELEVATION');
-    R(role.rolcanlogin === (role.rolname!==C.OWNER),'ROLE_LOGIN');
+    R(role.rolcanlogin === (role.rolname!==C.OWNER && !(runtimeFenced && role.rolname===C.RUNTIME)),'ROLE_LOGIN');
   }
   R(roles.find(r=>r.rolname===C.MIGRATOR).rolinherit,'ROLE_INHERIT');
   const memberships = (await client.query(`WITH RECURSIVE m AS (

@@ -1,4 +1,4 @@
-import { ForbiddenException, type ExecutionContext } from '@nestjs/common';
+import { ForbiddenException } from '@nestjs/common';
 import { FacilityAdminGuard } from './facility-admin.guard';
 
 describe('FacilityAdminGuard', () => {
@@ -11,9 +11,9 @@ describe('FacilityAdminGuard', () => {
   const guard = new FacilityAdminGuard(prisma as never);
 
   function makeContext() {
-    const request: { user: { sub: string }; facilityAdminFacilityId?: string } = {
+    const request = {
       user: { sub: 'facility-admin-1' },
-    };
+    } as { user: { sub: string }; facilityAdminFacilityId?: string };
 
     return {
       request,
@@ -21,7 +21,7 @@ describe('FacilityAdminGuard', () => {
         switchToHttp: () => ({
           getRequest: () => request,
         }),
-      } as unknown as ExecutionContext,
+      } as never,
     };
   }
 
@@ -33,7 +33,7 @@ describe('FacilityAdminGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'FACILITY_ADMIN',
       facilityId: 'facility-1',
-      isActive: true, membershipState: 'ACTIVE',
+      isActive: true,
       accountStatus: 'ACTIVE',
     });
 
@@ -47,7 +47,7 @@ describe('FacilityAdminGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'FACILITY_OPERATOR',
       facilityId: 'facility-1',
-      isActive: true, membershipState: 'ACTIVE',
+      isActive: true,
       accountStatus: 'ACTIVE',
     });
 
@@ -59,7 +59,7 @@ describe('FacilityAdminGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'ADMIN',
       facilityId: 'facility-1',
-      isActive: true, membershipState: 'ACTIVE',
+      isActive: true,
       accountStatus: 'ACTIVE',
     });
 
@@ -71,7 +71,7 @@ describe('FacilityAdminGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'FACILITY_ADMIN',
       facilityId: 'facility-1',
-      isActive: true, membershipState: 'ACTIVE',
+      isActive: true,
       accountStatus: 'PENDING_ACTIVATION',
     });
 
@@ -95,7 +95,7 @@ describe('FacilityAdminGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'FACILITY_ADMIN',
       facilityId: null,
-      isActive: true, membershipState: 'ACTIVE',
+      isActive: true,
       accountStatus: 'ACTIVE',
     });
 

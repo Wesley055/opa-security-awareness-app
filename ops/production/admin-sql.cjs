@@ -37,7 +37,11 @@ END $$;
 `;
 function sql() {
   const prepare = header+`BEGIN;
-CREATE ROLE ${ownerRole} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+DO $$ BEGIN
+ IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname=${ql(C.OWNER)}) THEN
+  CREATE ROLE ${ownerRole} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+ END IF;
+END $$;
 ${scopeGuard}
 ${borrow(C.OWNER,'prepare_owner')}
 -- Required for ownership transfer, revoked before commit. No permanent schema DDL.

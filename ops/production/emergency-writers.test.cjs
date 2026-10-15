@@ -15,6 +15,16 @@ function fixture(){const f=ctx.policyFixture(),p=f.p;f.artifact.manifest.forward
 }
 const check=f=>run.policyInputs(repo,f.artifact,f.env,f.bytes,'execute',()=>f.p);
 test('truthful signed exception passes complete runner policy validation',()=>check(fixture()));
+test('a narrow writer-safety window is independent of the wider release admission window',()=>{
+ const f=fixture();f.p.expiresAt=new Date(Date.now()+72*3600000).toISOString();check(f);
+});
+test('writer exception cannot extend beyond owner-approved release admission',()=>{
+ const f=fixture();f.p.emergencyWriterException.end=new Date(Date.parse(f.p.expiresAt)+10000).toISOString();assert.throws(()=>check(f));
+});
+test('automated timeout apply and restore use the exact previously reviewed SQL bytes',()=>{
+ assert.equal(C.hash(fs.readFileSync(repo+'/ops/production/bounded-apply.sql')),E.APPLY);
+ assert.equal(C.hash(fs.readFileSync(repo+'/ops/production/bounded-restore.sql')),E.RESTORE);
+});
 for(const [name,mutate] of Object.entries({
  absent:f=>delete f.p.emergencyWriterException,
  contradictory:f=>f.p.writersQuiesced=true,

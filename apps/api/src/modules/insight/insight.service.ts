@@ -24,6 +24,8 @@ import {
   SOURCE_SELECT,
 } from "./insight.projection";
 import { overdue, transition } from "./insight.actions";
+import { assessResponse, policyEvidence } from "./insight.compliance";
+import { createHash } from "crypto";
 
 type Tx = Prisma.TransactionClient;
 type Scope = {
@@ -48,16 +50,20 @@ export class InsightService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Retry the WHOLE transaction; no side effects or provider calls inside. */
-  async atomic<T>(run: (tx: Tx) => Promise<T>): Promise<T> {
+  async atomic<T>(
+    run: (tx: Tx) => Promise<T>,
+    timeout = 20000,
+    maxRetries = 3,
+  ): Promise<T> {
     for (let attempt = 0; ; attempt++) {
       try {
         return await this.prisma.$transaction(run, {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-          timeout: 20000,
+          timeout,
         });
       } catch (error) {
         if (
-          attempt < 3 &&
+          attempt < maxRetries &&
           error instanceof Prisma.PrismaClientKnownRequestError &&
           ["P2034", "P2002"].includes(error.code)
         )
@@ -162,13 +168,28 @@ export class InsightService {
   }
   private async snapshot(tx: Tx, scope: Scope, incidentId: string) {
     const source = await this.source(tx, scope, incidentId);
-    const document = project(source);
-    const sourceDigest = digest(document);
     const clock = await tx.$queryRaw<
       { at: Date }[]
     >`SELECT transaction_timestamp() AS at`;
     const at = clock[0]?.at;
     if (!at) throw new Error("Database snapshot time unavailable.");
+    const document = {
+      ...project(source),
+      compliance: await this.assessment(tx, scope, source, at),
+      narrative: {
+        status: "UNAVAILABLE",
+        aiGenerated: false,
+        text: null,
+        reason:
+          "No approved AI reporting integration configured; deterministic evidence report remains available.",
+        publication: "AUTHORIZED_HUMAN_REVIEW_REQUIRED",
+      },
+    };
+    // Cutoff is snapshot metadata, not a changing evidence fact.
+    const sourceDigest = digest({
+      ...document,
+      compliance: { ...document.compliance, evidenceCutoff: null },
+    });
     const prior = await tx.reportingProjection.findUnique({
       where: {
         facilityId_incidentId: { facilityId: scope.facilityId, incidentId },
@@ -204,6 +225,147 @@ export class InsightService {
       });
     }
     return { document, sourceDigest, sourceCutoff: at! };
+  }
+  private async assessment(
+    tx: Tx,
+    scope: Scope,
+    source: Awaited<ReturnType<InsightService["source"]>>,
+    at: Date,
+  ) {
+    const current = await tx.facilityResponsePolicy.findUnique({
+      where: { facilityId: scope.facilityId },
+    });
+    const audit = await tx.administrativeAuditEvent.findFirst({
+      where: {
+        facilityId: scope.facilityId,
+        resourceId: scope.facilityId,
+        action: "FACILITY_RESPONSE_POLICY_CHANGED",
+        createdAt: { lte: source.createdAt },
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    });
+    const policy = audit
+      ? policyEvidence(audit.afterState, audit.createdAt, audit.id)
+      : current && current.updatedAt <= source.createdAt
+        ? policyEvidence(current, current.updatedAt, scope.facilityId)
+        : null;
+    return assessResponse(source, policy, at);
+  }
+
+  /** Internal worker entry point: authority comes from the committed resolution event, not a synthetic staff session. */
+  automatic(incidentId: string) {
+    return this.atomic(
+      async (tx) => {
+        await tx.$executeRawUnsafe("SET LOCAL statement_timeout = '4000ms'");
+        // Separate from emergency lifecycle locks; reporting never blocks closure on its advisory lock.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(16, hashtext(${incidentId}))`;
+        const incident = await tx.incident.findUnique({
+          where: { id: incidentId },
+          select: { facilityId: true, status: true, resolvedAt: true },
+        });
+        if (
+          !incident?.facilityId ||
+          incident.status !== "RESOLVED" ||
+          !incident.resolvedAt
+        )
+          return null;
+        const facility = await tx.facility.findFirst({
+          where: {
+            id: incident.facilityId,
+            isActive: true,
+            operationalState: { notIn: ["SUSPENDED", "DECOMMISSIONED"] },
+          },
+          select: { id: true },
+        });
+        if (!facility) return null;
+        const event = await tx.incidentTimelineEvent.findFirst({
+          where: {
+            incidentId,
+            type: "INCIDENT_RESOLVED",
+            source: { in: ["COMMAND_CENTER", "MOBILE"] },
+            occurredAt: incident.resolvedAt,
+            actorUserId: { not: null },
+          },
+          orderBy: { sequence: "desc" },
+        });
+        if (
+          !event?.actorUserId ||
+          (event.payload as { newStatus?: string } | null)?.newStatus !==
+            "RESOLVED"
+        )
+          return null;
+        const scope: Scope = {
+          facilityId: incident.facilityId,
+          actorId: event.actorUserId,
+          role: "SYSTEM",
+          manager: false,
+        };
+        const source = await tx.incident.findFirst({
+          where: { id: incidentId, facilityId: scope.facilityId },
+          select: SOURCE_SELECT,
+        });
+        if (!source || !institutional(source)) return null;
+        const snapshot = await this.snapshot(tx, scope, incidentId);
+        const prior = await tx.afterIncidentReport.findFirst({
+          where: { incidentId, facilityId: scope.facilityId },
+          orderBy: { version: "desc" },
+        });
+        if (
+          prior?.sourceDigest === snapshot.sourceDigest &&
+          prior.generatorVersion === GENERATOR_VERSION
+        )
+          return this.airView(prior);
+        // Stable UUID per evidence digest; retries/restarts cannot create a second copy.
+        const hex = createHash("sha256")
+          .update(event.id + snapshot.sourceDigest + GENERATOR_VERSION)
+          .digest("hex");
+        const requestKey = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+        const existing = await tx.afterIncidentReport.findUnique({
+          where: {
+            facilityId_incidentId_requestKey: {
+              facilityId: scope.facilityId,
+              incidentId,
+              requestKey,
+            },
+          },
+        });
+        if (existing) return this.airView(existing);
+        const generatedClock = await tx.$queryRaw<
+          { at: Date }[]
+        >`SELECT clock_timestamp() AS at`;
+        const generatedAt = generatedClock[0]?.at;
+        if (!generatedAt)
+          throw new Error("Database generation time unavailable.");
+        const report = await tx.afterIncidentReport.create({
+          data: {
+            facilityId: scope.facilityId,
+            incidentId,
+            version: (prior?.version ?? 0) + 1,
+            requestKey,
+            schemaVersion: SCHEMA_VERSION,
+            generatorVersion: GENERATOR_VERSION,
+            generatedBy: event.actorUserId,
+            generatedAt,
+            sourceCutoff: snapshot.sourceCutoff,
+            sourceDigest: snapshot.sourceDigest,
+            document: json(snapshot.document),
+            supersedesId: prior?.id,
+          },
+        });
+        await this.audit(tx, scope, "AIR_AUTOMATIC_GENERATED", report.id, {
+          incidentId,
+          eventReference: event.id,
+          sourceDigest: report.sourceDigest,
+          version: report.version,
+          supersedesId: prior?.id ?? null,
+          latencyMs: Math.max(0, +generatedAt - +event.recordedAt),
+          generation: "DETERMINISTIC",
+        });
+        return this.airView(report);
+      },
+      5000,
+      0,
+    );
   }
   reconcile(actorId: string, incidentId: string, facilityId?: string) {
     return this.atomic(async (tx) => {
@@ -297,6 +459,7 @@ export class InsightService {
       sourceFactCutoff: row.sourceCutoff,
       sourceDigest: row.sourceDigest,
       supersedesId: row.supersedesId,
+      review: { status: "REVIEW_REQUIRED" },
       document: row.document,
     };
   }
@@ -319,7 +482,161 @@ export class InsightService {
         exportJson ? "AIR_EXPORTED_JSON" : "AIR_READ",
         id,
       );
-      return this.airView(row);
+      const review = await tx.administrativeAuditEvent.findFirst({
+        where: {
+          facilityId: scope.facilityId,
+          resourceId: id,
+          action: "EVIDENCE_AIR_APPROVED",
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      return {
+        ...this.airView(row),
+        review: review
+          ? {
+              status: "APPROVED",
+              reference: review.id,
+              reviewedAt: review.createdAt,
+              reviewer: "[protected]",
+            }
+          : { status: "REVIEW_REQUIRED" },
+      };
+    });
+  }
+  approveAir(
+    actorId: string,
+    id: string,
+    sourceDigest: string,
+    facilityId?: string,
+  ) {
+    return this.atomic(async (tx) => {
+      const scope = await this.scope(tx, actorId, facilityId);
+      if (!scope.manager)
+        throw new ForbiddenException("Manager review authority required.");
+      const report = await tx.afterIncidentReport.findFirst({
+        where: { id, facilityId: scope.facilityId },
+      });
+      if (!report) throw missing();
+      await this.source(tx, scope, report.incidentId);
+      if (report.sourceDigest !== sourceDigest)
+        throw new ConflictException(
+          "Review digest does not match the stored snapshot.",
+        );
+      const existing = await tx.administrativeAuditEvent.findFirst({
+        where: {
+          facilityId: scope.facilityId,
+          resourceId: id,
+          action: "EVIDENCE_AIR_APPROVED",
+        },
+      });
+      const review =
+        existing ??
+        (await this.audit(tx, scope, "AIR_APPROVED", id, {
+          version: report.version,
+          sourceDigest,
+          decision: "HUMAN_REVIEW_APPROVED",
+          publication: "NOT_PERFORMED",
+        }));
+      return {
+        reportId: id,
+        status: "APPROVED",
+        reference: review.id,
+        reviewedAt: review.createdAt,
+      };
+    });
+  }
+  reports(actorId: string, query: AggregateQueryDto) {
+    const from = new Date(query.from),
+      to = new Date(query.to);
+    if (
+      !Number.isFinite(+from) ||
+      !Number.isFinite(+to) ||
+      from >= to ||
+      +to - +from > 366 * 86400000
+    )
+      throw new BadRequestException(
+        "Use a valid report window no longer than 366 days.",
+      );
+    return this.atomic(async (tx) => {
+      const scope = await this.scope(tx, actorId, query.facilityId);
+      const incidents = await tx.incident.findMany({
+        where: {
+          facilityId: scope.facilityId,
+          createdAt: { gte: from, lt: to },
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: 101,
+        select: {
+          id: true,
+          status: true,
+          createdAt: true,
+          facilityId: true,
+          journeySession: SOURCE_SELECT.journeySession,
+        },
+      });
+      if (incidents.length > 100)
+        throw new BadRequestException(
+          "Narrow the window to at most 100 incidents.",
+        );
+      const rows = [];
+      for (const incident of incidents) {
+        if (
+          !institutional(
+            incident as Awaited<ReturnType<InsightService["source"]>>,
+          )
+        )
+          continue;
+        const report = await tx.afterIncidentReport.findFirst({
+          where: { incidentId: incident.id, facilityId: scope.facilityId },
+          orderBy: { version: "desc" },
+          select: {
+            id: true,
+            version: true,
+            generatedAt: true,
+            sourceCutoff: true,
+          },
+        });
+        const failures = await tx.administrativeAuditEvent.count({
+          where: {
+            facilityId: scope.facilityId,
+            resourceId: incident.id,
+            action: "EVIDENCE_AIR_AUTOMATIC_FAILED",
+            ...(report ? { createdAt: { gt: report.generatedAt } } : {}),
+          },
+        });
+        rows.push({
+          incidentId: incident.id,
+          status: incident.status,
+          createdAt: incident.createdAt,
+          generationStatus:
+            failures >= 3
+              ? "REVIEW_REQUIRED"
+              : report
+                ? "GENERATED"
+                : incident.status === "RESOLVED"
+                  ? "PENDING_AUTHORITATIVE_EVIDENCE"
+                  : "AWAITING_RESOLUTION",
+          report: report
+            ? {
+                reportId: report.id,
+                version: report.version,
+                generatedAt: report.generatedAt,
+                sourceFactCutoff: report.sourceCutoff,
+              }
+            : null,
+        });
+      }
+      await this.audit(tx, scope, "AIR_LIST_READ", scope.facilityId, {
+        from: from.toISOString(),
+        to: to.toISOString(),
+      });
+      return {
+        facilityId: scope.facilityId,
+        incidents: rows,
+        canReview: scope.manager,
+        narrative: "UNAVAILABLE_NO_APPROVED_PROVIDER",
+        complianceClaim: null,
+      };
     });
   }
   overview(actorId: string, query: AggregateQueryDto) {
@@ -635,11 +952,16 @@ export class InsightService {
   compliance(actorId: string, incidentId: string, facilityId?: string) {
     return this.atomic(async (tx) => {
       const scope = await this.scope(tx, actorId, facilityId);
-      await this.source(tx, scope, incidentId);
+      const source = await this.source(tx, scope, incidentId);
+      const clock = await tx.$queryRaw<
+        { at: Date }[]
+      >`SELECT transaction_timestamp() AS at`;
+      const at = clock[0]!.at;
       const reports = await tx.afterIncidentReport.findMany({
         where: { incidentId, facilityId: scope.facilityId },
         orderBy: { version: "desc" },
         take: 101,
+        select: { id: true, version: true, supersedesId: true },
       });
       const actions = await tx.correctiveAction.findMany({
         where: { incidentId, facilityId: scope.facilityId },
@@ -648,23 +970,162 @@ export class InsightService {
       });
       if (reports.length > 100 || actions.length > 1000)
         throw new BadRequestException("Evidence package exceeds safety limit.");
+      const latestReport = reports[0]
+        ? await tx.afterIncidentReport.findFirst({
+            where: {
+              id: reports[0].id,
+              incidentId,
+              facilityId: scope.facilityId,
+            },
+          })
+        : null;
+      // Link identity access through this incident's notification snapshots only.
+      // Never traverse a person's other incidents, family contacts or SafeWalk records.
+      const notificationSnapshots = await tx.incidentNotification.findMany({
+        where: {
+          incidentId,
+          incident: { facilityId: scope.facilityId },
+          protectedSnapshotId: { not: null },
+        },
+        select: { protectedSnapshotId: true },
+        take: 10001,
+      });
+      if (notificationSnapshots.length > 10000)
+        throw new BadRequestException(
+          "Identity evidence exceeds safety limit.",
+        );
+      const identifierIds = notificationSnapshots.flatMap((n) =>
+        n.protectedSnapshotId ? [n.protectedSnapshotId] : [],
+      );
+      const identityAccess = await tx.identityResolutionAudit.findMany({
+        where: {
+          tenantId: scope.facilityId,
+          identifierId: { in: identifierIds },
+          createdAt: { lte: at },
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: 101,
+        select: {
+          id: true,
+          actorUserId: true,
+          grantId: true,
+          identifierId: true,
+          purpose: true,
+          caseReference: true,
+          createdAt: true,
+        },
+      });
+      if (identityAccess.length > 100)
+        throw new BadRequestException(
+          "Identity audit package exceeds safety limit.",
+        );
+      const governance = await tx.administrativeAuditEvent.findMany({
+        where: {
+          facilityId: scope.facilityId,
+          resourceId: {
+            in: [
+              incidentId,
+              ...identifierIds,
+              ...source.evidence.map((e) => e.id),
+              ...reports.map((r) => r.id),
+              ...actions.map((a) => a.id),
+            ],
+          },
+          createdAt: { lte: at },
+        },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: 101,
+      });
+      if (governance.length > 100)
+        throw new BadRequestException(
+          "Audit package exceeds safety limit; use authorized audit investigation.",
+        );
       await this.audit(tx, scope, "COMPLIANCE_EVIDENCE_READ", incidentId);
       return {
         schemaVersion: SCHEMA_VERSION,
         facilityId: scope.facilityId,
         incidentId,
-        report: reports[0] ? this.airView(reports[0]) : null,
+        report: latestReport ? this.airView(latestReport) : null,
         reportVersions: reports.map((r) => ({
           reportId: r.id,
           version: r.version,
           supersedesId: r.supersedesId,
         })),
         correctiveActions: actions.map((a) => this.actionView(a, actorId)),
+        assessment: await this.assessment(tx, scope, source, at),
+        governance: {
+          status: "INDETERMINATE",
+          coverage: "INCIDENT_LINKED_RECORDS_ONLY",
+          explanation:
+            "Audit receipts preserve attributable activity; access necessity and institutional audit completeness require authorized review. Unusual activity is not misconduct.",
+          controls: [
+            "PRIVILEGED_ADMIN_ACTIVITY",
+            "PROTECTED_IDENTITY_RESOLUTION",
+            "SENSITIVE_EVIDENCE_ACCESS",
+          ].map((control) => ({
+            control,
+            status: "INDETERMINATE",
+            explanation:
+              "Available linked audit receipts are shown; complete governing requirements and audit coverage are not established.",
+          })),
+          identityAccess: identityAccess.map((e) => ({
+            reference: e.id,
+            actor: e.actorUserId ? "[protected]" : "UNKNOWN",
+            authorityGrantReference: e.grantId,
+            identifierReference: e.identifierId,
+            reason: ["DELIVERY", "SUPPORT", "CONTACT", "ENROLLMENT"].includes(
+              e.purpose,
+            )
+              ? e.purpose
+              : "[protected]",
+            caseReference: e.caseReference,
+            timestamp: e.createdAt,
+          })),
+          events: governance.map((e) => ({
+            reference: e.id,
+            actor: "[protected]",
+            actorRole: e.actorRole,
+            authority: e.authorityKind,
+            authorityGrantReference: e.authorityGrantId,
+            reason: e.reason ? "[protected]" : null,
+            timestamp: e.createdAt,
+            resourceReference: e.resourceId,
+            action:
+              /^(EVIDENCE_|INCIDENT_|PROTECTED_|SENSITIVE_|SUPPORT_IDENTITY_)[A-Z_]+$/.test(
+                e.action,
+              )
+                ? e.action
+                : "ADMINISTRATIVE_ACTIVITY",
+          })),
+        },
+        correctiveActionFindings: actions.map((a) => {
+          const evidence = source.evidence.find(
+            (e) => e.id === a.completionEvidenceId && e.status === "STORED",
+          );
+          return {
+            control: "CORRECTIVE_ACTION_VERIFICATION",
+            reference: a.id,
+            status:
+              a.status === "CANCELLED"
+                ? "NOT_APPLICABLE"
+                : a.status === "VERIFIED"
+                  ? evidence &&
+                    a.verifiedBy &&
+                    a.verifiedBy !== a.ownerId &&
+                    a.verifiedAt
+                    ? "COMPLIANT"
+                    : "INDETERMINATE"
+                  : "INDETERMINATE",
+            evidenceReference: evidence?.id ?? null,
+            explanation:
+              "Verification requires stored completion evidence and independent attributed verification; current verifier authority was enforced at mutation time.",
+          };
+        }),
         complianceClaim: null,
         regulatoryMappings: [],
         uncertainty: [
           "AIR reflects its stored cutoff; actions reflect this read.",
-          "No report exists until AIR generation is requested.",
+          "Automatic generation requires a matching authoritative resolution event; missing or oversized evidence requires review.",
         ],
       };
     });

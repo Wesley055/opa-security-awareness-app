@@ -102,8 +102,16 @@ function verifyEnvelope(envelope, environment, purpose, keys = trusted) {
 function readPolicy(file, environment, purpose) {
   try {
     if (!file) fail();
+    const envelope = JSON.parse(fs.readFileSync(file, "utf8"));
+    // Only the API runtime can consume durable custody. Privileged callers keep
+    // using verifyEnvelope's short-lived, purpose-specific approval unchanged.
+    if (environment === "production" && purpose === "api") {
+      const candidate = JSON.parse(Buffer.from(envelope.payload, "base64"));
+      if (candidate.purpose === "runtime-api")
+        return require("./runtime.cjs").read(envelope, trusted);
+    }
     return verifyEnvelope(
-      JSON.parse(fs.readFileSync(file, "utf8")),
+      envelope,
       environment,
       purpose,
     );
@@ -437,7 +445,19 @@ function preflight(env, purpose = "api") {
       : readPolicy(env.OPA_ENVIRONMENT_POLICY_FILE, e, purpose),
   );
 }
+function recheckRuntimeCustody(env) {
+  if (classify(env) !== "production") fail();
+  const envelope = JSON.parse(fs.readFileSync(env.OPA_ENVIRONMENT_POLICY_FILE, "utf8"));
+  return validateApi(env, require("./runtime.cjs").check(envelope, trusted));
+}
+async function refreshRuntimeCustody(env) {
+  if (classify(env) !== "production") return;
+  const envelope = JSON.parse(fs.readFileSync(env.OPA_ENVIRONMENT_POLICY_FILE,"utf8"));
+  await require("./runtime.cjs").refresh(envelope,env,trusted);
+}
 module.exports = {
+  refreshRuntimeCustody,
+  recheckRuntimeCustody,
   classify,
   hash,
   verifyEnvelope,

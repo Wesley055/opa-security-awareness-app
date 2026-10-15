@@ -1,3 +1,57 @@
+## Current unified release: controlled full maintenance
+
+This procedure supersedes the older per-stage approval, selective emergency-writer
+exception and VM provisioning instructions below for the approved unified release.
+Use the existing App Service private execution container and existing operator host;
+provision no VM. Preserve all seven SQL files, accepted ZIP/archive and three signed
+runtime/custody envelopes. One signed owner manifest binds the executor, artifacts,
+versioned credentials, operator, SSH host key, activity evidence and maintenance scope.
+
+Before approval, independently reconcile every open non-SYSTEM_TEST incident, open
+test incident, active journey, pending or uncertain emergency notification, invitation
+and SafeWalk escalation. Zero database counts do not establish absence of active users:
+record current user/activity verification, applicable communication, the UTC window and
+founder acceptance of the emergency-service interruption. Target 10–15 minutes within
+a 30-minute planned window. A failed recovery can extend the outage; never promise an
+automatic return to service while database state is uncertain.
+
+Terminal delivery uncertainty is retained without invented delivery outcomes or blind
+resend. The owner manifest binds exact historical notification, invitation and unmatched
+receipt sets by SHA-256. The maintenance gate rejects any changed set, new active work,
+ATTEMPTING delivery or newly matchable receipt. Founder-confirmed test reconciliation
+is recorded separately from cutover approval; historical location and delivery evidence
+remain intact.
+
+The coordinated entry point is `cutover.ps1 -SignedReleaseManifest <exact-signed-file>
+-ApprovedManifestSHA256 <founder-approved-sha256>`. It verifies separate operator
+custody-write access before entering maintenance. Credentials remain in memory and
+SSH stdin; no administrator or migration credential enters normal API settings.
+
+Maintenance uses the existing PostgreSQL runtime role: check activity before shutdown,
+set NOLOGIN, allow admitted transactions 30 seconds to finish, terminate remaining
+runtime sessions, and require no other sessions or prepared transactions. Reject
+uncontrolled writer identities. Persist an exclusive release marker and exact state in
+existing /home storage; hold a PostgreSQL advisory lock during the database phase.
+Restarts, workers and scaling using the normal role cannot reopen writes.
+
+Apply the exact seven migrations, independently verify schema 42 and revoke migration
+privileges. Capture and remove runtime write ACLs before allowing read-only API startup.
+This is a database privilege fence, not a transaction-read-only setting that application
+SQL can reset. The operator-host controller publishes the already approved custody,
+deploys API42 and owns the schema-42 durable rollback despite application recycling.
+Only `release-restore.cjs` may restore the captured write privileges after it rechecks
+live approved-build health, exact schema ledger, migration cleanup, maintenance snapshot
+hash and owner binding. Preserve the final database, deployment and restoration receipts.
+
+Failure before deployment leaves writers fenced and demands administrator reconciliation.
+Partial SQL is never automatically repaired or retried. Application rollback never reverses
+migrations. Use only the approved durable schema-42 fallback after schema 42; never deploy
+legacy expired-policy bootstrap as rollback. PITR and any schema-35 recovery cutover need
+verified recovery evidence and explicit authorization; do not silently reopen an uncertain
+schema or assume backup metadata proves a rehearsed restore. A missing restoration receipt
+is NO-GO, including when health is 200. Production acceptance requires actual post-cutover
+safe non-dispatch SOS, tracking and notification validation, not local or mocked results.
+
 # Production migration execution contract
 
 Status: implementation under review. NO production authorization is implied by

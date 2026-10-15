@@ -12,13 +12,14 @@ export async function upstream(
   token?: string,
   body?: unknown,
   idempotencyKey?: string,
+  method?: "GET" | "POST" | "PATCH",
 ) {
   const base = environmentApiUrl();
   if (!base) throw new AdminFailure(503);
   let response: Response;
   try {
     response = await fetch(base + path, {
-      method: body === undefined ? "GET" : "POST",
+      method: method ?? (body === undefined ? "GET" : "POST"),
       headers: {
         "Content-Type": "application/json",
         ...(idempotencyKey ? { "Idempotency-Key": idempotencyKey } : {}),

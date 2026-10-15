@@ -40,7 +40,9 @@ function ledger(rows, expected) {
 function backupEvidence(b, now = Date.now()) {
   onlyKeys(b,['version','server','database','publicAccess','retentionDays','observedAt','earliestRestoreDate','restorePoint','evidenceSha256','approvalId'],'BACKUP_FIELDS');
   requireThat(b?.version === 1 && b.server === 'opa-api-production-server' && b.database === DB && b.publicAccess === 'Disabled' && b.retentionDays === 7, 'BACKUP_TARGET');
-  requireThat(Number.isFinite(Date.parse(b.observedAt)) && now - Date.parse(b.observedAt) >= 0 && now - Date.parse(b.observedAt) < 3600000, 'BACKUP_STALE');
+  // This is the reviewed recovery binding, not a short-lived readiness lease.
+  // The executor refreshes actual Azure backup/PITR readiness before admission.
+  requireThat(Number.isFinite(Date.parse(b.observedAt)) && now >= Date.parse(b.observedAt), 'BACKUP_OBSERVATION');
   requireThat(Number.isFinite(Date.parse(b.restorePoint)) && Date.parse(b.restorePoint) <= Date.parse(b.observedAt) && Date.parse(b.restorePoint) >= Date.parse(b.earliestRestoreDate), 'PITR_POINT');
   requireThat(/^[a-f0-9]{64}$/.test(b.evidenceSha256 || '') && /^[a-zA-Z0-9_-]{1,80}$/.test(b.approvalId || ''), 'BACKUP_EVIDENCE');
 }

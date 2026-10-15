@@ -5,6 +5,7 @@ import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 
 import { initializeEnvironment } from "./shared/config/environment";
 import { GlobalExceptionFilter } from "./shared/filters/global-exception.filter";
+import { recheckRuntimeCustody, refreshRuntimeCustody } from "../../../packages/environment-policy/index.cjs";
 
 async function bootstrap(): Promise<void> {
   await initializeEnvironment();
@@ -64,6 +65,26 @@ async function bootstrap(): Promise<void> {
   SwaggerModule.setup("api/docs", app, document);
 
   await app.listen(process.env.PORT || 3000);
+  if (process.env.OPA_ENVIRONMENT === "production") {
+    // Revocation reaches existing processes as well as fresh instances. The
+    // Transient custody outages use authenticated bounded continuity. Confirmed
+    // rejection or an exhausted continuity deadline still stops the process.
+    let custodyCheckRunning = false;
+    const checkCustody = async (): Promise<void> => {
+      if (custodyCheckRunning) return;
+      custodyCheckRunning = true;
+      try {
+        await refreshRuntimeCustody(process.env);
+        recheckRuntimeCustody(process.env);
+      }
+      catch {
+        console.error("OPA runtime rejected or verified continuity exhausted");
+        process.exit(1);
+      }
+      finally { custodyCheckRunning = false; }
+    };
+    setInterval(() => { void checkCustody(); }, 60000).unref();
+  }
 }
 
 void bootstrap().catch(() => {

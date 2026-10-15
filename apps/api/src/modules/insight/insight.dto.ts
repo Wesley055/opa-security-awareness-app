@@ -6,6 +6,7 @@ import {
   IsUUID,
   Max,
   Min,
+  Matches,
 } from "class-validator";
 
 export class ReportScopeDto {
@@ -17,6 +18,9 @@ export class AggregateQueryDto extends ReportScopeDto {
 }
 export class GenerateAirDto extends ReportScopeDto {
   @IsUUID() requestKey!: string;
+}
+export class ReviewAirDto extends ReportScopeDto {
+  @Matches(/^[a-f0-9]{64}$/) sourceDigest!: string;
 }
 export const ACTION_CATALOG = {
   DELIVERY_REVIEW: {

@@ -3,8 +3,7 @@ import { AdminProvisioningService } from './admin-provisioning.service';
 import type { CreateResidentDto } from './dto/create-resident.dto';
 
 describe('AdminProvisioningService bulk resident provisioning', () => {
-  // No database method is used: each single-row operation is explicitly mocked below.
-  const prisma = {} as ConstructorParameters<typeof AdminProvisioningService>[0];
+  const prisma = {} as never;
   let service: AdminProvisioningService;
 
   const resident = (email: string): CreateResidentDto => ({

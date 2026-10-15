@@ -1,5 +1,6 @@
 import {
   preflight,
+  refreshRuntimeCustody,
   readPolicy,
   hash,
   type Diagnostic,
@@ -92,6 +93,7 @@ export async function initializeEnvironment(
 ): Promise<void> {
   observe?.("environment-preflight");
   config();
+  if (purpose === "api") await refreshRuntimeCustody(process.env);
   diagnostic = preflight(process.env, purpose);
   observe?.("environment-preflight", "passed");
   if (diagnostic.environment !== "development") {

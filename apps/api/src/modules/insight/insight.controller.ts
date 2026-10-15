@@ -23,6 +23,7 @@ import {
   GenerateAirDto,
   ReportScopeDto,
   UpdateActionDto,
+  ReviewAirDto,
 } from "./insight.dto";
 
 type AuthRequest = Request & { user: JwtPayload };
@@ -35,6 +36,24 @@ export class InsightController {
   @Header("Cache-Control", "no-store")
   overview(@Req() req: AuthRequest, @Query() query: AggregateQueryDto) {
     return this.service.overview(req.user.sub, query);
+  }
+  @Get("reports")
+  @Header("Cache-Control", "no-store")
+  reports(@Req() req: AuthRequest, @Query() query: AggregateQueryDto) {
+    return this.service.reports(req.user.sub, query);
+  }
+  @Post("air/:reportId/approve")
+  approve(
+    @Req() req: AuthRequest,
+    @Param("reportId", ParseUUIDPipe) id: string,
+    @Body() dto: ReviewAirDto,
+  ) {
+    return this.service.approveAir(
+      req.user.sub,
+      id,
+      dto.sourceDigest,
+      dto.facilityId,
+    );
   }
   @Post("incidents/:incidentId/reconcile")
   reconcile(

@@ -21,9 +21,11 @@ function policyInputs(root, artifact, env, backupBytes, mode, readPolicy) {
   const boundary=require(path.join(root,'packages/environment-policy/index.cjs'));
   const p=(readPolicy || boundary.readPolicy)(env.OPA_ENVIRONMENT_POLICY_FILE,'production','migration');
   R(p.purpose==='migration' && p.environment==='production' && p.version===1 && p.build===artifact.manifest.build,'POLICY_SCOPE');
-  C.onlyKeys(p,['version','environment','purpose','build','approvedAt','expiresAt','approvalId','action','writersQuiesced','emergencyWriterException','artifactSha256','backupSha256','sentinelSha256','resources','secrets','runner'],'POLICY_FIELDS');
+  C.onlyKeys(p,['version','environment','purpose','build','approvedAt','expiresAt','executionTimeoutSeconds','recovery','approvalId','action','writersQuiesced','emergencyWriterException','artifactSha256','backupSha256','sentinelSha256','resources','secrets','runner'],'POLICY_FIELDS');
   const now=Date.now();
-  R(Number.isFinite(Date.parse(p.approvedAt)) && Date.parse(p.approvedAt)<=now && Date.parse(p.expiresAt)>now && Date.parse(p.expiresAt)-Date.parse(p.approvedAt)<=3600000,'POLICY_WINDOW');
+  R(Number.isFinite(Date.parse(p.approvedAt)) && Date.parse(p.approvedAt)<=now && Date.parse(p.expiresAt)>now && Date.parse(p.expiresAt)-Date.parse(p.approvedAt)<=7*86400000,'RELEASE_ADMISSION_WINDOW');
+  const executionSeconds=p.executionTimeoutSeconds ?? 14400;
+  R(Number.isSafeInteger(executionSeconds)&&executionSeconds>=60&&executionSeconds<=86400,'EXECUTION_BOUND');
   R(p.artifactSha256===artifact.manifestSha256 && p.backupSha256===hash(backupBytes),'POLICY_ARTIFACT_BACKUP');
   R(/^[a-f0-9]{64}$/.test(p.sentinelSha256 || ''),'POLICY_SENTINEL');
   const b=JSON.parse(backupBytes); C.backupEvidence(b);
@@ -81,6 +83,7 @@ function connectOptions(url) {
 async function cli(root, args, env, expiresAt) {
   const remaining=expiresAt ? Date.parse(expiresAt)-Date.now() : 600000;
   R(Number.isFinite(remaining) && remaining>0,'PRISMA_POLICY_EXPIRED');
+  R(remaining<=86400000,'PRISMA_EXECUTION_BOUND');
   const safe={PATH:env.PATH,SystemRoot:env.SystemRoot,TEMP:env.TEMP,TMP:env.TMP,HOME:env.HOME,USERPROFILE:env.USERPROFILE,DATABASE_URL:env.DATABASE_URL,CHECKPOINT_DISABLE:'1',PRISMA_HIDE_UPDATE_MESSAGE:'1'};
   return new Promise((resolve,reject)=>{
     const child=cp.spawn(process.execPath,[path.join(root,'node_modules/prisma/build/index.js'),...args],{cwd:root,env:safe,stdio:['ignore','pipe','pipe'],windowsHide:true,detached:process.platform!=='win32'});
@@ -95,46 +98,57 @@ async function cli(root, args, env, expiresAt) {
         else child.kill(force?'SIGKILL':'SIGTERM');
       }catch{try{child.kill('SIGKILL');}catch{/* independent administrator cleanup is still required */}}
     };
-    const timer=setTimeout(()=>{timedOut=true;stop(false);hardTimer=setTimeout(()=>{stop(true);reject(Error('PRISMA_TIMEOUT'));},3000);},Math.max(1,Math.min(600000,remaining)));
+    const timer=setTimeout(()=>{timedOut=true;stop(false);hardTimer=setTimeout(()=>{stop(true);reject(Error('PRISMA_TIMEOUT'));},3000);},Math.max(1,remaining));
     const clear=()=>{clearTimeout(timer);clearTimeout(hardTimer);};
     child.on('error',()=>{clear();reject(Error('PRISMA_PROCESS'));});
     child.on('exit',(code,signal)=>{clear(); if(timedOut || code!==0 || signal)reject(Error('PRISMA_REJECTED'));else resolve();});
   });
 }
-async function executeLifecycle({client,artifact,policy,mode,invoke,receipt,save}) {
-  let before;
+async function executeLifecycle({client,artifact,policy,mode,invoke,receipt,save,verifyRecovery=()=>require('./recovery-readiness.cjs').verify(policy),now=Date.now,verifyMaintenance}) {
+  let before,deadline;
+  if(verifyMaintenance)await verifyMaintenance();
   try {
+    R(Date.parse(policy.expiresAt)>now(),'OPERATION_ADMISSION_EXPIRED');
     await client.connect();
     if(policy.emergencyWriterException && ['preflight','execute'].includes(mode)) await emergencyWriters.verifyTimeouts(client);
     before=await I.identity(client,policy); receipt.sentinelSha256=before;
     if(policy.emergencyWriterException && ['verify-cleanup','verify-post'].includes(mode)) { await emergencyWriters.verifyRestoredTimeouts(client);receipt.timeoutOverridesRestored=true; }
     if(mode==='verify-cleanup') {
-      receipt.posture=await I.posture(client,false);receipt.status='cleanup-verified';receipt.cleanupRequired=false;
+      receipt.posture=await I.posture(client,false,!!verifyMaintenance);receipt.status='cleanup-verified';receipt.cleanupRequired=false;
     } else if(mode==='verify-post') {
-      await I.posture(client,false); await I.history(client,artifact.manifest.candidate); receipt.activeMigrations=42; await I.structure(client);
+      await I.posture(client,false,!!verifyMaintenance); await I.history(client,artifact.manifest.candidate); receipt.activeMigrations=42; await I.structure(client);
       await invoke(['migrate','diff','--from-schema-datasource','apps/api/prisma/schema.prisma','--to-schema-datamodel','apps/api/prisma/schema.prisma','--exit-code']);
       receipt.status='verified'; receipt.activeMigrations=42; receipt.cleanupRequired=false;
     } else {
-      await I.posture(client,true); await I.history(client,artifact.manifest.baseline);await I.preStructure(client);
+      await I.posture(client,true,!!verifyMaintenance); await I.history(client,artifact.manifest.baseline);await I.preStructure(client);
       receipt.compatibility=await I.compatibility(client);receipt.activeMigrations=35;
       receipt.status='preflight-passed';receipt.cleanupRequired=true;save();
       if(mode==='execute') {
         // Persist intent before spawning. An absent final receipt after crash
         // must be treated as an uncertain mutation requiring admin cleanup.
+        receipt.recoveryReadiness=await verifyRecovery();
+        R(receipt.recoveryReadiness?.status==='ready','RECOVERY_NOT_READY');
+        R(Date.parse(policy.expiresAt)>now(),'EXECUTION_POLICY_EXPIRED');
+        const seconds=policy.executionTimeoutSeconds ?? 14400;
+        R(Number.isSafeInteger(seconds)&&seconds>=60&&seconds<=86400,'EXECUTION_BOUND');
+        deadline=now()+seconds*1000;
+        if(policy.emergencyWriterException)deadline=Math.min(deadline,Date.parse(policy.emergencyWriterException.end));
+        receipt.admittedAt=new Date(now()).toISOString();receipt.executionDeadline=new Date(deadline).toISOString();
         receipt.status='execution-started';save();
-        R(Date.parse(policy.expiresAt)>Date.now(),'EXECUTION_POLICY_EXPIRED');
         if(policy.emergencyWriterException) {
           R(Date.now()>=Date.parse(policy.emergencyWriterException.start) && Date.now()<Date.parse(policy.emergencyWriterException.end),'EMERGENCY_WINDOW');
           await emergencyWriters.verifyTimeouts(client);
         }
-        await invoke(['migrate','deploy','--schema','apps/api/prisma/schema.prisma']);
-        await I.history(client,artifact.manifest.candidate); receipt.activeMigrations=42; await I.structure(client); await I.posture(client,true);
-        await invoke(['migrate','diff','--from-schema-datasource','apps/api/prisma/schema.prisma','--to-schema-datamodel','apps/api/prisma/schema.prisma','--exit-code']);
+        if(verifyMaintenance)await verifyMaintenance();
+        await invoke(['migrate','deploy','--schema','apps/api/prisma/schema.prisma'],receipt.executionDeadline);
+        R(now()<deadline,'EXECUTION_DEADLINE_EXCEEDED');
+        await I.history(client,artifact.manifest.candidate); receipt.activeMigrations=42; await I.structure(client); await I.posture(client,true,!!verifyMaintenance);
+        await invoke(['migrate','diff','--from-schema-datasource','apps/api/prisma/schema.prisma','--to-schema-datamodel','apps/api/prisma/schema.prisma','--exit-code'],receipt.executionDeadline);
         receipt.activeMigrations=42;receipt.status='migrated-awaiting-admin-cleanup';
       }
     }
     R(await I.identity(client,policy)===before,'SENTINEL_CHANGED');
-    R(Date.parse(policy.expiresAt)>Date.now(),'VERIFICATION_POLICY_EXPIRED');
+    R(deadline ? now()<deadline : Date.parse(policy.expiresAt)>now(),'VERIFICATION_DEADLINE_EXPIRED');
   } catch {
     receipt.status='failed'; receipt.cleanupRequired=true;
     throw Error('PRODUCTION_MIGRATION_STOPPED');
@@ -162,7 +176,7 @@ async function main() {
     await runner(p); save();
     const {Client}=require(path.join(root,'node_modules/pg'));
     const client=new Client(connectOptions(process.env.DATABASE_URL));
-    await executeLifecycle({client,artifact,policy:p,mode,receipt,save,invoke:args=>cli(root,args,process.env,p.expiresAt)});
+    await executeLifecycle({client,artifact,policy:p,mode,receipt,save,invoke:(args,deadline)=>cli(root,args,process.env,deadline || new Date(Math.min(Date.parse(p.expiresAt),Date.now()+(p.executionTimeoutSeconds ?? 14400)*1000)).toISOString())});
   } finally { save();fs.closeSync(fd); }
   console.log(JSON.stringify({status:receipt.status,cleanupRequired:receipt.cleanupRequired}));
 }

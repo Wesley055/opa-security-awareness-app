@@ -6,7 +6,7 @@ import { createHash } from "crypto";
 import type { Prisma } from "@prisma/client";
 
 export const SCHEMA_VERSION = 1;
-export const GENERATOR_VERSION = "opa-reporting-2.0.0";
+export const GENERATOR_VERSION = "opa-reporting-2.1.0";
 export const SOURCE_SELECT = {
   id: true,
   facilityId: true,

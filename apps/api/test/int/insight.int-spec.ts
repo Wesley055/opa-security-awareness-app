@@ -11,6 +11,7 @@ import { randomUUID } from "crypto";
 import { InsightService } from "../../src/modules/insight/insight.service";
 import type { PrismaService } from "../../src/prisma/prisma.service";
 import { prismaTest as db } from "./prisma-test-client";
+import { InsightReportWorker } from "../../src/modules/insight/insight-report.worker";
 
 const windowQuery = {
   from: "2026-01-01T00:00:00Z",
@@ -78,6 +79,235 @@ async function action() {
   });
 }
 describe("Evidence and Insight PostgreSQL", () => {
+  async function resolvedEvent() {
+    const at = new Date();
+    await db.incident.update({
+      where: { id: incident },
+      data: { status: "RESOLVED", resolvedAt: at },
+    });
+    return db.incidentTimelineEvent.create({
+      data: {
+        incidentId: incident,
+        sequence: 1,
+        type: "INCIDENT_RESOLVED",
+        source: "COMMAND_CENTER",
+        actorUserId: manager,
+        occurredAt: at,
+        hash: "test-only",
+        payload: {
+          previousStatus: "OPEN",
+          newStatus: "RESOLVED",
+          reason: "Private closure note",
+        },
+      },
+    });
+  }
+  it("automatically generates after authoritative resolution, survives restart, and appends changed evidence", async () => {
+    const event = await resolvedEvent();
+    const started = performance.now();
+    await new InsightReportWorker(db as PrismaService, service).tick();
+    const elapsed = performance.now() - started;
+    console.log(
+      JSON.stringify({
+        metric: "OPA_AUTOMATIC_AIR_TEST_LATENCY_MS",
+        elapsedMs: elapsed,
+      }),
+    );
+    expect(elapsed).toBeLessThan(5000);
+    const first = await db.afterIncidentReport.findFirstOrThrow({
+      where: { incidentId: incident },
+    });
+    const original = JSON.stringify(first.document);
+    await new InsightReportWorker(
+      db as PrismaService,
+      new InsightService(db as PrismaService),
+    ).tick();
+    expect(
+      await db.afterIncidentReport.count({ where: { incidentId: incident } }),
+    ).toBe(1);
+    await db.evidence.create({
+      data: {
+        incidentId: incident,
+        type: "DOCUMENT",
+        status: "STORED",
+        storageKey: "private-storage-key",
+      },
+    });
+    await new InsightReportWorker(db as PrismaService, service).tick();
+    const latest = await db.afterIncidentReport.findFirstOrThrow({
+      where: { incidentId: incident },
+      orderBy: { version: "desc" },
+    });
+    expect(latest.version).toBe(2);
+    expect(latest.supersedesId).toBe(first.id);
+    expect(
+      JSON.stringify(
+        (
+          await db.afterIncidentReport.findUniqueOrThrow({
+            where: { id: first.id },
+          })
+        ).document,
+      ),
+    ).toBe(original);
+    expect(JSON.stringify(latest.document)).not.toMatch(
+      /Private closure note|private-storage-key/,
+    );
+    expect(latest.document).toMatchObject({
+      narrative: {
+        status: "UNAVAILABLE",
+        aiGenerated: false,
+        publication: "AUTHORIZED_HUMAN_REVIEW_REQUIRED",
+      },
+    });
+    expect(
+      await db.administrativeAuditEvent.findFirst({
+        where: {
+          action: "EVIDENCE_AIR_AUTOMATIC_GENERATED",
+          resourceId: first.id,
+        },
+      }),
+    ).toMatchObject({
+      afterState: expect.objectContaining({ eventReference: event.id }),
+    });
+  });
+  it("deduplicates concurrent automatic generation and excludes non-authoritative closure", async () => {
+    expect(await service.automatic(incident)).toBeNull();
+    await db.incident.update({
+      where: { id: incident },
+      data: { status: "RESOLVED", resolvedAt: new Date() },
+    });
+    expect(await service.automatic(incident)).toBeNull();
+    await resolvedEvent();
+    const outcomes = await Promise.allSettled([
+      service.automatic(incident),
+      service.automatic(incident),
+    ]);
+    expect(
+      outcomes.some((o) => o.status === "fulfilled" && o.value !== null),
+    ).toBe(true);
+    await service.automatic(incident); // durable retry after a serialization conflict
+    expect(
+      await db.afterIncidentReport.count({ where: { incidentId: incident } }),
+    ).toBe(1);
+  });
+  it("uses historical policy evidence rather than the current amended threshold", async () => {
+    const effectiveAt = new Date("2025-12-01T00:00:00Z");
+    await db.administrativeAuditEvent.create({
+      data: {
+        actorUserId: manager,
+        actorRole: "FACILITY_ADMIN",
+        facilityId: facilityA,
+        resourceId: facilityA,
+        action: "FACILITY_RESPONSE_POLICY_CHANGED",
+        createdAt: effectiveAt,
+        afterState: {
+          version: 4,
+          acknowledgementSeconds: 60,
+          dispatchSeconds: 90,
+          progressSeconds: 60,
+          unattendedSeconds: 120,
+          closureSeconds: 600,
+        },
+      },
+    });
+    await db.facilityResponsePolicy.create({
+      data: {
+        facilityId: facilityA,
+        version: 5,
+        updatedByUserId: manager,
+        acknowledgementSeconds: 1,
+        dispatchSeconds: 1,
+        progressSeconds: 1,
+        unattendedSeconds: 1,
+        closureSeconds: 2,
+      },
+    });
+    await db.incidentTimelineEvent.create({
+      data: {
+        incidentId: incident,
+        sequence: 1,
+        type: "OPERATOR_ACKNOWLEDGED",
+        source: "COMMAND_CENTER",
+        actorUserId: operator,
+        occurredAt: new Date("2026-01-01T00:00:30Z"),
+        hash: "test-only",
+      },
+    });
+    const result = await service.compliance(manager, incident);
+    expect(result.assessment.policy?.version).toBe(4);
+    expect(
+      result.assessment.findings.find((f) => f.control === "ACKNOWLEDGEMENT")
+        ?.status,
+    ).toBe("COMPLIANT");
+    expect(result.complianceClaim).toBeNull();
+    expect(result.regulatoryMappings).toEqual([]);
+  });
+  it("enforces scoped digest-bound manager approval without modifying AIR snapshots", async () => {
+    const report = await air(),
+      original = JSON.stringify(report.document);
+    await expect(
+      service.approveAir(operator, report.reportId, report.sourceDigest),
+    ).rejects.toThrow();
+    await expect(
+      service.approveAir(
+        outsider,
+        report.reportId,
+        report.sourceDigest,
+        facilityA,
+      ),
+    ).rejects.toThrow();
+    await expect(
+      service.approveAir(manager, report.reportId, "0".repeat(64)),
+    ).rejects.toThrow();
+    await service.approveAir(manager, report.reportId, report.sourceDigest);
+    expect(
+      (await service.readAir(manager, report.reportId)).review.status,
+    ).toBe("APPROVED");
+    expect(
+      JSON.stringify(
+        (await service.readAir(manager, report.reportId)).document,
+      ),
+    ).toBe(original);
+    await service.approveAir(manager, report.reportId, report.sourceDigest);
+    expect(
+      await db.administrativeAuditEvent.count({
+        where: { resourceId: report.reportId, action: "EVIDENCE_AIR_APPROVED" },
+      }),
+    ).toBe(1);
+    await expect(
+      service.reports(outsider, { ...windowQuery, facilityId: facilityA }),
+    ).rejects.toThrow();
+  });
+  it("excludes private SafeWalk from automatic reports and the incident report list", async () => {
+    await resolvedEvent();
+    const session = await db.journeySession.create({
+      data: {
+        userId: operator,
+        purpose: "SAFEWALK",
+        destinationLabel: "Private family destination",
+        expectedArrivalAt: new Date(),
+      },
+    });
+    await db.incident.update({
+      where: { id: incident },
+      data: { journeySessionId: session.id },
+    });
+    expect(await service.automatic(incident)).toBeNull();
+    expect(
+      (await service.reports(manager, windowQuery)).incidents,
+    ).toHaveLength(0);
+    expect(await db.afterIncidentReport.count()).toBe(0);
+    await db.journeySession.update({
+      where: { id: session.id },
+      data: {
+        safeWalkEmergencyIncidentId: incident,
+        safeWalkEmergencyAt: new Date(),
+      },
+    });
+    const result = await service.automatic(incident);
+    expect(result).not.toBeNull();
+    expect(JSON.stringify(result)).not.toContain("Private family destination");
+  });
   it("isolates tenant reports, projections, aggregates, actions and exports", async () => {
     const report = await air();
     await expect(service.readAir(outsider, report.reportId)).rejects.toThrow();
@@ -167,7 +397,7 @@ describe("Evidence and Insight PostgreSQL", () => {
     expect(second.sourceDigest).not.toBe(first.sourceDigest);
     expect(await service.readAir(operator, first.reportId)).toEqual(first);
     expect(first.schemaVersion).toBe(1);
-    expect(first.generatorVersion).toBe("opa-reporting-2.0.0");
+    expect(first.generatorVersion).toBe("opa-reporting-2.1.0");
     expect(+first.sourceFactCutoff).toBeLessThanOrEqual(+first.generatedAt);
     expect(
       await db.administrativeAuditEvent.count({

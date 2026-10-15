@@ -22,7 +22,7 @@ function validate(p,artifact,env,now=Date.now()) {
  R(p.resources?.app?.id===APP && p.resources?.database?.id===SERVER && e.appResourceId===APP && e.databaseResourceId===SERVER && p.runner?.kind==='azure-app-service' && p.runner.resourceId===APP,'EMERGENCY_RESOURCES');
  R(p.runner.identity?.tenantId==='adb3fb59-1ac3-42c2-b39a-d70c7006ccbc' && p.runner.identity?.principalId==='ed24b331-4dfe-4e07-8aa9-83f835ce7b6c','EMERGENCY_IDENTITY');
  const start=Date.parse(e.start),end=Date.parse(e.end);
- R(Number.isFinite(start) && Number.isFinite(end) && end>start && end-start<=3600000 && now>=start && now<end && Date.parse(p.approvedAt)<=start && Date.parse(p.expiresAt)<=end,'EMERGENCY_WINDOW');
+ R(Number.isFinite(start) && Number.isFinite(end) && end>start && end-start<=3600000 && now>=start && now<end && Date.parse(p.approvedAt)<=start && end<=Date.parse(p.expiresAt),'EMERGENCY_WINDOW');
  R(e.lockTimeoutMs===500 && e.statementTimeoutMs===2000 && e.maxSOSDatabasePhaseMs===3000 && e.timeoutApplySha256===APPLY && e.timeoutRestoreSha256===RESTORE,'EMERGENCY_LIMITS');
  R(JSON.stringify(e.activeWriterClasses)===JSON.stringify(ACTIVE) && e.otherWritersQuiesced===true && /^[a-f0-9]{64}$/.test(e.writerStateEvidenceSha256 || ''),'EMERGENCY_WRITERS');
  const u=new URL(env.DATABASE_URL);

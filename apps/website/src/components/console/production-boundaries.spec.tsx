@@ -106,7 +106,8 @@ it("offers real reports without fabricating data or unfinished authoring", () =>
     screen.getByRole("heading", { name: "Reports & Analytics" }),
   ).toBeVisible();
   expect(screen.getByRole("button", { name: "Load report" })).toBeVisible();
-  expect(screen.getByRole("status")).toHaveTextContent("Choose a date window");
-  expect(screen.getByText(/JSON export are backend only/)).toBeVisible();
+  expect(screen.getByText("Choose a date window and load the report.")).toBeVisible();
+  expect(screen.getByRole("button", { name: "Load incident reports" })).toBeVisible();
+  expect(screen.getByText(/No institutional compliance certification/)).toBeVisible();
   expect(screen.queryByText("Notification outcomes")).toBeNull();
 });

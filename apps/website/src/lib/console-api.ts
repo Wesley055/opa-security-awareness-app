@@ -1,7 +1,7 @@
 import 'server-only';
 import { apiUrl, getAccessToken } from '@/lib/operator-session';
 // Fixed caller-owned paths only. No browser-supplied upstream URL.
-export async function consoleApi(path: string, method: 'GET' | 'POST' = 'GET', body?: unknown): Promise<{ status: number; data?: unknown; error?: string }> {
+export async function consoleApi(path: string, method: 'GET' | 'POST' | 'PATCH' = 'GET', body?: unknown): Promise<{ status: number; data?: unknown; error?: string }> {
   const base = apiUrl(), token = await getAccessToken();
   if (!token) return { status: 401, error: 'Your session ended.' };
   if (!base) return { status: 503, error: 'The service is temporarily unavailable.' };

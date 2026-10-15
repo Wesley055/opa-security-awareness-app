@@ -17,6 +17,14 @@
     "policySha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "sentinelSha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
     "approvalId": {"type": "string", "pattern": "^[a-zA-Z0-9_-]{1,80}$"},
+    "admittedAt": {"type":"string","format":"date-time"},
+    "executionDeadline": {"type":"string","format":"date-time"},
+    "recoveryReadiness": {"type":"object","additionalProperties":false,"properties":{
+      "status":{"const":"ready"},"checkedAt":{"type":"string","format":"date-time"},"serverId":{"type":"string"},
+      "restorePoint":{"type":"string","format":"date-time"},"earliestRestoreDate":{"type":"string","format":"date-time"},
+      "backupId":{"type":"string"},"backupCompletedAt":{"type":"string","format":"date-time"},
+      "verification":{"const":"live-Azure-backup-and-PITR-metadata"},"evidenceSha256":{"type":"string","pattern":"^[a-f0-9]{64}$"}
+    }},
     "activeMigrations": {"enum": [35, 42]},
     "compatibility": {
       "type": "object", "additionalProperties": false,

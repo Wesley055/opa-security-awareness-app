@@ -10,6 +10,8 @@ export interface Diagnostic {
   migrationReadiness: string;
 }
 export function classify(env: Variables): Environment;
+export function recheckRuntimeCustody(env: Variables): Diagnostic;
+export function refreshRuntimeCustody(env: Variables): Promise<void>;
 export function preflight(
   env: Variables,
   purpose?: "api" | "migration",

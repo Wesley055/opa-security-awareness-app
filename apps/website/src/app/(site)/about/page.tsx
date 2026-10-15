@@ -1,75 +1,49 @@
 import type { Metadata } from "next";
-
+import { PageIntro, Section, PilotCTA } from "@/components/marketing/Content";
 export const metadata: Metadata = {
-  title: "About",
+  title: "About OPA",
   description:
-    "OPA's mission is to ensure no one faces an emergency alone. Built Nigeria first, designed to go anywhere.",
+    "OPA Technologies Limited — Enterprise Safety & Operational Intelligence.",
 };
-
-const principles = [
-  "Human life comes first.",
-  "Save seconds by reducing delays during emergencies.",
-  "Coordinate people, not just notifications.",
-  "Privacy and security by design.",
-  "Nigeria first, global by design.",
-  "Reliability over novelty.",
-  "Build trust through accurate, secure, and dependable operation.",
-];
-
-export default function AboutPage() {
+export default function Page() {
   return (
-    <div className="mx-auto max-w-4xl px-6 py-24">
-      <p className="font-mono text-xs uppercase tracking-widest text-flare">
-        About OPA
-      </p>
-      <h1 className="mt-4 font-display text-4xl font-extrabold text-ink sm:text-5xl">
-        No one should face an emergency alone.
-      </h1>
-
-      <div className="mt-12 grid gap-8 sm:grid-cols-2">
-        <div>
-          <h2 className="font-mono text-xs uppercase tracking-widest text-signal">
-            Mission
-          </h2>
-          <p className="mt-3 text-muted">
-            To intelligently coordinate emergency response for individuals
-            in Nigeria by connecting victims, families, responders,
-            hospitals, and trusted organizations in real time, ensuring
-            that no one faces an emergency alone.
+    <>
+      <PageIntro
+        label="OPA Technologies Limited"
+        title="Protection built around people. Accountability built into operations."
+      >
+        <p>
+          OPA connects people, organizations, identity, safety operations,
+          incident response, evidence and intelligence in one enterprise
+          platform.
+        </p>
+      </PageIntro>
+      <Section
+        label="Our purpose"
+        title="Help people and organizations act with better context."
+      >
+        <div className="m-split">
+          <p className="m-lead">
+            Our mission is to support personal safety and institutional
+            coordination before, during and after incidents. Nigeria first, with
+            a long-term ambition to serve wider communities.
           </p>
+          <div>
+            <h3>Our principles</h3>
+            <p>
+              Respect personal privacy. Keep authority explicit. Preserve
+              attributable evidence. Represent delivery and location truthfully.
+              Build for accountable human decisions.
+            </p>
+            <p>
+              OPA provides software and coordination. Physical response remains
+              the responsibility of authorized organizations and response
+              partners.
+            </p>
+          </div>
         </div>
-        <div>
-          <h2 className="font-mono text-xs uppercase tracking-widest text-signal">
-            Vision
-          </h2>
-          <p className="mt-3 text-muted">
-            OPA is an emergency intelligence and coordination platform,
-            designed to reduce response time by connecting the people who
-            matter through a secure, real-time operational picture. We
-            are building for Nigeria first, with a platform designed to
-            support global expansion.
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-16">
-        <h2 className="font-mono text-xs uppercase tracking-widest text-signal">
-          Guiding principles
-        </h2>
-        <div className="mt-4 divide-y divide-line border-t border-line">
-          {principles.map((principle, index) => (
-            <div
-              key={principle}
-              className="flex gap-6 py-4"
-            >
-              <span className="font-mono text-sm text-muted-2">
-                {String(index + 1).padStart(2, "0")}
-              </span>
-              <p className="text-ink">{principle}</p>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
+      </Section>
+      <PilotCTA />
+    </>
   );
 }

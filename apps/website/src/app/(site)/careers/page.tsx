@@ -3,14 +3,14 @@ import Link from "next/link";
 import { Container } from "@/components/layout/Container";
 
 export const metadata: Metadata = {
-  title: "Careers | OPA",
+  title: "Careers",
   description:
     "Join the team building emergency safety software for Nigeria. Open roles at OPA Technologies Limited.",
 };
 
 const responsibilities = [
-  "Build strategic partnerships with hospitals, security companies, universities, residential estates, employers, NGOs, telecommunications companies and public institutions",
-  "Identify and secure pilot programmes that validate OPA in real environments",
+  "Build strategic partnerships with private security firms, gated estates, corporate security teams, lone-worker organizations, universities and other institutions",
+  "Connect institutional customers with demonstrations grounded in their operating needs",
   "Research how organisations evaluate and procure safety technology, including who decides and how long it takes",
   "Meet decision-makers and understand their operational challenges",
   "Represent OPA at conferences, networking events and industry meetings",
@@ -53,7 +53,7 @@ const niceToHave = [
 
 const firstNinetyDays = [
   "Built relationships with twenty-five to forty target organisations",
-  "Established a qualified pipeline of pilot opportunities",
+  "Established a qualified pipeline of institutional opportunities",
   "Produced OPA's first partnership strategy",
   "Delivered market feedback that changes a product decision",
   "Validated pricing assumptions against real conversations",
@@ -62,7 +62,7 @@ const firstNinetyDays = [
 
 const thrives = [
   "You like problems without obvious answers",
-  "You can hold a conversation with an engineer and with a hospital director, and adjust",
+  "You can hold a conversation with an engineer and with an institutional security lead, and adjust",
   "You would rather build a process than follow one",
   "You are comfortable deciding with incomplete information",
   "You care about technology that has real social consequences",
@@ -135,7 +135,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 export default function CareersPage() {
   return (
-    <main className="py-16 sm:py-24">
+    <div className="py-16 sm:py-24">
       <Container>
         <div className="max-w-3xl">
           <p className="font-display text-sm font-semibold uppercase tracking-wider text-protection">
@@ -151,10 +151,9 @@ export default function CareersPage() {
             right people alerted, fast, when someone is in danger.
           </p>
           <p className="mt-4 text-lg leading-relaxed text-muted">
-            The work is early. What exists today works and is in use. Most of
-            what OPA will be is still ahead. If you want a defined role in a
-            mature company, this is not that. If you want your decisions to
-            shape what the company becomes, it is.
+            Work with a small team focused on people, institutional safety and
+            accountable response. Your decisions will help shape how OPA serves
+            organizations across Nigeria.
           </p>
         </div>
 
@@ -193,7 +192,8 @@ export default function CareersPage() {
                   Business Development Lead
                 </h3>
                 <p className="mt-1 text-sm text-muted">
-                  Founding team &middot; Lagos, Nigeria (Hybrid) &middot; Full-time
+                  Founding team &middot; Lagos, Nigeria (Hybrid) &middot;
+                  Full-time
                 </p>
               </div>
               <span className="rounded-full bg-protection/10 px-3 py-1 text-xs font-semibold text-protection">
@@ -209,9 +209,9 @@ export default function CareersPage() {
             <p className="mt-4 leading-relaxed text-muted">
               This is not a traditional sales role. You will not inherit a
               mature product, an established customer base or a polished
-              playbook. You will work directly with the founder to shape how
-              OPA enters the market, builds credibility and launches with the
-              right partners.
+              playbook. You will work directly with the founder to shape how OPA
+              enters the market, builds credibility and launches with the right
+              partners.
             </p>
 
             <p className="mt-6 rounded-md bg-protection/5 p-5 text-sm font-semibold leading-relaxed text-ink">
@@ -220,33 +220,6 @@ export default function CareersPage() {
               understanding what customers actually need, and helping shape
               where OPA goes next. Not from hitting a quarterly quota.
             </p>
-
-            {/* Honest state of the product */}
-            <div className="mt-8 rounded-md border-l-2 border-emergency bg-emergency/5 p-5">
-              <p className="text-sm font-semibold text-ink">
-                Where OPA actually is today
-              </p>
-              <p className="mt-2 text-sm leading-relaxed text-muted">
-                OPA&rsquo;s emergency alerting works: a user triggers an alert
-                and the trusted contacts they have registered are notified with
-                their live location. That part is built, tested and running.
-              </p>
-              <p className="mt-3 text-sm leading-relaxed text-muted">
-                What comes next is a live incident view for families, then
-                continuous location tracking. The institutional products, a
-                monitoring dashboard for organisations and journey safety
-                monitoring for lone workers, are planned but not yet built.
-              </p>
-              <p className="mt-3 text-sm leading-relaxed text-muted">
-                So your first months are not about aggressively selling
-                unfinished software. They are about learning the market,
-                building trust, testing assumptions and preparing partnerships
-                that are ready when the commercial products land. We would
-                rather build long-term trust than promise features that
-                aren&rsquo;t ready. If that sounds like the wrong kind of
-                ambiguity, this is not the right role.
-              </p>
-            </div>
 
             <div className="mt-8">
               <SectionHeading>What you&rsquo;ll do</SectionHeading>
@@ -269,8 +242,8 @@ export default function CareersPage() {
                 platform runs on mobile, cloud infrastructure and location
                 services. Where we are heading involves applying machine
                 learning to emergency response: understanding context from
-                signals a person in danger cannot report themselves, and
-                helping the right people act on it faster.
+                signals a person in danger cannot report themselves, and helping
+                the right people act on it faster.
               </p>
               <p className="mt-3 text-sm leading-relaxed text-muted">
                 None of that is built yet, and we are deliberate about which of
@@ -284,10 +257,10 @@ export default function CareersPage() {
             <div className="mt-8">
               <SectionHeading>Technical understanding</SectionHeading>
               <p className="mt-3 text-sm leading-relaxed text-muted">
-                You do not need to be an engineer, but you should be
-                comfortable discussing technology with customers, partners and
-                investors, and know when to bring engineering into the
-                conversation. Familiarity with any of these helps:
+                You do not need to be an engineer, but you should be comfortable
+                discussing technology with customers, partners and investors,
+                and know when to bring engineering into the conversation.
+                Familiarity with any of these helps:
               </p>
               <Bullets items={technical} />
             </div>
@@ -330,7 +303,7 @@ export default function CareersPage() {
               <SectionHeading>Travel and compensation</SectionHeading>
               <p className="mt-3 text-sm leading-relaxed text-muted">
                 The role involves regular travel within Nigeria to meet
-                partners, attend industry events and support pilot
+                partners, attend industry events and support customer
                 opportunities.
               </p>
               <p className="mt-3 text-sm leading-relaxed text-muted">
@@ -350,13 +323,13 @@ export default function CareersPage() {
               <SectionHeading>How to apply</SectionHeading>
               <p className="mt-3 text-sm leading-relaxed text-muted">
                 Send your CV and a short note covering why OPA interests you,
-                what excites you about this role, and what you would focus on
-                in your first ninety days. We read every application and reply
-                to all of them.
+                what excites you about this role, and what you would focus on in
+                your first ninety days. We read every application and reply to
+                all of them.
               </p>
               <a
                 href="mailto:careers@opasafety.com?subject=Business%20Development%20Lead%20application"
-                className="mt-5 inline-flex rounded-md bg-emergency px-5 py-2.5 text-sm font-semibold text-white transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-protection focus-visible:ring-offset-2 focus-visible:ring-offset-base"
+                className="m-button mt-5"
               >
                 Apply for this role
               </a>
@@ -382,8 +355,8 @@ export default function CareersPage() {
             ))}
           </ol>
           <p className="mt-6 text-sm leading-relaxed text-muted">
-            We aim to respond within one week at every stage, and to tell you
-            if the answer is no.
+            We aim to respond within one week at every stage, and to tell you if
+            the answer is no.
           </p>
         </section>
 
@@ -423,6 +396,6 @@ export default function CareersPage() {
           </p>
         </section>
       </Container>
-    </main>
+    </div>
   );
 }

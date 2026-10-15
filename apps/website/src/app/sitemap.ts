@@ -1,6 +1,6 @@
-import type { MetadataRoute } from 'next';
+import type { MetadataRoute } from "next";
 
-const BASE = 'https://opasafety.com';
+const BASE = "https://opasafety.com";
 
 /**
  * Public marketing routes only.
@@ -9,13 +9,17 @@ const BASE = 'https://opasafety.com';
  * capability token and must never be enumerated. /api is likewise absent.
  */
 const ROUTES = [
-  { path: '', priority: 1.0 },
-  { path: '/about', priority: 0.8 },
-  { path: '/hospitals', priority: 0.8 },
-  { path: '/contact', priority: 0.7 },
-  { path: '/careers', priority: 0.5 },
-  { path: '/privacy', priority: 0.3 },
-  { path: '/terms', priority: 0.3 },
+  { path: "", priority: 1.0 },
+  { path: "/platform", priority: 0.8 },
+  { path: "/command-center", priority: 0.8 },
+  { path: "/shield", priority: 0.8 },
+  { path: "/industries", priority: 0.8 },
+  { path: "/trust", priority: 0.8 },
+  { path: "/about", priority: 0.8 },
+  { path: "/contact", priority: 0.7 },
+  { path: "/careers", priority: 0.5 },
+  { path: "/privacy", priority: 0.3 },
+  { path: "/terms", priority: 0.3 },
 ];
 
 export default function sitemap(): MetadataRoute.Sitemap {
@@ -24,7 +28,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   return ROUTES.map((route) => ({
     url: BASE + route.path,
     lastModified,
-    changeFrequency: 'monthly' as const,
+    changeFrequency: "monthly" as const,
     priority: route.priority,
   }));
 }

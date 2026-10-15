@@ -1,46 +1,36 @@
-import Link from "next/link";
+﻿import Link from "next/link";
+import { MobileNavigation } from "./MobileNavigation";
 import { LogoMark } from "../brand/Logo";
-
+const links = [
+  ["Platform", "/platform"],
+  ["Command Center", "/command-center"],
+  ["OPA Shield", "/shield"],
+  ["Human Risk", "/#human-risk-intelligence"],
+  ["Industries", "/industries"],
+  ["Trust", "/trust"],
+  ["About", "/about"],
+] as const;
 export function Navbar() {
   return (
-    <header className="sticky top-0 z-50 border-b border-line bg-base/90 backdrop-blur-xl">
-      <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
-        <Link
-          href="/"
-          className="flex items-center gap-2.5 rounded-sm font-display text-lg font-extrabold text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-protection"
-        >
-          <LogoMark size={28} />
-          OPA
+    <header className="m-nav">
+      <div className="m-wrap m-nav-row">
+        <Link className="m-brand" href="/" aria-label="OPA home">
+          <span aria-hidden="true">
+            <LogoMark size={34} />
+          </span>
+          <span>OPA</span>
         </Link>
-
-        <nav className="hidden items-center gap-7 text-sm text-muted lg:flex">
-          <Link href="/#protection" className="transition-colors hover:text-protection">
-            Protection Modes
-          </Link>
-          <Link href="/#architecture" className="transition-colors hover:text-protection">
-            Architecture
-          </Link>
-          <Link href="/#command-center" className="transition-colors hover:text-protection">
-            Command Center
-          </Link>
-          <Link href="/#resilience" className="transition-colors hover:text-protection">
-            Connectivity
-          </Link>
-          <Link href="/#trust" className="transition-colors hover:text-protection">
-            Protected Identity
-          </Link>
-          <Link href="/contact" className="transition-colors hover:text-protection">
-            Contact
-          </Link>
+        <nav className="m-desktop-nav" aria-label="Primary">
+          {links.map(([name, href]) => (
+            <Link key={href} href={href}>
+              {name}
+            </Link>
+          ))}
         </nav>
 
-        <Link
-          href="/#pilot"
-          className="rounded-md bg-emergency px-4 py-2 text-sm font-semibold text-white transition hover:brightness-110"
-        >
-          Request pilot
-        </Link>
+        <MobileNavigation links={links} />
       </div>
     </header>
   );
 }
+

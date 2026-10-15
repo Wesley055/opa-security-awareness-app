@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
-  description: "How OPA Technologies Limited collects, uses, and protects your information.",
+  description:
+    "How OPA Technologies Limited collects, uses, and protects your information.",
 };
 
 export default function PrivacyPage() {
@@ -25,9 +26,9 @@ export default function PrivacyPage() {
           </h2>
           <p className="mt-3 text-muted">
             OPA Technologies Limited (&ldquo;OPA,&rdquo; &ldquo;we,&rdquo;
-            &ldquo;us&rdquo;) operates the OPA personal safety and live
-            incident awareness platform. This policy applies to the OPA
-            mobile application, the OPA website, and related services.
+            &ldquo;us&rdquo;) operates the OPA personal safety and live incident
+            awareness platform. This policy applies to the OPA mobile
+            application, the OPA website, and related services.
           </p>
         </section>
 
@@ -40,20 +41,19 @@ export default function PrivacyPage() {
             Account information
           </h3>
           <p className="mt-2 text-muted">
-            When you create an account, we collect your email address,
-            phone number, first and last name, and a securely hashed
-            version of your password. We never store your password in
-            readable form.
+            When you create an account, we collect your email address, phone
+            number, first and last name, and a securely hashed version of your
+            password. We never store your password in readable form.
           </p>
 
           <h3 className="mt-6 font-display text-base font-semibold text-ink">
             Emergency contact information
           </h3>
           <p className="mt-2 text-muted">
-            If you add emergency contacts, we collect their name,
-            relationship to you, phone number, and, if provided, email
-            address. You are responsible for having the appropriate
-            permission to share a contact&apos;s information with us.
+            If you add emergency contacts, we collect their name, relationship
+            to you, phone number, and, if provided, email address. You are
+            responsible for having the appropriate permission to share a
+            contact&apos;s information with us.
           </p>
 
           <h3 className="mt-6 font-display text-base font-semibold text-ink">
@@ -64,10 +64,10 @@ export default function PrivacyPage() {
             journey, OPA may collect GPS location data such as latitude,
             longitude, accuracy, speed, heading, timestamps, and the type of
             location source used. During an active emergency or protected
-            journey, location may continue to be collected while the app is
-            in the background so that authorized recipients and security
-            operators can maintain situational awareness. OPA does not
-            represent stale or unavailable location information as current.
+            journey, location may continue to be collected while the app is in
+            the background so that authorized recipients and security operators
+            can maintain situational awareness. OPA does not represent stale or
+            unavailable location information as current.
           </p>
 
           <h3 className="mt-6 font-display text-base font-semibold text-ink">
@@ -75,31 +75,30 @@ export default function PrivacyPage() {
           </h3>
           <p className="mt-2 text-muted">
             OPA&apos;s platform supports attaching evidence files to an
-            incident. Where evidence is uploaded, it is hashed with
-            SHA-256 at the point of upload and stored in encrypted Azure
-            Blob Storage. Downloads use short-lived, signed links rather
-            than permanent public URLs.
+            incident. Where evidence is uploaded, it is hashed with SHA-256 at
+            the point of upload and stored in encrypted Azure Blob Storage.
+            Downloads use short-lived, signed links rather than permanent public
+            URLs.
           </p>
 
           <h3 className="mt-6 font-display text-base font-semibold text-ink">
-            Hospital and facility staff information
+            Institutional and facility staff information
           </h3>
           <p className="mt-2 text-muted">
-            If you are a hospital staff user, your account is associated
-            with a specific facility, and your access to incident data is
-            limited to incidents routed to that facility.
+            If you are an authorized institutional staff user, your account is
+            associated with a specific facility, and your access to incident
+            data is limited to incidents routed to that facility.
           </p>
 
           <h3 className="mt-6 font-display text-base font-semibold text-ink">
             What we do not currently collect
           </h3>
           <p className="mt-2 text-muted">
-            OPA does not currently collect medical information such as
-            blood type, allergies, or known conditions, and the mobile
-            application does not currently capture audio, video, or photo
-            evidence automatically. If these capabilities are added in
-            the future, this policy will be updated before they are
-            enabled.
+            OPA does not currently collect medical information such as blood
+            type, allergies, or known conditions, and the mobile application
+            does not currently capture audio, video, or photo evidence
+            automatically. If these capabilities are added in the future, this
+            policy will be updated before they are enabled.
           </p>
         </section>
 
@@ -111,15 +110,16 @@ export default function PrivacyPage() {
             <li>To create and secure your account.</li>
             <li>
               To notify your emergency contacts and, where applicable,
-              hospital staff when you activate an emergency.
+              authorized institutional recipients when you activate an
+              emergency.
             </li>
             <li>
-              To build the Survival Timeline, a tamper-evident,
-              hash-chained record of what happened during an incident.
+              To build the Survival Timeline, a tamper-evident, hash-chained
+              record of what happened during an incident.
             </li>
             <li>
-              To route incidents to the appropriate facility, where
-              facility routing applies.
+              To route incidents to the appropriate facility, where facility
+              routing applies.
             </li>
             <li>To respond to support requests you send us.</li>
           </ul>
@@ -130,24 +130,21 @@ export default function PrivacyPage() {
             Third-party service providers
           </h2>
           <p className="mt-3 text-muted">
-            We use the following providers to operate OPA. Each receives
-            only the information necessary to perform its function.
+            We use the following providers to operate OPA. Each receives only
+            the information necessary to perform its function.
           </p>
           <ul className="mt-3 list-disc space-y-2 pl-5 text-muted">
             <li>
-              <strong className="text-ink">Africa&apos;s Talking</strong>
-              {" "}&mdash; SMS and voice call delivery.
+              <strong className="text-ink">Africa&apos;s Talking</strong>{" "}
+              &mdash; SMS delivery.
             </li>
             <li>
-              <strong className="text-ink">Resend</strong> &mdash; email delivery.
+              <strong className="text-ink">Resend</strong> &mdash; email
+              delivery.
             </li>
             <li>
-              <strong className="text-ink">Meta (WhatsApp Business Platform)</strong>
-              {" "}&mdash; WhatsApp message delivery, where enabled.
-            </li>
-            <li>
-              <strong className="text-ink">Microsoft Azure</strong> &mdash; database
-              hosting and evidence file storage.
+              <strong className="text-ink">Microsoft Azure</strong> &mdash;
+              database hosting and evidence file storage.
             </li>
           </ul>
         </section>
@@ -159,20 +156,20 @@ export default function PrivacyPage() {
           <ul className="mt-3 list-disc space-y-2 pl-5 text-muted">
             <li>Passwords are hashed and never stored in readable form.</li>
             <li>
-              Authentication uses short-lived access tokens with a
-              separate refresh mechanism.
+              Authentication uses short-lived access tokens with a separate
+              refresh mechanism.
             </li>
             <li>
-              Access to incident data is verified against your current
-              role and facility assignment on every request, not cached.
+              Access to incident data is verified against your current role and
+              facility assignment on every request, not cached.
             </li>
             <li>
-              Evidence files are integrity-verified with SHA-256 hashing
-              and stored in encrypted cloud storage.
+              Evidence files are integrity-verified with SHA-256 hashing and
+              stored in encrypted cloud storage.
             </li>
             <li>
-              Every incident produces a hash-chained timeline designed to
-              make unauthorized modification detectable.
+              Every incident produces a hash-chained timeline designed to make
+              unauthorized modification detectable.
             </li>
           </ul>
         </section>
@@ -182,12 +179,15 @@ export default function PrivacyPage() {
             Data retention
           </h2>
           <p className="mt-3 text-muted">
-            We are finalizing a formal data retention schedule. Until it
-            is published here, incident, evidence, and account data is
-            retained as needed to operate the service and is not
-            automatically deleted on a fixed timeline. If you would like
-            your data deleted sooner, contact us at{" "}
-            <a href="mailto:privacy@opasafety.com" className="text-signal hover:brightness-110">
+            We are finalizing a formal data retention schedule. Until it is
+            published here, incident, evidence, and account data is retained as
+            needed to operate the service and is not automatically deleted on a
+            fixed timeline. If you would like your data deleted sooner, contact
+            us at{" "}
+            <a
+              href="mailto:privacy@opasafety.com"
+              className="text-signal hover:brightness-110"
+            >
               privacy@opasafety.com
             </a>{" "}
             and we will process the request manually.
@@ -199,16 +199,21 @@ export default function PrivacyPage() {
             Your rights
           </h2>
           <p className="mt-3 text-muted">
-            Depending on where you are located, you may have rights to
-            access, correct, or request deletion of your personal data.
-            OPA is built for Nigeria first and intends to align with the
-            Nigeria Data Protection Act. Account deletion requests can be
-            initiated through our{" "}
-            <a href="/delete-account" className="text-signal hover:brightness-110">
+            Depending on where you are located, you may have rights to access,
+            correct, or request deletion of your personal data. OPA is built for
+            Nigeria first and intends to align with the Nigeria Data Protection
+            Act. Account deletion requests can be initiated through our{" "}
+            <a
+              href="/delete-account"
+              className="text-signal hover:brightness-110"
+            >
               account deletion page
-            </a>
-            {" "}or by contacting{" "}
-            <a href="mailto:privacy@opasafety.com" className="text-signal hover:brightness-110">
+            </a>{" "}
+            or by contacting{" "}
+            <a
+              href="mailto:privacy@opasafety.com"
+              className="text-signal hover:brightness-110"
+            >
               privacy@opasafety.com
             </a>
             .
@@ -220,9 +225,9 @@ export default function PrivacyPage() {
             Children&apos;s privacy
           </h2>
           <p className="mt-3 text-muted">
-            OPA is not directed at children and is not intended for
-            account creation by anyone under the age of 18. A minor may
-            be listed as an emergency contact by an adult user.
+            OPA is not directed at children and is not intended for account
+            creation by anyone under the age of 18. A minor may be listed as an
+            emergency contact by an adult user.
           </p>
         </section>
 
@@ -231,9 +236,8 @@ export default function PrivacyPage() {
             Changes to this policy
           </h2>
           <p className="mt-3 text-muted">
-            We may update this policy as the platform develops. Material
-            changes will be reflected on this page with an updated date
-            at the top.
+            We may update this policy as the platform develops. Material changes
+            will be reflected on this page with an updated date at the top.
           </p>
         </section>
 
@@ -243,9 +247,13 @@ export default function PrivacyPage() {
           </h2>
           <p className="mt-3 text-muted">
             Questions about this policy or your data can be sent to{" "}
-            <a href="mailto:privacy@opasafety.com" className="text-signal hover:brightness-110">
+            <a
+              href="mailto:privacy@opasafety.com"
+              className="text-signal hover:brightness-110"
+            >
               privacy@opasafety.com
-            </a>.
+            </a>
+            .
           </p>
         </section>
       </div>

@@ -1,0 +1,36 @@
+# Dependencies are installed by EAS
+node_modules/
+**/node_modules/
+
+# Generated Expo output
+.expo/
+**/.expo/
+
+# Top-level generated native projects only.
+# Do NOT globally exclude nested android/ios directories because local
+# Expo modules may contain required native implementations.
+apps/mobile-app/android/
+apps/mobile-app/ios/
+
+# Generated output
+**/dist/
+**/build/
+**/coverage/
+
+# OPA generated evidence / diagnostics.
+# Preserve locally; never upload as EAS build context.
+artifacts/
+
+# Local iOS diagnostic exports
+apps/mobile-app/.expo-ios-diagnostic/
+apps/mobile-app/.expo-ios-diagnostic-fixed/
+
+# Local diagnostic evidence
+soak-*.txt
+**/soak-*.txt
+GAP-01A-*-DEVICE-EVIDENCE*.txt
+**/GAP-01A-*-DEVICE-EVIDENCE*.txt
+GAP-01B-*-EVIDENCE*.txt
+**/GAP-01B-*-EVIDENCE*.txt
+*.bak-*
+**/*.bak-*

@@ -384,7 +384,7 @@ export function HumanRiskIntelligence() {
       </div>
 
       <p className="m-note">
-        Human Risk Intelligence builds on OPA's safety, identity and operational
+        Human Risk Intelligence builds on OPA&apos;s safety, identity and operational
         context. Fleet, infrastructure, aviation, spatial and response-network
         intelligence describe platform directions whose availability depends on
         supported integrations and deployment scope. OPA provides context for

@@ -208,6 +208,78 @@ describe("Evidence projections", () => {
     expect(result.causalConclusions).toBeNull();
     expect(latency("2026-01-02", "2026-01-01")).toBeNull();
   });
+  it("measures acknowledgement only from identified Command Center operators", () => {
+    const event = (
+      id: string,
+      sequence: number,
+      minutes: number,
+      source: string,
+      actorUserId: string | null,
+    ) => ({
+      id,
+      sequence,
+      type: "OPERATOR_ACKNOWLEDGED",
+      source,
+      actorUserId,
+      payload: {},
+      occurredAt: new Date(Date.parse("2026-01-01T00:00:00Z") + minutes * 60000),
+      recordedAt: new Date(Date.parse("2026-01-01T00:00:00Z") + minutes * 60000),
+    });
+    const acknowledged = fixture();
+    acknowledged.timelineEvents = [
+      event("anonymous", 1, 1, "COMMAND_CENTER", null),
+      event("mobile", 2, 2, "MOBILE", "user"),
+      event("operator", 3, 3, "COMMAND_CENTER", "operator"),
+      event("later", 4, 9, "COMMAND_CENTER", "operator"),
+    ];
+    const afterResolution = fixture();
+    afterResolution.id = "incident-b";
+    afterResolution.status = "RESOLVED";
+    afterResolution.resolvedAt = new Date("2026-01-01T00:05:00Z");
+    afterResolution.timelineEvents = [
+      event("late", 1, 10, "COMMAND_CENTER", "operator"),
+    ];
+    const result = aggregate(
+      [project(acknowledged), project(afterResolution), project(fixture())],
+      "2026-01-02T00:00:00Z",
+      86400000,
+    );
+    expect(result.acknowledgementLatency).toEqual({
+      meanMs: 180000,
+      known: 1,
+      unknown: 2,
+    });
+    expect(project(acknowledged).acknowledgements.incident.value).toBeNull();
+  });
+  it("keeps every aggregate field the website reporting contract reads", () => {
+    const result = aggregate([project(fixture())], "2026-01-02", 86400000);
+    for (const key of [
+      "incidentCount",
+      "unresolved",
+      "staleUnresolved",
+      "missingEvidence",
+      "missingClosureProvenance",
+    ])
+      expect(typeof result[key as keyof typeof result]).toBe("number");
+    for (const key of ["resolutionLatency", "acknowledgementLatency"] as const)
+      expect(Object.keys(result[key]).sort()).toEqual([
+        "known",
+        "meanMs",
+        "unknown",
+      ]);
+    expect(Object.keys(result.evidenceCompleteness).sort()).toEqual([
+      "possible",
+      "present",
+    ]);
+    for (const key of [
+      "notificationOutcomes",
+      "byTrigger",
+      "byActivationSource",
+      "byActivationMode",
+      "byDayUtc",
+    ] as const)
+      expect(typeof result[key]).toBe("object");
+  });
   it("has deterministic completeness denominators, including an empty cohort", () => {
     expect(aggregate([], "2026-01-01", 86400000).evidenceCompleteness).toEqual({
       present: 0,

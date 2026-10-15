@@ -208,8 +208,22 @@ export function ReportingShell({
               Known: {summary.resolutionKnown} · Unknown:{" "}
               {summary.resolutionUnknown}
             </p>
+          </section>
+          <section className="rounded-xl border border-line bg-panel p-5">
+            <h2 className="text-lg font-bold">Acknowledgement time</h2>
             <p>
-              Acknowledgement latency is not enabled in this reporting contract.
+              {summary.acknowledgementMeanMs === null
+                ? "Unknown"
+                : (summary.acknowledgementMeanMs / 60000).toFixed(1) +
+                  " minutes mean"}
+            </p>
+            <p>
+              Acknowledged: {summary.acknowledgementKnown} · Not acknowledged
+              or unknown: {summary.acknowledgementUnknown}
+            </p>
+            <p>
+              Counts only Command Center acknowledgements by an identified
+              operator.
             </p>
           </section>
           <Breakdown title="Notification outcomes" values={summary.delivery} />

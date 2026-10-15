@@ -360,6 +360,29 @@ export function project(source: Source) {
   };
 }
 export type Projection = ReturnType<typeof project>;
+/**
+ * First Command Center acknowledgement by an identified operator, using the
+ * same definition as the compliance control: COMMAND_CENTER source, a recorded
+ * actor, at or after activation and not after resolution. Aggregate-only; the
+ * per-incident AIR document is unchanged.
+ */
+export function incidentAcknowledgedAt(row: Projection): string | null {
+  const start = Date.parse(row.activation.time.value);
+  const end = row.closure.resolvedAt
+    ? Date.parse(row.closure.resolvedAt)
+    : Number.POSITIVE_INFINITY;
+  const first = row.timeline.find((e) => {
+    const at = Date.parse(e.occurredAt);
+    return (
+      e.type === "OPERATOR_ACKNOWLEDGED" &&
+      e.source === "COMMAND_CENTER" &&
+      e.actor.identity === "[protected]" &&
+      at >= start &&
+      at <= end
+    );
+  });
+  return first?.occurredAt ?? null;
+}
 const counts = (values: string[]) =>
   values.reduce<Record<string, number>>((out, key) => {
     out[key] = (out[key] ?? 0) + 1;
@@ -396,7 +419,11 @@ export function aggregate(
     byActivationMode: counts(rows.map((r) => r.activation.mode.value)),
     byDayUtc: counts(rows.map((r) => r.activation.time.value.slice(0, 10))),
     byFacility: counts(rows.map((r) => r.facilityId)),
-    acknowledgementLatency: mean(rows.map(() => null)),
+    acknowledgementLatency: mean(
+      rows.map((r) =>
+        latency(r.activation.time.value, incidentAcknowledgedAt(r)),
+      ),
+    ),
     resolutionLatency: mean(
       rows
         .filter((r) => r.status.value === "RESOLVED")

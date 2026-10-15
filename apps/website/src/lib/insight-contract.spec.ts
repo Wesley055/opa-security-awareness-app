@@ -33,6 +33,24 @@ describe("reporting contract", () => {
       DELIVERED: 1,
     });
   });
+  it("reads acknowledgement latency when the API reports it", () => {
+    const data = reportFixture();
+    (data.metrics as Record<string, unknown>).acknowledgementLatency = {
+      meanMs: 120000,
+      known: 1,
+      unknown: 1,
+    };
+    const summary = parseInsight(data);
+    expect(summary.acknowledgementMeanMs).toBe(120000);
+    expect(summary.acknowledgementKnown).toBe(1);
+    expect(summary.acknowledgementUnknown).toBe(1);
+  });
+  it("shows acknowledgement as unknown, not zero, for an older API", () => {
+    const summary = parseInsight(reportFixture());
+    expect(summary.acknowledgementMeanMs).toBeNull();
+    expect(summary.acknowledgementKnown).toBe(0);
+    expect(summary.acknowledgementUnknown).toBe(2);
+  });
   it("rejects absent metrics instead of inventing zero", () =>
     expect(() => parseInsight({ schemaVersion: 1 })).toThrow());
   it("rejects arbitrary breakdown labels", () => {

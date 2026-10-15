@@ -742,7 +742,7 @@ export class InsightService {
           sourceAuditCoverage: null,
         },
         uncertainty: [
-          "Acknowledgement latency is not enabled in this reporting contract; no responder-arrival measure.",
+          "Acknowledgement latency counts only Command Center acknowledgements by an identified operator; incidents without one are reported as unknown. No responder-arrival measure.",
           "No regulatory compliance or causal conclusions.",
           "Facility comparison is limited to this one authorized facility.",
           "Evidence coverage does not prove evidence quality.",

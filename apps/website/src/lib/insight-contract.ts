@@ -6,6 +6,9 @@ export type InsightSummary = {
   resolutionMeanMs: number | null;
   resolutionKnown: number;
   resolutionUnknown: number;
+  acknowledgementMeanMs: number | null;
+  acknowledgementKnown: number;
+  acknowledgementUnknown: number;
   evidencePresent: number;
   evidencePossible: number;
   missingEvidence: number;
@@ -41,7 +44,11 @@ export function parseInsight(value: unknown): InsightSummary {
   const data = row(value),
     m = row(data.metrics),
     coverage = row(m.evidenceCompleteness),
-    resolution = row(m.resolutionLatency);
+    resolution = row(m.resolutionLatency),
+    // An API built before acknowledgement reporting omits it: show unknown, never zero.
+    acknowledgement = m.acknowledgementLatency
+      ? row(m.acknowledgementLatency)
+      : { meanMs: null, known: 0, unknown: count(m.incidentCount) };
   if (data.schemaVersion !== 1 || !m.notificationOutcomes)
     throw Error("Unsupported reporting contract");
   return {
@@ -52,6 +59,10 @@ export function parseInsight(value: unknown): InsightSummary {
       resolution.meanMs === null ? null : count(resolution.meanMs),
     resolutionKnown: count(resolution.known),
     resolutionUnknown: count(resolution.unknown),
+    acknowledgementMeanMs:
+      acknowledgement.meanMs === null ? null : count(acknowledgement.meanMs),
+    acknowledgementKnown: count(acknowledgement.known),
+    acknowledgementUnknown: count(acknowledgement.unknown),
     evidencePresent: count(coverage.present),
     evidencePossible: count(coverage.possible),
     missingEvidence: count(m.missingEvidence),

@@ -1,6 +1,6 @@
 // Node TLS verification is mandatory; redirects are not followed.
 const https = require("node:https");
-const { loadEndpoint, readPolicy, classify } = require("./index.cjs");
+const { loadEndpoint, readEndpointPolicy, classify } = require("./index.cjs");
 async function probeEndpoint(origin, environment, build, transport = https) {
   await new Promise((resolve, reject) => {
     const request = transport.get(
@@ -42,11 +42,7 @@ async function probeEndpoint(origin, environment, build, transport = https) {
 async function verifyEndpoint(env) {
   const origin = loadEndpoint(env);
   if (classify(env) === "development") return;
-  const policy = readPolicy(
-    env.OPA_ENDPOINT_POLICY_FILE,
-    classify(env),
-    "endpoint",
-  );
+  const policy = readEndpointPolicy(env, classify(env));
   await probeEndpoint(origin, env.OPA_ENVIRONMENT, policy.build);
 }
 module.exports = { verifyEndpoint, probeEndpoint };

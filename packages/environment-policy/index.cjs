@@ -198,14 +198,24 @@ function endpoint(env, policy) {
     fail();
   return value;
 }
+// Production uses the signed endpoint policy committed with the release. A
+// literal require lets the bundler ship it with every build (Vercel, Azure),
+// so no runtime file path can go missing. An explicit file still overrides.
+function readEndpointPolicy(env, e) {
+  const file = env.OPA_ENDPOINT_POLICY_FILE;
+  if (!file || file === "bundled") {
+    if (e !== "production") fail();
+    return verifyEnvelope(
+      require("./release/production-endpoint.json"),
+      e,
+      "endpoint",
+    );
+  }
+  return readPolicy(file, e, "endpoint");
+}
 function loadEndpoint(env) {
   const e = classify(env);
-  return endpoint(
-    env,
-    e === "development"
-      ? null
-      : readPolicy(env.OPA_ENDPOINT_POLICY_FILE, e, "endpoint"),
-  );
+  return endpoint(env, e === "development" ? null : readEndpointPolicy(env, e));
 }
 function resource(r, env, type) {
   const parts = typeof r?.id === "string" ? r.id.split("/") : [];
@@ -497,6 +507,7 @@ module.exports = {
   httpsOrigin,
   endpoint,
   loadEndpoint,
+  readEndpointPolicy,
   validateApi,
   preflight,
   databaseBinding,

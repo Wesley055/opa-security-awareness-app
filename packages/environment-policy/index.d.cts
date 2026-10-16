@@ -17,6 +17,7 @@ export function preflight(
   purpose?: "api" | "migration",
 ): Diagnostic;
 export function loadEndpoint(env: Variables): string | null;
+export function readEndpointPolicy(env: Variables, environment: string): Record<string, unknown>;
 export function hash(value: string): string;
 export function readPolicy(
   file: string | undefined,

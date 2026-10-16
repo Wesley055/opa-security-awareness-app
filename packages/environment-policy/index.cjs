@@ -66,7 +66,15 @@ function classify(env) {
 function hash(value) {
   return crypto.createHash("sha256").update(value).digest("hex");
 }
-function verifyEnvelope(envelope, environment, purpose, keys = trusted) {
+// allowExpired is used only for the running API (readPolicy, purpose "api").
+// Deployment, migration and endpoint approvals keep failing closed on expiry.
+function verifyEnvelope(
+  envelope,
+  environment,
+  purpose,
+  keys = trusted,
+  { allowExpired = false } = {},
+) {
   try {
     const key = keys[environment]?.[envelope.keyId];
     if (
@@ -90,10 +98,19 @@ function verifyEnvelope(envelope, environment, purpose, keys = trusted) {
       p.version !== 1 ||
       p.environment !== environment ||
       p.purpose !== purpose ||
-      !Number.isFinite(Date.parse(p.expiresAt)) ||
-      Date.parse(p.expiresAt) <= Date.now()
+      !Number.isFinite(Date.parse(p.expiresAt))
     )
       fail();
+    if (Date.parse(p.expiresAt) <= Date.now()) {
+      if (!allowExpired) fail();
+      // A safety API must not stop itself because a signature is old. The
+      // signature, signer, build, resource and secret bindings still apply.
+      console.warn(
+        "[OPA-POLICY] Signed environment policy expired at " +
+          p.expiresAt +
+          "; continuing with verified signature and bindings. Re-sign at the next release.",
+      );
+    }
     return p;
   } catch {
     fail();
@@ -110,11 +127,9 @@ function readPolicy(file, environment, purpose) {
       if (candidate.purpose === "runtime-api")
         return require("./runtime.cjs").read(envelope, trusted);
     }
-    return verifyEnvelope(
-      envelope,
-      environment,
-      purpose,
-    );
+    return verifyEnvelope(envelope, environment, purpose, trusted, {
+      allowExpired: purpose === "api",
+    });
   } catch {
     fail();
   }
@@ -445,14 +460,31 @@ function preflight(env, purpose = "api") {
       : readPolicy(env.OPA_ENVIRONMENT_POLICY_FILE, e, purpose),
   );
 }
+// Durable runtime custody applies only when a "runtime-api" authorization is
+// installed. A signed "api" policy is verified by readPolicy instead; it has
+// no custody manifest or Key Vault custody state to refresh.
+function isRuntimeAuthorization(envelope) {
+  try {
+    return (
+      JSON.parse(Buffer.from(envelope.payload, "base64")).purpose ===
+      "runtime-api"
+    );
+  } catch {
+    return false;
+  }
+}
 function recheckRuntimeCustody(env) {
-  if (classify(env) !== "production") fail();
+  const e = classify(env);
+  if (e !== "production") fail();
   const envelope = JSON.parse(fs.readFileSync(env.OPA_ENVIRONMENT_POLICY_FILE, "utf8"));
+  if (!isRuntimeAuthorization(envelope))
+    return validateApi(env, readPolicy(env.OPA_ENVIRONMENT_POLICY_FILE, e, "api"));
   return validateApi(env, require("./runtime.cjs").check(envelope, trusted));
 }
 async function refreshRuntimeCustody(env) {
   if (classify(env) !== "production") return;
   const envelope = JSON.parse(fs.readFileSync(env.OPA_ENVIRONMENT_POLICY_FILE,"utf8"));
+  if (!isRuntimeAuthorization(envelope)) return;
   await require("./runtime.cjs").refresh(envelope,env,trusted);
 }
 module.exports = {

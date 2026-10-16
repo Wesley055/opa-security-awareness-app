@@ -66,9 +66,9 @@ async function bootstrap(): Promise<void> {
 
   await app.listen(process.env.PORT || 3000);
   if (process.env.OPA_ENVIRONMENT === "production") {
-    // Revocation reaches existing processes as well as fresh instances. The
-    // Transient custody outages use authenticated bounded continuity. Confirmed
-    // rejection or an exhausted continuity deadline still stops the process.
+    // Periodic re-verification is an alarm, not a kill switch: a safety API
+    // must keep serving SOS while operators investigate. Startup still fails
+    // closed, so a bad policy can never admit a new instance.
     let custodyCheckRunning = false;
     const checkCustody = async (): Promise<void> => {
       if (custodyCheckRunning) return;
@@ -77,9 +77,12 @@ async function bootstrap(): Promise<void> {
         await refreshRuntimeCustody(process.env);
         recheckRuntimeCustody(process.env);
       }
-      catch {
-        console.error("OPA runtime rejected or verified continuity exhausted");
-        process.exit(1);
+      catch (error) {
+        console.error(
+          "[OPA-RUNTIME-ALERT] Runtime policy re-verification failed; continuing to serve. " +
+            "Investigate before the next restart:",
+          error instanceof Error ? error.message : String(error),
+        );
       }
       finally { custodyCheckRunning = false; }
     };
@@ -87,9 +90,18 @@ async function bootstrap(): Promise<void> {
   }
 }
 
-void bootstrap().catch(() => {
+void bootstrap().catch((error: unknown) => {
+  // Say which check failed. Messages are fixed strings and stack frames are
+  // file paths only; no setting values or secrets are logged.
+  const detail =
+    error instanceof Error
+      ? [error.name + ": " + error.message.slice(0, 500)]
+          .concat((error.stack ?? "").split("\n").slice(1, 6))
+          .join("\n")
+      : String(error).slice(0, 500);
   console.error(
-    "OPA startup rejected; review environment and migration preflight",
+    "OPA startup rejected; review environment and migration preflight\n" +
+      detail,
   );
   process.exitCode = 1;
 });

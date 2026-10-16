@@ -4,6 +4,8 @@ import {
   IsInt,
   IsOptional,
   IsUUID,
+  IsString,
+  Length,
   Max,
   Min,
   Matches,
@@ -15,6 +17,12 @@ export class ReportScopeDto {
 export class AggregateQueryDto extends ReportScopeDto {
   @IsDateString() from!: string;
   @IsDateString() to!: string;
+}
+/** Head Office window. The organization always comes from the signed-in actor. */
+export class OrganizationQueryDto {
+  @IsDateString() from!: string;
+  @IsDateString() to!: string;
+  @IsOptional() @IsString() @Length(1, 80) region?: string;
 }
 export class GenerateAirDto extends ReportScopeDto {
   @IsUUID() requestKey!: string;

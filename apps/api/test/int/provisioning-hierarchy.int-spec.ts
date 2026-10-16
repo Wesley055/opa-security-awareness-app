@@ -3,7 +3,7 @@ import type { UserRole } from "@prisma/client";
 import { prismaTest as db } from "./prisma-test-client";
 import { CanonicalOrganizationService } from "../../src/modules/onboarding/canonical-organization.service";
 import { AdminProvisioningService } from "../../src/modules/admin-provisioning/admin-provisioning.service";
-const service = new CanonicalOrganizationService(db as never),
+const service = new CanonicalOrganizationService(db as never, {} as never),
   provisioning = new AdminProvisioningService(db as never);
 const context = () => ({
   reason: "Synthetic reviewed association",

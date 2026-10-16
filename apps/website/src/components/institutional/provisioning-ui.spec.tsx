@@ -62,7 +62,8 @@ it("wires Organizations attachment and Facility parent/type through the existing
     );
   });
   render(<Governance initial="Organizations" />);
-  await screen.findByRole("option", { name: "Parent organization" });
+  // Organizations now also offers Head Office appointment with its own selector.
+  await screen.findAllByRole("option", { name: "Parent organization" });
   fireEvent.change(screen.getByLabelText("Open organization"), {
     target: { value: org },
   });

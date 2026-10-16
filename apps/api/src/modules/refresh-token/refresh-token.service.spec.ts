@@ -75,10 +75,44 @@ describe("RefreshTokenService", () => {
         accountStatus: true,
         credentialVersion: true,
         facilityId: true,
+        organizationId: true,
         membershipState: true,
         supportEmployment: { select: { state: true } },
       },
     });
+  });
+
+  it.each([
+    ["without an organization", { organizationId: null, facilityId: null }],
+    ["attached to a facility", { organizationId: "bank", facilityId: "branch" }],
+  ])("refuses Head Office refresh %s", async (_label, scope) => {
+    jwtService.verify.mockReturnValue({
+      sub: "user-1",
+      email: "ada@example.com",
+      role: "ORGANIZATION_ADMIN",
+      credentialVersion: 0,
+      tokenType: "refresh",
+    });
+    prisma.user.findUnique.mockResolvedValue({
+      ...activeRow,
+      role: "ORGANIZATION_ADMIN",
+      membershipState: "ACTIVE",
+      ...scope,
+    });
+    await expect(service.rotate("a-refresh-token")).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+  });
+
+  it("allows Head Office refresh within one organization", async () => {
+    prisma.user.findUnique.mockResolvedValue({
+      ...activeRow,
+      role: "ORGANIZATION_ADMIN",
+      membershipState: "ACTIVE",
+      organizationId: "bank",
+      facilityId: null,
+    });
+    await expect(service.rotate("a-refresh-token")).resolves.toBeDefined();
   });
 
   // THE ONE THAT DEFINES THE FIX. Before this, suspension stopped login()

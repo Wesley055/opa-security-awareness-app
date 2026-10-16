@@ -21,6 +21,7 @@ const config = new ConfigService({
 });
 const canonical = new CanonicalOrganizationService(
   db as unknown as PrismaService,
+  {} as never,
 );
 const institutional = new InstitutionalService(
   db as unknown as PrismaService,

@@ -123,6 +123,7 @@ describe("first Facility Administrator commissioning / PostgreSQL", () => {
     enrollment = module.get(EnrollmentService);
     canonical = new CanonicalOrganizationService(
       db as unknown as PrismaService,
+      enrollment,
     );
   });
   afterAll(async () => {

@@ -2,6 +2,7 @@ import { enrollmentDestination } from "../../shared/security/enrollment-navigati
 import {
   enrollmentAuthority,
   enrollmentSupportCase,
+  facilityless,
   type InstitutionalRole,
 } from "../onboarding/support-authority";
 import {
@@ -63,6 +64,7 @@ export class EnrollmentService {
       correlationId: string;
     },
     firstFacilityAdmin = false,
+    organizationId?: string,
   ) {
     if (["production", "staging"].includes(this.config.get<string>("OPA_ENVIRONMENT") ?? ""))
       enrollmentDestination(this.config.get<string>("OPA_WEB_URL"), "configuration-check");
@@ -70,9 +72,16 @@ export class EnrollmentService {
       throw new BadRequestException("Reason required.");
     if (
       requestedRole !== "USER" &&
-      (!actorId || (requestedRole !== "TECHNICAL_SUPPORT" && !facilityId))
+      (!actorId || (!facilityless(requestedRole) && !facilityId))
     )
       throw new ForbiddenException("Platform authority required.");
+    if (
+      (requestedRole === "ORGANIZATION_ADMIN") !== Boolean(organizationId) ||
+      (requestedRole === "ORGANIZATION_ADMIN" && facilityId)
+    )
+      throw new BadRequestException(
+        "Organization administrators need exactly one organization and no facility.",
+      );
     const identity = {
       email: input.email.trim().toLowerCase(),
       phoneNumber: toE164(input.phoneNumber),
@@ -91,11 +100,13 @@ export class EnrollmentService {
         requestedRole,
         idempotencyKey,
         ...(auditContext ? [auditContext] : []),
+        // Appended only when present so existing invitation digests are unchanged.
+        ...(organizationId ? [{ organizationId }] : []),
       ]),
     );
     return this.prisma.$transaction(async (tx) => {
       const authority =
-        facilityId || requestedRole === "TECHNICAL_SUPPORT"
+        facilityId || facilityless(requestedRole)
           ? await this.authorizeInviter(
               tx,
               facilityId ?? null,
@@ -155,6 +166,11 @@ export class EnrollmentService {
           };
         }
       }
+      if (organizationId) {
+        await tx.$queryRaw`SELECT id FROM "Organization" WHERE id=${organizationId}::uuid FOR SHARE`;
+        if (!(await tx.organization.findUnique({ where: { id: organizationId } })))
+          throw new ForbiddenException("Organization not found.");
+      }
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${digest}))`;
       const existing = await tx.enrollmentRequest.findUnique({
         where: { idempotencyDigest: digest },
@@ -171,6 +187,7 @@ export class EnrollmentService {
           identityCiphertext: protectIdentity(this.config, identity),
           idempotencyDigest: digest,
           facilityId,
+          organizationId: organizationId ?? null,
           invitedByUserId: actorId,
           expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         },
@@ -203,7 +220,11 @@ export class EnrollmentService {
               : {}),
             resourceId: request.id,
             facilityId,
-            afterState: { requestedRole, ...(authority ?? {}) },
+            afterState: {
+              requestedRole,
+              ...(organizationId ? { organizationId } : {}),
+              ...(authority ?? {}),
+            },
           },
         });
       return { requestId: request.id, status: "VERIFICATION_PENDING" as const };
@@ -418,7 +439,7 @@ export class EnrollmentService {
             status: "AUTHENTICATION_REQUIRED" as const,
             acceptanceToken,
           };
-        if (request.facilityId || request.requestedRole === "TECHNICAL_SUPPORT")
+        if (request.facilityId || facilityless(request.requestedRole))
           await this.authorizeInviter(
             tx,
             request.facilityId,
@@ -435,6 +456,7 @@ export class EnrollmentService {
             ...identity,
             passwordHash,
             facilityId: request.facilityId,
+            organizationId: request.organizationId,
             invitedByUserId: request.invitedByUserId,
             role: request.requestedRole ?? "USER",
             accountStatus: "ACTIVE",
@@ -508,12 +530,13 @@ export class EnrollmentService {
         if (
           request.acceptedUserId !== actorId ||
           user.role !== request.requestedRole ||
-          user.facilityId !== request.facilityId
+          user.facilityId !== request.facilityId ||
+          user.organizationId !== request.organizationId
         )
           throw new UnauthorizedException(FAILURE);
         return { status: "ACCEPTED" as const, role: user.role };
       }
-      if (request.facilityId || request.requestedRole === "TECHNICAL_SUPPORT")
+      if (request.facilityId || facilityless(request.requestedRole))
         await this.authorizeInviter(
           tx,
           request.facilityId,
@@ -572,7 +595,7 @@ export class EnrollmentService {
           role: request.requestedRole ?? "USER",
         };
       }
-      if (request.facilityId || request.requestedRole === "TECHNICAL_SUPPORT") {
+      if (request.facilityId || facilityless(request.requestedRole)) {
         const authority = await this.authorizeInviter(
           tx,
           request.facilityId,
@@ -589,13 +612,19 @@ export class EnrollmentService {
           );
         if (
           user.membershipState !== "ACTIVE" ||
-          (user.facilityId !== null && user.facilityId !== request.facilityId)
+          (user.facilityId !== null && user.facilityId !== request.facilityId) ||
+          // Head Office: a personal account or the same organization only.
+          (request.requestedRole === "ORGANIZATION_ADMIN" &&
+            (user.facilityId !== null ||
+              (user.organizationId !== null &&
+                user.organizationId !== request.organizationId)))
         )
           throw new BadRequestException(FAILURE);
         await tx.user.update({
           where: { id: user.id, facilityId: user.facilityId },
           data: {
             facilityId: request.facilityId,
+            organizationId: request.organizationId,
             role: request.requestedRole ?? "USER",
             ...(user.role !== (request.requestedRole ?? "USER")
               ? { credentialVersion: { increment: 1 } }

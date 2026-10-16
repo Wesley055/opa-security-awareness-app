@@ -114,6 +114,7 @@ export class RefreshTokenService {
         accountStatus: true,
         credentialVersion: true,
         facilityId: true,
+        organizationId: true,
         membershipState: true,
         supportEmployment: { select: { state: true } },
       },
@@ -125,6 +126,7 @@ export class RefreshTokenService {
       user.accountStatus !== AccountStatus.ACTIVE ||
       user.credentialVersion !== (payload.credentialVersion ?? 0) ||
       (user.role === 'TECHNICAL_SUPPORT' && (user.facilityId !== null || user.supportEmployment?.state !== 'ACTIVE')) ||
+      (user.role === 'ORGANIZATION_ADMIN' && (user.facilityId !== null || user.organizationId === null)) ||
       (['FACILITY_ADMIN', 'FACILITY_OPERATOR'].includes(user.role) && user.membershipState !== 'ACTIVE')
     ) {
       throw new UnauthorizedException(

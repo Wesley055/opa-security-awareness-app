@@ -19,9 +19,14 @@ export function LoginForm() {
     setPending(true);
 
     try {
-      await authRequest("/api/operator/login", { email, password });
+      const result = await authRequest("/api/operator/login", {
+        email,
+        password,
+      });
       setPassword("");
-      router.replace("/operator");
+      router.replace(
+        result?.destination === "/organization" ? "/organization" : "/operator",
+      );
       router.refresh();
     } catch (error) {
       setError(

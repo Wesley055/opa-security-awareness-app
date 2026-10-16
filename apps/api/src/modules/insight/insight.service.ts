@@ -12,6 +12,7 @@ import { ACTION_CATALOG } from "./insight.dto";
 import type {
   AggregateQueryDto,
   CreateActionDto,
+  OrganizationQueryDto,
   UpdateActionDto,
 } from "./insight.dto";
 import {
@@ -639,23 +640,17 @@ export class InsightService {
       };
     });
   }
-  overview(actorId: string, query: AggregateQueryDto) {
-    const from = new Date(query.from),
-      to = new Date(query.to);
-    if (
-      !Number.isFinite(+from) ||
-      !Number.isFinite(+to) ||
-      from >= to ||
-      +to - +from > 366 * 86400000
-    )
-      throw new BadRequestException(
-        "Use a valid half-open time window no longer than 366 days.",
-      );
-    return this.atomic(async (tx) => {
-      const scope = await this.scope(tx, actorId, query.facilityId);
+  /** One facility's aggregate, shared by facility Insight and Head Office. */
+  private async facilityAggregate(
+    tx: Tx,
+    facilityId: string,
+    from: Date,
+    to: Date,
+    at: Date,
+  ) {
       const cohort = await tx.incident.findMany({
         where: {
-          facilityId: scope.facilityId,
+          facilityId: facilityId,
           createdAt: { gte: from, lt: to },
         },
         select: { id: true },
@@ -668,18 +663,17 @@ export class InsightService {
         );
       await this.sourceBudget(
         tx,
-        scope,
+        { facilityId } as Scope,
         cohort.map((row) => row.id),
       );
       const rows = await tx.incident.findMany({
         where: {
-          facilityId: scope.facilityId,
+          facilityId: facilityId,
           id: { in: cohort.map((row) => row.id) },
         },
         select: SOURCE_SELECT,
         orderBy: { id: "asc" },
       });
-      const at = new Date();
       const metrics = aggregate(
         rows.filter(institutional).map(project),
         at.toISOString(),
@@ -687,7 +681,7 @@ export class InsightService {
       );
       const actions = await tx.correctiveAction.findMany({
         where: {
-          facilityId: scope.facilityId,
+          facilityId: facilityId,
           incidentId: { in: rows.filter(institutional).map((r) => r.id) },
         },
         take: 10001,
@@ -702,6 +696,30 @@ export class InsightService {
         verified: actions.filter((a) => a.status === "VERIFIED").length,
         overdue: actions.filter((a) => overdue(a.status, a.dueAt, at)).length,
       };
+    return { metrics, actionMetrics };
+  }
+  overview(actorId: string, query: AggregateQueryDto) {
+    const from = new Date(query.from),
+      to = new Date(query.to);
+    if (
+      !Number.isFinite(+from) ||
+      !Number.isFinite(+to) ||
+      from >= to ||
+      +to - +from > 366 * 86400000
+    )
+      throw new BadRequestException(
+        "Use a valid half-open time window no longer than 366 days.",
+      );
+    return this.atomic(async (tx) => {
+      const scope = await this.scope(tx, actorId, query.facilityId);
+      const at = new Date();
+      const { metrics, actionMetrics } = await this.facilityAggregate(
+        tx,
+        scope.facilityId,
+        from,
+        to,
+        at,
+      );
       await this.audit(tx, scope, "INSIGHT_READ", scope.facilityId, {
         from: from.toISOString(),
         to: to.toISOString(),
@@ -746,6 +764,195 @@ export class InsightService {
           "No regulatory compliance or causal conclusions.",
           "Facility comparison is limited to this one authorized facility.",
           "Evidence coverage does not prove evidence quality.",
+        ],
+      };
+    });
+  }
+  /**
+   * Head Office: aggregate figures for every active branch of the actor's own
+   * organization. The organization is never taken from the request. No
+   * incident identities, residents, evidence or locations are returned.
+   */
+  organizationOverview(actorId: string, query: OrganizationQueryDto) {
+    const from = new Date(query.from),
+      to = new Date(query.to);
+    if (
+      !Number.isFinite(+from) ||
+      !Number.isFinite(+to) ||
+      from >= to ||
+      +to - +from > 366 * 86400000
+    )
+      throw new BadRequestException(
+        "Use a valid half-open time window no longer than 366 days.",
+      );
+    const region = query.region?.trim() || null;
+    return this.atomic(async (tx) => {
+      await tx.$queryRawUnsafe(
+        'SELECT id FROM "User" WHERE id=$1::uuid FOR SHARE',
+        actorId,
+      );
+      const actor = await tx.user.findUnique({
+        where: { id: actorId },
+        select: {
+          role: true,
+          isActive: true,
+          accountStatus: true,
+          membershipState: true,
+          facilityId: true,
+          organizationId: true,
+          organization: { select: { id: true, name: true } },
+        },
+      });
+      if (
+        !actor?.isActive ||
+        actor.accountStatus !== "ACTIVE" ||
+        actor.membershipState !== "ACTIVE" ||
+        actor.role !== "ORGANIZATION_ADMIN" ||
+        actor.facilityId !== null ||
+        !actor.organizationId ||
+        !actor.organization
+      )
+        throw new ForbiddenException("Head Office reporting access denied.");
+      const organizationId = actor.organizationId;
+      const active = {
+        organizationId,
+        isActive: true,
+        operationalState: {
+          notIn: ["SUSPENDED", "DECOMMISSIONED"] as Array<
+            "SUSPENDED" | "DECOMMISSIONED"
+          >,
+        },
+      };
+      const regionRows = await tx.facility.findMany({
+        where: active,
+        select: { region: true },
+        distinct: ["region"],
+        take: 100,
+      });
+      const facilities = await tx.facility.findMany({
+        where: { ...active, ...(region ? { region } : {}) },
+        select: { id: true, name: true, region: true },
+        orderBy: [{ region: "asc" }, { name: "asc" }],
+        take: 201,
+      });
+      if (facilities.length > 200)
+        throw new BadRequestException(
+          "Filter by region; no partial Head Office report returned.",
+        );
+      const at = new Date();
+      type Latency = { meanMs: number | null; known: number; unknown: number };
+      const branches: Array<{
+        facilityId: string;
+        name: string;
+        region: string | null;
+        openNow: number;
+        incidentCount: number;
+        unresolved: number;
+        staleUnresolved: number;
+        acknowledgementLatency: Latency;
+        resolutionLatency: Latency;
+        notificationOutcomes: Record<string, number>;
+        correctiveActions: { open: number; overdue: number };
+      }> = [];
+      for (const facility of facilities) {
+        const { metrics, actionMetrics } = await this.facilityAggregate(
+          tx,
+          facility.id,
+          from,
+          to,
+          at,
+        );
+        const openNow = await tx.incident.count({
+          where: {
+            facilityId: facility.id,
+            status: { in: ["OPEN", "ACKNOWLEDGED"] },
+          },
+        });
+        branches.push({
+          facilityId: facility.id,
+          name: facility.name,
+          region: facility.region,
+          openNow,
+          incidentCount: metrics.incidentCount,
+          unresolved: metrics.unresolved,
+          staleUnresolved: metrics.staleUnresolved,
+          acknowledgementLatency: metrics.acknowledgementLatency,
+          resolutionLatency: metrics.resolutionLatency,
+          notificationOutcomes: metrics.notificationOutcomes,
+          correctiveActions: {
+            open: actionMetrics.open,
+            overdue: actionMetrics.overdue,
+          },
+        });
+      }
+      const sum = (pick: (b: (typeof branches)[number]) => number) =>
+        branches.reduce((total, b) => total + pick(b), 0);
+      const weighted = (
+        pick: (b: (typeof branches)[number]) => {
+          meanMs: number | null;
+          known: number;
+          unknown: number;
+        },
+      ) => {
+        const known = sum((b) => pick(b).known);
+        return {
+          meanMs: known
+            ? sum((b) => (pick(b).meanMs ?? 0) * pick(b).known) / known
+            : null,
+          known,
+          unknown: sum((b) => pick(b).unknown),
+        };
+      };
+      const delivery: Record<string, number> = {};
+      for (const b of branches)
+        for (const [k, v] of Object.entries(b.notificationOutcomes))
+          delivery[k] = (delivery[k] ?? 0) + v;
+      await tx.administrativeAuditEvent.create({
+        data: {
+          actorUserId: actorId,
+          actorRole: "ORGANIZATION_ADMIN",
+          facilityId: null,
+          action: "EVIDENCE_ORGANIZATION_INSIGHT_READ",
+          resourceId: organizationId,
+          afterState: json({
+            from: from.toISOString(),
+            to: to.toISOString(),
+            region,
+            facilities: facilities.map((f) => f.id),
+          }),
+        },
+      });
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        organization: actor.organization,
+        from: from.toISOString(),
+        to: to.toISOString(),
+        region,
+        observedAt: at.toISOString(),
+        source: "AUTHORITATIVE_TRANSACTION_SNAPSHOT",
+        regions: regionRows
+          .map((r) => r.region)
+          .filter((r): r is string => !!r)
+          .sort(),
+        totals: {
+          branches: branches.length,
+          openNow: sum((b) => b.openNow),
+          incidentCount: sum((b) => b.incidentCount),
+          unresolved: sum((b) => b.unresolved),
+          staleUnresolved: sum((b) => b.staleUnresolved),
+          acknowledgementLatency: weighted((b) => b.acknowledgementLatency),
+          resolutionLatency: weighted((b) => b.resolutionLatency),
+          notificationOutcomes: delivery,
+          correctiveActions: {
+            open: sum((b) => b.correctiveActions.open),
+            overdue: sum((b) => b.correctiveActions.overdue),
+          },
+        },
+        branches,
+        uncertainty: [
+          "Aggregates only: no incident, resident, evidence or location details.",
+          "Acknowledgement counts only Command Center acknowledgements by an identified operator.",
+          "Provider acceptance is not confirmed delivery.",
         ],
       };
     });

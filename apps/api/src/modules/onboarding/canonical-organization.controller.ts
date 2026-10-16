@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   Param,
   ParseUUIDPipe,
   Post,
@@ -11,6 +12,7 @@ import {
 } from "@nestjs/common";
 import {
   IsBoolean,
+  IsEmail,
   IsInt,
   Min,
   Max,
@@ -41,6 +43,15 @@ class OrganizationDto extends ContextDto {
 }
 class AssociationDto extends ContextDto {
   @IsUUID() organizationId!: string;
+}
+class RegionDto extends ContextDto {
+  @IsOptional() @IsString() @Length(0, 80) region?: string;
+}
+class AdministratorInviteDto extends ContextDto {
+  @IsEmail() email!: string;
+  @IsString() @Length(8, 25) phoneNumber!: string;
+  @IsString() @Length(1, 100) firstName!: string;
+  @IsString() @Length(1, 100) lastName!: string;
 }
 class AssignmentDto extends ContextDto {
   @IsOptional() @IsUUID() supportId?: string;
@@ -100,6 +111,28 @@ export class OrganizationGovernanceController {
     @Body() dto: AssociationDto,
   ) {
     return this.service.associate(req.user.sub, id, dto.organizationId, dto);
+  }
+  @Post("facilities/:id/region") region(
+    @Req() req: Request,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: RegionDto,
+  ) {
+    return this.service.setRegion(req.user.sub, id, dto.region ?? null, dto);
+  }
+  @Post(":id/administrators") administrator(
+    @Req() req: Request,
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: AdministratorInviteDto,
+    @Headers("idempotency-key") key: string,
+  ) {
+    const { email, phoneNumber, firstName, lastName, ...context } = dto;
+    return this.service.inviteAdministrator(
+      req.user.sub,
+      id,
+      { email, phoneNumber, firstName, lastName },
+      key,
+      context,
+    );
   }
   @Post("facilities/:id/assignment") assign(
     @Req() req: Request,

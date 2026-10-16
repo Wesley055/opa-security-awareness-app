@@ -76,6 +76,7 @@ const fields = new Set([
   "operationalState",
   "organizationId",
   "organization",
+  "region",
   "supportAssignments",
   "assignedByUserId",
   "assignedToUserId",

@@ -9,6 +9,17 @@ export type GovernanceFacility = {
   operationalState: string;
   type?: string;
   organization?: { id: string; name: string } | null;
+  region?: string | null;
+};
+export type GovernanceOrganization = {
+  id: string;
+  name: string;
+  administrators?: Array<{
+    id: string;
+    displayIdentity: string;
+    accountStatus: string;
+    isActive: boolean;
+  }>;
 };
 export function FacilityHierarchyDetail({
   facility,
@@ -31,6 +42,7 @@ export function FacilityHierarchyDetail({
           : "Unassociated"}
       </p>
       <p>Lifecycle: {facility.operationalState}</p>
+      <p>Head Office region: {facility.region ?? "Not set"}</p>
       <details>
         <summary>Record details</summary>
         <p>Facility reference: {facility.id}</p>
@@ -46,7 +58,7 @@ export function OrganizationHierarchy({
   blocked,
   onSuccess,
 }: {
-  organizations: Array<{ id: string; name: string }>;
+  organizations: GovernanceOrganization[];
   facilities: GovernanceFacility[];
   store: OperationStore;
   blocked: string;
@@ -152,6 +164,89 @@ export function OrganizationHierarchy({
           <li key={f.id}>{f.name} — Unassociated</li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+/** Appoint Head Office administrators. Separate from facility attachment. */
+export function HeadOfficeAdministrators({
+  organizations,
+  store,
+  blocked,
+  onSuccess,
+}: {
+  organizations: GovernanceOrganization[];
+  store: OperationStore;
+  blocked: string;
+  onSuccess: () => void;
+}) {
+  const [organizationId, setOrganizationId] = useState("");
+  const organization = organizations.find((o) => o.id === organizationId);
+  return (
+    <section aria-label="Head Office administrators">
+      <h2>Head Office administrators</h2>
+      <label>
+        Organization
+        <select
+          value={organization?.id ?? ""}
+          onChange={(e) => setOrganizationId(e.target.value)}
+        >
+          <option value="">Select an organization</option>
+          {organizations.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      {organization && (
+        <>
+          {organization.administrators?.length ? (
+            <ul>
+              {organization.administrators.map((a) => (
+                <li key={a.id}>
+                  {a.displayIdentity} ·{" "}
+                  {a.isActive ? a.accountStatus : "SUSPENDED"}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No Head Office administrator appointed.</p>
+          )}
+          <ActionForm
+            key={organization.id + ":administrator"}
+            title="Invite Head Office administrator"
+            owner={organization.id + ":administrator"}
+            path={"organization/" + organization.id + "/administrators"}
+            store={store}
+            prerequisite={blocked}
+            confirmation
+            onSuccess={onSuccess}
+          >
+            <p>
+              The administrator sees aggregate reporting for every branch of{" "}
+              {organization.name} and nothing outside it. OPA staff do not gain
+              access to this dashboard.
+            </p>
+            <label>
+              First name
+              <input name="firstName" required maxLength={100} />
+            </label>
+            <label>
+              Last name
+              <input name="lastName" required maxLength={100} />
+            </label>
+            <label>
+              Email
+              <input name="email" type="email" required />
+            </label>
+            <label>
+              Phone in international format
+              <input name="phoneNumber" type="tel" required />
+            </label>
+          </ActionForm>
+        </>
+      )}
     </section>
   );
 }

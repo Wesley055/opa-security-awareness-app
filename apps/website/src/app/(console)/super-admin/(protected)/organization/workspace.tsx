@@ -1,5 +1,5 @@
 "use client";
-import { OrganizationHierarchy, FacilityHierarchyDetail, type GovernanceFacility } from "@/components/institutional/organization-hierarchy";
+import { OrganizationHierarchy, FacilityHierarchyDetail, HeadOfficeAdministrators, type GovernanceFacility, type GovernanceOrganization } from "@/components/institutional/organization-hierarchy";
 import { AccountRecovery } from "@/components/institutional/account-recovery";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { superAdminFetch } from "@/lib/super-admin-fetch";
@@ -28,7 +28,7 @@ type Employee = {
 };
 type Overview = {
   actor: { id: string; role: string };
-  organizations: Array<{ id: string; name: string }>;
+  organizations: GovernanceOrganization[];
   facilities: Facility[];
   assignments: Array<{ id: string; actorUserId: string; facilityId: string }>;
   elevations: Array<{
@@ -347,6 +347,18 @@ export default function GovernanceWorkspace({
               </label>
             </ActionForm>
             <OrganizationHierarchy key={actor} organizations={overview.organizations} facilities={overview.facilities} store={store} blocked={blocked} onSuccess={refreshAfterMutation} />
+            <HeadOfficeAdministrators
+              key={actor + ":head-office"}
+              organizations={overview.organizations}
+              store={store}
+              blocked={
+                blocked ||
+                (deliveryBlocked
+                  ? "SMS and email must be configured before sending an invitation."
+                  : "")
+              }
+              onSuccess={refreshAfterMutation}
+            />
           </section>
           <div className="ic-grid">
             <label>
@@ -413,6 +425,29 @@ export default function GovernanceWorkspace({
                   </label>
                 </ActionForm>
                 <FacilityHierarchyDetail facility={facility} />
+                <ActionForm
+                  key={facility.id + ":region"}
+                  title="Set Head Office region"
+                  owner={facility.id + ":region"}
+                  path={"organization/facilities/" + facility.id + "/region"}
+                  store={store}
+                  prerequisite={blocked}
+                  onSuccess={refreshAfterMutation}
+                >
+                  <p>
+                    Current region: {facility.region ?? "Not set"}. Head Office
+                    groups and filters branches by region, for example a state.
+                  </p>
+                  <label>
+                    Region
+                    <input
+                      name="region"
+                      maxLength={80}
+                      defaultValue={facility.region ?? ""}
+                      placeholder="Lagos"
+                    />
+                  </label>
+                </ActionForm>
                 {!facility.organizationId && <p>Unassociated facility. <button type="button" onClick={() => setSection("Organizations")}>Open Organizations to attach this facility</button></p>}
                 <ActionForm
                   title="Assign OPA Support owner"

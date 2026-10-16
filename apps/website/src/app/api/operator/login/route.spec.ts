@@ -63,7 +63,10 @@ describe("POST /api/operator/login", () => {
       const response = await POST(loginRequest());
 
       expect(response.status).toBe(200);
-      await expect(response.json()).resolves.toEqual({ ok: true });
+      await expect(response.json()).resolves.toEqual({
+        ok: true,
+        destination: "/operator",
+      });
 
       expect(session.setOperatorSession).toHaveBeenCalledWith({
         accessToken: "access-token",
@@ -72,7 +75,18 @@ describe("POST /api/operator/login", () => {
     },
   );
 
-  it.each(["USER", "ADMIN"])(
+  it("sends a Head Office administrator to the Head Office view", async () => {
+    mockApiLogin("ORGANIZATION_ADMIN");
+    const response = await POST(loginRequest());
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      ok: true,
+      destination: "/organization",
+    });
+    expect(session.setOperatorSession).toHaveBeenCalled();
+  });
+
+  it.each(["USER", "ADMIN", "TECHNICAL_SUPPORT"])(
     "rejects %s from the facility Viewer",
     async (role) => {
       mockApiLogin(role);

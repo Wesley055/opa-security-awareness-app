@@ -37,7 +37,11 @@ export async function prepareIdentityDelivery(
     )
       return null;
     let organization = "OPA personal account";
-    if (request.facilityId || request.requestedRole === "TECHNICAL_SUPPORT") {
+    if (
+      request.facilityId ||
+      request.requestedRole === "TECHNICAL_SUPPORT" ||
+      request.requestedRole === "ORGANIZATION_ADMIN"
+    ) {
       try {
         await enrollmentAuthority(
           tx,
@@ -56,6 +60,13 @@ export async function prepareIdentityDelivery(
             where: { id: request.facilityId },
           })
         ).name;
+      else if (request.organizationId)
+        organization =
+          (
+            await tx.organization.findUniqueOrThrow({
+              where: { id: request.organizationId },
+            })
+          ).name + " Head Office";
       else organization = "OPA support employment";
     }
     const identity = await resolveEnrollmentIdentity<EnrollmentIdentity>(

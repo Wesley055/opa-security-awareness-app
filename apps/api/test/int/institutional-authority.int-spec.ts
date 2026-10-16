@@ -108,7 +108,7 @@ describe("institutional authority / PostgreSQL", () => {
   ] as const;
   let priorDelivery: Record<string, string | undefined>;
   const elevate = (capability: SupportCapability) =>
-    new CanonicalOrganizationService(db as unknown as PrismaService).elevate(
+    new CanonicalOrganizationService(db as unknown as PrismaService, {} as never).elevate(
       admin,
       support,
       a,

@@ -98,8 +98,13 @@ export async function POST(request: Request) {
     // FACILITY_ADMIN uses facility resident administration.
     // USER belongs in the mobile app.
     // ADMIN belongs in OPA platform administration, not facility operations.
+    // ORGANIZATION_ADMIN uses the Head Office view.
     const role = result.user?.role;
-    if (role !== "FACILITY_OPERATOR" && role !== "FACILITY_ADMIN") {
+    if (
+      role !== "FACILITY_OPERATOR" &&
+      role !== "FACILITY_ADMIN" &&
+      role !== "ORGANIZATION_ADMIN"
+    ) {
       return NextResponse.json(
         { ok: false, error: "This account cannot use the facility Viewer." },
         { status: 403 },
@@ -114,7 +119,11 @@ export async function POST(request: Request) {
 
     // No tokens in the body. The cookies are the session.
     return NextResponse.json(
-      { ok: true },
+      {
+        ok: true,
+        destination:
+          role === "ORGANIZATION_ADMIN" ? "/organization" : "/operator",
+      },
       {
         headers: {
           "Cache-Control": "no-store, private",

@@ -22,6 +22,9 @@ export default async function OperatorShellLayout({
   if (result.state === "REJECTED") {
     redirect("/api/operator/refresh");
   }
+  if (result.state === "NO_FACILITY" && result.role === "ORGANIZATION_ADMIN") {
+    redirect("/organization");
+  }
 
   const context = result.state === "READY" ? result.context : null;
   const viewerName = context

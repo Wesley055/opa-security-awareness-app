@@ -135,7 +135,14 @@ export async function institutionalAuthority(
 }
 
 export type InstitutionalRole =
-  "USER" | "FACILITY_ADMIN" | "FACILITY_OPERATOR" | "TECHNICAL_SUPPORT";
+  | "USER"
+  | "FACILITY_ADMIN"
+  | "FACILITY_OPERATOR"
+  | "TECHNICAL_SUPPORT"
+  | "ORGANIZATION_ADMIN";
+/** Platform-invited roles that never belong to a facility. */
+export const facilityless = (role: string | null | undefined) =>
+  role === "TECHNICAL_SUPPORT" || role === "ORGANIZATION_ADMIN";
 export async function enrollmentAuthority(
   tx: Prisma.TransactionClient,
   actorId: string | undefined,
@@ -144,6 +151,22 @@ export async function enrollmentAuthority(
   caseReference?: string,
 ): Promise<Authority> {
   if (!actorId) throw new ForbiddenException("Enrollment authority required.");
+  if (role === "ORGANIZATION_ADMIN") {
+    // Head Office administrators are appointed only by the OPA platform owner.
+    if (facilityId)
+      throw new ForbiddenException(
+        "Organization administrators cannot be facility members.",
+      );
+    const authority = await supportAuthority(
+      tx,
+      actorId,
+      "FACILITY_READ",
+      null,
+    );
+    if (authority.actorRole !== "ADMIN")
+      throw new ForbiddenException("Platform authority required.");
+    return authority;
+  }
   if (role === "TECHNICAL_SUPPORT") {
     if (facilityId)
       throw new ForbiddenException(

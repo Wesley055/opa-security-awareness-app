@@ -22,7 +22,9 @@ export function governancePath(path: string, method: string) {
     new RegExp(
       "^(facilities/" +
         uuid +
-        "/(organization|assignment)|employees/" +
+        "/(organization|assignment|region)|" +
+        uuid +
+        "/administrators|employees/" +
         uuid +
         "/profile|elevations|elevations/" +
         uuid +

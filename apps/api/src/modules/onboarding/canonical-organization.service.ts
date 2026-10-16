@@ -13,6 +13,8 @@ import {
   type SupportCaseStatus,
 } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.service";
+import { EnrollmentService } from "../auth/enrollment.service";
+import { requireEnrollmentDeliveryConfiguration } from "../notifications/provider-readiness";
 import { platformAuthority } from "./onboarding-authority";
 import {
   institutionalAuthority,
@@ -33,7 +35,10 @@ const PLATFORM: Authority = {
 };
 @Injectable()
 export class CanonicalOrganizationService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly enrollment: EnrollmentService,
+  ) {}
   private async operation(
     tx: Prisma.TransactionClient,
     actorId: string,
@@ -211,12 +216,29 @@ export class CanonicalOrganizationService {
         employmentCount,
         openIncidents,
       ] = await Promise.all([
-        tx.organization.findMany({ orderBy: { name: "asc" }, take: 100 }),
+        tx.organization.findMany({
+          orderBy: { name: "asc" },
+          take: 100,
+          include: {
+            administrators: {
+              select: {
+                id: true,
+                firstName: true,
+                lastName: true,
+                accountStatus: true,
+                isActive: true,
+              },
+              orderBy: { id: "asc" },
+              take: 20,
+            },
+          },
+        }),
         tx.facility.findMany({
           select: {
             id: true,
             name: true,
             organizationId: true,
+            region: true,
             organization: { select: { id: true, name: true } },
             type: true,
             operationalState: true,
@@ -303,6 +325,75 @@ export class CanonicalOrganizationService {
       );
       return row;
     });
+  }
+  /** Head Office grouping for a branch, e.g. a Nigerian state. Null clears it. */
+  async setRegion(
+    actorId: string,
+    facilityId: string,
+    region: string | null,
+    context: ActionContext,
+  ) {
+    const value = region?.trim() || null;
+    if (value && value.length > 80)
+      throw new BadRequestException("Region must be 1–80 characters.");
+    return this.prisma.$transaction(async (tx) => {
+      await platformAuthority(tx, actorId);
+      const op = await this.operation(
+        tx,
+        actorId,
+        "FACILITY_REGION_CHANGED",
+        { facilityId, region: value },
+        context,
+      );
+      await tx.$queryRaw`SELECT id FROM "Facility" WHERE id=${facilityId}::uuid FOR UPDATE`;
+      const facility = await tx.facility.findUnique({
+        where: { id: facilityId },
+      });
+      if (!facility) throw new NotFoundException("Facility not found.");
+      if (op.prior) return { id: facilityId, region: facility.region };
+      await tx.facility.update({
+        where: { id: facilityId },
+        data: { region: value },
+      });
+      await this.audit(
+        tx,
+        actorId,
+        PLATFORM,
+        "FACILITY_REGION_CHANGED",
+        facilityId,
+        facilityId,
+        context,
+        op.fingerprint,
+        { region: facility.region },
+        { region: value },
+      );
+      return { id: facilityId, region: value };
+    });
+  }
+  /** Invite a Head Office administrator through canonical enrollment. */
+  inviteAdministrator(
+    actorId: string,
+    organizationId: string,
+    identity: {
+      email: string;
+      phoneNumber: string;
+      firstName: string;
+      lastName: string;
+    },
+    key: string,
+    context: ActionContext,
+  ) {
+    requireEnrollmentDeliveryConfiguration();
+    return this.enrollment.request(
+      identity,
+      key,
+      undefined,
+      actorId,
+      "ORGANIZATION_ADMIN",
+      context,
+      false,
+      organizationId,
+    );
   }
   async associate(
     actorId: string,

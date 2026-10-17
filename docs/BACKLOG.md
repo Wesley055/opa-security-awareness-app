@@ -43,18 +43,23 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 ## In progress
 
 - [ ] **Invitation email/SMS not arriving after `d032e66`** (17 Oct). Staging slot stopped (it ran the old build and sent old-format codes). Collect production logs, check the delivery ledger. **Blocker for Sunday.**
-- [ ] EstateFlow MVP: scope to agree before building (see Planned).
+- [x] EstateFlow MVP built (not yet deployed): `ac8333c` API + migration 45, `4cbb8cc` Gate screen / Estate overview / SOS visitor context, `be9693b` resident Visitors screen. Code-first, QR optional (P1). API 1089 tests, website 556, mobile 281.
+- [ ] EstateFlow release: migration 45 with regenerated cleanup (`553efa3e…`), API swap, website promote, EAS builds.
 - [x] Mobile enrollment UI (`ce36c8e`, in repo, ships with next app build): visible placeholders, status-bar padding, full button label, hidden reference from link, 4-digit fields, 8–64 password rule on enroll/activate/reset. tsc clean, 279 tests pass.
 - [ ] EAS builds Android + iOS from the agreed commit (runs on the founder's PC; needs Expo account).
 
 ## Planned
 
 ### EstateFlow (estate readiness)
-- [ ] Estate overview landing for facility admins (open incidents, residents, staff, recent activity). Today the facility admin view is only Residents + Reports and looks empty.
-- [ ] Visitor passes: resident creates a pass in the app with a **QR code** and a short code to share; guard scans the QR (or types the code) at the gate.
-- [ ] Gate log: visitor check-in / check-out, with denials recorded.
-- [ ] Overstay exceptions: visitor still inside after expected exit alerts the gate and the host resident.
-- [ ] SOS integration: an incident shows visitors currently inside for that household.
+- [x] Estate overview landing for facility admins (open incidents, visitors inside, departures not confirmed, entries/passes today, gate activity, visitor settings).
+- [x] Visitor passes: six-digit code (shown once, estate-scoped HMAC, encrypted visitor identity), share via SMS/WhatsApp, new code, cancel.
+- [x] Gate: type code, confirm visitor + house, admit / deny / exit, recorded-inside list, manual entry, offline banner, wrong-code limits (10 per guard, 50 per estate / 10 min).
+- [x] Overstay: "departure not confirmed" after expected exit + estate grace (default 240 min / 30 min, configurable).
+- [x] SOS context: incident shows visitors recorded for the household.
+- [ ] Overstay **SMS/push to the host resident** (today it shows on the gate, overview and the resident's pass list).
+- [ ] QR code on the pass + optional camera scan at the gate (P1).
+- [ ] Visitor SMS with the code sent directly by OPA (today the resident shares it).
+- [ ] Resident register by phase / street; estate notices.
 - [ ] Resident register by phase / street.
 - [ ] Estate notices to all residents.
 

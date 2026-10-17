@@ -36,7 +36,7 @@ export async function POST(request: Request) {
       : {};
   const token = typeof record.token === "string" ? record.token.trim() : "";
   const password = typeof record.password === "string" ? record.password : "";
-  if (token.length < 32 || password.length < 12)
+  if (token.length < 32 || password.length < 8 || password.length > 64)
     return NextResponse.json(
       { ok: false, error: "Invalid password reset request." },
       { status: 400 },

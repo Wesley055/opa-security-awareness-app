@@ -1,3 +1,4 @@
+import { IsNewPassword } from "../../../shared/security/password-policy";
 import {
   IsString,
   IsUUID,
@@ -10,7 +11,7 @@ export class VerifyEnrollmentDto {
   @IsUUID() requestId!: string;
   @IsString() @MaxLength(100) emailCode!: string;
   @IsString() @MaxLength(100) phoneCode!: string;
-  @IsString() @MinLength(12) @MaxLength(200) password!: string;
+  @IsNewPassword() password!: string;
   @IsBoolean() @Equals(true) accept!: boolean;
 }
 export class AcceptEnrollmentDto {

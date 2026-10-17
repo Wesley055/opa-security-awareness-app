@@ -2,6 +2,7 @@
 import { EnrollmentNextStep } from "@/components/auth/enrollment-next-step";
 import { PasswordInput } from "@/components/auth/password-input";
 import { useSearchParams } from "next/navigation";
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, PASSWORD_RULE_TEXT, passwordProblem } from "@/lib/password-rule";
 import { Suspense, useState, useEffect, useRef } from "react";
 export default function EnrollPage() {
   return (
@@ -70,8 +71,8 @@ function EnrollmentForm() {
     <main style={{ maxWidth: 560, margin: "40px auto", padding: 24 }}>
       <h1>Accept your OPA invitation</h1>
       <p>
-        Use the request ID and verification codes delivered to your email and
-        phone.
+        We sent a 4-digit code to your email and another to your phone. Enter
+        both below, then choose your password.
       </p>
       {stage === "ACCEPTED" ? (
         <section aria-label="Enrollment complete"><p role="status">Verification, password establishment and membership acceptance are complete.</p><EnrollmentNextStep role={role}/></section>
@@ -94,6 +95,13 @@ function EnrollmentForm() {
               ) {
                 setError("Passwords must match.");
                 return;
+              }
+              if (stage === "VERIFY") {
+                const problem = passwordProblem(String(body.password ?? ""));
+                if (problem) {
+                  setError(problem);
+                  return;
+                }
               }
               delete body.confirmPassword;
               const { response, result } = await enrollmentRequest({
@@ -135,9 +143,9 @@ function EnrollmentForm() {
           }}
         >
           <fieldset disabled={busy} style={{ display: "grid", gap: 18 }}>
-            {stage !== "AUTHENTICATION_REQUIRED" && (
+            {stage !== "AUTHENTICATION_REQUIRED" && !reference && (
               <label>
-                Invitation reference
+                Invitation reference (from your message)
                 <input
                   name="requestId"
                   value={requestId}
@@ -152,21 +160,25 @@ function EnrollmentForm() {
             {stage === "VERIFY" ? (
               <>
                 <label>
-                  Email verification code
+                  Code from your email
                   <input
                     name="emailCode"
                     required
-                    autoComplete="off"
-                    style={{ display: "block", width: "100%" }}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    placeholder="4 digits"
+                    style={{ display: "block", width: "100%", fontSize: 24, letterSpacing: 8 }}
                   />
                 </label>
                 <label>
-                  Phone verification code
+                  Code from your phone (SMS)
                   <input
                     name="phoneCode"
                     required
-                    autoComplete="off"
-                    style={{ display: "block", width: "100%" }}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    placeholder="4 digits"
+                    style={{ display: "block", width: "100%", fontSize: 24, letterSpacing: 8 }}
                   />
                 </label>
                 <label>
@@ -177,7 +189,8 @@ function EnrollmentForm() {
 
                     name="password"
                     required
-                    minLength={12}
+                    minLength={PASSWORD_MIN_LENGTH}
+                    maxLength={PASSWORD_MAX_LENGTH}
                     autoComplete="new-password"
                     style={{ display: "block", width: "100%" }}
                   />
@@ -188,18 +201,15 @@ function EnrollmentForm() {
                     name="confirmPassword"
                     aria-label="Confirm password"
                     required
-                    minLength={12}
+                    minLength={PASSWORD_MIN_LENGTH}
+                    maxLength={PASSWORD_MAX_LENGTH}
                     autoComplete="new-password"
                   />
                 </label>
-                <p>
-                  Set and confirm the password you will use to sign in. Both
-                  proofs must pass before this password activates your account.
-                  Any password supplied at registration is not your credential.
-                </p>
+                <p>{PASSWORD_RULE_TEXT} You will use it to sign in.</p>
                 <label>
                   <input type="checkbox" name="accept" required /> I accept this
-                  institutional membership.
+                  invitation.
                 </label>
               </>
             ) : (
@@ -250,7 +260,7 @@ function EnrollmentForm() {
               {busy
                 ? "Processing…"
                 : stage === "VERIFY"
-                  ? "Verify and activate account"
+                  ? "Verify and create my account"
                   : stage === "RESUME"
                     ? "Resume verified invitation"
                     : "Continue with an existing account"}

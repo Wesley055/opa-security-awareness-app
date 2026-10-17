@@ -9,8 +9,24 @@ import type { ConfigService } from "@nestjs/config";
 import type { AccountInvitationDelivery, Prisma } from "@prisma/client";
 import { randomBytes } from "crypto";
 import { resolveEnrollmentIdentity } from "../../shared/security/enrollment-resolution";
-import { hashActivationCredential } from "../../shared/security/activation-code";
+import {
+  enrollmentCodeDigest,
+  generateEnrollmentOtp,
+  hashActivationCredential,
+} from "../../shared/security/activation-code";
 import type { EnrollmentIdentity } from "../auth/enrollment.service";
+/** Expiry in Nigerian time, e.g. "18 Oct, 14:30 WAT". */
+export function enrollmentExpiryText(at: Date): string {
+  const text = at.toLocaleString("en-GB", {
+    timeZone: "Africa/Lagos",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return `${text} WAT`;
+}
 export type IdentityMessage = {
   recipient: string;
   message: string;
@@ -80,20 +96,29 @@ export async function prepareIdentityDelivery(
       },
     );
     const destination = enrollmentDestination(config.get<string>("OPA_WEB_URL"), request.id, config.get<string>("OPA_ENVIRONMENT"));
-    const code = randomBytes(32).toString("base64url");
+    // A fresh code per delivery: issuing it overwrites the stored digest, so
+    // any earlier code for this channel stops working.
+    const code = generateEnrollmentOtp();
     const isEmail = delivery.channel === "EMAIL";
+    const digest = enrollmentCodeDigest(code, config.getOrThrow<string>("ENROLLMENT_ENCRYPTION_KEY"));
     await tx.enrollmentRequest.update({
       where: { id: request.id },
-      data: isEmail
-        ? { emailTokenHash: hashActivationCredential(code) }
-        : { phoneTokenHash: hashActivationCredential(code) },
+      data: isEmail ? { emailTokenHash: digest } : { phoneTokenHash: digest },
     });
-    return {
-      channel: isEmail ? "EMAIL" : "SMS",
-      recipient: isEmail ? identity.email : identity.phoneNumber,
-      subject: "Verify your OPA enrollment request",
-      message: `OPA enrollment for ${organization}\nRequest: ${request.id}\n${isEmail ? "Email" : "Phone"} code: ${code}\nExpires: ${request.expiresAt.toISOString()}. Enter both codes in OPA only if you intend to enroll.\nEnroll: ${destination}`,
-    };
+    const validUntil = enrollmentExpiryText(request.expiresAt);
+    return isEmail
+      ? {
+          channel: "EMAIL",
+          recipient: identity.email,
+          subject: `Your OPA code: ${code}`,
+          message: `Your OPA verification code for ${organization} is ${code}.\n\nOpen ${destination} and enter this code with the code we sent to your phone, then choose your password.\n\nValid until ${validUntil}. If you were not expecting this, you can ignore this email.`,
+        }
+      : {
+          channel: "SMS",
+          recipient: identity.phoneNumber,
+          subject: `Your OPA code: ${code}`,
+          message: `OPA: your code for ${organization} is ${code}. Enter it with the code sent to your email: ${destination} Valid until ${validUntil}.`,
+        };
   }
   if (delivery.purpose === "PASSWORD_RESET" && delivery.requestCiphertext) {
     const { email } = await resolveEnrollmentIdentity<{ email: string }>(

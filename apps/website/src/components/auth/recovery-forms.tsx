@@ -1,4 +1,5 @@
 "use client";
+import { PASSWORD_MAX_LENGTH, PASSWORD_MIN_LENGTH, PASSWORD_RULE_TEXT, passwordProblem } from "@/lib/password-rule";
 import { useRef, useState, type FormEvent } from "react";
 import { PasswordInput } from "./password-input";
 import { authRequest } from "@/lib/auth-request";
@@ -100,6 +101,11 @@ export function ResetPasswordForm({
       setError("Passwords must match.");
       return;
     }
+    const problem = passwordProblem(password);
+    if (problem) {
+      setError(problem);
+      return;
+    }
     pending.current = true;
     setBusy(true);
     try {
@@ -154,7 +160,8 @@ export function ResetPasswordForm({
           onChange={(e) => setPassword(e.target.value)}
           autoComplete="new-password"
           required
-          minLength={12}
+          minLength={PASSWORD_MIN_LENGTH}
+          maxLength={PASSWORD_MAX_LENGTH}
           disabled={busy}
         />
       </label>
@@ -168,10 +175,12 @@ export function ResetPasswordForm({
           onChange={(e) => setConfirm(e.target.value)}
           autoComplete="new-password"
           required
-          minLength={12}
+          minLength={PASSWORD_MIN_LENGTH}
+          maxLength={PASSWORD_MAX_LENGTH}
           disabled={busy}
         />
       </label>
+      <p className="text-sm text-muted">{PASSWORD_RULE_TEXT}</p>
       {error && <p role="alert">{error}</p>}
       <button className={actionClass} disabled={busy}>
         {busy ? "Resetting password…" : "Reset password"}

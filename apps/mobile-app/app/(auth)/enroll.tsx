@@ -35,9 +35,19 @@ export default function EnrollmentScreen() {
     }
     if (
       !acceptanceToken &&
-      (password.length < 12 || password !== confirmPassword)
+      password !== confirmPassword
     ) {
-      setError("Choose and confirm the same password, at least 12 characters.");
+      setError("Passwords must match.");
+      return;
+    }
+    if (
+      !acceptanceToken &&
+      (password.length < 8 ||
+        password.length > 64 ||
+        !/\p{L}/u.test(password) ||
+        !/[\p{N}\p{P}\p{S}]/u.test(password))
+    ) {
+      setError("Use 8 to 64 characters, with letters and at least one number or symbol.");
       return;
     }
     setBusy(true);
@@ -114,10 +124,13 @@ export default function EnrollmentScreen() {
             autoCapitalize="none"
             editable={!busy}
           />
-          <Text style={styles.text}>Email verification code</Text>
+          <Text style={styles.text}>Code from your email</Text>
           <TextInput
             accessibilityLabel="Email code"
-            placeholder="Email code"
+            placeholder="4 digits"
+            keyboardType="number-pad"
+            textContentType="oneTimeCode"
+            autoComplete="one-time-code"
             style={styles.input}
             value={emailCode}
             onChangeText={setEmailCode}
@@ -125,10 +138,13 @@ export default function EnrollmentScreen() {
             autoCorrect={false}
             editable={!busy}
           />
-          <Text style={styles.text}>Phone verification code</Text>
+          <Text style={styles.text}>Code from your phone (SMS)</Text>
           <TextInput
             accessibilityLabel="Phone code"
-            placeholder="Phone code"
+            placeholder="4 digits"
+            keyboardType="number-pad"
+            textContentType="oneTimeCode"
+            autoComplete="one-time-code"
             style={styles.input}
             value={phoneCode}
             onChangeText={setPhoneCode}

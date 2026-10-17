@@ -1,3 +1,4 @@
+import { IsNewPassword } from "../../../shared/security/password-policy";
 import { IsString, MinLength } from 'class-validator';
 
 export class ConfirmPasswordResetDto {
@@ -5,7 +6,6 @@ export class ConfirmPasswordResetDto {
   @MinLength(32)
   token!: string;
 
-  @IsString()
-  @MinLength(12)
+  @IsNewPassword()
   password!: string;
 }

@@ -25,6 +25,7 @@ import {
 import {
   hashActivationCredential,
   normalizeActivationCredential,
+  enrollmentCodeMatches,
 } from "../../shared/security/activation-code";
 import { toE164 } from "../../shared/phone/normalize-phone-number";
 import type {
@@ -328,8 +329,10 @@ export class EnrollmentService {
           request.proofAttempts >= 5
         )
           return null;
-        const emailValid = matches(dto.emailCode, request.emailTokenHash);
-        const phoneValid = matches(dto.phoneCode, request.phoneTokenHash);
+        const secret = this.config.getOrThrow<string>("ENROLLMENT_ENCRYPTION_KEY");
+        // Both codes, in the same attempt: 4 + 4 digits under one 5-attempt limit.
+        const emailValid = enrollmentCodeMatches(dto.emailCode, request.emailTokenHash, secret);
+        const phoneValid = enrollmentCodeMatches(dto.phoneCode, request.phoneTokenHash, secret);
         if (!emailValid || !phoneValid) {
           await tx.enrollmentRequest.update({
             where: { id: request.id },

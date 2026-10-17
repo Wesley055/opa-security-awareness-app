@@ -1,4 +1,5 @@
-import { IsNotEmpty, IsString, MinLength } from 'class-validator';
+import { IsNewPassword } from "../../../shared/security/password-policy";
+import { IsNotEmpty, IsString } from 'class-validator';
 
 export class ActivateProvisionedUserDto {
   /**
@@ -16,7 +17,6 @@ export class ActivateProvisionedUserDto {
   // Same minimum as RegisterDto. A provisioned account password protects
   // access to safety workflows, so it must not be held to a weaker rule than a
   // consumer account.
-  @IsString()
-  @MinLength(12)
+  @IsNewPassword()
   password!: string;
 }

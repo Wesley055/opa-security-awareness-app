@@ -56,20 +56,20 @@ it("offers dual-proof enrollment as the primary institutional invitation destina
   expect(router.push).toHaveBeenCalledWith("/(auth)/enroll");
   await act(async () => view.unmount());
 });
-it("prefills only the request reference and visibly labels both proof fields", async () => {
+it("carries the request reference from the link and visibly labels both code fields", async () => {
   let view!: ReturnType<typeof create>;
   await act(async () => {
     view = create(React.createElement(EnrollmentScreen));
   });
+  // Arriving from the link, the reference is carried silently.
   expect(
     view.root
       .findAllByType(TextInput)
-      .find((node) => node.props.accessibilityLabel === "Invitation reference")
-      ?.props.value,
-  ).toBe("opaque-request-reference");
+      .find((node) => node.props.accessibilityLabel === "Invitation reference"),
+  ).toBeUndefined();
   const output = JSON.stringify(view.toJSON());
-  expect(output).toContain("Email verification code");
-  expect(output).toContain("Phone verification code");
+  expect(output).toContain("Code from your email");
+  expect(output).toContain("Code from your phone (SMS)");
   expect(output).toContain("older short invitation code");
   await act(async () => view.unmount());
 });

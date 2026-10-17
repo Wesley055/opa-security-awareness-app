@@ -1,4 +1,5 @@
 import { PasswordInput } from "../../src/components/PasswordInput";
+import { PASSWORD_RULE_TEXT, passwordProblem } from "../../src/utils/password-rule";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -29,8 +30,8 @@ export default function ResetPasswordScreen() {
       setError("Paste the reset token from your OPA email.");
       return;
     }
-    if (password.length < 12) {
-      setError("Password must be at least 12 characters.");
+    if (passwordProblem(password)) {
+      setError(PASSWORD_RULE_TEXT);
       return;
     }
     if (password !== confirmPassword) {
@@ -117,7 +118,7 @@ export default function ResetPasswordScreen() {
         <PasswordInput
           style={styles.passwordInput}
           textContentType="newPassword"
-          placeholder="New password, minimum 12 characters"
+          placeholder="New password (8+ characters, letters and a number)"
           value={password}
           onChangeText={setPassword}
           editable={!isSubmitting}

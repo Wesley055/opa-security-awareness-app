@@ -10,12 +10,16 @@ import {
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useAuthStore } from "../../src/store/authStore";
+import { PASSWORD_RULE_TEXT, passwordProblem } from "../../src/utils/password-rule";
+
+const PLACEHOLDER = "#64748B";
 
 export default function EnrollmentScreen() {
   const params = useLocalSearchParams<{ requestId?: string }>();
   const [requestId, setRequestId] = useState(
     typeof params.requestId === "string" ? params.requestId : "",
   );
+  const fromLink = typeof params.requestId === "string" && params.requestId.length > 0;
   const [emailCode, setEmailCode] = useState("");
   const [phoneCode, setPhoneCode] = useState("");
   const [password, setPassword] = useState("");
@@ -40,14 +44,8 @@ export default function EnrollmentScreen() {
       setError("Passwords must match.");
       return;
     }
-    if (
-      !acceptanceToken &&
-      (password.length < 8 ||
-        password.length > 64 ||
-        !/\p{L}/u.test(password) ||
-        !/[\p{N}\p{P}\p{S}]/u.test(password))
-    ) {
-      setError("Use 8 to 64 characters, with letters and at least one number or symbol.");
+    if (!acceptanceToken && passwordProblem(password)) {
+      setError(PASSWORD_RULE_TEXT);
       return;
     }
     setBusy(true);
@@ -99,12 +97,12 @@ export default function EnrollmentScreen() {
       <Text style={styles.title}>
         {acceptanceToken
           ? "Sign in to accept enrollment"
-          : "Accept your institutional invitation"}
+          : "Accept your OPA invitation"}
       </Text>
       <Text style={styles.text}>
         {acceptanceToken
           ? "Ownership is verified. Sign in with your existing account password to accept. Enrollment cannot move an account between organizations."
-          : "Your request is pending. No account or membership has been created. Open the enrollment link in your invitation to prefill its reference, or enter that reference below. Enter both codes sent to your email and phone. Choose and confirm your password. Both proofs and your chosen credential must be accepted before the account is active."}
+          : "We sent a 4-digit code to your email and another to your phone. Enter both, then choose your password."}
       </Text>
       <TouchableOpacity onPress={() => router.push("/(auth)/activate")} disabled={busy}><Text style={styles.text}>Have an older short invitation code instead?</Text></TouchableOpacity>
       {error ? (
@@ -114,20 +112,26 @@ export default function EnrollmentScreen() {
       ) : null}
       {!acceptanceToken ? (
         <>
-          <Text style={styles.text}>Invitation reference from your message</Text>
-          <TextInput
-            accessibilityLabel="Invitation reference"
-            placeholder="Invitation reference"
-            style={styles.input}
-            value={requestId}
-            onChangeText={setRequestId}
-            autoCapitalize="none"
-            editable={!busy}
-          />
+          {!fromLink ? (
+            <>
+              <Text style={styles.text}>Invitation reference (from your message)</Text>
+              <TextInput
+                accessibilityLabel="Invitation reference"
+                placeholder="Invitation reference"
+                placeholderTextColor={PLACEHOLDER}
+                style={styles.input}
+                value={requestId}
+                onChangeText={setRequestId}
+                autoCapitalize="none"
+                editable={!busy}
+              />
+            </>
+          ) : null}
           <Text style={styles.text}>Code from your email</Text>
           <TextInput
             accessibilityLabel="Email code"
             placeholder="4 digits"
+            placeholderTextColor={PLACEHOLDER}
             keyboardType="number-pad"
             textContentType="oneTimeCode"
             autoComplete="one-time-code"
@@ -142,6 +146,7 @@ export default function EnrollmentScreen() {
           <TextInput
             accessibilityLabel="Phone code"
             placeholder="4 digits"
+            placeholderTextColor={PLACEHOLDER}
             keyboardType="number-pad"
             textContentType="oneTimeCode"
             autoComplete="one-time-code"
@@ -157,6 +162,7 @@ export default function EnrollmentScreen() {
         <TextInput
           accessibilityLabel="Account email"
           placeholder="Account email"
+          placeholderTextColor={PLACEHOLDER}
           style={styles.input}
           value={email}
           onChangeText={setEmail}
@@ -171,8 +177,9 @@ export default function EnrollmentScreen() {
         placeholder={
           acceptanceToken
             ? "Existing account password"
-            : "New password (at least 12 characters)"
+            : "New password"
         }
+        placeholderTextColor={PLACEHOLDER}
         style={styles.input}
         value={password}
         onChangeText={setPassword}
@@ -182,12 +189,18 @@ export default function EnrollmentScreen() {
         <PasswordInput
           accessibilityLabel="Confirm password"
           placeholder="Confirm password"
+          placeholderTextColor={PLACEHOLDER}
           style={styles.input}
           value={confirmPassword}
           onChangeText={setConfirmPassword}
           textContentType="newPassword"
           editable={!busy}
         />
+      ) : null}
+      {!acceptanceToken ? (
+        <Text style={styles.hint}>
+          {PASSWORD_RULE_TEXT}
+        </Text>
       ) : (
         <TouchableOpacity
           onPress={() => router.push("/(auth)/forgot-password")}
@@ -203,8 +216,7 @@ export default function EnrollmentScreen() {
         disabled={busy}
       >
         <Text style={styles.text}>
-          {consent ? "☑" : "☐"} I intend to accept enrollment for the
-          organization named in these messages.
+          {consent ? "☑" : "☐"} I accept this invitation.
         </Text>
       </TouchableOpacity>
       <TouchableOpacity
@@ -216,10 +228,10 @@ export default function EnrollmentScreen() {
         {busy ? (
           <ActivityIndicator />
         ) : (
-          <Text>
+          <Text style={styles.buttonText}>
             {acceptanceToken
               ? "Sign in and accept"
-              : "Verify and activate account"}
+              : "Verify and create my account"}
           </Text>
         )}
       </TouchableOpacity>
@@ -233,6 +245,7 @@ const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
     padding: 24,
+    paddingTop: 64,
     gap: 16,
     backgroundColor: "#08111A",
     justifyContent: "center",
@@ -252,4 +265,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   error: { color: "#FF7B72" },
+  hint: { color: "#94A3B8", fontSize: 13 },
+  buttonText: { color: "#08111A", fontWeight: "700", fontSize: 16, textAlign: "center" },
 });

@@ -1,4 +1,5 @@
 import { PasswordInput } from "../../src/components/PasswordInput";
+import { PASSWORD_RULE_TEXT, passwordProblem } from "../../src/utils/password-rule";
 import { useState } from "react";
 import {
   ActivityIndicator,
@@ -35,8 +36,8 @@ export default function ActivateScreen() {
       return;
     }
 
-    if (password.length < 12) {
-      setError("Password must be at least 12 characters.");
+    if (passwordProblem(password)) {
+      setError(PASSWORD_RULE_TEXT);
       return;
     }
 
@@ -102,7 +103,7 @@ export default function ActivateScreen() {
 
         <PasswordInput
           style={styles.passwordInput}
-          placeholder="Password, minimum 12 characters"
+          placeholder="New password (8+ characters, letters and a number)"
           placeholderTextColor="#8B949E"
           value={password}
           onChangeText={setPassword}

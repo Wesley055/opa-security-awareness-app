@@ -215,6 +215,18 @@ export default function HomeScreen() {
           </TouchableOpacity>
         ) : null}
 
+        {user?.role === 'USER' ? (
+          <TouchableOpacity touchSoundDisabled={sosMode === 'SILENT'}
+            style={styles.contactsButton}
+            accessibilityRole="button"
+            onPress={() => router.push('/visitors')}
+          >
+            <Text style={styles.contactsButtonText}>
+              Visitors
+            </Text>
+          </TouchableOpacity>
+        ) : null}
+
         <TouchableOpacity touchSoundDisabled={sosMode === 'SILENT'}
           style={styles.contactsButton}
           onPress={() => router.push('/contacts')}

@@ -84,6 +84,7 @@ enum EvidenceStatus {
 }
 
 model User {
+  hostedVisitorPasses VisitorPass[] @relation("VisitorPassHost")
   responsePolicies FacilityResponsePolicy[] @relation("ResponsePolicyAuthor")
   organizationsCreated Organization[] @relation("OrganizationCreator")
   /// Head Office scope; set only for ORGANIZATION_ADMIN (organization_admin_scope).
@@ -390,6 +391,11 @@ model Facility {
   organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   /// Head Office grouping, e.g. a Nigerian state such as "Lagos".
   region String? @db.VarChar(80)
+  /// EstateFlow: default visit length and overstay grace, set per estate.
+  visitorDefaultMinutes Int @default(240)
+  overstayGraceMinutes  Int @default(30)
+  visitorPasses VisitorPass[]
+  gateEvents    GateEvent[]
   operationalState FacilityOperationalState @default(CREATED)
   supportAssignments FacilitySupportAssignment[]
   supportCases SupportCase[]
@@ -1373,4 +1379,71 @@ model CorrectiveAction {
   @@unique([facilityId, requestKey])
   @@index([facilityId, incidentId])
   @@index([facilityId, status, dueAt])
+}
+
+/// EstateFlow: a resident authorizes a visitor; security verifies the
+/// six-digit code (or optional QR) against this live record at the gate.
+enum VisitorPassStatus {
+  ISSUED
+  CHECKED_IN
+  CHECKED_OUT
+  DENIED
+  REVOKED
+  EXPIRED
+}
+
+enum GateEventType {
+  VERIFIED
+  VERIFY_FAILED
+  ENTRY
+  DENIED
+  EXIT
+  OVERSTAY
+  MANUAL_ENTRY
+}
+
+model VisitorPass {
+  id         String   @id @default(uuid()) @db.Uuid
+  facilityId String   @db.Uuid
+  facility   Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  hostUserId String   @db.Uuid
+  host       User     @relation("VisitorPassHost", fields: [hostUserId], references: [id], onDelete: Restrict)
+  /// AES-GCM {name, phone?}; never stored in plain text.
+  visitorCiphertext String
+  /// House, street or block the visitor is going to.
+  destination String @db.VarChar(120)
+  /// HMAC of the six-digit code, scoped to the estate. Unique among live passes (SQL partial index).
+  codeDigest      String            @db.Char(64)
+  validFrom       DateTime
+  validUntil      DateTime
+  expectedMinutes Int
+  status          VisitorPassStatus @default(ISSUED)
+  checkedInAt        DateTime?
+  checkedInByUserId  String?   @db.Uuid
+  checkedOutAt       DateTime?
+  checkedOutByUserId String?   @db.Uuid
+  overstayAlertedAt  DateTime?
+  closedAt           DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  events    GateEvent[]
+
+  @@index([facilityId, status])
+  @@index([hostUserId, createdAt])
+  @@index([facilityId, codeDigest])
+}
+
+model GateEvent {
+  id          String        @id @default(uuid()) @db.Uuid
+  facilityId  String        @db.Uuid
+  facility    Facility      @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  passId      String?       @db.Uuid
+  pass        VisitorPass?  @relation(fields: [passId], references: [id], onDelete: Restrict)
+  type        GateEventType
+  actorUserId String?       @db.Uuid
+  note        String?       @db.VarChar(200)
+  occurredAt  DateTime      @default(now())
+
+  @@index([facilityId, occurredAt])
+  @@index([actorUserId, type, occurredAt])
 }

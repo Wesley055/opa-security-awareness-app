@@ -1,4 +1,5 @@
 import { InsightModule } from './modules/insight/insight.module';
+import { EstateModule } from "./modules/estate/estate.module";
 import { ProtectedIdentityModule } from './modules/protected-identity/protected-identity.module';
 import { SsoModule } from './modules/sso/sso.module';
 import {
@@ -60,6 +61,7 @@ import { RequestLoggingMiddleware } from './shared/middleware/request-logging.mi
     FacilitiesModule,
     IncidentTimelineModule,
     EvidenceModule,
+    EstateModule,
   ],
 })
 export class AppModule implements NestModule {

@@ -19,8 +19,8 @@ const EXISTING_TABLES = ['User','Facility','AdministrativeAuditEvent','Enrollmen
 // REFERENCES exposes column/constraint metadata to Prisma introspection without
 // SELECT access to application data. It cannot be used for DDL in idle posture.
 const BASELINE_TABLES = ['AccountInvitationDelivery','AdministrativeAuditEvent','DeliveryAttempt','DeliveryStatusEvent','EmergencyContact','EmergencyIntelligenceSnapshot','EnrollmentRequest','Evidence','Facility','IdentityAccessGrant','IdentityResolutionAudit','Incident','IncidentAccessToken','IncidentNotification','IncidentTimelineEvent','JourneyLocationFix','JourneySession','PasswordResetToken','ProtectedIdentifier','ProviderDeliveryReceipt','ProviderReference','SafeWalkAudit','SafeWalkEscalation','SafeWalkGuardianCode','SafeWalkGuardianGrant','SafeWalkNotice','SsoAuditEvent','SsoConfiguration','SsoExternalIdentity','SsoReplay','SsoTransaction','StagingNotificationBudget','User'];
-const TABLES = ['OnboardingAuthorityGrant','SupportEmployment','SupportCapabilityGrant','Organization','FacilitySupportAssignment','SupportCase','TemporaryElevation','CommissioningEvidence','FacilityResponsePolicy','ReportingProjection','AfterIncidentReport','CorrectiveAction'];
-const TYPES = ['OnboardingPermission','FacilityMembershipState','SupportEmploymentState','SupportCapability','FacilityOperationalState','SupportCaseStatus','CorrectiveActionStatus'];
+const TABLES = ['OnboardingAuthorityGrant','SupportEmployment','SupportCapabilityGrant','Organization','FacilitySupportAssignment','SupportCase','TemporaryElevation','CommissioningEvidence','FacilityResponsePolicy','ReportingProjection','AfterIncidentReport','CorrectiveAction','VisitorPass','GateEvent'];
+const TYPES = ['OnboardingPermission','FacilityMembershipState','SupportEmploymentState','SupportCapability','FacilityOperationalState','SupportCaseStatus','CorrectiveActionStatus','VisitorPassStatus','GateEventType'];
 const FUNCTIONS = ['protect_last_facility_admin','commission_facility_admin','protect_commissioning_evidence','synchronize_facility_operational_state'];
 const SEQUENCES = ['SupportCase_sequence_seq'];
 const crypto = require('node:crypto');

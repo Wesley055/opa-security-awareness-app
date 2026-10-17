@@ -52,7 +52,7 @@ export default async function OperatorHomePage() {
     context.state === 'READY' &&
     context.context.role === 'FACILITY_ADMIN'
   ) {
-    redirect('/operator/residents');
+    redirect('/operator/estate');
   }
 
   if ((context.state === 'READY' ? context.context.role : context.state === 'NO_FACILITY' ? context.role : null) === 'ADMIN') redirect('/super-admin');

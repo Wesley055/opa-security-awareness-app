@@ -86,6 +86,12 @@ export default async function OperatorShellLayout({
                       Incidents
                     </Link>
                     <Link
+                      href="/operator/gate"
+                      className="min-h-10 rounded-md px-3 py-2 text-sm text-muted hover:text-ink"
+                    >
+                      Gate
+                    </Link>
+                    <Link
                       href="/operator/safewalk"
                       className="min-h-10 rounded-md px-3 py-2 text-sm text-muted hover:text-ink"
                     >
@@ -94,6 +100,14 @@ export default async function OperatorShellLayout({
                   </>
                 ) : null}
 
+                {isFacilityAdmin ? (
+                  <Link
+                    href="/operator/estate"
+                    className="min-h-10 rounded-md px-3 py-2 text-sm text-muted transition hover:bg-panel-2 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-protection"
+                  >
+                    Estate overview
+                  </Link>
+                ) : null}
                 {isFacilityAdmin ? (
                   <Link
                     href="/operator/residents"

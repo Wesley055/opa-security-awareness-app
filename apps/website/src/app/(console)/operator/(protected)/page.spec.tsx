@@ -33,7 +33,7 @@ describe('OperatorHomePage role routing', () => {
     mocks.getSessionState.mockResolvedValue('active');
   });
 
-  it('routes FACILITY_ADMIN to resident management before fetching incidents', async () => {
+  it('routes FACILITY_ADMIN to the estate overview before fetching incidents', async () => {
     mocks.getOperatorContext.mockResolvedValue({
       state: 'READY',
       context: {
@@ -49,10 +49,10 @@ describe('OperatorHomePage role routing', () => {
     });
 
     await expect(OperatorHomePage()).rejects.toThrow(
-      'REDIRECT:/operator/residents',
+      'REDIRECT:/operator/estate',
     );
 
-    expect(mocks.redirect).toHaveBeenCalledWith('/operator/residents');
+    expect(mocks.redirect).toHaveBeenCalledWith('/operator/estate');
     expect(mocks.fetchOperatorQueue).not.toHaveBeenCalled();
   });
 

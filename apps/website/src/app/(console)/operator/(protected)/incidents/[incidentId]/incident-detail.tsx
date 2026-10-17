@@ -1,4 +1,5 @@
 "use client";
+import { IncidentVisitors } from "@/components/console/incident-visitors";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { IncidentDetail } from "@/lib/operator-incident";
@@ -760,6 +761,7 @@ export function IncidentDetailView({
         incidentId={initialIncident.id}
       />
       <EvidenceAvailability incidentId={incident.id} />
+      <IncidentVisitors incidentId={incident.id} />
       <IncidentTimeline
         events={timeline}
         verification={verification}

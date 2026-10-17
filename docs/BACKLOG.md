@@ -14,6 +14,20 @@ Last updated: 2026-10-17
 | Mon 19 – Tue 20 Oct | Fix gaps from Sunday · Providus bank needs · presentation readiness | |
 | Wed/Thu | Providus presentation | |
 
+## Sunday 18 Oct acceptance agenda (testing only)
+
+Each failure gets: steps to reproduce, expected vs actual, severity, owner, evidence, and a row in "Gaps found".
+
+1. Authentication and authorization: Super Admin, Technical Support, Facility Admin, Operator, Head Office
+2. Resident onboarding: invitation, 4-digit email + SMS codes, password rule, activation (web and both apps)
+3. EstateFlow: visitor pass (QR + code), gate entry, exit, overstay alert, visitor context on SOS
+4. Android and iOS: install, sign in, SOS, notifications, mobile UI
+5. SafeWalk (live location, escalation) — not yet physically tested
+6. Silent SOS — not yet physically tested
+7. SSO sign-in — not yet physically tested
+8. OPA Insight, AIR, corrective actions, audit trail, Head Office view
+9. Resilience: network loss, retries, restart recovery, privacy and tenant isolation
+
 ## In production (verified)
 
 | Date | Commit | What | Evidence |
@@ -30,15 +44,17 @@ Last updated: 2026-10-17
 
 - [ ] **Invitation email/SMS not arriving after `d032e66`** (17 Oct). Staging slot stopped (it ran the old build and sent old-format codes). Collect production logs, check the delivery ledger. **Blocker for Sunday.**
 - [ ] EstateFlow MVP: scope to agree before building (see Planned).
-- [ ] Mobile UI changes: list to agree; source may be the uncommitted work in `C:\Projects\OPA`.
+- [x] Mobile enrollment UI (`ce36c8e`, in repo, ships with next app build): visible placeholders, status-bar padding, full button label, hidden reference from link, 4-digit fields, 8–64 password rule on enroll/activate/reset. tsc clean, 279 tests pass.
 - [ ] EAS builds Android + iOS from the agreed commit (runs on the founder's PC; needs Expo account).
 
 ## Planned
 
 ### EstateFlow (estate readiness)
 - [ ] Estate overview landing for facility admins (open incidents, residents, staff, recent activity). Today the facility admin view is only Residents + Reports and looks empty.
-- [ ] Visitor passes: resident creates a one-time code; guard verifies at the gate.
-- [ ] Gate log: visitor and staff check-in / check-out.
+- [ ] Visitor passes: resident creates a pass in the app with a **QR code** and a short code to share; guard scans the QR (or types the code) at the gate.
+- [ ] Gate log: visitor check-in / check-out, with denials recorded.
+- [ ] Overstay exceptions: visitor still inside after expected exit alerts the gate and the host resident.
+- [ ] SOS integration: an incident shows visitors currently inside for that household.
 - [ ] Resident register by phase / street.
 - [ ] Estate notices to all residents.
 
@@ -70,3 +86,4 @@ Record each gap as: date · role · screen · what happened · expected · sever
 |---|---|---|---|---|---|
 | 17 Oct | Facility admin | Dashboard | Only Residents and Reports; looks empty | An estate overview | major |
 | 17 Oct | Super admin | Invite | Email and SMS not arriving after `d032e66` | Arrive within a minute | blocker |
+| 17 Oct | Resident | Mobile enroll (installed build) | Fields empty on one Android phone (invisible placeholders); title under status bar; button text cut | Readable labels and button | major (fixed in `ce36c8e`, needs new build) |

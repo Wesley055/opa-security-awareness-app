@@ -48,7 +48,10 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 - [x] Invitation delivery diagnosed (17 Oct): **email works** (Resend: every enrollment email SENT + DELIVERED, including after `d032e66`; check spam). **SMS has never been delivered from production**: every Africa's Talking attempt since 15 Oct failed; root cause is **HTTP 401 from Africa's Talking** (key clean, `atsk_`, 77 chars; username 9 chars) — the API key is invalid/revoked or does not belong to that username. Fix moved to Sunday E2E (provider setup). Note: the signed API policy may pin secret versions/hashes, so a key rotation needs Key Vault version → re-sign → swap.
 - [x] EstateFlow MVP built (not yet deployed): `ac8333c` API + migration 45, `4cbb8cc` Gate screen / Estate overview / SOS visitor context, `be9693b` resident Visitors screen. Code-first, QR optional (P1). API 1089 tests, website 556, mobile 281.
 - [x] EstateFlow API + migration 45 released (18 Oct 01:28 UTC).
-- [ ] EstateFlow website promote (Vercel) and EAS builds (iOS 7, Android 22).
+- [x] EstateFlow website promoted (Vercel, `87f9b1c`); Estate overview and Gate verified live.
+- [x] Endpoint policy re-signed for API `7045bde` (`9cc77df`, valid to 16 Jan 2027).
+- [ ] EAS builds iOS 7 / Android 22 + production APK; submit to stores only after Sunday testing passes.
+- **Release rule:** after every API release, re-sign the endpoint policy (`sign-endpoint-policy.py --expect-build <sha>`) before any mobile build; the build-time check requires the live API build to match.
 - [x] Mobile enrollment UI (`ce36c8e`, in repo, ships with next app build): visible placeholders, status-bar padding, full button label, hidden reference from link, 4-digit fields, 8–64 password rule on enroll/activate/reset. tsc clean, 279 tests pass.
 - [ ] EAS builds Android + iOS from the agreed commit (runs on the founder's PC; needs Expo account).
 
@@ -68,12 +71,17 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 - [ ] Estate notices to all residents.
 
 ### Platform
+- [ ] Staff profiles (Monday): display name, phone, notification settings and in-session password change for operators, facility admins and technical support; photo **mandatory for operators** (cannot go on duty without an approved photo), optional for others; residents see the responding operator's name and photo during an active SOS; no demo/placeholder staff names in production.
 - [ ] Switch off background workers in the staging slot (slot setting), so a build waiting in staging never sends messages or alerts.
 - [ ] Technical Support workspace, phase 1: Accounts & OTP diagnostics, Notification diagnostics (metadata only; codes never shown).
 - [ ] Temporary Access needs approval from both OPA Super Admin and the customer's administrator.
 - [ ] Insight API: Super Admin needs Temporary Access for facility Insight (currently allowed on any facility).
 - [ ] Mobile enrollment screen: 4-digit codes + new password rule (committed in `d032e66`, ships with next app build).
 - [ ] Review the ~100 uncommitted files in `C:\Projects\OPA` (`integration/institutional-security`); keep or discard deliberately.
+
+### SmartBranch and SchoolShield (after Providus)
+- [ ] One-page product specs (no code yet): users, five core workflows, OPA reuse, new pieces, Nigerian operating conditions.
+- [ ] Sales exec discovery: 3 schools, 2 bank branches; position SmartBranch to Providus as a 2027 rollout with Providus as design partner.
 
 ### Bank (Providus)
 - [ ] Demo organization with two branches and regions; Head Office account; end-to-end SOS shown on Head Office view.

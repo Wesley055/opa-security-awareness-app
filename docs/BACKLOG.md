@@ -66,6 +66,7 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 - [x] Gate: type code, confirm visitor + house, admit / deny / exit, recorded-inside list, manual entry, offline banner, wrong-code limits (10 per guard, 50 per estate / 10 min).
 - [x] Overstay: "departure not confirmed" after expected exit + estate grace (default 240 min / 30 min, configurable).
 - [x] SOS context: incident shows visitors recorded for the household.
+- [ ] **Visitor stay extension (P0, not built yet — record as outstanding on Sunday, build Monday).** Resident extends an active visit from the app, within estate limits; after an overstay it needs security review (no silent clearance); revoked, denied or departed passes cannot be extended; the gate shows the new departure time; overstay uses the latest approved time; every extension is audited (old time, new time, who, reason); never authorizes re-entry after a recorded exit.
 - [ ] Overstay **SMS/push to the host resident** (today it shows on the gate, overview and the resident's pass list).
 - [ ] QR code on the pass + optional camera scan at the gate (P1).
 - [ ] Visitor SMS with the code sent directly by OPA (today the resident shares it).
@@ -81,6 +82,9 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 - [ ] Insight API: Super Admin needs Temporary Access for facility Insight (currently allowed on any facility).
 - [ ] Mobile enrollment screen: 4-digit codes + new password rule (committed in `d032e66`, ships with next app build).
 - [ ] Review the ~100 uncommitted files in `C:\Projects\OPA` (`integration/institutional-security`); keep or discard deliberately.
+
+### OPA Insight industry modules (planned, not built)
+One Insight platform with industry modules, not separate engines: Insight Core → **Insight Energy** (Oil & Gas: permit-to-work, contractor competency and authorization, hazardous-area access, HSE incidents, inspections, corrective actions) → **Insight Aviation** (occurrence reporting, maintenance findings, personnel authorization, airside access, corrective-action verification; scope depends on airline / airport / MRO / ground handler). Shared evidence and reporting; different inputs, control libraries and outputs. Regulatory mappings must be verified with qualified domain specialists; OPA does not claim certification or regulatory approval from its reports.
 
 ### SmartBranch and SchoolShield (after Providus)
 - [ ] One-page product specs (no code yet): users, five core workflows, OPA reuse, new pieces, Nigerian operating conditions.

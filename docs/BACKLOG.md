@@ -40,12 +40,15 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 | 17 Oct 02:21 UTC | migrations 43–44 | Head Office schema: `ORGANIZATION_ADMIN`, `User/EnrollmentRequest.organizationId`, `Facility.region` | `VERIFY PASS`, 44 / 0, migration role idle |
 | 17 Oct 02:45 UTC | `d718c64` | Head Office (bank) cross-branch Insight, branch regions, Head Office invitations | swap probe 0 failures |
 | 17 Oct 17:15 UTC | `d032e66` | 4-digit email + SMS enrollment codes (both required, 5 attempts, keyed HMAC); passwords 8–64 with letters + number/symbol; simpler enrollment page | swap probe 0 failures |
+| 18 Oct 01:24 UTC | migration 45 | EstateFlow schema: `VisitorPass`, `GateEvent`, estate visitor settings | `VERIFY PASS`, 45 / 0, new tables owned by release owner, migration role idle; restore point 01:23:53 UTC |
+| 18 Oct 01:28 UTC | `7045bde` | EstateFlow API (visitor passes, gate, overstay sweep, SOS visitor context, estate overview) | swap probe 0 failures; staging stopped after swap |
 
 ## In progress
 
 - [x] Invitation delivery diagnosed (17 Oct): **email works** (Resend: every enrollment email SENT + DELIVERED, including after `d032e66`; check spam). **SMS has never been delivered from production**: every Africa's Talking attempt since 15 Oct failed; root cause is **HTTP 401 from Africa's Talking** (key clean, `atsk_`, 77 chars; username 9 chars) — the API key is invalid/revoked or does not belong to that username. Fix moved to Sunday E2E (provider setup). Note: the signed API policy may pin secret versions/hashes, so a key rotation needs Key Vault version → re-sign → swap.
 - [x] EstateFlow MVP built (not yet deployed): `ac8333c` API + migration 45, `4cbb8cc` Gate screen / Estate overview / SOS visitor context, `be9693b` resident Visitors screen. Code-first, QR optional (P1). API 1089 tests, website 556, mobile 281.
-- [ ] EstateFlow release: migration 45 with regenerated cleanup (`553efa3e…`), API swap, website promote, EAS builds.
+- [x] EstateFlow API + migration 45 released (18 Oct 01:28 UTC).
+- [ ] EstateFlow website promote (Vercel) and EAS builds (iOS 7, Android 22).
 - [x] Mobile enrollment UI (`ce36c8e`, in repo, ships with next app build): visible placeholders, status-bar padding, full button label, hidden reference from link, 4-digit fields, 8–64 password rule on enroll/activate/reset. tsc clean, 279 tests pass.
 - [ ] EAS builds Android + iOS from the agreed commit (runs on the founder's PC; needs Expo account).
 

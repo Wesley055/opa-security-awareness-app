@@ -22,11 +22,12 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 2. Resident onboarding: invitation, 4-digit email + SMS codes, password rule, activation (web and both apps)
 3. EstateFlow: visitor pass (QR + code), gate entry, exit, overstay alert, visitor context on SOS
 4. Android and iOS: install, sign in, SOS, notifications, mobile UI
-5. SafeWalk (live location, escalation) — not yet physically tested
-6. Silent SOS — not yet physically tested
-7. SSO sign-in — not yet physically tested
-8. OPA Insight, AIR, corrective actions, audit trail, Head Office view
-9. Resilience: network loss, retries, restart recovery, privacy and tenant isolation
+5. Providers and billing: Africa's Talking (fix 401, live username + new key, sender ID, one real SMS), Resend (delivery + spam placement), Google Maps, Azure billing / budgets
+6. SafeWalk (live location, escalation) — not yet physically tested
+7. Silent SOS — not yet physically tested
+8. SSO sign-in — not yet physically tested
+9. OPA Insight, AIR, corrective actions, audit trail, Head Office view
+10. Resilience: network loss, retries, restart recovery, privacy and tenant isolation
 
 ## In production (verified)
 
@@ -42,7 +43,7 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 
 ## In progress
 
-- [ ] **Invitation email/SMS not arriving after `d032e66`** (17 Oct). Staging slot stopped (it ran the old build and sent old-format codes). Collect production logs, check the delivery ledger. **Blocker for Sunday.**
+- [x] Invitation delivery diagnosed (17 Oct): **email works** (Resend: every enrollment email SENT + DELIVERED, including after `d032e66`; check spam). **SMS has never been delivered from production**: every Africa's Talking attempt since 15 Oct failed; root cause is **HTTP 401 from Africa's Talking** (key clean, `atsk_`, 77 chars; username 9 chars) — the API key is invalid/revoked or does not belong to that username. Fix moved to Sunday E2E (provider setup). Note: the signed API policy may pin secret versions/hashes, so a key rotation needs Key Vault version → re-sign → swap.
 - [x] EstateFlow MVP built (not yet deployed): `ac8333c` API + migration 45, `4cbb8cc` Gate screen / Estate overview / SOS visitor context, `be9693b` resident Visitors screen. Code-first, QR optional (P1). API 1089 tests, website 556, mobile 281.
 - [ ] EstateFlow release: migration 45 with regenerated cleanup (`553efa3e…`), API swap, website promote, EAS builds.
 - [x] Mobile enrollment UI (`ce36c8e`, in repo, ships with next app build): visible placeholders, status-bar padding, full button label, hidden reference from link, 4-digit fields, 8–64 password rule on enroll/activate/reset. tsc clean, 279 tests pass.
@@ -90,5 +91,5 @@ Record each gap as: date · role · screen · what happened · expected · sever
 | Date | Role | Screen | What happened | Expected | Severity |
 |---|---|---|---|---|---|
 | 17 Oct | Facility admin | Dashboard | Only Residents and Reports; looks empty | An estate overview | major |
-| 17 Oct | Super admin | Invite | Email and SMS not arriving after `d032e66` | Arrive within a minute | blocker |
+| 17 Oct | Super admin | Invite | SMS never delivered: Africa's Talking returns 401 (email delivered) | SMS within a minute | blocker (Sunday) |
 | 17 Oct | Resident | Mobile enroll (installed build) | Fields empty on one Android phone (invisible placeholders); title under status bar; button text cut | Readable labels and button | major (fixed in `ce36c8e`, needs new build) |

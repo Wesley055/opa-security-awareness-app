@@ -5,12 +5,12 @@
   "keyId": "opa-production-release-20261006",
   "signerFingerprintSha256": "a3243b027e87ae180822b9a5e6fa8f962ba832d4eb7fe5c2cb6b387ce2755106",
   "apiOrigin": "https://opa-api-production-g4f6cxdyanfbaub0.southafricanorth-01.azurewebsites.net",
-  "build": "bff15790cde211aa9609c18acc2e9f902e8f7960",
+  "build": "7045bdec57a0d2aaadbf13a2cd3d57e9fd5961e1",
   "observedMigrationReadiness": "ready",
-  "httpsVerifiedAt": "2026-10-16T02:05:42.000Z",
-  "expiresAt": "2027-01-14T02:05:42.000Z",
-  "policySha256": "607be26e41de999a266cda4c804189b3b1796cca526cfc07140faf5e98146d30",
-  "envelopeSha256": "44afb923b62937ed76d740fa24d075cc2db44f0d6034346a61ac2f8175c44dda",
+  "httpsVerifiedAt": "2026-10-18T02:02:04.502Z",
+  "expiresAt": "2027-01-16T02:02:04.502Z",
+  "policySha256": "feb1693fff9614675bbf872180ca70aa848631e64e3aaabdb78f2607613ee9fa",
+  "envelopeSha256": "6a2028344953791d13974c94ebb32a2342fd11f56e0431c6deca1028bbf17906",
   "policyPath": "packages/environment-policy/release/production-endpoint.json",
   "signatureVerified": true
 }

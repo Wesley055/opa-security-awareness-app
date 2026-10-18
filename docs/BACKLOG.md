@@ -50,7 +50,10 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 - [x] EstateFlow API + migration 45 released (18 Oct 01:28 UTC).
 - [x] EstateFlow website promoted (Vercel, `87f9b1c`); Estate overview and Gate verified live.
 - [x] Endpoint policy re-signed for API `7045bde` (`9cc77df`, valid to 16 Jan 2027).
-- [ ] EAS builds iOS 7 / Android 22 + production APK; submit to stores only after Sunday testing passes.
+- [x] Android store build vc22 (`.aab`) built 17 Oct.
+- [ ] Production APK (fixed `production-apk` profile in `7f58f1a`) — rebuild if not yet produced.
+- [ ] iOS build 7: failed on missing iOS 16.0 deployment target (never committed for build 5); fixed in repo, rebuild. App Review currently holds **1.0.0 (5)**.
+- [ ] Submit to stores only after Sunday testing passes.
 - **Release rule:** after every API release, re-sign the endpoint policy (`sign-endpoint-policy.py --expect-build <sha>`) before any mobile build; the build-time check requires the live API build to match.
 - [x] Mobile enrollment UI (`ce36c8e`, in repo, ships with next app build): visible placeholders, status-bar padding, full button label, hidden reference from link, 4-digit fields, 8–64 password rule on enroll/activate/reset. tsc clean, 279 tests pass.
 - [ ] EAS builds Android + iOS from the agreed commit (runs on the founder's PC; needs Expo account).

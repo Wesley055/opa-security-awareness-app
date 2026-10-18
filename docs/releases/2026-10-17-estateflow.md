@@ -76,8 +76,15 @@ The old build left in staging (`d032e66`) cannot run on 45 migrations, so there 
 Vercel → Deployments → the newest commit on this branch → Promote.
 
 ## 9. Mobile builds (EAS, from your PC)
+First, after any API release, re-sign the endpoint policy (the build checks the live API build):
+`python ops\production-release\sign-endpoint-policy.py --expect-build <api sha>`, commit, push.
+iOS reads the app config before applying the profile, so set the profile values in the session too.
 ```powershell
 cd C:\Projects\OPA-release-simplification\apps\mobile-app
+npm ci
+$env:OPA_ENVIRONMENT = "production"
+$env:OPA_API_BASE_URL = "https://opa-api-production-g4f6cxdyanfbaub0.southafricanorth-01.azurewebsites.net"
+$env:OPA_ENDPOINT_POLICY_FILE = "../../packages/environment-policy/release/production-endpoint.json"
 npx eas-cli@latest build --platform all --profile production
 npx eas-cli@latest submit --platform android --latest
 npx eas-cli@latest submit --platform ios --latest

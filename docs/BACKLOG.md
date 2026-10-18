@@ -96,6 +96,10 @@ One Insight platform with industry modules, not separate engines: Insight Core â
 - [ ] REST API v1, organization-scoped API keys and webhooks: design after the presentation.
 - [ ] Pilot proposal document.
 
+### Internal CRM (built by the other agent; reviewed and deployed by Claude)
+- [ ] OPA's own internal CRM for sales and progress (leads, deals, stages, notes). Separate repo/folder and database from the OPA product; never the production API or production PostgreSQL.
+- [ ] Review before deployment: authentication and roles, no customer safety data, secrets in Key Vault (not in code), dependencies, backups. Deployment by Claude only, to its own resources.
+
 ### Operations and security
 - [ ] Move the PostgreSQL admin credential out of App Service settings.
 - [ ] Off-machine backup of the release signing key.

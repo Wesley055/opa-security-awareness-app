@@ -42,7 +42,14 @@ const settingNames = [
   "PII_DELIVERY_ACTOR_USER_ID",
 ];
 function fail() {
-  throw new Error("OPA environment preflight rejected configuration");
+  const error = new Error("OPA environment preflight rejected configuration");
+  // OPA_PREFLIGHT_DEBUG=1 names the rule that rejected (file and line only,
+  // never a value), so a refused build can be diagnosed without weakening it.
+  if (process.env.OPA_PREFLIGHT_DEBUG === "1") {
+    const at = (error.stack || "").split("\n")[2] || "";
+    error.message += " [rule " + at.trim().replace(/^at\s+/, "").replace(/.*[\\/]/, "") + "]";
+  }
+  throw error;
 }
 function classify(env) {
   const e = env.OPA_ENVIRONMENT;
@@ -53,6 +60,8 @@ function classify(env) {
       development: "development",
       preview: "staging",
       production: "production",
+      // Installable production APK for device testing; same endpoint and policy.
+      "production-apk": "production",
     }[env.EAS_BUILD_PROFILE] !== e
   )
     fail();

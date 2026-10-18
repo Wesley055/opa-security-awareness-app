@@ -4,6 +4,8 @@
 
 OPA Pulse is the internal commercial system for institutional acquisition and customer expansion, with OPA Academy as its governed knowledge foundation and Pulse Mail as each employee's authorized business conversation workspace. It serves Nigeria first and supports Africa/global operations through currencies, time zones, localization and country-specific policy configuration. It must never inherit customer Super Admin, Facility Operator or emergency responder privileges.
 
+Final founder decision: OPA Technologies Limited owns and independently operates the proprietary CRM, its source, schema, business rules and commercial records. Pulse is the authoritative CRM for accounts, contacts, leads, opportunities, proposals and commercial activity. No third-party CRM dependency or vendor selection exercise is required.
+
 Proposed pilot targets, measured against a four-week baseline: 95% of open opportunities have owner/next action/date; 30% lower median time from qualified brief to approved proposal; 90% of follow-ups completed within agreed SLA; 100% of customer proposals contain approved, evidence-backed capability versions; 100% of active users have unique employee accounts with MFA; zero unauthorized cross-territory or mailbox reads in release tests. Sample size, baseline period and exclusions accompany the report; targets are not guarantees.
 
 ## Users and jobs
@@ -42,7 +44,7 @@ P10: Academy supports Library, product facts, industry playbooks, proposal resou
 
 P11: People emits minimum employment/access events; Pulse handles invitation, activation, login, password/MFA, recovery, profile, preferences and sessions. Suspension/termination immediately fences local access, queued work and mailbox use. No payroll fields or unrestricted HR documents enter Pulse.
 
-P12: HubSpot import/export preserves external IDs, associations, owners, custom industry/stage mappings and currency; dry-run validation, conflicts and row errors precede application. One chosen source of truth per object/field; never run competing bidirectional masters.
+P12: OPA-native reviewed CSV/JSON intake and approved portable exports preserve Pulse IDs, relationships, owners, industry/stage values and currencies. Dry-run validation, duplicate detection and row errors precede application. Pulse allocates canonical CRM IDs and owns record revisions; imported source references are provenance only and cannot become a competing authority. No third-party CRM synchronization, compatibility adapter or ongoing external CRM master is in the initial scope.
 
 P13: Product requests can link to GitHub using a sanitized summary and opaque request ID. Customer identity, email, contract amounts, attachments and message text remain private. Future Connect contracts are explicit external adapters; no existing customer API is modified.
 
@@ -52,8 +54,8 @@ Proposed sizing envelope: 500 employees, 100,000 accounts, 1 million contacts, 2
 
 WCAG 2.2 AA target, keyboard complete, screen-reader names, 200% zoom, responsive 360/768/1440 widths, timezone-aware dates and low-bandwidth progressive loading. Read-only cached summaries may show age; never accept offline approval/send. No PII in offline caches by default.
 
-## Build versus buy
+## Proprietary ownership and implementation boundary
 
-Evaluate HubSpot-first against custom Pulse before coding: total three-year licenses/operations, mailbox privacy granularity, identity termination behavior, proposal fact/version enforcement, Academy governance, data residency/export and integration maintenance. Run the same synthetic scenarios against both. HubSpot-first reduces core CRM build burden but custom governance and licensing require validation; custom Pulse offers integrated control but creates substantial security/provider obligations. Proposed design is modular custom Pulse with a migration adapter; founder must choose based on measured trial and cost. Do not duplicate master contacts while evaluating.
+The decision to build OPA's own CRM is final. Implement the modular Pulse system in phases with comprehensive automated tests and OPA-controlled repositories, data and operations after separate implementation approval. A licensed CRM trial, comparison or adapter is not a phase gate. Commodity databases, libraries and infrastructure services may be assessed for licensing/security/portability without transferring CRM authority to a third-party CRM platform. Authorized Google Workspace/Microsoft 365 integrations provide mail/calendar transport and retain provider authority for their own mailbox/event state; they do not own Pulse commercial records.
 
 Out of scope: emergency dispatch, EstateFlow/mobile changes, payroll calculation, live employee onboarding, live customer imports, accounting ledger/revenue recognition, payment collection, autonomous campaigns and production implementation. Founder approval of this design precedes any prototype or implementation.

@@ -4,6 +4,8 @@
 
 Use an independent internal web application and backend modular monolith initially: Identity/Access, CRM, Commercial Catalog/Proposal, Mail, Academy, Workflow and Reporting modules. Separate workers perform provider sync, document rendering, safe scanning, exports and scheduled workflows. PostgreSQL holds transactional state; private object storage holds versioned documents; queue/outbox provides durable execution; permission-filtered search is derived and disposable. Do not share a database, schema, session cookie, OAuth client, signing key, service account or deployment pipeline with emergency/customer systems. Stack choices and versions are implementation decisions after approval.
 
+The proprietary Pulse codebase and commercial data plane are owned and operated by OPA Technologies Limited. Provider sync in this architecture means authorized mail/calendar synchronization only. There is no third-party CRM runtime, subscription, SDK, background synchronization or vendor availability dependency in the CRM request/write path.
+
 ```mermaid
 flowchart LR
   Employee[Individual employee] --> Web[Internal Pulse web]
@@ -36,6 +38,25 @@ ADR04: immutable document/content/quote versions and approval snapshots bind cus
 
 ADR05: transactional outbox + receiver inbox, at-least-once events and unique business-effect keys. No claim of universal exactly-once delivery, especially for remote email sends. Unknown provider send outcomes require reconciliation before retry.
 
+ADR06 — FINAL, founder decision, 18 October 2026: Pulse is the authoritative CRM for accounts, contacts, leads, opportunities, proposals and commercial activity. OPA owns canonical IDs, validation, revisions, lifecycle rules, permissions and persistence. The prior vendor-evaluation/CRM-compatibility direction is superseded and removed from the initial backlog. No later phase assumes a third-party CRM adapter. Mail/calendar remain optional provider adapters and cannot become CRM masters.
+
+ADR07: independent employee authentication, Pulse API hostname/audience, database credentials, network/security boundary, infrastructure accounts/projects, secret stores, queues, object storage, backups and operational access. Future Pulse infrastructure definitions live in a separate approved project/pipeline; do not modify existing OPA infrastructure to provision Pulse. No direct database cross-links or shared emergency-system authorization roles.
+
+## Authority and module ownership
+
+| Data / behavior | Authoritative owner | Integration rule |
+|---|---|---|
+| Accounts, branches, contacts, leads, opportunities, CRM activities | Pulse CRM | Only Pulse commands validate/write canonical records; reviewed files are intake, not synchronization |
+| Proposals, quotations, approvals, document versions | Pulse Commercial/Proposal | Exact immutable versions, fact references and hashes remain Pulse-owned |
+| Product facts, knowledge, learning and assessments | Pulse Academy/catalog | Approved evidence feeds proposals; no CRM vendor content service required |
+| Employment status/minimal employee reference | OPA People | Allowlisted lifecycle events only; no payroll or customer privileges |
+| Employee authentication and commercial authorization | Dedicated employee identity boundary / Pulse policy | IdP proves identity; Pulse evaluates local active employment and grants |
+| Original email and calendar event state | Authorized Google Workspace/Microsoft 365 mailbox/calendar | Provider ownership of transport/state does not permit provider writes to CRM masters |
+| Explicitly shared CRM conversation snapshot | Pulse CRM | Employee-approved snapshot with CRM ACL, separate from provider-private thread |
+| Forecasts/search/reporting | Derived Pulse projections | Rebuildable from Pulse authoritative records/events, never authoritative writes |
+
+Enforce module-owned tables and command interfaces; other modules read defined interfaces/projections rather than writing another module's data. Tests enforce dependency direction and prevent integration adapters bypassing policy. Disconnecting all mail/calendar providers must leave employee login, core CRM, proposal drafting, Academy and recorded analytics functional; send/sync actions show disconnected state.
+
 ## Integration contracts
 
 | Adapter | Authority and minimal exchange | Recovery / conflict |
@@ -45,7 +66,7 @@ ADR05: transactional outbox + receiver inbox, at-least-once events and unique bu
 | Google Workspace | Per-user OAuth authorization code + PKCE, state, business-domain/tenant validation. Candidate scopes gmail.readonly + gmail.send; drafts stored in Pulse; request gmail.modify only if provider label/read-state write is approved | Bounded initial sync, history cursor, watch renewal, resync after expired history; refresh token encrypted; denied consent means disconnected UI |
 | Microsoft 365 | Delegated Mail.Read + Mail.Send and offline_access, OIDC identity scopes; request Mail.ReadWrite only if provider draft/read-state mutations needed; no tenant-wide application mailbox access by default | Per-folder delta checkpoint, subscription renewal and retry, reconnect after invalid consent; use v1.0 API |
 | Calendar | Separately consented Google calendar events / Graph Calendars.ReadWrite only when employee enables write; own event/free-busy scope; no HR calendars | Persist provider event mapping and revision; conflicts prompt user; cancel/update explicit user action; timezone and DST tests |
-| HubSpot | Companies↔accounts, contacts↔contacts, deals↔opportunities; association mapping for branches/buying committee; owner map to approved employee IDs | Import preview, quarantined invalid rows, external key uniqueness; no implicit delete; per-field authority map, optimistic conflict review and export reconciliation |
+| OPA-native file intake/export | Versioned CSV/JSON schema for canonical Pulse entities, relationships, ownership and currencies; Pulse IDs allocated/validated locally | Preview, duplicate review, quarantined row errors, approved application; source references are provenance only; no polling, subscription or external CRM write-back |
 | GitHub requests | Allowlisted fields: request ID, industry taxonomy, redacted feature need, internal priority, approved capability reference | Human preview and approval; no raw customer artifacts; scope repo token narrowly, deduplicate by request ID |
 | Future OPA Connect | Versioned REST resources and signed events referencing opaque institution/integration IDs only | mTLS/service OAuth audience, scopes, replay protection, version negotiation; no emergency permissions or direct DB links |
 
@@ -69,6 +90,5 @@ Separate environments/accounts/secrets and backups; synthetic development fixtur
 - [Gmail scopes](https://developers.google.com/workspace/gmail/api/auth/scopes): use minimum scope; restricted-scope verification/security obligations must be assessed for the chosen distribution before implementation.
 - [Graph sendMail v1.0](https://learn.microsoft.com/en-us/graph/api/user-sendmail?view=graph-rest-1.0): acceptance is not proof of delivery; expose accepted separately from delivered.
 - [Graph message delta](https://learn.microsoft.com/en-us/graph/delta-query-messages): adapter tracks incremental changes within folders.
-- [HubSpot data movement](https://developers.hubspot.com/move-data): import/export adapter feasibility reference; entitlements and limits still require account-specific validation.
 
 These are integration design inputs, not confirmation that OPA has provider consent, licenses or approved apps.

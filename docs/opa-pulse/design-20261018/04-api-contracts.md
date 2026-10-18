@@ -31,6 +31,8 @@ Federated password change/recovery routes broker to the dedicated IdP; they do n
 
 Collection/detail GET and POST/PATCH exist for accounts, branches, contacts, leads, opportunities, tasks, meetings, objections, feature-requests, pilots and renewals. Create payloads follow required fields in data dictionary; owner/territory assignments validated against requester grant. No hard-delete CRUD endpoint for audited commercial records; POST /{resource}/{id}/archive requires reason and retention evaluation.
 
+Pulse APIs are the sole command authority for CRM records, including proposals and commercial activity. Clients/integrations cannot bypass domain validation or write a separate external master. Mail/calendar adapters only operate their provider resources and submit explicitly authorized Pulse commands when needed.
+
 | Operation | Contract and policy |
 |---|---|
 | POST /leads/{id}/qualify | qualification evidence, nextAction, scoreRuleVersion → qualified lead; missing budget is explicit unknown |
@@ -38,7 +40,7 @@ Collection/detail GET and POST/PATCH exist for accounts, branches, contacts, lea
 | POST /opportunities/{id}/transitions | targetStage, reason, evidenceRefs → opportunity+history; enforce PRD gates |
 | POST /duplicate-cases/{id}/merge-preview | candidateIds, precedence → conflict report and permission impact |
 | POST /duplicate-cases/{id}/merge | approvedPreviewHash, canonicalId → merge record; Ops only, recheck revisions |
-| POST /imports/hubspot/preview | uploadedFileId, mappingVersion, authorityMap → job/errors/conflicts |
+| POST /imports/preview | uploadedFileId, schemaVersion, resourceType, columnMapping → job/errors/duplicates; OPA CSV/JSON schema only, no CRM vendor adapter |
 | POST /imports/{id}/apply | previewHash, selectedRows, approvalId → job; changed inputs require fresh preview |
 | POST /exports | type, filters, columns, reason, approvalId → job; server intersects permission scope |
 | GET /jobs/{id}; GET /exports/{id}/download | requester/authorized reviewer only; short-lived URL after reauth |

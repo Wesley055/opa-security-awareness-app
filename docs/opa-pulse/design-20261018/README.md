@@ -1,12 +1,12 @@
 # OPA Pulse — founder review package
 
-OPA Technologies Limited • design v1.0 • 18 October 2026 • DESIGN ONLY
+OPA Technologies Limited • design v1.1 • 18 October 2026 • DESIGN ONLY
 
 Status: ready for founder design review; implementation is not authorized by this package. No live integrations, credentials, customer/employee data, product code, migrations or deployment changes are included. Every named customer, employee, amount and capability example is synthetic. Capability approval must use actual evidence before any customer delivery.
 
 ## Review route
 
-1. [Product requirements](01-product-requirements.md): scope, measurable outcomes, lifecycle rules and build/buy decision.
+1. [Product requirements](01-product-requirements.md): scope, measurable outcomes, lifecycle rules and final proprietary CRM decision.
 2. [Architecture](02-architecture.md): independent identity/data plane, integrations, failure recovery and decisions.
 3. [Data design](03-data-design.md) and [API contracts](04-api-contracts.md): entities, constraints, operations, events and examples.
 4. [Permissions](05-permissions.md) and [UX specification](06-ux-specification.md): screen inventory, actions, states and role boundaries.
@@ -16,6 +16,13 @@ Status: ready for founder design review; implementation is not authorized by thi
 8. [Static UX review boards](ux-review.html): founder-facing visual compositions for command center, personal workspace, account, opportunity, proposal, mail, Academy and identity. These are design illustrations, not a functioning CRM or synthetic prototype.
 9. [Traceability and verification](13-traceability.md): requested deliverables and acceptance coverage.
 10. [Academy learning design](14-academy-learning-design.md): six role paths, content lifecycle, assessments and People/Proposal contracts.
+11. [Delivery estimates and automated test strategy](15-delivery-estimates-testing.md): revised effort, ownership, phase gates and comprehensive test coverage.
+
+## Final founder architecture decision
+
+OPA Pulse is a fully proprietary CRM owned and independently operated by OPA Technologies Limited. It is the authoritative system for accounts, contacts, leads, opportunities, proposals and commercial activity. No third-party CRM platform, license, runtime, synchronization adapter or evaluation is an implementation prerequisite. This final decision supersedes the v1.0 vendor evaluation and compatibility requirements. Google Workspace and Microsoft 365 remain authorized employee mail/calendar provider options; they are not CRM dependencies.
+
+The full 64-screen enterprise scope, employee accounts, Proposal Studio, Academy, analytics, automation and extensible five-industry template engine remain approved design scope. Nigeria-first, Africa-ready and globally extensible behavior remains required. Implementation and production deployment each require separate approval.
 
 ## Isolation record
 
@@ -25,4 +32,4 @@ Tracker: [#42](https://github.com/Wesley055/opa-security-awareness-app/issues/42
 
 ## Founder decisions before implementation
 
-Approve custom Pulse shell with HubSpot compatibility versus licensed CRM first; approve commercial policy thresholds and retention defaults; nominate product-fact owners and security/privacy reviewers; confirm internal IdP/OPA People event authority and hosting region. These are explicit gates, not assumed decisions. Each specification uses proposed defaults so implementation can be estimated and reviewed without inventing production facts.
+The proprietary CRM decision is final and is not an open review gate. Remaining decisions: approve commercial policy thresholds and retention defaults; nominate product-fact owners and security/privacy reviewers; confirm internal IdP/OPA People event authority, hosting region, staffing and budget. These are explicit gates, not assumed decisions. Each specification uses proposed defaults so implementation can be estimated and reviewed without inventing production facts.

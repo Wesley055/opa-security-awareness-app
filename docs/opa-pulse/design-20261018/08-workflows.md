@@ -26,7 +26,7 @@ Every workflow has versioned trigger/conditions/actions, owner, policy, dedup ef
 | F20 Content review due | Review date minus 14 days → owner task, expiry → block new fact use | Product/Academy owner; content version+threshold; notify affected proposal owners |
 | F21 Content withdrawn | Enumerate affected proposal versions/learning → block release, remediation review and reassignment | Product owner + Ops; delivered docs remain auditable; no automated customer correction send |
 | F22 Assessment submitted | Server-grade immutable attempt → progress, remediation or completion event | Academy owner; pass default 80%, max 3 attempts/day proposed, 24h after third fail; policy configurable |
-| F23 Import/export requested | Authorized preview and independent approval → apply/scoped file | Ops/privacy; job+preview hash; partial failure report, no all-or-nothing claim across remote systems |
+| F23 OPA-native import/export requested | Versioned CSV/JSON preview and independent approval → Pulse validation/apply or scoped portable file | Ops/privacy; batch+row key and preview hash; partial errors explicit, no third-party CRM synchronization/write-back |
 | F24 Product request approved | Sanitized preview → narrowly scoped GitHub issue/link | Product owner; request ID+destination; no raw customer or employee evidence |
 | F25 Retention deadline | No legal hold + approved policy → purge eligible cache/object/projection | Privacy/security; two-person destructive approval; purge evidence without retained PII |
 | F26 Lifecycle/provider heartbeat stale | Threshold exceeded → block entitlement increases/outbound effects, alert operations | Security; heartbeat epoch; restoration requires reconciliation before release |

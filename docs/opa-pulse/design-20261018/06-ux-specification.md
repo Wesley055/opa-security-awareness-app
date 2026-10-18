@@ -78,7 +78,7 @@ Each ID is an independently testable screen or major dialog. The audience in per
 | S03 /admin/territories | Scoped management | Hierarchy/memberships/routing policy and transfer preview | Cycles, unassigned coverage, ownership reassignment |
 | S04 /admin/catalog | Ops/product reviewers | Product facts, status, price-book/template versions | No evidence, expiry, capability withdrawal |
 | S05 /admin/workflows | Ops/security scope | Catalog, versions, dry-run, approvals, run/dead-letter inspector | Outbound disabled, replay blocked, overdue review |
-| S06 /admin/integrations | Scoped admin | People/provider health, HubSpot mappings, consent metadata | No token values, revoked connection, checkpoint stale |
+| S06 /admin/integrations | Scoped admin | People, mail/calendar and approved Connect health, consent metadata | No token values, revoked connection, checkpoint stale; no CRM vendor setup |
 | S07 /admin/imports/:id | Ops | Mapping, duplicate/conflict preview, row errors, apply | Partial failure, authority conflict, expired approval |
 | S08 /admin/exports/:id | Requester/reviewer | Scope/columns/reason, approve, expiry/download audit | No self-approve, retention hold, scope changed |
 | S09 /admin/audit | Security/business scoped | Search metadata, correlation timeline, verify integrity | Bodies/secrets excluded, denied event visible by policy |

@@ -2,6 +2,8 @@
 
 This is a specification, not executable DDL or a migration. PostgreSQL is proposed. UUID primary IDs, UTC timestamptz, explicit IANA timezones for scheduling, ISO currency, fixed decimal money (never floating point), created_by/at, updated_by/at and optimistic version apply to mutable business entities. All tables carry organization_id; composite foreign keys prevent cross-organization references. Employee identity is globally unique within the dedicated internal boundary. Soft deletion does not bypass retention or legal hold.
 
+Pulse is the authoritative CRM: canonical account/contact/lead/opportunity/proposal/activity IDs and revisions are allocated and governed here. No vendor CRM IDs, sync cursors or external field-authority rules are required. External mappings below exist only for approved People, mail/calendar, GitHub and future Connect boundaries; a file intake source key is audit provenance, not record authority.
+
 ## Entity dictionary
 
 | Domain / entity | Required fields and relationships | Invariants / access |
@@ -40,6 +42,7 @@ This is a specification, not executable DDL or a migration. PostgreSQL is propos
 | assessment_version / attempt / progress | question/rubric version, pass_score; employee, answers_ref, score, submitted_at; module version, completion/ack | Attempts immutable; manager sees authorized summary, not unrelated HR records |
 | workflow_definition / run / step / effect | version, trigger, conditions; event ID, state; approval/version, attempts; unique effect_key | Run pins definition; all external effects re-authorize |
 | event_inbox / outbox / external_mapping | producer+event_id, sequence, payload_hash; aggregate_id/version; provider+object_type+external_id+local_id | Unique producer+event ID and mapping key; replay mismatch is security alert |
+| import_batch / import_row | schema_version, source_file_hash, requested_by, preview_hash, approval_id, state; batch_id, row_key, normalized_payload, validation_errors, canonical_id? | Unique batch+row key; approved preview binds exact file/rows/versions; no vendor-specific fields or automated write-back |
 | forecast_snapshot / metric_snapshot / fx_rate | as_of, filters, probabilities, currency_basis, coverage, source_revision, permission_scope; currency_pair, rate, date, source | No mixing forecast currencies without pinned FX |
 | objection / feature_request / pilot | opportunity_id, taxonomy, approved_sanitized_summary; github_ref?; pilot dates, criteria, outcome | Customer evidence remains private; no confidential GitHub text |
 | export_job / audit_event / retention_hold | requester, scope, query_hash, approval, expiry; actor, action, object, reason, result, correlation, prev_hash; object scope, authority, release | Audit append-only; metadata excludes mail bodies/secrets; holds block purge |

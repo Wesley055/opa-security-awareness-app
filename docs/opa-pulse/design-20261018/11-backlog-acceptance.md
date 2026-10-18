@@ -1,10 +1,10 @@
 # Phased implementation backlog and acceptance criteria
 
-Everything below is future work after founder design approval. Estimates are relative complexity (S/M/L), not release promises. No implementation or deployment is authorized here. Teams/owners are proposed responsibility roles, not assignments to named employees.
+Everything below is future work after separate implementation approval. The proprietary CRM decision is final; no CRM vendor trial, license or synchronization work is a dependency. Estimates use relative complexity (S/M/L), with revised effort ranges and comprehensive automated-test gates in [delivery estimates and testing](15-delivery-estimates-testing.md). No implementation or deployment is authorized here. Teams/owners are proposed responsibility roles, not assignments to named employees.
 
 | ID / phase | Slice / owner / size / dependencies | Definition of acceptance |
 |---|---|---|
-| B00 / 0 | Founder decisions and build/buy trial; founder/Ops, M | Approve scope/limits/retention/IdP/region; run synthetic scenarios for HubSpot/custom and record total cost, gaps and master-data choice |
+| B00 / 0 | Proprietary delivery planning and policy closure; founder/Ops/platform, M | Record final Pulse authority and OPA ownership; approve staffing/budget, limits/retention/IdP/region and module owners; no CRM vendor evaluation gate |
 | B01 / 0 | Dedicated boundary and contract schemas; platform/security, M; B00 | OpenAPI/event schemas validate; separate issuer/audience/data/secrets/storage; customer tokens rejected; no production dependencies |
 | B02 / 0 | Design system/accessibility shell; UX, M; B00 | All navigation roles, responsive 360/768/1440 and 200% zoom; keyboard/focus, contrast and table/chart alternatives verified |
 | B03 / 1 | Employee identity/lifecycle; identity/security, L; B01 | Unique People link, invite/activation/login/recovery/password/MFA/session/profile/preferences, immediate local revocation and reconciliation tests pass |
@@ -12,7 +12,7 @@ Everything below is future work after founder design approval. Estimates are rel
 | B05 / 1 | Personal workspace/tasks/calendar shell; CRM, M; B03–04 | Own leads/deals/tasks/learning visible; team oversight explicitly scoped; no other mailbox/private notes |
 | B06 / 2 | Accounts/branches/contacts/dedup; CRM/Ops, L; B04 | Hierarchy cycle blocked; buying committee multi-links; duplicate preview/merge retains ACL/history; contact minimization |
 | B07 / 2 | Lead/opportunity lifecycle; CRM, L; B06 | Scoring explainable, gates enforced, convert idempotent; pilot distinct; reopen preserves stage history/next action |
-| B08 / 2 | Import/export compatibility; integration/Ops, M; B06–07 | HubSpot external IDs/associations/owner/currency/stage round-trip reconciles; dry run and row errors; export approval/expiry |
+| B08 / 2 | OPA-native file intake and approved export; CRM/Ops, M; B06–07 | Versioned CSV/JSON validation preserves Pulse IDs/relationships/owner/currency; dry run, duplicate/row errors, replay safety and export approval/expiry; no CRM synchronization adapter |
 | B09 / 3 | Academy content/fact registry; product/learning, L; B04 | Six role paths, versioned audience/evidence/owner/expiry, independent approval; LIVE/IN DEVELOPMENT mapping cannot overstate facts |
 | B10 / 3 | Assessments/onboarding progress; learning/HR, M; B03/B09 | Version-pinned attempts, server grading, configurable retry/remediation and manager/HR progress summary only; dedup assignment |
 | B11 / 3 | Proposal templates/quotation; commercial/product, L; B07/B09 | All five industries + sixth metadata-only template work; recurring/setup/discount/tax/FX/rounding gates; no unsupported claims |
@@ -58,8 +58,13 @@ Everything below is future work after founder design approval. Estimates are rel
 | T25 Privacy/export | Grant removed during export → render/download denied; legal hold prevents purge; restore reapplies tombstones |
 | T26 Untrusted input | Email HTML/attachment/AI prompt requests secrets or cross-mailbox tools → no execution/access; sanitized preview and reviewed output |
 | T27 Accessibility/load | All critical flows keyboard/screen reader at target widths/zoom and PRD load envelope → agreed budgets pass with evidence |
-| T28 HubSpot/Connect | Repeat import/webhook with same key → one mapped effect; conflicts/quarantined PII don't publish to GitHub |
+| T28 Native intake/Connect | Repeat OPA file application/webhook with same key → one authorized effect; invalid rows quarantined and confidential data cannot publish to GitHub |
+| T29 Proprietary authority | Block all third-party CRM hosts/credentials or omit their SDKs → Pulse core accounts/contacts/leads/opportunities/proposals/activity, Academy and analytics still operate; all writes use Pulse IDs/revisions |
+| T30 Mail independence | Disconnect Google/Microsoft test mailbox/calendar → core CRM and employee login remain available; only provider actions become disconnected; no change to CRM record authority |
+| T31 Modular isolation | Dependency/database-policy tests → modules cannot write outside owned command contracts, cross-boundary customer/emergency DB/API/identity access is denied |
 
 ## Verification gates
 
 Phase exit requires contract/policy tests for changed boundary, deterministic financial fixtures, workflow fake-clock/replay tests and relevant accessibility checks. Provider sandbox tests use authorized test tenants after implementation approval. DOCX/PDF require render-and-visual QA, not text extraction alone. No tests have been run against existing production systems. Founder UAT walks W01→C08→C10→P03→P05→M03 and I01→A04 with a deliberate suspension/expired-fact scenario.
+
+Automated gates cover domain rules, database constraints and row policies, API/event contracts, multi-role browser flows, provider-failure simulations, workflow concurrency/replay, decimal/FX arithmetic, content/approval invariants, accessibility, load and isolated backup recovery. See the detailed suite/phase mapping in document 15. Acceptance scenarios now total 31; the 64-screen inventory, eight review boards, 26 workflows and all five industry templates are retained.

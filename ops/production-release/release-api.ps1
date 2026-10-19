@@ -50,6 +50,13 @@ $settings = @(
   @{ name = "OPA_BUILD_SHA"; value = $build; slotSetting = $false },
   @{ name = "OPA_ENVIRONMENT_POLICY_FILE"; value = "/home/opa-production-policy/api-release-$short.signed.json"; slotSetting = $false }
 )
+# A swap exchanges settings, so staging may hold the previous release's Key Vault
+# references. Start from production's current references, then apply any rotation.
+$prodRefs = az webapp config appsettings list -g $rg -n $app -o json | ConvertFrom-Json | Where-Object { $_.value -like "@Microsoft.KeyVault(*" -and -not $_.slotSetting }
+foreach ($ref in $prodRefs) {
+  if (-not ($SecretId -and $ref.name -eq $SecretName)) { $settings += @{ name = $ref.name; value = $ref.value; slotSetting = $false } }
+}
+"Key Vault references copied from production: $(@($prodRefs).Count)"
 if ($SecretId) { $settings += @{ name = $SecretName; value = "@Microsoft.KeyVault(SecretUri=$SecretId)"; slotSetting = $false } }
 $settingsFile = Join-Path $dir "staging-settings.json"
 [IO.File]::WriteAllText((Join-Path (Get-Location) $settingsFile), (ConvertTo-Json -InputObject $settings -Depth 3))

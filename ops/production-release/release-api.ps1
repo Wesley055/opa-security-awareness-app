@@ -54,11 +54,13 @@ $settings = @(
 )
 # A swap exchanges settings, so staging may hold the previous release's Key Vault
 # references. Start from production's current references, then apply any rotation.
-$prodRefs = az webapp config appsettings list -g $rg -n $app -o json | ConvertFrom-Json | Where-Object { $_.value -like "@Microsoft.KeyVault(*" -and -not $_.slotSetting }
+# Parentheses: Windows PowerShell 5.1 emits a JSON array as ONE object unless enumerated.
+$prodRefs = @((az webapp config appsettings list -g $rg -n $app -o json | ConvertFrom-Json)) | ForEach-Object { $_ } | Where-Object { $_.value -like "@Microsoft.KeyVault(*" -and -not $_.slotSetting }
 foreach ($ref in $prodRefs) {
   if (-not ($SecretId -and $ref.name -eq $SecretName)) { $settings += @{ name = $ref.name; value = $ref.value; slotSetting = $false } }
 }
-"Key Vault references copied from production: $(@($prodRefs).Count)"
+"Key Vault references copied from production: $(@($prodRefs).Count) ($((@($prodRefs) | ForEach-Object { $_.name }) -join ', '))"
+if (-not $SecretId -and @($prodRefs).Count -eq 0) { Fail "no Key Vault references found on production; refusing to stage with possibly stale secrets" }
 if ($SecretId) { $settings += @{ name = $SecretName; value = "@Microsoft.KeyVault(SecretUri=$SecretId)"; slotSetting = $false } }
 $settingsFile = Join-Path $dir "staging-settings.json"
 [IO.File]::WriteAllText((Join-Path (Get-Location) $settingsFile), (ConvertTo-Json -InputObject $settings -Depth 3))
@@ -81,7 +83,7 @@ if (-not $ready) {
   try {
     $hdr = @{ Authorization = "Bearer $(az account get-access-token --query accessToken -o tsv)" }
     $today = (Get-Date).ToUniversalTime().ToString("yyyy_MM_dd")
-    $file = Invoke-RestMethod "$stg/api/vfs/LogFiles/" -Headers $hdr | Where-Object { $_.name -like "$today*_default_docker.log" } | Select-Object -Last 1
+    $file = @((Invoke-RestMethod "$stg/api/vfs/LogFiles/" -Headers $hdr)) | ForEach-Object { $_ } | Where-Object { $_.name -like "$today*_default_docker.log" } | Select-Object -Last 1
     if ($file) { Write-Host "--- last lines of $($file.name) ---"; ((Invoke-WebRequest $file.href -Headers $hdr -UseBasicParsing).Content -split "`n" | Select-Object -Last 15) }
   } catch { "could not read staging log" }
   az webapp stop -g $rg -n $app --slot staging -o none; Fail "staging never became ready; production NOT changed, staging stopped"

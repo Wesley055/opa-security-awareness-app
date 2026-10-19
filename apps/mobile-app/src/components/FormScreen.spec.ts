@@ -4,7 +4,7 @@ import { join } from "node:path";
 const read = (f: string) => readFileSync(join(__dirname, "../..", f), "utf8");
 
 describe("form screens stay readable on every phone", () => {
-  it.each(["app/(auth)/enroll.tsx", "app/(auth)/activate.tsx", "app/visitors.tsx"])(
+  it.each(["app/(auth)/enroll.tsx", "app/(auth)/activate.tsx", "app/(auth)/register.tsx", "app/visitors.tsx"])(
     "%s uses the safe-area form layout, no fixed line heights, no centred overflow",
     (file) => {
       const src = read(file);
@@ -23,4 +23,11 @@ describe("form screens stay readable on every phone", () => {
   it("the enroll screen asks for the short reference", () => {
     expect(read("app/(auth)/enroll.tsx")).toContain('placeholder="OPA-XXXXXX"');
   });
+});
+it("Create account explains what it is and points invited people to Accept invitation", () => {
+  const src = read("app/(auth)/register.tsx");
+  expect(src).toContain("Create a personal account");
+  expect(src).toContain("Your administrator sends you an invitation");
+  expect(src).not.toContain("Request enrollment");
+  for (const label of ["First name", "Last name", "Email", "Phone number"]) expect(src).toContain(`>${label}</P>`);
 });

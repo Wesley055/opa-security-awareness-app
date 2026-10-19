@@ -1,15 +1,12 @@
 import { useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
 } from 'react-native';
+import { FormScreen, P } from '../../src/components/FormScreen';
 import { router } from 'expo-router';
 import { useAuthStore } from '../../src/store/authStore';
 
@@ -37,7 +34,15 @@ export default function RegisterScreen() {
       !normalizedEmail ||
       !phoneNumber.trim()
     ) {
-      setError('All fields are required.');
+      setError('Fill in all four fields.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(normalizedEmail)) {
+      setError('Enter your full email address, e.g. name@example.com.');
+      return;
+    }
+    if (!/^[+\d\s()-]{7,20}$/.test(phoneNumber.trim())) {
+      setError('Enter your phone number with digits only, e.g. 08012345678.');
       return;
     }
 
@@ -83,77 +88,75 @@ export default function RegisterScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-    >
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
+    <FormScreen>
+      <P style={styles.logo}>OPA</P>
+      <P accessibilityRole="header" style={styles.title}>Create a personal account</P>
+      <P>
+        For your own safety (SOS, SafeWalk, emergency contacts). We send a 4-digit code to your email and another to your phone to confirm they are yours.
+      </P>
+      <TouchableOpacity onPress={() => router.push('/(auth)/enroll')} disabled={isSubmitting}>
+        <P style={styles.note}>
+          Joining an estate, bank or school? Your administrator sends you an invitation. Tap here to accept it instead.
+        </P>
+      </TouchableOpacity>
+
+      {error ? <P accessibilityRole="alert" style={styles.error}>{error}</P> : null}
+
+      <P style={styles.label}>First name</P>
+      <TextInput style={styles.input} placeholder="e.g. Amina" accessibilityLabel="First name"
+        placeholderTextColor="#8B949E" value={firstName}
+        onChangeText={setFirstName} autoCapitalize="words"
+        editable={!isSubmitting} />
+
+      <P style={styles.label}>Last name</P>
+      <TextInput style={styles.input} placeholder="e.g. Bello" accessibilityLabel="Last name"
+        placeholderTextColor="#8B949E" value={lastName}
+        onChangeText={setLastName} autoCapitalize="words"
+        editable={!isSubmitting} />
+
+      <P style={styles.label}>Email</P>
+      <TextInput style={styles.input} placeholder="name@example.com" accessibilityLabel="Email"
+        placeholderTextColor="#8B949E" value={email}
+        onChangeText={setEmail} autoCapitalize="none" autoCorrect={false}
+        keyboardType="email-address" textContentType="emailAddress"
+        editable={!isSubmitting} />
+
+      <P style={styles.label}>Phone number</P>
+      <TextInput style={styles.input} accessibilityLabel="Phone number"
+        placeholder="e.g. 08012345678"
+        placeholderTextColor="#8B949E" value={phoneNumber}
+        onChangeText={setPhoneNumber} keyboardType="phone-pad"
+        textContentType="telephoneNumber" editable={!isSubmitting} />
+
+      <TouchableOpacity
+        style={[styles.button, isSubmitting && styles.buttonDisabled]}
+        onPress={handleRegister}
+        disabled={isSubmitting}
+        activeOpacity={0.85}
+        accessibilityRole="button"
       >
-        <Text style={styles.logo}>OPA</Text>
-        <Text style={styles.subtitle}>Create your account</Text>
+        {isSubmitting ? (
+          <ActivityIndicator color="#08111A" />
+        ) : (
+          <Text style={styles.buttonText}>Send my verification codes</Text>
+        )}
+      </TouchableOpacity>
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
-
-        <TextInput style={styles.input} placeholder="First name"
-          placeholderTextColor="#8B949E" value={firstName}
-          onChangeText={setFirstName} autoCapitalize="words"
-          editable={!isSubmitting} />
-
-        <TextInput style={styles.input} placeholder="Last name"
-          placeholderTextColor="#8B949E" value={lastName}
-          onChangeText={setLastName} autoCapitalize="words"
-          editable={!isSubmitting} />
-
-        <TextInput style={styles.input} placeholder="Email"
-          placeholderTextColor="#8B949E" value={email}
-          onChangeText={setEmail} autoCapitalize="none" autoCorrect={false}
-          keyboardType="email-address" textContentType="emailAddress"
-          editable={!isSubmitting} />
-
-        <TextInput style={styles.input}
-          placeholder="Phone number, e.g. 08012345678"
-          placeholderTextColor="#8B949E" value={phoneNumber}
-          onChangeText={setPhoneNumber} keyboardType="phone-pad"
-          textContentType="telephoneNumber" editable={!isSubmitting} />
-
-
-        <TouchableOpacity
-          style={[styles.button, isSubmitting && styles.buttonDisabled]}
-          onPress={handleRegister}
-          disabled={isSubmitting}
-          activeOpacity={0.85}
-        >
-          {isSubmitting ? (
-            <ActivityIndicator color="#08111A" />
-          ) : (
-            <Text style={styles.buttonText}>Request enrollment</Text>
-          )}
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => router.push('/(auth)/login')}
-          disabled={isSubmitting}
-          activeOpacity={0.85}
-        >
-          <Text style={[styles.link, isSubmitting && styles.linkDisabled]}>
-            Already have an account? Sign in
-          </Text>
-        </TouchableOpacity>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      <TouchableOpacity
+        onPress={() => router.push('/(auth)/login')}
+        disabled={isSubmitting}
+        activeOpacity={0.85}
+      >
+        <P style={[styles.link, isSubmitting && styles.linkDisabled]}>
+          Already have an account? Sign in
+        </P>
+      </TouchableOpacity>
+    </FormScreen>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#08111A' },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 40,
-  },
   logo: {
     fontSize: 40,
     fontWeight: '900',
@@ -161,17 +164,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 4,
   },
-  subtitle: {
-    fontSize: 15,
-    color: '#8B949E',
-    textAlign: 'center',
-    marginBottom: 24,
-  },
+  title: { fontSize: 22, fontWeight: '700', color: '#FFFFFF' },
+  note: { color: '#5EEAD4', fontSize: 15 },
+  label: { color: '#FFFFFF', fontWeight: '600', fontSize: 15, marginBottom: -6 },
   error: {
-    color: '#FF5A36',
-    textAlign: 'center',
-    marginBottom: 16,
-    fontSize: 13,
+    color: '#FF7B72',
+    fontSize: 15,
   },
   input: {
     backgroundColor: '#151D24',

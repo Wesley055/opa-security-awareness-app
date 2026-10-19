@@ -75,6 +75,7 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 - [ ] Estate notices to all residents.
 
 ### Platform
+- [ ] **Ask to join my estate / organization** (design first, not built): a person without an invitation asks to join; the facility admin gets an email + a queue in the Command Center to approve or decline; approval sends the normal invitation (codes). Decide whether open personal sign-up stays on for estates.
 - [ ] Staff profiles (Monday): display name, phone, notification settings and in-session password change for operators, facility admins and technical support; photo **mandatory for operators** (cannot go on duty without an approved photo), optional for others; residents see the responding operator's name and photo during an active SOS; no demo/placeholder staff names in production.
 - [ ] Switch off background workers in the staging slot (slot setting), so a build waiting in staging never sends messages or alerts.
 - [ ] Technical Support workspace, phase 1: Accounts & OTP diagnostics, Notification diagnostics (metadata only; codes never shown).
@@ -119,4 +120,5 @@ Record each gap as: date · role · screen · what happened · expected · sever
 | 18 Oct | Tester | Android install | APK will not install over the Play/older build ("package conflicts") | Clear instruction | minor (uninstall first; note in tester guide) |
 | 18 Oct | Resident | Mobile enroll | "Invitation reference" is the 36-character request ID (UUID): impossible to type, only works via the link, and the link opens the website, not the app | Short reference a person can type or paste, or no reference at all (email/phone + both codes) | major (fixed `19ff3ab`: `OPA-XXXXXX` in SMS + email, no DB change; release 18 Oct) |
 | 18 Oct | Resident | Mobile enroll (Android) | Intro text cut off ("…then choose your" — "password." missing) | Full text at any system font size | major (fixed `19ff3ab`: safe-area + keyboard layout, no fixed line heights; next APK vc23) |
+| 18 Oct | Public | Mobile Create account | "Request enrollment" unclear: fields had no labels, raw error ("email must be an email"), and it was not said that this creates a **personal** account (codes go to the person; nothing goes to a facility admin) | Plain purpose, visible labels, plain errors, route invited people to Accept invitation | major (fixed in next APK) |
 | 17 Oct | Resident | Mobile enroll (installed build) | Fields empty on one Android phone (invisible placeholders); title under status bar; button text cut | Readable labels and button | major (fixed in `ce36c8e`, needs new build) |

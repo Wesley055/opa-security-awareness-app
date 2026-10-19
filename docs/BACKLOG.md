@@ -123,7 +123,7 @@ Record each gap as: date · role · screen · what happened · expected · sever
 | Date | Role | Screen | What happened | Expected | Severity |
 |---|---|---|---|---|---|
 | 17 Oct | Facility admin | Dashboard | Only Residents and Reports; looks empty | An estate overview | major |
-| 17 Oct | Super admin | Invite | SMS never delivered: Africa's Talking returns 401 (email delivered). **Cause (18 Oct):** a new key was generated on the live app during sandbox setup, revoking production's key. Fix: `docs/releases/2026-10-18-sms-key-rotation.md` | SMS within a minute | blocker (Sunday) |
+| 17 Oct | Super admin | Invite | SMS never delivered: Africa's Talking returns 401 (email delivered). **Cause (18 Oct):** a new key was generated on the live app during sandbox setup, revoking production's key. Fix: new key released in `79b6120` | SMS within a minute | blocker — **FIXED, verified 19 Oct 07:06 UTC**: Technical Support invitation SMS + email delivered to a Nigerian number |
 | 18 Oct | Build | iOS EAS | `pod install`: no RCT-Folly for Picovoice voice-processor (Expo 54 prebuilt RN) | Build passes | blocker (fixed `e0309c1`: build RN from source) |
 | 18 Oct | Build | Android APK | `production-apk` rejected at "Read app config" (endpoint check had its own profile list) | APK builds | blocker (fixed `b13dcf2`; APK f62a643a built) |
 | 18 Oct | Tester | Android install | APK will not install over the Play/older build ("package conflicts") | Clear instruction | minor (uninstall first; note in tester guide) |

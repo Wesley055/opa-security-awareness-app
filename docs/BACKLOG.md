@@ -53,7 +53,7 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 - [x] Endpoint policy re-signed for API `7045bde` (`9cc77df`, valid to 16 Jan 2027).
 - [x] Android store build vc22 (`.aab`) built 17 Oct.
 - [x] Production APK vc23 (`5e82ad86`) built from API `79b6120` policy; installed on the Android test phone 19 Oct; enroll / create-account screens verified.
-- [ ] iOS build 7: failed on missing iOS 16.0 deployment target (never committed for build 5); fixed in repo, rebuild. App Review currently holds **1.0.0 (5)**.
+- [x] iOS build 7 **built 19 Oct** (`fb49719e`) after fixes `04678bf` (iOS 16.0), `e0309c1` (React Native from source for Picovoice/RCT-Folly), endpoint policy for API `79b6120`. Next: TestFlight. App Review currently holds **1.0.0 (5)**.
 - [ ] Submit to stores only after Sunday testing passes.
 - **Release rule:** after every API release, re-sign the endpoint policy (`sign-endpoint-policy.py --expect-build <sha>`) before any mobile build; the build-time check requires the live API build to match.
 - [x] Mobile enrollment UI (`ce36c8e`, in repo, ships with next app build): visible placeholders, status-bar padding, full button label, hidden reference from link, 4-digit fields, 8–64 password rule on enroll/activate/reset. tsc clean, 279 tests pass.

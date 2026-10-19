@@ -85,6 +85,14 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 - [ ] Mobile enrollment screen: 4-digit codes + new password rule (committed in `d032e66`, ships with next app build).
 - [ ] Review the ~100 uncommitted files in `C:\Projects\OPA` (`integration/institutional-security`); keep or discard deliberately.
 
+### Monday 19 Oct morning — pick up here
+Done overnight: SMS fixed (API `79b6120`), APK vc23 + iOS build 7 built, pilot facility **Quartz** (COMMISSIONING) with Technical Support **Alex Moore** active and assigned.
+1. [ ] **Build "Retire test account"** (Super Admin): deactivate an old test/demo account and release its phone + email, with reason, audited; refused for active staff and Super Admin. Then retire the demo accounts. *Blocks the pilot: every tested number is held by an old account.*
+2. [ ] Vercel: promote `a5750d2` or later (readable enroll Resume step).
+3. [ ] iOS: `eas submit --platform ios --latest` → TestFlight 1.0.0 (7).
+4. [ ] Pilot: Alex re-invites **Matt Hays** (first Facility Admin) → Matt invites **Philips** (operator) → residents (single + bulk). Then SOS + Google Maps, silent SOS (lock screen / foreground / background), airplane-mode buffering, AIR / Insight.
+5. [ ] **OPA Pulse (internal CRM)**: review the other agent's branch `codex/opa-pulse-design-20261018` (auth and roles, no customer safety data, secrets in Key Vault, dependencies, backups; separate database and resources from OPA production), then deploy to its own resources.
+
 ### Monday 19 Oct build (one API + web + app release, Monday night)
 - [ ] **Staff profiles** (needs migration 46: photo): photo (mandatory for operators, admin-approved), display name, phone, notification settings; residents see the responding operator's name + photo during SOS.
 - [ ] **In-session password change** and **sign out** on every staff screen (web) and the app settings screen.

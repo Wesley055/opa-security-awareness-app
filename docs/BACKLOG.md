@@ -19,7 +19,7 @@ Last updated: 2026-10-18
 Each failure gets: steps to reproduce, expected vs actual, severity, owner, evidence, and a row in "Gaps found".
 
 1. Authentication and authorization: Super Admin, Technical Support, Facility Admin, Operator, Head Office
-2. Resident onboarding: invitation, 4-digit email + SMS codes, password rule, activation (web and both apps)
+2. Resident onboarding: invitation, short reference, 4-digit email + SMS codes, password rule, activation (web and both apps); **bulk invitation** (2–3 real rows from Command Center → Residents → Bulk add)
 3. EstateFlow: visitor pass (QR + code), gate entry, exit, overstay alert, visitor context on SOS
 4. Android and iOS: install, sign in, SOS, notifications, mobile UI
 5. Providers and billing: Africa's Talking (fix 401, live username + new key, sender ID, one real SMS), Resend (delivery + spam placement), Google Maps, Azure billing / budgets
@@ -75,7 +75,7 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 - [ ] Estate notices to all residents.
 
 ### Platform
-- [ ] **Onboarding model (final, Issue #47, 18 Oct):** (1) Create OPA account = personal only, no facility access; (2) Accept invitation = short reference + two 4-digit codes; (3) **Join your estate** = optional, off by default, signed-in users only, estate-issued join code (no admin identity shown), Command Center queue with batch approve/decline, no estate access until approved. Schools/banks invitation-only by default. Design sign-off before code; build after Providus.
+- [ ] **Onboarding model (final, Issue #47, 18 Oct):** (1) Create OPA account = personal only, no facility access; (2) Accept invitation = short reference + two 4-digit codes; (3) **Join your estate** = optional, off by default, signed-in users only, estate-issued join code (no admin identity shown), Command Center queue with batch approve/decline, no estate access until approved. Schools/banks invitation-only by default. Design sign-off before code; build after Providus. **Bulk invitation with emails only** (resident adds and verifies own phone during activation) — see Issue #47 addendum.
 - [ ] Staff profiles (Monday): display name, phone, notification settings and in-session password change for operators, facility admins and technical support; photo **mandatory for operators** (cannot go on duty without an approved photo), optional for others; residents see the responding operator's name and photo during an active SOS; no demo/placeholder staff names in production.
 - [ ] Switch off background workers in the staging slot (slot setting), so a build waiting in staging never sends messages or alerts.
 - [ ] Technical Support workspace, phase 1: Accounts & OTP diagnostics, Notification diagnostics (metadata only; codes never shown).

@@ -65,10 +65,16 @@ export class NotificationService {
     if (!this.protectedSnapshots)
       throw new BadRequestException("Protected outbox unavailable.");
     const data = [];
+    const savepoints = typeof (tx as { $executeRawUnsafe?: unknown }).$executeRawUnsafe === "function";
     for (const value of values) {
+      // A savepoint keeps a failed protection step (including a database error)
+      // from aborting the SOS transaction itself.
+      if (savepoints) await tx.$executeRawUnsafe("SAVEPOINT opa_contact_alert");
       try {
         data.push(await this.protectedSnapshots.notificationData(tx, value));
+        if (savepoints) await tx.$executeRawUnsafe("RELEASE SAVEPOINT opa_contact_alert");
       } catch (error) {
+        if (savepoints) await tx.$executeRawUnsafe("ROLLBACK TO SAVEPOINT opa_contact_alert");
         // An SOS must never fail because a contact alert cannot be protected
         // (e.g. a new facility without a delivery identity yet). Record the
         // alert as FAILED with no plaintext so the Command Center shows it.

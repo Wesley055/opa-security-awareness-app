@@ -23,24 +23,95 @@ export class ProtectedSnapshotsService {
     private readonly identities: ProtectedIdentityService,
   ) {}
 
-  private deliveryActor(tenantId: string): string {
-    let actor = process.env.PII_DELIVERY_ACTOR_USER_ID;
+  /** Configured mapping (PII_DELIVERY_ACTORS_JSON / PII_DELIVERY_ACTOR_USER_ID), if any covers this tenant. */
+  private configuredActor(tenantId: string): string | null {
+    let actor = process.env.PII_DELIVERY_ACTOR_USER_ID || null;
     if (process.env.PII_DELIVERY_ACTORS_JSON) {
+      let values: unknown;
       try {
-        const values: unknown = JSON.parse(
-          process.env.PII_DELIVERY_ACTORS_JSON,
-        );
-        if (!values || typeof values !== "object" || Array.isArray(values))
-          throw markDeliveryFailure(failed(), "DELIVERY_ACTOR_UNAVAILABLE");
-        const selected = (values as Record<string, unknown>)[tenantId];
-        if (typeof selected !== "string") throw markDeliveryFailure(failed(), "DELIVERY_ACTOR_UNAVAILABLE");
-        actor = selected;
+        values = JSON.parse(process.env.PII_DELIVERY_ACTORS_JSON);
       } catch {
         throw markDeliveryFailure(failed(), "DELIVERY_ACTOR_UNAVAILABLE");
       }
+      if (!values || typeof values !== "object" || Array.isArray(values))
+        throw markDeliveryFailure(failed(), "DELIVERY_ACTOR_UNAVAILABLE");
+      const selected = (values as Record<string, unknown>)[tenantId];
+      actor = typeof selected === "string" ? selected : null;
     }
-    if (!actor || !/^[0-9a-f-]{36}$/i.test(actor)) throw markDeliveryFailure(failed(), "DELIVERY_ACTOR_UNAVAILABLE");
+    if (actor && !/^[0-9a-f-]{36}$/i.test(actor))
+      throw markDeliveryFailure(failed(), "DELIVERY_ACTOR_UNAVAILABLE");
     return actor;
+  }
+
+  /**
+   * The facility's delivery identity: the configured actor, else the staff
+   * member holding this facility's active DELIVERY and WRITE grants. With
+   * provision=true and none present, the facility's earliest active Facility
+   * Admin is granted both (audited), so a new facility's SOS contact alerts
+   * work without manual set-up.
+   */
+  private async deliveryActor(
+    tx: Prisma.TransactionClient | PrismaService,
+    tenantId: string,
+    provision = false,
+  ): Promise<string> {
+    const configured = this.configuredActor(tenantId);
+    if (configured) return configured;
+    const now = new Date();
+    const staff = {
+      isActive: true,
+      accountStatus: "ACTIVE" as const,
+      membershipState: "ACTIVE" as const,
+      facilityId: tenantId,
+      role: { in: ["FACILITY_ADMIN", "FACILITY_OPERATOR"] as ("FACILITY_ADMIN" | "FACILITY_OPERATOR")[] },
+    };
+    const active = { tenantId, revokedAt: null, expiresAt: { gt: now } };
+    try {
+      const existing = await tx.identityAccessGrant.findFirst({
+        where: { ...active, permission: "DELIVERY", actor: staff },
+        orderBy: { createdAt: "asc" },
+        select: { actorUserId: true },
+      });
+      if (existing) {
+        const write = await tx.identityAccessGrant.findFirst({
+          where: { ...active, permission: "WRITE", actorUserId: existing.actorUserId },
+          select: { id: true },
+        });
+        if (write) return existing.actorUserId;
+      }
+    } catch {
+      throw markDeliveryFailure(failed(), "DELIVERY_ACTOR_UNAVAILABLE");
+    }
+    if (!provision) throw markDeliveryFailure(failed(), "DELIVERY_ACTOR_UNAVAILABLE");
+    const admin = await tx.user.findFirst({
+      where: { ...staff, role: "FACILITY_ADMIN", facility: { isActive: true } },
+      orderBy: [{ activatedAt: "asc" }, { createdAt: "asc" }],
+      select: { id: true },
+    });
+    if (!admin) throw markDeliveryFailure(failed(), "DELIVERY_ACTOR_UNAVAILABLE");
+    const expiresAt = new Date(now.getTime() + 5 * 365 * 24 * 60 * 60 * 1000);
+    for (const permission of ["DELIVERY", "WRITE"] as const) {
+      const has = await tx.identityAccessGrant.findFirst({
+        where: { ...active, permission, actorUserId: admin.id },
+        select: { id: true },
+      });
+      if (!has)
+        await tx.identityAccessGrant.create({
+          data: { tenantId, actorUserId: admin.id, permission, expiresAt, approvedByReference: admin.id },
+        });
+    }
+    await tx.administrativeAuditEvent.create({
+      data: {
+        actorUserId: admin.id,
+        actorRole: "SYSTEM",
+        action: "PROTECTED_DELIVERY_PROVISIONED",
+        resourceId: admin.id,
+        facilityId: tenantId,
+        reason: "Automatic delivery identity for emergency-contact alerts (no facility mapping existed).",
+        afterState: { permissions: ["DELIVERY", "WRITE"], expiresAt: expiresAt.toISOString() },
+      },
+    });
+    return admin.id;
   }
 
   /** Internal migration boundary. Dry-run by default. No tenant inferred from a facility. */
@@ -132,7 +203,7 @@ export class ProtectedSnapshotsService {
       await this.identities.authorize(
         tx,
         tenantId,
-        this.deliveryActor(tenantId),
+        await this.deliveryActor(tx, tenantId),
         "DELIVERY",
       );
       const snapshot = invitation
@@ -197,7 +268,7 @@ export class ProtectedSnapshotsService {
     // Personal accounts have no institutional Protected Identity tenant or grant.
     if (!incident.facilityId) return data;
     if (!data.id || !isNotificationPayloadV1(data.payload)) throw failed();
-    const actor = this.deliveryActor(incident.facilityId);
+    const actor = await this.deliveryActor(tx, incident.facilityId, true);
     await this.identities.authorize(tx, incident.facilityId, actor, "DELIVERY");
     const row = await this.identities.protectInTransaction(
       tx,
@@ -226,7 +297,7 @@ export class ProtectedSnapshotsService {
   async safeWalkRecipientData(tx: Prisma.TransactionClient, noticeId: string, recipientUserId: string) {
     const user = await tx.user.findUniqueOrThrow({ where: { id: recipientUserId }, select: { email: true, facilityId: true } });
     if (!user.facilityId) return { recipient: user.email, protectedSnapshotId: null };
-    const actor = this.deliveryActor(user.facilityId);
+    const actor = await this.deliveryActor(tx, user.facilityId, true);
     await this.identities.authorize(tx, user.facilityId, actor, "DELIVERY");
     const row = await this.identities.protectInTransaction(tx, actor, { tenantId: user.facilityId, subjectUserId: recipientUserId, sourceId: noticeId, kind: "NOTIFICATION_SNAPSHOT" }, JSON.stringify({ version: 1, recipient: user.email }));
     return { recipient: "[protected]", protectedSnapshotId: row.id };
@@ -254,7 +325,7 @@ export class ProtectedSnapshotsService {
     });
     if (!row) throw missing();
     const expected = { tenantId: row.tenantId, subjectUserId, sourceId, kind };
-    const actor = this.deliveryActor(row.tenantId);
+    const actor = await this.deliveryActor(tx ?? this.prisma, row.tenantId);
     // Replay already owns a transaction and its outbox lock. Keep lookup and audit
     // on that connection; only the masked replay status leaves the outer commit.
     const plaintext = tx

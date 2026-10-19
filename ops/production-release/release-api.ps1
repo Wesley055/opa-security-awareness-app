@@ -34,7 +34,7 @@ Remove-Item $payload, $signed -ErrorAction SilentlyContinue
 if ($SecretId -and $SecretSha) {
   python ops\production-release\rotate-secret-payload.py --previous $PreviousPolicy --build $build --name $SecretName --secret-id $SecretId --value-sha256 $SecretSha --output $payload
 } else {
-  python ".\artifacts\release-d718c64\make-payload.py" $PreviousPolicy $build $payload
+  python ops\production-release\carry-policy-payload.py --previous $PreviousPolicy --build $build --output $payload
 }
 if ($LASTEXITCODE) { Fail "payload" }
 $hash = (Get-FileHash $payload -Algorithm SHA256).Hash.ToLower()
@@ -48,7 +48,9 @@ $stg="https://opa-api-production-staging-amhzcnbsftatbvhd.scm.southafricanorth-0
 # parentheses in "@Microsoft.KeyVault(SecretUri=...)" on the command line.
 $settings = @(
   @{ name = "OPA_BUILD_SHA"; value = $build; slotSetting = $false },
-  @{ name = "OPA_ENVIRONMENT_POLICY_FILE"; value = "/home/opa-production-policy/api-release-$short.signed.json"; slotSetting = $false }
+  @{ name = "OPA_ENVIRONMENT_POLICY_FILE"; value = "/home/opa-production-policy/api-release-$short.signed.json"; slotSetting = $false },
+  # Names the rejecting preflight rule (file:line only, never values) if startup is refused.
+  @{ name = "OPA_PREFLIGHT_DEBUG"; value = "1"; slotSetting = $false }
 )
 # A swap exchanges settings, so staging may hold the previous release's Key Vault
 # references. Start from production's current references, then apply any rotation.
@@ -75,7 +77,15 @@ for ($i=0; $i -lt 40; $i++) {
   try { $e=Invoke-RestMethod "$h/health/environment" -TimeoutSec 10; $r=Invoke-WebRequest "$h/health/ready" -UseBasicParsing -TimeoutSec 10
     "build=$($e.build.Substring(0,7)) ready=$($r.StatusCode)"; if ($e.build -eq $build -and $r.StatusCode -eq 200) { $ready=$true; break } } catch { "waiting" }
   Start-Sleep 15 }
-if (-not $ready) { az webapp stop -g $rg -n $app --slot staging -o none; Fail "staging never became ready; production NOT changed, staging stopped" }
+if (-not $ready) {
+  try {
+    $hdr = @{ Authorization = "Bearer $(az account get-access-token --query accessToken -o tsv)" }
+    $today = (Get-Date).ToUniversalTime().ToString("yyyy_MM_dd")
+    $file = Invoke-RestMethod "$stg/api/vfs/LogFiles/" -Headers $hdr | Where-Object { $_.name -like "$today*_default_docker.log" } | Select-Object -Last 1
+    if ($file) { Write-Host "--- last lines of $($file.name) ---"; ((Invoke-WebRequest $file.href -Headers $hdr -UseBasicParsing).Content -split "`n" | Select-Object -Last 15) }
+  } catch { "could not read staging log" }
+  az webapp stop -g $rg -n $app --slot staging -o none; Fail "staging never became ready; production NOT changed, staging stopped"
+}
 
 Step "6/7 Swap with probe, then stop staging"
 $prod="https://opa-api-production-g4f6cxdyanfbaub0.southafricanorth-01.azurewebsites.net"; $log="$dir\api-swap.log"

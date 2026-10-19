@@ -463,7 +463,9 @@ function validateApi(env, p) {
       ssoEnabled: sso,
       migrationReadiness: "unchecked",
     };
-  } catch {
+  } catch (error) {
+    // Debug mode keeps the inner rule location instead of this catch-all.
+    if (process.env.OPA_PREFLIGHT_DEBUG === "1" && error instanceof Error && /\[rule /.test(error.message)) throw error;
     fail();
   }
 }

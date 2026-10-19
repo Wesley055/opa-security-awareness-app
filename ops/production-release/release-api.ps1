@@ -44,9 +44,18 @@ if ($LASTEXITCODE) { Fail "signing" }
 Step "4/7 Stage (production untouched)"
 $rg="opa-production"; $app="opa-api-production"
 $stg="https://opa-api-production-staging-amhzcnbsftatbvhd.scm.southafricanorth-01.azurewebsites.net"
-$settings = @("OPA_BUILD_SHA=$build", "OPA_ENVIRONMENT_POLICY_FILE=/home/opa-production-policy/api-release-$short.signed.json")
-if ($SecretId) { $settings += "$SecretName=@Microsoft.KeyVault(SecretUri=$SecretId)" }
-az webapp config appsettings set -g $rg -n $app --slot staging --settings @settings -o none; if ($LASTEXITCODE) { Fail "staging settings" }
+# Settings go through a JSON file: az.cmd (a batch file) breaks on the
+# parentheses in "@Microsoft.KeyVault(SecretUri=...)" on the command line.
+$settings = @(
+  @{ name = "OPA_BUILD_SHA"; value = $build; slotSetting = $false },
+  @{ name = "OPA_ENVIRONMENT_POLICY_FILE"; value = "/home/opa-production-policy/api-release-$short.signed.json"; slotSetting = $false }
+)
+if ($SecretId) { $settings += @{ name = $SecretName; value = "@Microsoft.KeyVault(SecretUri=$SecretId)"; slotSetting = $false } }
+$settingsFile = Join-Path $dir "staging-settings.json"
+[IO.File]::WriteAllText((Join-Path (Get-Location) $settingsFile), (ConvertTo-Json -InputObject $settings -Depth 3))
+az webapp config appsettings set -g $rg -n $app --slot staging --settings "@$settingsFile" -o none; if ($LASTEXITCODE) { Fail "staging settings" }
+$check = az webapp config appsettings list -g $rg -n $app --slot staging --query "[?name=='OPA_BUILD_SHA'].value" -o tsv
+if ($check -ne $build) { Fail "staging OPA_BUILD_SHA is '$check', expected $build" }
 az webapp start -g $rg -n $app --slot staging -o none
 $token = az account get-access-token --query accessToken -o tsv
 Invoke-RestMethod -Method Put -Uri "$stg/api/vfs/opa-production-policy/api-release-$short.signed.json" -Headers @{ Authorization="Bearer $token"; "If-Match"="*" } -InFile $signed -ContentType "application/octet-stream" | Out-Null

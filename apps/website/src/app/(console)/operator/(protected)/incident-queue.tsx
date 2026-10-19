@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { QueueIncident } from '@/lib/operator-queue';
+import { OpenInMapsLink } from '@/components/console/incident-map';
 import { viewerSessionFetch } from '@/lib/viewer-session-fetch';
 
 /**
@@ -395,6 +396,7 @@ export function IncidentQueue({
                 ) : <p className="mt-3 text-sm text-muted">Location unavailable</p>}
                 <p className="mt-2 text-xs text-muted">Severity: not provided by the service</p>
                 </Link>
+                {coords ? <div className="mt-2"><OpenInMapsLink latitude={incident.latitude} longitude={incident.longitude} /></div> : null}
               </li>
             );
           })}

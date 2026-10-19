@@ -1,5 +1,6 @@
 "use client";
 import { IncidentVisitors } from "@/components/console/incident-visitors";
+import { IncidentMap } from "@/components/console/incident-map";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { IncidentDetail } from "@/lib/operator-incident";
@@ -610,6 +611,7 @@ export function IncidentDetailView({
             ) : (
               <span className="text-muted">No usable position recorded.</span>
             )}
+            {coords ? <IncidentMap latitude={incident.latitude} longitude={incident.longitude} /> : null}
           </Row>
 
           {incident.retriggerCount > 0 ? (

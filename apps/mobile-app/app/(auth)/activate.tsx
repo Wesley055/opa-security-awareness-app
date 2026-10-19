@@ -94,7 +94,7 @@ export default function ActivateScreen() {
 
         <PasswordInput
           style={styles.passwordInput}
-          placeholder="New password (8+ characters, letters and a number)"
+          placeholder="New password"
           placeholderTextColor="#8B949E"
           value={password}
           onChangeText={setPassword}
@@ -113,6 +113,7 @@ export default function ActivateScreen() {
           returnKeyType="done"
           onSubmitEditing={handleActivate}
         />
+        <P style={{ color: "#94A3B8", fontSize: 14 }}>{PASSWORD_RULE_TEXT}</P>
 
         <TouchableOpacity
           style={[styles.button, isSubmitting && styles.buttonDisabled]}

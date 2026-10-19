@@ -173,7 +173,7 @@ export default function VisitorsScreen() {
 
       <Text style={styles.section}>New visitor pass</Text>
       <TextInput style={styles.input} placeholder="Visitor's name" placeholderTextColor={PLACEHOLDER} value={name} onChangeText={setName} accessibilityLabel="Visitor's name" editable={!busy} />
-      <TextInput style={styles.input} placeholder="Visitor's phone (optional, +234…)" placeholderTextColor={PLACEHOLDER} value={phone} onChangeText={setPhone} keyboardType="phone-pad" accessibilityLabel="Visitor's phone" editable={!busy} />
+      <TextInput style={styles.input} placeholder="Visitor's phone (optional)" placeholderTextColor={PLACEHOLDER} value={phone} onChangeText={setPhone} keyboardType="phone-pad" accessibilityLabel="Visitor's phone" editable={!busy} />
       <TextInput style={styles.input} placeholder="House, street or block" placeholderTextColor={PLACEHOLDER} value={destination} onChangeText={setDestination} accessibilityLabel="House, street or block" editable={!busy} />
       <Text style={styles.text}>How long will they stay?</Text>
       <View style={styles.chips}>

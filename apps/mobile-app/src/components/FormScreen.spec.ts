@@ -31,3 +31,13 @@ it("Create account explains what it is and points invited people to Accept invit
   expect(src).not.toContain("Request enrollment");
   for (const label of ["First name", "Last name", "Email", "Phone number"]) expect(src).toContain(`>${label}</P>`);
 });
+it("placeholders are short enough not to be cut off on a narrow phone", () => {
+  const { readdirSync } = require("node:fs") as typeof import("node:fs");
+  const files = ["app", "app/(auth)"].flatMap((d) =>
+    readdirSync(join(__dirname, "../..", d)).filter((f: string) => f.endsWith(".tsx")).map((f: string) => `${d}/${f}`),
+  );
+  const long = files.flatMap((f) =>
+    [...read(f).matchAll(/placeholder="([^"]+)"/g)].map((m) => m[1]!).filter((t) => t.length > 28 && !/guardian codes/.test(t)).map((t) => `${f}: ${t}`),
+  );
+  expect(long).toEqual([]);
+});

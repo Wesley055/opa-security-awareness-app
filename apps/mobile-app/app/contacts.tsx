@@ -284,7 +284,7 @@ export default function ContactsScreen() {
             />
             <TextInput
               style={styles.input}
-              placeholder="Relationship (e.g. Sister, Doctor)"
+              placeholder="Relationship, e.g. Sister"
               placeholderTextColor="#8B949E"
               value={relationship}
               onChangeText={setRelationship}
@@ -292,7 +292,7 @@ export default function ContactsScreen() {
             />
             <TextInput
               style={styles.input}
-              placeholder="Phone number (e.g. 08012345678 or +14155552671)"
+              placeholder="Phone, e.g. 08012345678"
               placeholderTextColor="#8B949E"
               value={phoneNumber}
               onChangeText={setPhoneNumber}

@@ -118,7 +118,7 @@ export default function ResetPasswordScreen() {
         <PasswordInput
           style={styles.passwordInput}
           textContentType="newPassword"
-          placeholder="New password (8+ characters, letters and a number)"
+          placeholder="New password"
           value={password}
           onChangeText={setPassword}
           editable={!isSubmitting}
@@ -132,6 +132,7 @@ export default function ResetPasswordScreen() {
           onChangeText={setConfirmPassword}
           editable={!isSubmitting}
         />
+        <Text textBreakStrategy="simple" style={{ color: "#94A3B8", fontSize: 14 }}>{PASSWORD_RULE_TEXT}</Text>
 
         <TouchableOpacity
           style={[styles.button, isSubmitting && styles.buttonDisabled]}

@@ -85,6 +85,14 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 - [ ] Mobile enrollment screen: 4-digit codes + new password rule (committed in `d032e66`, ships with next app build).
 - [ ] Review the ~100 uncommitted files in `C:\Projects\OPA` (`integration/institutional-security`); keep or discard deliberately.
 
+### Monday 19 Oct build (one API + web + app release, Monday night)
+- [ ] **Staff profiles** (needs migration 46: photo): photo (mandatory for operators, admin-approved), display name, phone, notification settings; residents see the responding operator's name + photo during SOS.
+- [ ] **In-session password change** and **sign out** on every staff screen (web) and the app settings screen.
+- [ ] **Shift summary email (operator → facility admins)**: "Send shift summary" in the Command Center emails the facility's admins (OPA looks up their verified addresses; the operator never sees them): incidents opened/closed, response times, gate entries/exits, departures not confirmed, notes. Optional automatic daily summary. No resident contact details in the email.
+- [ ] **Email-only bulk invitation** (Issue #47 addendum) + its acceptance tests.
+- [ ] Visitor stay extension (P0), overstay SMS.
+- Demo data is **data, not code**: no "demo" names exist in the Command Center code. Replace by creating the real pilot estate and staff accounts; deactivate (never delete) demo users/estates so the audit trail stays intact.
+
 ### OPA Insight industry modules (planned, not built)
 One Insight platform with industry modules, not separate engines: Insight Core → **Insight Energy** (Oil & Gas: permit-to-work, contractor competency and authorization, hazardous-area access, HSE incidents, inspections, corrective actions) → **Insight Aviation** (occurrence reporting, maintenance findings, personnel authorization, airside access, corrective-action verification; scope depends on airline / airport / MRO / ground handler). Shared evidence and reporting; different inputs, control libraries and outputs. Regulatory mappings must be verified with qualified domain specialists; OPA does not claim certification or regulatory approval from its reports.
 

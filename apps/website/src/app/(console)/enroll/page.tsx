@@ -68,7 +68,15 @@ function EnrollmentForm() {
     };
   }, [reference]);
   return (
-    <main style={{ maxWidth: 560, margin: "40px auto", padding: 24 }}>
+    <main className="opa-enroll" style={{ maxWidth: 560, margin: "40px auto", padding: 24 }}>
+      <style>{`
+        .opa-enroll label { display: grid; gap: 6px; font-weight: 600; }
+        .opa-enroll input:not([type=checkbox]) { display: block; width: 100%; box-sizing: border-box; background: #fff; color: #08111a; border: 1px solid #94a3b8; border-radius: 8px; padding: 12px 14px; font-size: 16px; }
+        .opa-enroll input:focus { outline: 3px solid #17c964; outline-offset: 1px; }
+        .opa-enroll button.opa-primary { background: #17c964; color: #08111a; font-weight: 700; font-size: 16px; border: 0; border-radius: 8px; padding: 14px 16px; cursor: pointer; }
+        .opa-enroll button.opa-secondary { background: none; border: 0; color: #5eead4; text-decoration: underline; font-size: 15px; cursor: pointer; padding: 8px 0; }
+        .opa-enroll [role=alert] { color: #ff7b72; font-weight: 600; }
+      `}</style>
       <h1>Accept your OPA invitation</h1>
       <p>
         We sent a 4-digit code to your email and another to your phone. Enter
@@ -220,7 +228,7 @@ function EnrollmentForm() {
               <>
                 <p>
                   {stage === "RESUME" ? (
-                    "Resume only after completing both original proofs. Sign in with your own account, using the password chosen during verification if a new account was created. No new invitation or proof bypass is performed."
+                    "Already entered both codes? Your codes are used once, so they are not needed again. Sign in with the email and the password you chose to finish."
                   ) : (
                     <>
                       Both proofs are verified, but a separate account cannot be
@@ -260,17 +268,18 @@ function EnrollmentForm() {
                 </label>
               </>
             )}
-            <button>
+            <button className="opa-primary">
               {busy
                 ? "Processing…"
                 : stage === "VERIFY"
                   ? "Verify and create my account"
                   : stage === "RESUME"
-                    ? "Resume verified invitation"
-                    : "Continue with an existing account"}
+                    ? "Sign in and finish"
+                    : "Sign in to accept the invitation"}
             </button>
             <button
               type="button"
+              className="opa-secondary"
               onClick={() => {
                 edited.current = true;
                 setStage(stage === "VERIFY" ? "RESUME" : "VERIFY");
@@ -278,8 +287,8 @@ function EnrollmentForm() {
               }}
             >
               {stage === "VERIFY"
-                ? "Already verified or result uncertain? Resume"
-                : "Return to original proof verification"}
+                ? "Already entered both codes? Sign in to finish"
+                : "Back to entering my codes"}
             </button>
           </fieldset>
         </form>

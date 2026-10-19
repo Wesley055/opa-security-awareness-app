@@ -52,7 +52,7 @@ it("explains an identifier conflict without identifying the colliding identifier
     ),
   ).not.toBeInTheDocument();
   expect(
-    screen.getByRole("button", { name: "Continue with an existing account" }),
+    screen.getByRole("button", { name: "Sign in to accept the invitation" }),
   ).toBeInTheDocument();
 });
 

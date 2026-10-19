@@ -52,7 +52,7 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 - [x] EstateFlow website promoted (Vercel, `87f9b1c`); Estate overview and Gate verified live.
 - [x] Endpoint policy re-signed for API `7045bde` (`9cc77df`, valid to 16 Jan 2027).
 - [x] Android store build vc22 (`.aab`) built 17 Oct.
-- [ ] Production APK (fixed `production-apk` profile in `7f58f1a`) — rebuild if not yet produced.
+- [x] Production APK vc23 (`5e82ad86`) built from API `79b6120` policy; installed on the Android test phone 19 Oct; enroll / create-account screens verified.
 - [ ] iOS build 7: failed on missing iOS 16.0 deployment target (never committed for build 5); fixed in repo, rebuild. App Review currently holds **1.0.0 (5)**.
 - [ ] Submit to stores only after Sunday testing passes.
 - **Release rule:** after every API release, re-sign the endpoint policy (`sign-endpoint-policy.py --expect-build <sha>`) before any mobile build; the build-time check requires the live API build to match.
@@ -120,7 +120,7 @@ Record each gap as: date · role · screen · what happened · expected · sever
 | 18 Oct | Build | Android APK | `production-apk` rejected at "Read app config" (endpoint check had its own profile list) | APK builds | blocker (fixed `b13dcf2`; APK f62a643a built) |
 | 18 Oct | Tester | Android install | APK will not install over the Play/older build ("package conflicts") | Clear instruction | minor (uninstall first; note in tester guide) |
 | 18 Oct | Resident | Mobile enroll | "Invitation reference" is the 36-character request ID (UUID): impossible to type, only works via the link, and the link opens the website, not the app | Short reference a person can type or paste, or no reference at all (email/phone + both codes) | major (fixed `19ff3ab`: `OPA-XXXXXX` in SMS + email, no DB change; release 18 Oct) |
-| 18 Oct | Resident | Mobile enroll (Android) | Intro text cut off ("…then choose your" — "password." missing) | Full text at any system font size | major (fixed `19ff3ab`: safe-area + keyboard layout, no fixed line heights; next APK vc23) |
-| 18 Oct | Public | Mobile Create account | "Request enrollment" unclear: fields had no labels, raw error ("email must be an email"), and it was not said that this creates a **personal** account (codes go to the person; nothing goes to a facility admin) | Plain purpose, visible labels, plain errors, route invited people to Accept invitation | major (fixed in next APK) |
+| 18 Oct | Resident | Mobile enroll (Android) | Intro text cut off ("…then choose your" — "password." missing) | Full text at any system font size | major (fixed `19ff3ab`; **verified on device, APK vc23, bold font, 19 Oct**) |
+| 18 Oct | Public | Mobile Create account | "Request enrollment" unclear: fields had no labels, raw error ("email must be an email"), and it was not said that this creates a **personal** account (codes go to the person; nothing goes to a facility admin) | Plain purpose, visible labels, plain errors, route invited people to Accept invitation | major (fixed; **verified on device, APK vc23, 19 Oct**) |
 | 18 Oct | Resident | Mobile SafeWalk (code review) | Destination is typed as latitude and longitude numbers | Pick the destination by name/map or "share my live location" only | major (to confirm in SafeWalk physical test; design Monday) |
 | 17 Oct | Resident | Mobile enroll (installed build) | Fields empty on one Android phone (invisible placeholders); title under status bar; button text cut | Readable labels and button | major (fixed in `ce36c8e`, needs new build) |

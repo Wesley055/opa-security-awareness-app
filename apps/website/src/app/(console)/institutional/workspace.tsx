@@ -124,7 +124,7 @@ export default function Workspace() {
               required
             />
           </label>
-          <button disabled={signing}>
+          <button className="ic-signin" disabled={signing}>
             {signing ? "Signing in…" : "Sign in"}
           </button>
           <a href="/forgot-password">Forgot password / recover access</a>

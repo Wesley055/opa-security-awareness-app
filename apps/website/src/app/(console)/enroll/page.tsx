@@ -73,7 +73,7 @@ function EnrollmentForm() {
         .opa-enroll label { display: grid; gap: 6px; font-weight: 600; }
         .opa-enroll input:not([type=checkbox]) { display: block; width: 100%; box-sizing: border-box; background: #fff; color: #08111a; border: 1px solid #94a3b8; border-radius: 8px; padding: 12px 14px; font-size: 16px; }
         .opa-enroll input:focus { outline: 3px solid #17c964; outline-offset: 1px; }
-        .opa-enroll button.opa-primary { background: #17c964; color: #08111a; font-weight: 700; font-size: 16px; border: 0; border-radius: 8px; padding: 14px 16px; cursor: pointer; }
+        .opa-enroll button.opa-primary { background: #e5484d; color: #ffffff; font-weight: 700; font-size: 16px; border: 0; border-radius: 8px; padding: 14px 16px; cursor: pointer; }
         .opa-enroll button.opa-secondary { background: none; border: 0; color: #5eead4; text-decoration: underline; font-size: 15px; cursor: pointer; padding: 8px 0; }
         .opa-enroll [role=alert] { color: #ff7b72; font-weight: 600; }
       `}</style>

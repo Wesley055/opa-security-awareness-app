@@ -137,3 +137,17 @@
   color: var(--color-emergency);
   border-color: var(--color-emergency);
 }
+
+/* Primary sign-in: high contrast on the dark console (founder request, 19 Oct). */
+.ic-console button.ic-signin {
+  background: #e5484d;
+  color: #ffffff;
+  border: 0;
+  font-weight: 700;
+  font-size: 16px;
+  padding: 14px 16px;
+  border-radius: 8px;
+}
+.ic-console button.ic-signin:hover:not(:disabled) { background: #f2555a; }
+.ic-console button.ic-signin:focus-visible { outline: 3px solid #ffffff; outline-offset: 2px; }
+.ic-console button.ic-signin:disabled { opacity: 0.7; }

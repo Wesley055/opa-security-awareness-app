@@ -1,7 +1,7 @@
 import { Logger } from "@nestjs/common";
 import { DELIVERY_WORKER_ID, deliveryDiagnostic, markDeliveryFailure } from "./delivery-diagnostics";
 import { randomUUID } from "crypto";
-import type { Prisma } from "@prisma/client";
+import { Prisma as PrismaRuntime, type Prisma } from "@prisma/client";
 import { ProtectedSnapshotsService } from "../protected-identity/protected-snapshots.service";
 import { Optional } from "@nestjs/common";
 import { dispatchWithEvidence } from "./delivery-dispatch";
@@ -65,8 +65,28 @@ export class NotificationService {
     if (!this.protectedSnapshots)
       throw new BadRequestException("Protected outbox unavailable.");
     const data = [];
-    for (const value of values)
-      data.push(await this.protectedSnapshots.notificationData(tx, value));
+    for (const value of values) {
+      try {
+        data.push(await this.protectedSnapshots.notificationData(tx, value));
+      } catch (error) {
+        // An SOS must never fail because a contact alert cannot be protected
+        // (e.g. a new facility without a delivery identity yet). Record the
+        // alert as FAILED with no plaintext so the Command Center shows it.
+        this.deliveryLogger.error(
+          `Contact alert not prepared for incident ${String(value.incidentId)} (${String(value.channel)}): ${error instanceof Error ? error.message : "unknown"}`,
+        );
+        data.push({
+          ...value,
+          recipient: "[protected]",
+          contactName: "[protected]",
+          payload: PrismaRuntime.DbNull,
+          protectedSnapshotId: null,
+          status: "FAILED" as const,
+          failedAt: new Date(),
+          lastError: "PROTECTED_DELIVERY_UNAVAILABLE",
+        });
+      }
+    }
     return tx.incidentNotification.createMany({ ...args, data });
   }
 

@@ -1,4 +1,5 @@
 import { maskedPerson } from '../protected-identity/masked-person';
+import { facilityResponder, recordIdentityViews, responderPerson, RESPONDER_VISIBLE_STATUSES } from '../incidents/responder-identity';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { IncidentStatus, Prisma, UserRole } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -129,6 +130,7 @@ export class FacilitiesService {
   async listIncidentsForFacility(
     facilityId: string,
     query: ListFacilityIncidentsDto = {},
+    viewerId?: string,
   ) {
     const facility = await this.prisma.facility.findUnique({
       where: { id: facilityId },
@@ -185,11 +187,13 @@ export class FacilitiesService {
     });
 
     const hasMore = rows.length > take;
+    const responder = await facilityResponder(this.prisma, viewerId, facilityId);
     const incidents = hasMore ? rows.slice(0, take) : rows;
     const last = incidents[incidents.length - 1];
+    await recordIdentityViews(this.prisma, responder, incidents.filter(i => RESPONDER_VISIBLE_STATUSES.includes(i.status)).map(i => i.id));
 
     return {
-      incidents: incidents.map(incident => ({ ...incident, user: maskedPerson(incident.user) })),
+      incidents: incidents.map(incident => ({ ...incident, user: responderPerson(incident.user, incident.status, responder) })),
       // Null means the end of the queue, not an error.
       nextCursor: hasMore && last ? encodeCursor(last) : null,
       hasMore,

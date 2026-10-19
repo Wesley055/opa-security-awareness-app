@@ -1,5 +1,5 @@
 import { safeWalkEmergencyProvenance } from "./safewalk-emergency-read";
-import { maskedPerson } from '../protected-identity/masked-person';
+import { facilityResponder, recordIdentityViews, responderPerson, RESPONDER_VISIBLE_STATUSES } from './responder-identity';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -80,7 +80,7 @@ const DETAIL_SELECT = {
 export class IncidentDetailService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getDetail(incidentId: string) {
+  async getDetail(incidentId: string, viewerId?: string) {
     const incident = await this.prisma.incident.findUnique({
       where: { id: incidentId },
       select: DETAIL_SELECT,
@@ -94,6 +94,9 @@ export class IncidentDetailService {
       throw new NotFoundException('Incident not found.');
     }
 
+    const scope = await this.prisma.incident.findUnique({ where: { id: incidentId }, select: { facilityId: true } });
+    const responder = await facilityResponder(this.prisma, viewerId, scope?.facilityId);
+    if (RESPONDER_VISIBLE_STATUSES.includes(incident.status)) await recordIdentityViews(this.prisma, responder, [incidentId]);
     const { journeySession, ...detail } = incident;
     const safeWalkEmergency = safeWalkEmergencyProvenance(
       incident.id,
@@ -102,7 +105,7 @@ export class IncidentDetailService {
     return {
       ...detail,
       ...(safeWalkEmergency ? { safeWalkEmergency } : {}),
-      user: maskedPerson(incident.user),
+      user: responderPerson(incident.user, incident.status, responder),
     };
   }
 }

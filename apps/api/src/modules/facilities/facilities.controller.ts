@@ -1,4 +1,6 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
+import type { Request } from 'express';
+import type { JwtPayload } from '../auth/jwt.strategy';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ListFacilityIncidentsDto } from './dto/list-facility-incidents.dto';
 import { FacilityOperatorGuard } from './guards/facility-operator.guard';
@@ -20,7 +22,8 @@ export class FacilitiesController {
   listIncidents(
     @Param('facilityId') facilityId: string,
     @Query() query: ListFacilityIncidentsDto,
+    @Req() request: Request & { user: JwtPayload },
   ) {
-    return this.facilitiesService.listIncidentsForFacility(facilityId, query);
+    return this.facilitiesService.listIncidentsForFacility(facilityId, query, request.user.sub);
   }
 }

@@ -1,4 +1,6 @@
-import { Controller, Get, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Req, UseGuards } from '@nestjs/common';
+import type { Request } from 'express';
+import type { JwtPayload } from '../auth/jwt.strategy';
 import { IncidentAccessGuard } from '../../shared/guards/incident-access.guard';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { IncidentDetailService } from './incident-detail.service';
@@ -51,7 +53,7 @@ export class IncidentDetailController {
   }
 
   @Get(':incidentId')
-  getDetail(@Param('incidentId') incidentId: string) {
-    return this.detailService.getDetail(incidentId);
+  getDetail(@Param('incidentId') incidentId: string, @Req() request: Request & { user: JwtPayload }) {
+    return this.detailService.getDetail(incidentId, request.user.sub);
   }
 }

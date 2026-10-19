@@ -40,6 +40,7 @@ export class OperatorIncidentsController {
     return this.facilitiesService.listIncidentsForFacility(
       request.operatorFacilityId,
       query,
+      request.user.sub,
     );
   }
 }

@@ -51,18 +51,20 @@ function fail() {
   }
   throw error;
 }
+// EAS build profile -> environment. One map for every check (classify and the endpoint).
+const PROFILE_ENVIRONMENT = {
+  development: "development",
+  preview: "staging",
+  production: "production",
+  // Installable production APK for device testing; same endpoint and policy.
+  "production-apk": "production",
+};
 function classify(env) {
   const e = env.OPA_ENVIRONMENT;
   if (!environments.includes(e)) fail();
   if (
     env.EAS_BUILD_PROFILE &&
-    {
-      development: "development",
-      preview: "staging",
-      production: "production",
-      // Installable production APK for device testing; same endpoint and policy.
-      "production-apk": "production",
-    }[env.EAS_BUILD_PROFILE] !== e
+    PROFILE_ENVIRONMENT[env.EAS_BUILD_PROFILE] !== e
   )
     fail();
   if (
@@ -192,11 +194,7 @@ function endpoint(env, policy) {
     fail();
   if (
     env.EAS_BUILD_PROFILE &&
-    {
-      preview: "staging",
-      production: "production",
-      development: "development",
-    }[env.EAS_BUILD_PROFILE] !== e
+    PROFILE_ENVIRONMENT[env.EAS_BUILD_PROFILE] !== e
   )
     fail();
   if (

@@ -3,7 +3,7 @@
 Single source of truth for what is done, in progress and planned. Update it in the same commit as the work.
 Production branch: `wip/release-simplification-20261015` (do not use `main` for releases until the workflow guard is merged).
 
-Last updated: 2026-10-18
+Last updated: 2026-10-19
 
 ## Plan
 
@@ -42,6 +42,7 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 | 17 Oct 17:15 UTC | `d032e66` | 4-digit email + SMS enrollment codes (both required, 5 attempts, keyed HMAC); passwords 8–64 with letters + number/symbol; simpler enrollment page | swap probe 0 failures |
 | 18 Oct 01:24 UTC | migration 45 | EstateFlow schema: `VisitorPass`, `GateEvent`, estate visitor settings | `VERIFY PASS`, 45 / 0, new tables owned by release owner, migration role idle; restore point 01:23:53 UTC |
 | 18 Oct 01:28 UTC | `7045bde` | EstateFlow API (visitor passes, gate, overstay sweep, SOS visitor context, estate overview) | swap probe 0 failures; staging stopped after swap |
+| 19 Oct 05:13 UTC | `79b6120` | Short invitation reference `OPA-XXXXXX` in SMS/email; **new Africa's Talking key** (Key Vault `fbda6376…`, signed binding) | swap probe 0 failures; staging stopped; endpoint policy `3c33d1a` (valid to 17 Jan 2027) |
 
 ## In progress
 

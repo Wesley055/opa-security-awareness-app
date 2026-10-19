@@ -3,9 +3,6 @@ import { PASSWORD_RULE_TEXT, passwordProblem } from "../../src/utils/password-ru
 import { useState } from "react";
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -13,6 +10,7 @@ import {
 } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { useAuthStore } from "../../src/store/authStore";
+import { FormScreen, P } from "../../src/components/FormScreen";
 
 export default function ActivateScreen() {
   const params = useLocalSearchParams<{ token?: string }>();
@@ -73,22 +71,15 @@ export default function ActivateScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-    >
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
-        <Text style={styles.logo}>OPA</Text>
-        <Text style={styles.subtitle}>Activate an older invitation code</Text>
+    <FormScreen>
+        <P style={styles.logo}>OPA</P>
+        <P style={styles.subtitle}>Activate an older invitation code</P>
 
-        <Text style={styles.helper}>
+        <P style={styles.helper}>
           Use this screen only for an older short invitation code. New institutional invitations require both email and phone proofs.
-        </Text>
+        </P>
 
-{error ? <Text style={styles.error}>{error}</Text> : null}
+{error ? <P style={styles.error}>{error}</P> : null}
 
         <TextInput
           style={styles.input}
@@ -137,19 +128,18 @@ export default function ActivateScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity onPress={() => router.push("/(auth)/enroll")} disabled={isSubmitting}>
-          <Text style={styles.link}>New institutional invitation: verify email and phone</Text>
+          <P style={styles.link}>New institutional invitation: verify email and phone</P>
         </TouchableOpacity>
         <TouchableOpacity
           onPress={() => router.replace("/(auth)/login")}
           disabled={isSubmitting}
           activeOpacity={0.85}
         >
-          <Text style={[styles.link, isSubmitting && styles.linkDisabled]}>
+          <P style={[styles.link, isSubmitting && styles.linkDisabled]}>
             Already activated? Sign in
-          </Text>
+          </P>
         </TouchableOpacity>
-      </ScrollView>
-    </KeyboardAvoidingView>
+    </FormScreen>
   );
 }
 
@@ -157,12 +147,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#08111A",
-  },
-  scrollContent: {
-    flexGrow: 1,
-    justifyContent: "center",
-    paddingHorizontal: 24,
-    paddingVertical: 40,
   },
   logo: {
     fontSize: 40,
@@ -181,7 +165,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: "#8B949E",
     textAlign: "center",
-    lineHeight: 19,
     marginBottom: 24,
   },
   error: {

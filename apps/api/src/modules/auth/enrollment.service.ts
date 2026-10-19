@@ -18,6 +18,7 @@ import { randomBytes, timingSafeEqual } from "crypto";
 import * as bcrypt from "bcrypt";
 import { PrismaService } from "../../prisma/prisma.service";
 import { resolveEnrollmentIdentity } from "../../shared/security/enrollment-resolution";
+import { newEnrollmentRequestId, resolveEnrollmentReference } from "../../shared/security/enrollment-reference";
 import {
   enrollmentDigest,
   protectIdentity,
@@ -184,6 +185,7 @@ export class EnrollmentService {
         };
       const request = await tx.enrollmentRequest.create({
         data: {
+          id: await newEnrollmentRequestId(tx),
           requestedRole,
           identityCiphertext: protectIdentity(this.config, identity),
           idempotencyDigest: digest,
@@ -307,7 +309,10 @@ export class EnrollmentService {
     );
   }
 
-  private async locked(tx: Prisma.TransactionClient, id: string) {
+  /** Accepts the full request id or the short reference (OPA-XXXXXX). */
+  private async locked(tx: Prisma.TransactionClient, reference: string) {
+    const id = await resolveEnrollmentReference(tx, reference);
+    if (!id) return null;
     await tx.$queryRaw`SELECT id FROM "EnrollmentRequest" WHERE id = ${id}::uuid FOR UPDATE`;
     return tx.enrollmentRequest.findUnique({ where: { id } });
   }

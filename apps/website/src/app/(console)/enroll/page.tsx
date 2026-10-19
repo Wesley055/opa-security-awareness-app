@@ -145,9 +145,13 @@ function EnrollmentForm() {
           <fieldset disabled={busy} style={{ display: "grid", gap: 18 }}>
             {stage !== "AUTHENTICATION_REQUIRED" && !reference && (
               <label>
-                Invitation reference (from your message)
+                Invitation reference (from your message, e.g. OPA-3F9A1C)
                 <input
                   name="requestId"
+                  placeholder="OPA-XXXXXX"
+                  autoCapitalize="characters"
+                  autoComplete="off"
+                  spellCheck={false}
                   value={requestId}
                   onChange={(e) => {
                     edited.current = true;

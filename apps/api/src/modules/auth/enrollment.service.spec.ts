@@ -7,7 +7,7 @@ describe('enrollment intake work independent of global identity',()=>{
   const data={firstName:'Test',lastName:'User',email:'TEST@example.test',phoneNumber:'+2348012345678'};
   it.each([null,{id:'global-account'}])('never queries global accounts before creating a receipt (%p)',async existing=>{
     const id=randomUUID();
-    const tx={$executeRaw:jest.fn(),user:{findUnique:jest.fn(async()=>existing),findFirst:jest.fn(async()=>existing),create:jest.fn()},enrollmentRequest:{findUnique:jest.fn(async()=>null),create:jest.fn(async()=>({id}))},accountInvitationDelivery:{createMany:jest.fn()}};
+    const tx={$executeRaw:jest.fn(),$queryRaw:jest.fn(async()=>[]),user:{findUnique:jest.fn(async()=>existing),findFirst:jest.fn(async()=>existing),create:jest.fn()},enrollmentRequest:{findUnique:jest.fn(async()=>null),create:jest.fn(async()=>({id}))},accountInvitationDelivery:{createMany:jest.fn()}};
     const service=new EnrollmentService({$transaction:async(fn:(value:typeof tx)=>unknown)=>fn(tx)} as never,config);
     expect(await service.request(data,'request-key')).toEqual({requestId:id,status:'VERIFICATION_PENDING'});
     expect(tx.user.findUnique).not.toHaveBeenCalled();expect(tx.user.findFirst).not.toHaveBeenCalled();expect(tx.user.create).not.toHaveBeenCalled();

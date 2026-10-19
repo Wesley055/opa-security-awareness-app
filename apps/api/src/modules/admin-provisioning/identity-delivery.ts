@@ -1,4 +1,5 @@
 import { enrollmentDestination } from "../../shared/security/enrollment-navigation";
+import { enrollmentReference } from "../../shared/security/enrollment-reference";
 import { ForbiddenException } from "@nestjs/common";
 import {
   enrollmentAuthority,
@@ -106,18 +107,19 @@ export async function prepareIdentityDelivery(
       data: isEmail ? { emailTokenHash: digest } : { phoneTokenHash: digest },
     });
     const validUntil = enrollmentExpiryText(request.expiresAt);
+    const reference = enrollmentReference(request.id);
     return isEmail
       ? {
           channel: "EMAIL",
           recipient: identity.email,
           subject: `Your OPA code: ${code}`,
-          message: `Your OPA verification code for ${organization} is ${code}.\n\nOpen ${destination} and enter this code with the code we sent to your phone, then choose your password.\n\nValid until ${validUntil}. If you were not expecting this, you can ignore this email.`,
+          message: `Your OPA verification code for ${organization} is ${code}.\n\nInvitation reference: ${reference}\n\nOpen ${destination} (or the OPA app: Accept invitation, then enter the reference) and enter this code with the code we sent to your phone, then choose your password.\n\nValid until ${validUntil}. If you were not expecting this, you can ignore this email.`,
         }
       : {
           channel: "SMS",
           recipient: identity.phoneNumber,
           subject: `Your OPA code: ${code}`,
-          message: `OPA: your code for ${organization} is ${code}. Enter it with the code sent to your email: ${destination} Valid until ${validUntil}.`,
+          message: `OPA: your code for ${organization} is ${code}. Reference ${reference}. Enter it with the code sent to your email: ${destination} Valid until ${validUntil}.`,
         };
   }
   if (delivery.purpose === "PASSWORD_RESET" && delivery.requestCiphertext) {

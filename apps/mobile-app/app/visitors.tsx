@@ -2,7 +2,6 @@ import { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  ScrollView,
   Share,
   StyleSheet,
   Text,
@@ -13,6 +12,7 @@ import {
 import { router } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { api } from "../src/services/api";
+import { FormScreen } from "../src/components/FormScreen";
 
 type Pass = {
   id: string;
@@ -151,7 +151,7 @@ export default function VisitorsScreen() {
   }
 
   return (
-    <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
+    <FormScreen>
       <Text style={styles.title}>Visitors</Text>
       <Text style={styles.text}>Create a pass, then share the 6-digit code with your visitor. They tell the code to security at the gate.</Text>
 
@@ -218,15 +218,14 @@ export default function VisitorsScreen() {
       <TouchableOpacity onPress={() => router.back()}>
         <Text style={styles.link}>Back</Text>
       </TouchableOpacity>
-    </ScrollView>
+    </FormScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flexGrow: 1, padding: 24, paddingTop: 64, gap: 12, backgroundColor: "#08111A" },
   title: { fontSize: 26, color: "#FFFFFF", fontWeight: "700" },
   section: { fontSize: 18, color: "#FFFFFF", fontWeight: "700", marginTop: 12 },
-  text: { color: "#CBD5E1", lineHeight: 22 },
+  text: { color: "#CBD5E1", fontSize: 16 },
   hint: { color: "#94A3B8", fontSize: 13 },
   warn: { color: "#FFB300", fontWeight: "700" },
   error: { color: "#FF7B72" },

@@ -90,7 +90,7 @@ Done overnight: SMS fixed (API `79b6120`), APK vc23 + iOS build 7 built, pilot f
 1. [ ] **Build "Retire test account"** (Super Admin): deactivate an old test/demo account and release its phone + email, with reason, audited; refused for active staff and Super Admin. Then retire the demo accounts. *Blocks the pilot: every tested number is held by an old account.*
 2. [ ] Vercel: promote `a5750d2` or later (readable enroll Resume step).
 3. [ ] iOS: `eas submit --platform ios --latest` → TestFlight 1.0.0 (7).
-4. [ ] Pilot: Alex re-invites **Matt Hays** (first Facility Admin) → Matt invites **Philips** (operator) → residents (single + bulk). Then SOS + Google Maps, silent SOS (lock screen / foreground / background), airplane-mode buffering, AIR / Insight.
+4. [ ] Pilot: ~~Alex re-invites **Matt Hays** (first Facility Admin)~~ **done 19 Oct 16:28 UTC, Matt signed in to Quartz** → Matt invites **Philips** (operator) → residents (single + bulk). Then SOS + Google Maps, silent SOS (lock screen / foreground / background), airplane-mode buffering, AIR / Insight.
 5. [ ] **OPA Pulse (internal CRM)**: review the other agent's branch `codex/opa-pulse-design-20261018` (auth and roles, no customer safety data, secrets in Key Vault, dependencies, backups; separate database and resources from OPA production), then deploy to its own resources.
 
 ### Monday 19 Oct build (one API + web + app release, Monday night)

@@ -75,7 +75,7 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 - [ ] Estate notices to all residents.
 
 ### Platform
-- [ ] **Ask to join my estate / organization** (design first, not built): a person without an invitation asks to join; the facility admin gets an email + a queue in the Command Center to approve or decline; approval sends the normal invitation (codes). Decide whether open personal sign-up stays on for estates.
+- [ ] **Onboarding model (final, Issue #47, 18 Oct):** (1) Create OPA account = personal only, no facility access; (2) Accept invitation = short reference + two 4-digit codes; (3) **Join your estate** = optional, off by default, signed-in users only, estate-issued join code (no admin identity shown), Command Center queue with batch approve/decline, no estate access until approved. Schools/banks invitation-only by default. Design sign-off before code; build after Providus.
 - [ ] Staff profiles (Monday): display name, phone, notification settings and in-session password change for operators, facility admins and technical support; photo **mandatory for operators** (cannot go on duty without an approved photo), optional for others; residents see the responding operator's name and photo during an active SOS; no demo/placeholder staff names in production.
 - [ ] Switch off background workers in the staging slot (slot setting), so a build waiting in staging never sends messages or alerts.
 - [ ] Technical Support workspace, phase 1: Accounts & OTP diagnostics, Notification diagnostics (metadata only; codes never shown).

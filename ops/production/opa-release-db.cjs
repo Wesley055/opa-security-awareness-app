@@ -1,5 +1,5 @@
 'use strict';
-// OPA production database release runner. This release: schema 45 -> 46 (Duty Reports + staff profiles). v2: prepare (FacilityType owner) + resolve of the failed 20 Oct attempt.
+// OPA production database release runner. This release: schema 46 -> 47 (staff password recovery codes).
 // Pinned per release: SQL hashes, new migration hashes, schema hash and counts.
 // Runs inside the production App Service container with /usr/local/bin/node.
 // Modes, run separately and by hand: check | activate | migrate | cleanup | verify
@@ -19,18 +19,17 @@ const OWNER = 'opa_production_release_owner', RUNTIME = 'opa_production_runtime'
 const VAULT = 'https://opa-kv-production.vault.azure.net';
 const SECRETS = { admin: 'opa-production-postgresql-admin-password', migrator: 'opa-production-database-migration-password' };
 const SQL_HASH = {
-  prepare: '61a0094897a82f62f4f020475f846ef37f310cd867a4e24eef42e1eb6959a5a6',
   activate: 'a88b43b93c4f75db182ee01b522758b324f9a32cb4cbdc4eed81de436674d566',
-  // EstateFlow cleanup plus DutyShift, DutyReport, their enums and duty_report_immutable().
-  cleanup: '8cdfc636adf273277395fdf26f16f401c5a305fac162382b3401cb1150a2a11c',
+  // Release 46 cleanup plus StaffRecoveryCode.
+  cleanup: '1391ebf902bffe83945c4c8584ecf6811b96156d50d71ddfca1015f58d840164',
 };
 const NEW_MIGRATIONS = {
-  '20261020010000_duty_reports_staff_profiles': '771ad63b53b0c04301ccb6717786bc01c74658a3823e5de29a03e9a82f966d72',
+  '20261020220000_staff_recovery_codes': 'b7198b356ed223b91932b1ea1c27dff7bef37ed9ec734232eda0005fc39611da',
 };
-const SCHEMA_HASH = '64c7360372fbc313472ba6280a0f1b3c9e5ec715e428022f69d26f77d907dbf4';
-const BEFORE = 45, AFTER = 46;
-// The 20 Oct attempt failed on its first statement (must be owner of type FacilityType); nothing applied.
-const FAILED = '20261020010000_duty_reports_staff_profiles';
+const SCHEMA_HASH = '32f01e484d4c0f8b1415b76f709b095518ce5eb1c9fc1300cc30dbdf370e6905';
+const BEFORE = 46, AFTER = 47;
+// If this release's migration ever fails, `resolve` marks that one attempt rolled back.
+const FAILED = '20261020220000_staff_recovery_codes';
 
 const sha = b => crypto.createHash('sha256').update(b).digest('hex');
 const fail = code => { throw Object.assign(new Error(code), { code }); };
@@ -78,7 +77,7 @@ async function client(who) {
 
 const n = v => Number(v);
 // Recovery is only allowed while none of migration 46's objects exist.
-const untouched = s => !s.dutyTablesOwnedByReleaseOwner && !s.staffPhotoColumns && !s.sectorFacilityTypes && !s.dutyImmutableTrigger;
+const untouched = s => !s.recoveryTableExists;
 // Ledger is at 45 with, at most, the one known failed attempt pending recovery.
 const ledgerOk = s => s.ledgerApplied === BEFORE && !s.otherIncomplete && s.ledgerIncomplete === s.failedAttempt;
 async function state(c) {
@@ -107,6 +106,8 @@ async function state(c) {
     facilityTypeOwner: (await q(`SELECT typowner::regrole::text AS v FROM pg_type WHERE oid=to_regtype('public."FacilityType"')`)).v,
     failedAttempt: n((await q(`SELECT count(*) AS v FROM _prisma_migrations WHERE migration_name='${FAILED}' AND finished_at IS NULL AND rolled_back_at IS NULL`)).v),
     otherIncomplete: n((await q(`SELECT count(*) AS v FROM _prisma_migrations WHERE migration_name<>'${FAILED}' AND finished_at IS NULL AND rolled_back_at IS NULL`)).v),
+    recoveryTableExists: n((await q(`SELECT count(*) AS v FROM pg_class WHERE relname='StaffRecoveryCode' AND relnamespace='public'::regnamespace`)).v),
+    recoveryTableOwnedByReleaseOwner: n((await q(`SELECT count(*) AS v FROM pg_class WHERE relname='StaffRecoveryCode' AND relnamespace='public'::regnamespace AND relowner=(SELECT oid FROM pg_roles WHERE rolname='${OWNER}')`)).v),
     dutyImmutableTrigger: n((await q(`SELECT count(*) AS v FROM pg_trigger WHERE tgname='duty_report_immutable' AND NOT tgisinternal`)).v),
   };
 }
@@ -152,7 +153,7 @@ function stageMigrations() {
 
 async function main() {
   const mode = process.argv[2];
-  if (!['check', 'prepare', 'activate', 'resolve', 'migrate', 'cleanup', 'verify'].includes(mode)) fail('USAGE: check|prepare|activate|resolve|migrate|cleanup|verify');
+  if (!['check', 'activate', 'resolve', 'migrate', 'cleanup', 'verify'].includes(mode)) fail('USAGE: check|activate|resolve|migrate|cleanup|verify');
   if (process.versions.node.split('.')[0] !== '22' || process.platform !== 'linux') fail('EXECUTION_CONTEXT');
   log('MODE', mode); log('UTC', new Date().toISOString()); log('API_BUILD', process.env.OPA_BUILD_SHA || 'unknown');
 
@@ -175,7 +176,6 @@ async function main() {
     const admin = await client('admin'); const s = await state(admin); await admin.$disconnect();
     if (!s.migratorIsOwnerMember || !s.migratorCanCreateInPublic) fail('NOT_ACTIVATED_RUN_ACTIVATE_FIRST');
     if (s.ledgerApplied !== BEFORE || s.ledgerIncomplete !== 0) fail('LEDGER_NOT_AT_' + BEFORE + '_RUN_RESOLVE_FIRST');
-    if (s.facilityTypeOwner !== OWNER) fail('FACILITY_TYPE_OWNER_RUN_PREPARE_FIRST');
     const m = await client('migrator'); await m.$disconnect();
     log('MIGRATOR_LOGIN', 'verified');
     const ok = prisma(['migrate', 'deploy', '--schema', schema], await urlFor('migrator'));
@@ -188,14 +188,13 @@ async function main() {
   const admin = await client('admin');
   log('ADMIN_LOGIN', 'verified (private ' + PRIVATE_IP + ', PostgreSQL 14)');
   try {
-    if (mode === 'prepare' || mode === 'activate' || mode === 'cleanup') {
+    if (mode === 'activate' || mode === 'cleanup') {
       const sql = reviewedSql(mode);
       log('SQL_SHA256', SQL_HASH[mode]);
-      if (mode === 'activate' || mode === 'prepare') {
+      if (mode === 'activate') {
         const s = await state(admin);
         if (s.openIncidents || s.activeJourneys) fail('EMERGENCY_IN_PROGRESS_' + s.openIncidents + '_' + s.activeJourneys);
         if (!ledgerOk(s) || !untouched(s)) fail('LEDGER_NOT_AT_' + BEFORE);
-        if (mode === 'activate' && s.facilityTypeOwner !== OWNER) fail('FACILITY_TYPE_OWNER_RUN_PREPARE_FIRST');
       }
       await admin.$disconnect();
       // prisma db execute sends the reviewed script unchanged in one simple
@@ -204,7 +203,7 @@ async function main() {
       fs.writeFileSync(path.join(HERE, 'exec.prisma'), 'datasource db {\n  provider = "postgresql"\n  url = env("DATABASE_URL")\n}\n');
       const ok = prisma(['db', 'execute', '--schema', path.join(HERE, 'exec.prisma'), '--stdin'], await urlFor('admin'), sql);
       log('SQL_EXIT', ok ? 0 : 1);
-      if (!ok) { process.exitCode = 1; console.log(mode === 'activate' ? 'ACTIVATE FAILED OR UNCERTAIN: run cleanup, do not retry activate.' : mode === 'prepare' ? 'PREPARE FAILED: send me this output; do not run anything else.' : 'CLEANUP FAILED: send me this output; do not run anything else.'); }
+      if (!ok) { process.exitCode = 1; console.log(mode === 'activate' ? 'ACTIVATE FAILED OR UNCERTAIN: run cleanup, do not retry activate.' : 'CLEANUP FAILED: send me this output; do not run anything else.'); }
       const after = await client('admin'); log('STATE', await state(after)); await after.$disconnect();
       return;
     }
@@ -214,12 +213,13 @@ async function main() {
       const ready = !s.openIncidents && !s.activeJourneys && ledgerOk(s) && untouched(s) && !s.migratorSessions
         && !s.migratorIsOwnerMember && !s.migratorCanCreateInPublic;
       log('READY', ready);
-      log('NEXT', !ready ? 'stop: send this output' : s.facilityTypeOwner !== OWNER ? 'prepare' : 'activate');
+      log('NEXT', !ready ? 'stop: send this output' : s.failedAttempt ? 'activate, then resolve' : 'activate');
     } else {
       const pass = s.ledgerApplied === AFTER && !s.ledgerIncomplete && !s.migratorSessions && !s.migratorIsOwnerMember
         && !s.migratorCanCreateInPublic && !s.migratorCanWriteLedger && !s.migratorOwnedObjects && !s.runtimeUnreadableTables
         && !s.runtimeCanCreateInPublic && s.dutyTablesOwnedByReleaseOwner === 2 && s.staffPhotoColumns === 5
-        && s.sectorFacilityTypes === 4 && s.dutyImmutableTrigger === 1 && s.facilityTypeOwner === OWNER && !s.failedAttempt;
+        && s.sectorFacilityTypes === 4 && s.dutyImmutableTrigger === 1 && s.facilityTypeOwner === OWNER && !s.failedAttempt
+        && s.recoveryTableOwnedByReleaseOwner === 1;
       log('VERIFY', pass ? 'PASS' : 'FAIL');
       if (!pass) process.exitCode = 1;
     }

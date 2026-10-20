@@ -33,3 +33,28 @@ it("validates in the browser before sending, and shows the server's refusal", as
   fireEvent.click(screen.getByRole("button", { name: "Validate & change password" }));
   await waitFor(() => expect(screen.getByRole("alert").textContent).toMatch(/current password is not correct/));
 });
+
+it("forgot current password: asks for the phone code (and email code for admins) instead", async () => {
+  const transport = vi.fn(async (_p: string, init?: RequestInit) => {
+    if (init?.method !== "POST") return new Response(JSON.stringify({ ...profile, role: "FACILITY_ADMIN" }), { status: 200 });
+    const body = JSON.parse(String(init.body));
+    return body.action === "recovery-start"
+      ? new Response(JSON.stringify({ channels: ["SMS", "EMAIL"], phoneHint: "34", smsSent: true, emailSent: true }), { status: 200 })
+      : new Response(JSON.stringify({ signedOutEverywhere: true }), { status: 200 });
+  });
+  render(<StaffProfile session="institutional" transport={transport} onSignedOut={() => {}} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Change password" }));
+  fireEvent.click(screen.getByRole("button", { name: /Forgot your current password/ }));
+  expect(await screen.findByText(/phone ending/)).toBeTruthy();
+  expect(screen.queryByLabelText("Current password")).toBeNull();
+  fireEvent.change(screen.getByLabelText("Code from your phone"), { target: { value: "123456" } });
+  fireEvent.change(screen.getByLabelText("New password"), { target: { value: "New-pass-22" } });
+  fireEvent.change(screen.getByLabelText("Confirm new password"), { target: { value: "New-pass-22" } });
+  fireEvent.click(screen.getByRole("button", { name: "Validate & change password" }));
+  expect((await screen.findByRole("alert")).textContent).toMatch(/code sent to your email/);
+  fireEvent.change(screen.getByLabelText("Code from your email"), { target: { value: "654321" } });
+  fireEvent.click(screen.getByRole("button", { name: "Validate & change password" }));
+  await waitFor(() => expect(screen.getByText(/signed out on every device/)).toBeTruthy());
+  const last = JSON.parse(String(transport.mock.calls.at(-1)![1]!.body));
+  expect(last).toMatchObject({ action: "recovery-complete", smsCode: "123456", emailCode: "654321" });
+});

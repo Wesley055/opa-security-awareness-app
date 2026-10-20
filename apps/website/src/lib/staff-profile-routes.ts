@@ -18,6 +18,14 @@ export async function profilePost(session: Session, request: Request) {
   let result: Response;
   if (body?.action === "password" && typeof body.currentPassword === "string" && typeof body.newPassword === "string") {
     result = await call(token, "/staff/profile/password", "POST", { currentPassword: body.currentPassword.slice(0, 200), newPassword: body.newPassword.slice(0, 200) });
+  } else if (body?.action === "recovery-start") {
+    return call(token, "/staff/profile/password/recovery", "POST");
+  } else if (body?.action === "recovery-complete" && typeof body.smsCode === "string" && typeof body.newPassword === "string") {
+    result = await call(token, "/staff/profile/password/recovery/complete", "POST", {
+      smsCode: body.smsCode.slice(0, 6),
+      ...(typeof body.emailCode === "string" && body.emailCode ? { emailCode: body.emailCode.slice(0, 6) } : {}),
+      newPassword: body.newPassword.slice(0, 200),
+    });
   } else if (body?.action === "sign-out-everywhere") {
     result = await call(token, "/staff/profile/sign-out-everywhere", "POST");
   } else return respond({ error: "Unknown action." }, 400);

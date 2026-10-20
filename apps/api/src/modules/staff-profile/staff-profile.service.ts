@@ -3,11 +3,19 @@ import { ConfigService } from "@nestjs/config";
 import { BlobSASPermissions, BlobServiceClient } from "@azure/storage-blob";
 import { StaffPhotoStatus, UserRole } from "@prisma/client";
 import * as bcrypt from "bcrypt";
-import { randomUUID } from "node:crypto";
+import { createHmac, randomInt, randomUUID, timingSafeEqual } from "node:crypto";
+import { EmailProvider } from "../notifications/providers/email.provider";
+import { SmsProvider } from "../notifications/providers/sms.provider";
 import { PrismaService } from "../../prisma/prisma.service";
 
 export const STAFF_ROLES: UserRole[] = [UserRole.FACILITY_ADMIN, UserRole.FACILITY_OPERATOR, UserRole.TECHNICAL_SUPPORT, UserRole.ADMIN, UserRole.ORGANIZATION_ADMIN];
 export const MAX_PHOTO_BYTES = 3 * 1024 * 1024;
+/** Privileged staff prove phone AND email; operators prove phone. */
+export const PRIVILEGED_ROLES: UserRole[] = [UserRole.FACILITY_ADMIN, UserRole.TECHNICAL_SUPPORT, UserRole.ADMIN, UserRole.ORGANIZATION_ADMIN];
+export const RECOVERY_MINUTES = 10;
+export const RECOVERY_MAX_ATTEMPTS = 5;
+export const RECOVERY_STARTS_PER_HOUR = 3;
+const CODE_FAILED = "That code is not correct or has expired. Request a new one if needed.";
 
 /** JPEG or PNG by magic bytes; the declared content type is not trusted. */
 export function photoKind(buf: Buffer): "jpg" | "png" | null {
@@ -26,7 +34,7 @@ export function photoKind(buf: Buffer): "jpg" | "png" | null {
 export class StaffProfileService {
   private readonly blob: BlobServiceClient;
   private readonly container: string;
-  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) {
+  constructor(private readonly prisma: PrismaService, private readonly config: ConfigService, private readonly sms: SmsProvider, private readonly email: EmailProvider) {
     this.blob = BlobServiceClient.fromConnectionString(config.getOrThrow<string>("AZURE_STORAGE_CONNECTION_STRING"));
     this.container = config.getOrThrow<string>("AZURE_STORAGE_CONTAINER");
   }
@@ -34,7 +42,7 @@ export class StaffProfileService {
   private async staff(userId: string) {
     const u = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, firstName: true, lastName: true, role: true, isActive: true, facilityId: true, photoKey: true, photoStatus: true, photoUpdatedAt: true, passwordHash: true, facility: { select: { name: true, type: true } } },
+      select: { id: true, firstName: true, lastName: true, role: true, isActive: true, accountStatus: true, email: true, phoneNumber: true, facilityId: true, photoKey: true, photoStatus: true, photoUpdatedAt: true, passwordHash: true, facility: { select: { name: true, type: true } } },
     });
     if (!u || !u.isActive || !STAFF_ROLES.includes(u.role)) throw new ForbiddenException("Profiles are for institutional staff.");
     return u;
@@ -85,6 +93,74 @@ export class StaffProfileService {
       this.prisma.passwordResetToken.updateMany({ where: { userId: u.id, consumedAt: null }, data: { consumedAt: new Date() } }),
       this.prisma.administrativeAuditEvent.create({ data: { actorUserId: u.id, actorRole: u.role, action: "STAFF_PASSWORD_CHANGED", resourceId: u.id, facilityId: u.facilityId } }),
     ]);
+    return { signedOutEverywhere: true };
+  }
+
+  /** Keyed MAC so a leaked row cannot be brute-forced offline. */
+  private mac(userId: string, recoveryId: string, channel: "sms" | "email", code: string): string {
+    return createHmac("sha256", this.config.getOrThrow<string>("PII_LOOKUP_KEY")).update(`staff-recovery:${recoveryId}:${userId}:${channel}:${code}`).digest("hex");
+  }
+  private same(a: string | null, b: string): boolean {
+    return !!a && a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  }
+
+  /**
+   * Signed in but forgot the current password: send one-time codes. The active
+   * session is one proof; the phone code (and, for privileged roles, the email
+   * code) is the other. Never reveals the full phone number or email.
+   */
+  async startRecovery(userId: string) {
+    const u = await this.staff(userId);
+    if (u.accountStatus !== "ACTIVE" || !u.phoneNumber) throw new BadRequestException("Recovery by code is not available for this account. Use Forgot password on the sign-in page.");
+    const privileged = PRIVILEGED_ROLES.includes(u.role);
+    const recent = await this.prisma.staffRecoveryCode.count({ where: { userId: u.id, createdAt: { gte: new Date(Date.now() - 3_600_000) } } });
+    if (recent >= RECOVERY_STARTS_PER_HOUR) throw new BadRequestException("Too many code requests. Wait an hour, or use Forgot password on the sign-in page.");
+    const id = randomUUID();
+    const smsCode = String(randomInt(0, 1_000_000)).padStart(6, "0");
+    const emailCode = privileged ? String(randomInt(0, 1_000_000)).padStart(6, "0") : null;
+    const now = new Date();
+    await this.prisma.$transaction([
+      this.prisma.staffRecoveryCode.updateMany({ where: { userId: u.id, consumedAt: null }, data: { consumedAt: now } }),
+      this.prisma.staffRecoveryCode.create({ data: { id, userId: u.id, smsCodeMac: this.mac(u.id, id, "sms", smsCode), emailCodeMac: emailCode ? this.mac(u.id, id, "email", emailCode) : null, expiresAt: new Date(now.getTime() + RECOVERY_MINUTES * 60_000), createdAt: now } }),
+      this.prisma.administrativeAuditEvent.create({ data: { actorUserId: u.id, actorRole: u.role, action: "STAFF_PASSWORD_RECOVERY_REQUESTED", resourceId: u.id, facilityId: u.facilityId, afterState: { channels: privileged ? ["SMS", "EMAIL"] : ["SMS"] } } }),
+    ]);
+    const smsSent = await this.sms.send({ recipient: u.phoneNumber, message: `OPA: your password change code is ${smsCode}. It expires in ${RECOVERY_MINUTES} minutes. Never share it; OPA staff will never ask for it.` }).then((r) => r.success).catch(() => false);
+    const emailSent = emailCode
+      ? await this.email.send({ recipient: u.email, subject: "Your OPA password change code", message: `Your OPA password change code is ${emailCode}.\n\nIt expires in ${RECOVERY_MINUTES} minutes and is used together with the code sent to your phone. If you did not ask to change your password, sign in and choose Sign out on all devices, then contact your administrator.` }).then((r) => r.success).catch(() => false)
+      : null;
+    return {
+      channels: privileged ? ["SMS", "EMAIL"] : ["SMS"],
+      phoneHint: u.phoneNumber.slice(-2),
+      smsSent,
+      emailSent,
+      expiresInMinutes: RECOVERY_MINUTES,
+    };
+  }
+
+  async completeRecovery(userId: string, smsCode: string, emailCode: string | undefined, next: string) {
+    const u = await this.staff(userId);
+    const privileged = PRIVILEGED_ROLES.includes(u.role);
+    const open = await this.prisma.staffRecoveryCode.findFirst({ where: { userId: u.id, consumedAt: null } });
+    if (!open || open.expiresAt <= new Date()) throw new BadRequestException(CODE_FAILED);
+    const smsOk = this.same(open.smsCodeMac, this.mac(u.id, open.id, "sms", String(smsCode ?? "").trim()));
+    const emailOk = !privileged || this.same(open.emailCodeMac, this.mac(u.id, open.id, "email", String(emailCode ?? "").trim()));
+    if (!smsOk || !emailOk) {
+      const attempts = open.attempts + 1;
+      await this.prisma.staffRecoveryCode.update({ where: { id: open.id }, data: { attempts, ...(attempts >= RECOVERY_MAX_ATTEMPTS ? { consumedAt: new Date() } : {}) } });
+      if (attempts >= RECOVERY_MAX_ATTEMPTS) {
+        await this.prisma.administrativeAuditEvent.create({ data: { actorUserId: u.id, actorRole: u.role, action: "STAFF_PASSWORD_RECOVERY_LOCKED", resourceId: u.id, facilityId: u.facilityId } });
+        throw new BadRequestException("Too many wrong codes. Request a new code.");
+      }
+      throw new BadRequestException(CODE_FAILED);
+    }
+    const passwordHash = await bcrypt.hash(next, this.config.getOrThrow<number>("BCRYPT_ROUNDS"));
+    await this.prisma.$transaction(async (tx) => {
+      const consumed = await tx.staffRecoveryCode.updateMany({ where: { id: open.id, consumedAt: null }, data: { consumedAt: new Date() } });
+      if (consumed.count !== 1) throw new BadRequestException(CODE_FAILED);
+      await tx.user.update({ where: { id: u.id }, data: { passwordHash, credentialVersion: { increment: 1 } } });
+      await tx.passwordResetToken.updateMany({ where: { userId: u.id, consumedAt: null }, data: { consumedAt: new Date() } });
+      await tx.administrativeAuditEvent.create({ data: { actorUserId: u.id, actorRole: u.role, action: "STAFF_PASSWORD_RECOVERED", resourceId: u.id, facilityId: u.facilityId, authorityKind: privileged ? "SESSION_SMS_EMAIL_CODES" : "SESSION_SMS_CODE", afterState: { sessionsRevoked: true } } });
+    });
     return { signedOutEverywhere: true };
   }
 

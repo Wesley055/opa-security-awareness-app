@@ -30,6 +30,9 @@ export function StaffProfile({ session, transport, onSignedOut }: { session: "op
   const [confirm, setConfirm] = useState("");
   const [formError, setFormError] = useState("");
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const [recovery, setRecovery] = useState<{ channels: string[]; phoneHint: string; smsSent: boolean; emailSent: boolean | null } | null>(null);
+  const [smsCode, setSmsCode] = useState("");
+  const [emailCode, setEmailCode] = useState("");
 
   const load = useCallback(async () => {
     const r = await fetcher(root, { cache: "no-store" });
@@ -56,15 +59,29 @@ export function StaffProfile({ session, transport, onSignedOut }: { session: "op
 
   function cancelChange() {
     setChanging(false); setCurrent(""); setNext(""); setConfirm(""); setFormError("");
+    setRecovery(null); setSmsCode(""); setEmailCode("");
+  }
+
+  async function startRecovery() {
+    setBusy(true); setFormError("");
+    const r = await fetcher(root, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "recovery-start" }) });
+    const data = await r.json().catch(() => null);
+    setBusy(false);
+    if (!r.ok) return setFormError(data?.error ?? "Could not send a code. Try again.");
+    setRecovery(data); setCurrent(""); setSmsCode(""); setEmailCode("");
+    if (!data.smsSent || data.emailSent === false) setFormError("A code could not be delivered. Request a new code, or use Forgot password on the sign-in page.");
   }
 
   /** Checked here first for quick feedback; the server re-checks everything. */
   function validate(): string | null {
-    if (!current) return "Enter your current password.";
+    if (recovery) {
+      if (!/^\d{6}$/.test(smsCode)) return "Enter the 6-digit code sent to your phone.";
+      if (recovery.channels.includes("EMAIL") && !/^\d{6}$/.test(emailCode)) return "Enter the 6-digit code sent to your email.";
+    } else if (!current) return "Enter your current password.";
     const problem = passwordProblem(next);
     if (problem) return problem;
     if (next !== confirm) return "The new passwords do not match.";
-    if (next === current) return "Choose a new password that is different from your current one.";
+    if (!recovery && next === current) return "Choose a new password that is different from your current one.";
     return null;
   }
 
@@ -73,12 +90,15 @@ export function StaffProfile({ session, transport, onSignedOut }: { session: "op
     setFormError(problem ?? "");
     if (problem) return;
     setBusy(true);
-    const r = await fetcher(root, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "password", currentPassword: current, newPassword: next }) });
+    const body = recovery
+      ? { action: "recovery-complete", smsCode, ...(recovery.channels.includes("EMAIL") ? { emailCode } : {}), newPassword: next }
+      : { action: "password", currentPassword: current, newPassword: next };
+    const r = await fetcher(root, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const data = await r.json().catch(() => null);
     setBusy(false);
     if (!r.ok) {
       setFormError(data?.error ?? "Your password was not changed. Try again.");
-      setCurrent("");
+      setCurrent(""); setSmsCode(""); setEmailCode("");
       return;
     }
     cancelChange();
@@ -138,7 +158,27 @@ export function StaffProfile({ session, transport, onSignedOut }: { session: "op
           </div>
         ) : (
           <form className="grid gap-2" noValidate onSubmit={(e) => { e.preventDefault(); void changePassword(); }}>
-            <label className="grid gap-1 text-sm">Current password<input className={input} type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} autoFocus /></label>
+            {!recovery ? (
+              <>
+                <label className="grid gap-1 text-sm">Current password<input className={input} type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} autoFocus /></label>
+                <div><button type="button" className="text-sm underline" disabled={busy} onClick={() => void startRecovery()}>Forgot your current password? Get a code instead</button></div>
+              </>
+            ) : (
+              <>
+                <p className="text-sm">
+                  We sent a 6-digit code to your phone ending <strong>{recovery.phoneHint}</strong>
+                  {recovery.channels.includes("EMAIL") ? " and another to your email. Both are needed for your role." : "."} Codes expire in 10 minutes.
+                </p>
+                <label className="grid gap-1 text-sm">Code from your phone<input className={input} inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={smsCode} onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, ""))} autoFocus /></label>
+                {recovery.channels.includes("EMAIL") ? (
+                  <label className="grid gap-1 text-sm">Code from your email<input className={input} inputMode="numeric" maxLength={6} value={emailCode} onChange={(e) => setEmailCode(e.target.value.replace(/\D/g, ""))} /></label>
+                ) : null}
+                <div className="flex flex-wrap gap-3 text-sm">
+                  <button type="button" className="underline" disabled={busy} onClick={() => void startRecovery()}>Send a new code</button>
+                  <button type="button" className="underline" disabled={busy} onClick={() => { setRecovery(null); setFormError(""); }}>I remember my password</button>
+                </div>
+              </>
+            )}
             <label className="grid gap-1 text-sm">New password<input className={input} type="password" autoComplete="new-password" maxLength={PASSWORD_MAX_LENGTH} value={next} onChange={(e) => setNext(e.target.value)} aria-describedby="password-rule" /></label>
             <p id="password-rule" className="text-xs text-muted">{PASSWORD_RULE_TEXT}</p>
             <label className="grid gap-1 text-sm">Confirm new password<input className={input} type="password" autoComplete="new-password" maxLength={PASSWORD_MAX_LENGTH} value={confirm} onChange={(e) => setConfirm(e.target.value)} /></label>

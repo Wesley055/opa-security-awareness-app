@@ -127,6 +127,7 @@ model User {
   photoReviewedBy String?   @db.Uuid
   photoReviewedAt DateTime?
   dutyShifts      DutyShift[] @relation("DutyOperator")
+  recoveryCodes   StaffRecoveryCode[]
   firstName    String
   lastName     String
   role         UserRole @default(USER)
@@ -1520,4 +1521,21 @@ model DutyReport {
 
   @@unique([shiftId, origin, version])
   @@index([facilityId, submittedAt(sort: Desc)])
+}
+
+/// Signed-in staff who forgot their current password prove possession of their
+/// phone (operators) or phone AND email (privileged roles) with one-time codes.
+/// Codes are stored only as keyed HMACs; 5 wrong tries or 10 minutes ends it.
+model StaffRecoveryCode {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @db.Uuid
+  user          User      @relation(fields: [userId], references: [id], onDelete: Restrict)
+  smsCodeMac    String    @db.Char(64)
+  emailCodeMac  String?   @db.Char(64)
+  attempts      Int       @default(0)
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
 }

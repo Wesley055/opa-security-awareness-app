@@ -2,7 +2,7 @@ import { ApiExcludeController } from "@nestjs/swagger";
 import { Body, Controller, Get, Header, HttpCode, Param, ParseUUIDPipe, Post, Req, UploadedFile, UseGuards, UseInterceptors } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { Throttle } from "@nestjs/throttler";
-import { IsString, MinLength } from "class-validator";
+import { IsOptional, IsString, Matches, MinLength } from "class-validator";
 import type { Request } from "express";
 import type { JwtPayload } from "../auth/jwt.strategy";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
@@ -12,6 +12,12 @@ import { MAX_PHOTO_BYTES, StaffProfileService } from "./staff-profile.service";
 
 export class ChangePasswordDto {
   @IsString() @MinLength(1) currentPassword!: string;
+  @IsNewPassword() newPassword!: string;
+}
+
+export class CompleteRecoveryDto {
+  @IsString() @Matches(/^\d{6}$/, { message: "Enter the 6-digit code." }) smsCode!: string;
+  @IsOptional() @IsString() @Matches(/^\d{6}$/, { message: "Enter the 6-digit code." }) emailCode?: string;
   @IsNewPassword() newPassword!: string;
 }
 
@@ -38,6 +44,16 @@ export class StaffProfileController {
   @Throttle({ default: { limit: 5, ttl: 900_000 } })
   password(@Req() req: AuthRequest, @Body() dto: ChangePasswordDto) {
     return this.profiles.changePassword(req.user.sub, dto.currentPassword, dto.newPassword);
+  }
+
+  @Post("password/recovery") @HttpCode(200)
+  @Throttle({ default: { limit: 3, ttl: 3_600_000 } })
+  startRecovery(@Req() req: AuthRequest) { return this.profiles.startRecovery(req.user.sub); }
+
+  @Post("password/recovery/complete") @HttpCode(200)
+  @Throttle({ default: { limit: 10, ttl: 900_000 } })
+  completeRecovery(@Req() req: AuthRequest, @Body() dto: CompleteRecoveryDto) {
+    return this.profiles.completeRecovery(req.user.sub, dto.smsCode, dto.emailCode, dto.newPassword);
   }
 
   @Post("sign-out-everywhere") @HttpCode(200)

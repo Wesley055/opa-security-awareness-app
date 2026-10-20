@@ -65,6 +65,10 @@ enum FacilityType {
   NGO
   GOVERNMENT_AGENCY
   OTHER
+  ESTATE
+  SCHOOL
+  BANK
+  ORGANIZATION
 }
 
 enum EvidenceType {
@@ -116,6 +120,13 @@ model User {
   // put a hashable value in the column that nothing can ever match but
   // everything must reason about. login() narrows on this being non-null.
   passwordHash String?
+  /// Staff profile photo (private blob key). Operators need an APPROVED photo to start a duty shift; never to respond to an SOS.
+  photoKey        String?   @db.VarChar(200)
+  photoStatus     StaffPhotoStatus?
+  photoUpdatedAt  DateTime?
+  photoReviewedBy String?   @db.Uuid
+  photoReviewedAt DateTime?
+  dutyShifts      DutyShift[] @relation("DutyOperator")
   firstName    String
   lastName     String
   role         UserRole @default(USER)
@@ -395,6 +406,8 @@ model Facility {
   visitorDefaultMinutes Int @default(240)
   overstayGraceMinutes  Int @default(30)
   visitorPasses VisitorPass[]
+  dutyShifts    DutyShift[]
+  dutyReports   DutyReport[]
   gateEvents    GateEvent[]
   operationalState FacilityOperationalState @default(CREATED)
   supportAssignments FacilitySupportAssignment[]
@@ -1446,4 +1459,65 @@ model GateEvent {
 
   @@index([facilityId, occurredAt])
   @@index([actorUserId, type, occurredAt])
+}
+
+enum StaffPhotoStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum DutyShiftEnd {
+  OPERATOR
+  SYSTEM
+}
+
+enum DutyReportOrigin {
+  OPERATOR_SUBMITTED
+  SYSTEM_GENERATED
+}
+
+/// OPA Duty Reports. A shift is a reporting record only: it never gates the
+/// incident queue, acknowledgement or any emergency action.
+model DutyShift {
+  id         String        @id @default(uuid()) @db.Uuid
+  facilityId String        @db.Uuid
+  facility   Facility      @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  operatorId String        @db.Uuid
+  operator   User          @relation("DutyOperator", fields: [operatorId], references: [id], onDelete: Restrict)
+  startedAt  DateTime      @default(now())
+  endedAt    DateTime?
+  endedBy    DutyShiftEnd?
+  reports    DutyReport[]
+  createdAt  DateTime      @default(now())
+
+  @@index([facilityId, startedAt(sort: Desc)])
+  @@index([operatorId, endedAt])
+}
+
+/// Immutable once written. A correction is a new version (supersedesId).
+/// origin never changes; a SYSTEM_GENERATED report has no submitter or notes
+/// and never discharges the operator's own report.
+model DutyReport {
+  id              String           @id @default(uuid()) @db.Uuid
+  shiftId         String           @db.Uuid
+  shift           DutyShift        @relation(fields: [shiftId], references: [id], onDelete: Restrict)
+  facilityId      String           @db.Uuid
+  facility        Facility         @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  version         Int
+  origin          DutyReportOrigin
+  submittedById   String?          @db.Uuid
+  submittedAt     DateTime         @default(now())
+  late            Boolean          @default(false)
+  sourceCutoff    DateTime
+  sourceDigest    String           @db.Char(64)
+  document        Json
+  notes           String?          @db.VarChar(4000)
+  handoverItems   Json?
+  acknowledgedById String?         @db.Uuid
+  acknowledgedAt  DateTime?
+  supersedesId    String?          @db.Uuid
+
+  @@unique([shiftId, origin, version])
+  @@index([facilityId, submittedAt(sort: Desc)])
 }

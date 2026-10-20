@@ -39,6 +39,7 @@ All three read the **same authoritative records**: incidents, timeline events, v
    - sends an optional email to the same admins (looked up by OPA, never shown to the operator);
    - writes an audit event `DUTY_REPORT_SUBMITTED`.
 5. **Backup.** If a shift is still open when it reaches its maximum length (default 12 hours), or at the facility's day boundary, OPA closes it and creates a `SYSTEM_GENERATED` report from the records alone.
+   - **Safeguard (owner, 19 Oct):** a backup report does **not** discharge the operator's obligation. The shift is marked `endedBy = SYSTEM` and its operator report as **Missing**. The admin sees "Operator report missing; OPA generated a backup summary". The operator is still asked to submit their report, which is linked to the shift as `OPERATOR_SUBMITTED` and late. The backup stays visible beside it, unchanged.
 6. **Review.** A Facility Admin opens the report under Reports / Analytics → Duty Reports and taps **Acknowledge**. Acknowledging is audited and doesn't change the report. Unacknowledged reports and open handover items show as exceptions.
 
 ## 4. Sector sections (configuration, not code forks)
@@ -68,7 +69,9 @@ For Facility Admins, Operators and Technical Support, under one **My profile** p
 - **active sessions**, with sign out of one session or all others;
 - **sign out**.
 
-**Photo rule:** operators must have a photo before they can **start duty**. Responders already on duty aren't blocked mid-shift. They're asked to add a photo at their next start of duty. A new operator photo is approved by a Facility Admin before it counts. Photos are stored privately in Azure Blob Storage and served through short-lived signed URLs. They are visible to staff of the same facility and, during an active SOS, to the resident being helped, who sees the responding operator's name and photo (agreed earlier in the backlog).
+**Photo rule:** operators must have an approved photo before they can **start a duty shift** (the reporting record). Responders already on duty aren't blocked mid-shift; they're asked to add a photo at their next start of duty.
+
+**Safeguard (owner, 19 Oct): duty state and photos never gate emergency response.** The incident queue, incident detail, map, acknowledgement and every SOS action stay fully available to an authorised operator whether or not they have started duty or have a photo. If an SOS arrives while an operator has no duty shift, they respond as normal, and the incident appears in the next Duty Report as carried over. Tests assert the queue and acknowledgement work for an operator with no photo and no shift. A new operator photo is approved by a Facility Admin before it counts. Photos are stored privately in Azure Blob Storage and served through short-lived signed URLs. They are visible to staff of the same facility and, during an active SOS, to the resident being helped, who sees the responding operator's name and photo (agreed earlier in the backlog).
 
 ## 6. Data model (one migration)
 

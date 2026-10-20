@@ -86,7 +86,7 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 - [ ] Review the ~100 uncommitted files in `C:\Projects\OPA` (`integration/institutional-security`); keep or discard deliberately.
 
 ### Tuesday 20 Oct morning — pick up here (pinned)
-1. Close the open test SOS from the Quartz resident's phone (the database step refuses while any emergency is open).
+1. ~~Close the open test SOS~~ **done 19 Oct 22:17 CT.** Re-check before the database step: no other open SOS or active SafeWalk.
 2. Release Duty Reports + staff profiles, database 45 → 46: `docs/releases/2026-10-20-duty-reports.md`. Package `opa-release-db-duty.zip` in Downloads (SHA-256 `2e6636ff12fbb40dc5985ba311b6f8b7a00e54ae4e4378e75a627723257f72b5`).
 3. Vercel: promote the newest Ready deployment (until step 2 is done, nothing newer than `91f4b1c`).
 4. Duty Reports E2E with Philips and Matt (runbook step 5).

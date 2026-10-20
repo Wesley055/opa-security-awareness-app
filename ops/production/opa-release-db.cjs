@@ -1,5 +1,5 @@
 'use strict';
-// OPA production database release runner. This release: schema 44 -> 45 (EstateFlow).
+// OPA production database release runner. This release: schema 45 -> 46 (Duty Reports + staff profiles).
 // Pinned per release: SQL hashes, new migration hashes, schema hash and counts.
 // Runs inside the production App Service container with /usr/local/bin/node.
 // Modes, run separately and by hand: check | activate | migrate | cleanup | verify
@@ -20,14 +20,14 @@ const VAULT = 'https://opa-kv-production.vault.azure.net';
 const SECRETS = { admin: 'opa-production-postgresql-admin-password', migrator: 'opa-production-database-migration-password' };
 const SQL_HASH = {
   activate: 'a88b43b93c4f75db182ee01b522758b324f9a32cb4cbdc4eed81de436674d566',
-  // Regenerated from ops/production/admin-sql.cjs: adds VisitorPass, GateEvent and their enums.
-  cleanup: '553efa3e017a75094772eefa9e59d2a2f03fd5e9e56c29c64cbef021407fe3ce',
+  // EstateFlow cleanup plus DutyShift, DutyReport, their enums and duty_report_immutable().
+  cleanup: '8cdfc636adf273277395fdf26f16f401c5a305fac162382b3401cb1150a2a11c',
 };
 const NEW_MIGRATIONS = {
-  '20261017200000_estateflow_visitor_passes': 'af681c36dde229aad1c79424c469b82bd6e8ed1fc0d9af1c6644367b396d406b',
+  '20261020010000_duty_reports_staff_profiles': '771ad63b53b0c04301ccb6717786bc01c74658a3823e5de29a03e9a82f966d72',
 };
-const SCHEMA_HASH = '1c61262b328bcc129f4466a2d86b7b2c1f63f733b2c3fb91e86bf85c1ab12af0';
-const BEFORE = 44, AFTER = 45;
+const SCHEMA_HASH = '64c7360372fbc313472ba6280a0f1b3c9e5ec715e428022f69d26f77d907dbf4';
+const BEFORE = 45, AFTER = 46;
 
 const sha = b => crypto.createHash('sha256').update(b).digest('hex');
 const fail = code => { throw Object.assign(new Error(code), { code }); };
@@ -91,10 +91,13 @@ async function state(c) {
     runtimeUnreadableTables: n((await q(`SELECT count(*) AS v FROM pg_class c JOIN pg_namespace s ON s.oid=c.relnamespace WHERE s.nspname='public' AND c.relkind IN ('r','p') AND c.relname<>'_prisma_migrations'
       AND NOT has_table_privilege('${RUNTIME}', c.oid, 'SELECT')`)).v),
     runtimeCanCreateInPublic: (await q(`SELECT has_schema_privilege('${RUNTIME}','public','CREATE') AS v`)).v,
-    estateTablesOwnedByReleaseOwner: n((await q(`SELECT count(*) AS v FROM pg_class c JOIN pg_namespace s ON s.oid=c.relnamespace
-      WHERE s.nspname='public' AND c.relname IN ('VisitorPass','GateEvent') AND c.relowner=(SELECT oid FROM pg_roles WHERE rolname='${OWNER}')`)).v),
-    estateSettingsColumns: n((await q(`SELECT count(*) AS v FROM information_schema.columns WHERE table_schema='public' AND table_name='Facility'
-      AND column_name IN ('visitorDefaultMinutes','overstayGraceMinutes')`)).v),
+    dutyTablesOwnedByReleaseOwner: n((await q(`SELECT count(*) AS v FROM pg_class c JOIN pg_namespace s ON s.oid=c.relnamespace
+      WHERE s.nspname='public' AND c.relname IN ('DutyShift','DutyReport') AND c.relowner=(SELECT oid FROM pg_roles WHERE rolname='${OWNER}')`)).v),
+    staffPhotoColumns: n((await q(`SELECT count(*) AS v FROM information_schema.columns WHERE table_schema='public' AND table_name='User'
+      AND column_name IN ('photoKey','photoStatus','photoUpdatedAt','photoReviewedBy','photoReviewedAt')`)).v),
+    sectorFacilityTypes: n((await q(`SELECT count(*) AS v FROM pg_enum e JOIN pg_type t ON t.oid=e.enumtypid WHERE t.typname='FacilityType'
+      AND e.enumlabel IN ('ESTATE','SCHOOL','BANK','ORGANIZATION')`)).v),
+    dutyImmutableTrigger: n((await q(`SELECT count(*) AS v FROM pg_trigger WHERE tgname='duty_report_immutable' AND NOT tgisinternal`)).v),
   };
 }
 
@@ -189,7 +192,8 @@ async function main() {
     } else {
       const pass = s.ledgerApplied === AFTER && !s.ledgerIncomplete && !s.migratorSessions && !s.migratorIsOwnerMember
         && !s.migratorCanCreateInPublic && !s.migratorCanWriteLedger && !s.migratorOwnedObjects && !s.runtimeUnreadableTables
-        && !s.runtimeCanCreateInPublic && s.estateTablesOwnedByReleaseOwner === 2 && s.estateSettingsColumns === 2;
+        && !s.runtimeCanCreateInPublic && s.dutyTablesOwnedByReleaseOwner === 2 && s.staffPhotoColumns === 5
+        && s.sectorFacilityTypes === 4 && s.dutyImmutableTrigger === 1;
       log('VERIFY', pass ? 'PASS' : 'FAIL');
       if (!pass) process.exitCode = 1;
     }

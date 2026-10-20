@@ -4,7 +4,11 @@
 # endpoint policy and pushes it. Stops before the swap on any failure.
 #
 #   .\ops\production-release\release-api.ps1 -SecretId $id -SecretSha $sha
+#   .\ops\production-release\release-api.ps1 -PreviousPolicy <signed.json> -DbPackage <zip> -DbPackageSha <sha256>
+#     (database release: pauses after staging so you run check/activate/migrate/cleanup/verify)
 param(
+  [string]$DbPackage,
+  [string]$DbPackageSha,
   [string]$SecretName = "AFRICASTALKING_API_KEY",
   [string]$SecretId,
   [string]$SecretSha,
@@ -72,6 +76,23 @@ $token = az account get-access-token --query accessToken -o tsv
 Invoke-RestMethod -Method Put -Uri "$stg/api/vfs/opa-production-policy/api-release-$short.signed.json" -Headers @{ Authorization="Bearer $token"; "If-Match"="*" } -InFile $signed -ContentType "application/octet-stream" | Out-Null
 az webapp deploy -g $rg -n $app --slot staging --src-path $zip --type zip -o none; if ($LASTEXITCODE) { Fail "staging deploy" }
 az webapp restart -g $rg -n $app --slot staging -o none
+
+if ($DbPackage) {
+  Step "4b/7 Database migration (staging waits as 'migrations pending')"
+  if (-not (Test-Path $DbPackage)) { Fail "database package not found: $DbPackage" }
+  $pkgSha = (Get-FileHash $DbPackage -Algorithm SHA256).Hash.ToLower()
+  if ($pkgSha -ne $DbPackageSha.ToLower()) { Fail "database package SHA-256 is $pkgSha, expected $DbPackageSha" }
+  "Database package verified: $pkgSha"
+  $scm = "https://opa-api-production-g4f6cxdyanfbaub0.scm.southafricanorth-01.azurewebsites.net"
+  $token = az account get-access-token --query accessToken -o tsv
+  Invoke-RestMethod -Method Put -Uri "$scm/api/zip/opa-release-duty/" -Headers @{ Authorization = "Bearer $token" } -InFile $DbPackage -ContentType "application/zip" | Out-Null
+  Write-Host "Uploaded to /home/opa-release-duty on the production container." -ForegroundColor Green
+  Write-Host "`nOpen a SECOND PowerShell window and run:  az webapp ssh -g opa-production -n opa-api-production" -ForegroundColor Yellow
+  Write-Host "Then follow docs/releases/2026-10-20-duty-reports.md step 2 (check, then activate/migrate/cleanup/verify)." -ForegroundColor Yellow
+  $answer = Read-Host "Type VERIFY PASS when verify printed 'VERIFY PASS' (anything else stops here; production keeps running)"
+  if ($answer -ne "VERIFY PASS") { az webapp stop -g $rg -n $app --slot staging -o none; Fail "database step not confirmed; staging stopped. Production is still serving." }
+  az webapp restart -g $rg -n $app --slot staging -o none
+}
 
 Step "5/7 Wait for staging ready (up to 10 min)"
 $h="https://opa-api-production-staging-amhzcnbsftatbvhd.southafricanorth-01.azurewebsites.net"; $ready=$false

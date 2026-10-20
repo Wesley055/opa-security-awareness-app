@@ -57,3 +57,21 @@ Vercel: promote the newest deployment on this branch that shows **Ready**. Befor
 Not included in this release:
 - Changing an existing facility's type, so Quartz stays "Other" and its reports say "members". This needs a small Super Admin control, which is in the backlog.
 - A list of active sessions. "Sign out on all devices" is provided instead.
+
+## 20 Oct: first attempt failed safely; recovery with package v2
+At 19:14 UTC, `migrate` stopped on the migration's **first statement**: `must be owner of type "FacilityType"`. FacilityType is a baseline enum still owned by the administrator. Earlier releases transferred only `UserRole` and five tables to the release owner, and the rehearsal had wrongly assumed every object was already transferred. **Nothing was applied**: duty tables 0, photo columns 0, sector values 0. Cleanup restored the idle posture. Prisma recorded the attempt as failed (`ledgerIncomplete: 1`). The running API was unaffected, but it would refuse to restart until that row is resolved.
+
+Package `opa-release-db-duty-v2.zip` (SHA-256 `9a4540ef743003f23dd7b5383df1091f45b422d8aa2c910dca2b46928290ed4b`) adds:
+- `prepare.sql` (`61a00948…`): transfers only FacilityType to `opa_production_release_owner`, following the reviewed UserRole pattern, and refuses if the owner is anyone other than the administrator or the release owner;
+- `resolve`: `prisma migrate resolve --rolled-back` for that one failed attempt, allowed only while ledger = 45 and none of migration 46's objects exist;
+- `check` now prints `READY` and `NEXT` (prepare or activate), plus `facilityTypeOwner` and `failedAttempt`.
+
+The migration file is unchanged (`771ad63b…`). The rehearsal now uses the production ownership contract (baseline owned by the administrator; the five tables, UserRole and newer objects owned by the release owner). It reproduced the exact production error, then passed with prepare → activate → resolve → migrate → cleanup: migrator-owned objects 0, duty tables 2, photo columns 5, sector values 4, trigger 1, no failed attempts pending.
+
+Commands (window 2, after uploading v2 to `/home/opa-release-duty2`):
+```bash
+cd /home/opa-release-duty2 && /usr/local/bin/node opa-release-db.cjs check
+# READY true, NEXT prepare, failedAttempt 1 → then:
+cd /home/opa-release-duty2; echo "RESTORE_POINT_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+/usr/local/bin/node opa-release-db.cjs prepare && /usr/local/bin/node opa-release-db.cjs activate && /usr/local/bin/node opa-release-db.cjs resolve && /usr/local/bin/node opa-release-db.cjs migrate; /usr/local/bin/node opa-release-db.cjs cleanup; /usr/local/bin/node opa-release-db.cjs verify
+```

@@ -125,4 +125,4 @@ Step "7/7 Endpoint policy for the app builds"
 python ops\production-release\sign-endpoint-policy.py --expect-build $build; if ($LASTEXITCODE) { Fail "endpoint policy" }
 git add packages/environment-policy/release/production-endpoint.json
 git commit -m "release(production): sign endpoint policy for API $short"; git push
-Write-Host "`nDONE. Production $short, FAILS=$fails. Next: Vercel promote, then the two EAS builds." -ForegroundColor Green
+Write-Host "`nDONE. Production $short, FAILS=$fails. Next: Vercel promote. App builds only if the mobile app changed." -ForegroundColor Green

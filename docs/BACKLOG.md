@@ -87,7 +87,7 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 
 - [ ] **Release-process simplification review (after the bank demo; owner agreed 20 Oct)**: one pass over every production rule (signed environment policy, pinned secrets, DPAPI authority, database ownership model, runner modes). Keep what protects production, data and money; automate or drop what only adds steps. Include: a database rehearsal script that models the real production ownership (the 20 Oct FacilityType gap), and one-command database releases.
 
-- [ ] **Staff password recovery by code**: built 20 Oct (`9e121b4`). Operators use an SMS code; privileged roles use SMS + email codes; signed-out users keep the email link; lost email or phone goes to administrator-assisted recovery. Needs DB release 47: `docs/releases/2026-10-20-staff-recovery.md`. Roadmap: authenticator-app MFA for Facility Admin and Technical Support.
+- [x] **Staff password recovery by code**: **in production `47e37bf`, DB 47, 20 Oct 22:41 UTC, FAILS=0** (built `9e121b4`). Operators use an SMS code; privileged roles use SMS + email codes; signed-out users keep the email link; lost email or phone goes to administrator-assisted recovery. Runbook: `docs/releases/2026-10-20-staff-recovery.md`. Roadmap: authenticator-app MFA for Facility Admin and Technical Support.
 
 ### Tuesday 20 Oct morning — pick up here (pinned)
 1. ~~Close the open test SOS~~ **done 19 Oct 22:17 CT.** Re-check before the database step: no other open SOS or active SafeWalk.

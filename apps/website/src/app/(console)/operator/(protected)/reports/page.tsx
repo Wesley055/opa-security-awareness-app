@@ -1,4 +1,5 @@
 import { ReportingShell } from "@/components/console/reporting-shell";
+import { DutyPanel } from "@/components/console/duty-panel";
 import { redirect } from "next/navigation";
 import { getSessionState } from "@/lib/operator-session";
 import { getOperatorContext } from "@/lib/operator-context";
@@ -20,7 +21,16 @@ export default async function ReportsPage() {
     result.state === "READY" &&
     ["FACILITY_OPERATOR", "FACILITY_ADMIN", "ADMIN"].includes(role ?? "")
   )
-    return <ReportingShell />;
+    return (
+      <>
+        {role === "FACILITY_OPERATOR" ? (
+          <div className="mx-auto max-w-7xl px-4 sm:px-6">
+            <DutyPanel />
+          </div>
+        ) : null}
+        <ReportingShell />
+      </>
+    );
   return (
     <section className="mx-auto max-w-7xl p-6 text-ink">
       <h1 className="text-2xl font-bold">Reports / Analytics</h1>

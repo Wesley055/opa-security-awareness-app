@@ -130,6 +130,12 @@ export default async function OperatorShellLayout({
                 >
                   Reports / Analytics
                 </Link>
+                <Link
+                  href="/operator/profile"
+                  className="min-h-10 rounded-md px-3 py-2 text-sm text-muted"
+                >
+                  My profile
+                </Link>
               </nav>
             ) : null}
 

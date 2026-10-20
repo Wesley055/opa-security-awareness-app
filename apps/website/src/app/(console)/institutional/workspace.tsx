@@ -19,6 +19,8 @@ import {
 import { operationStore } from "@/lib/canonical-operations";
 import { ActionForm } from "@/components/institutional/action-form";
 import "@/components/institutional/console.css";
+import { DutyReportList } from "@/components/console/duty-reports";
+import { StaffPhotoReview, StaffProfile } from "@/components/console/staff-profile";
 type Row = Record<string, unknown>;
 function savedSelection(actor: string): {
   facility?: string;
@@ -353,6 +355,7 @@ function Console({
           "Service Health",
           "Audit",
           "Temporary Access",
+          "My Profile",
         ]
       : [
           "Overview",
@@ -363,6 +366,7 @@ function Console({
           "Reports & Analytics",
           "Audit",
           "OPA Support",
+          "My Profile",
         ];
   return (
     <>
@@ -547,12 +551,29 @@ function Console({
                     Select an authorized facility to load aggregate reports.
                   </p>
                 ) : (
-                  <ReportingShell
-                    key={actor + ":" + selected}
-                    facilityId={selected}
-                    transport={transport}
-                  />
+                  <>
+                    {role === "FACILITY_ADMIN" ? (
+                      <section aria-label="Duty Reports">
+                        <DutyReportList key={actor} source="admin" transport={transport} />
+                        <StaffPhotoReview transport={transport} />
+                      </section>
+                    ) : null}
+                    <h3>OPA Insight</h3>
+                    <ReportingShell
+                      key={actor + ":" + selected}
+                      facilityId={selected}
+                      transport={transport}
+                    />
+                  </>
                 ))}
+              {section === "My Profile" && (
+                <StaffProfile
+                  key={actor}
+                  session="institutional"
+                  transport={transport}
+                  onSignedOut={() => window.location.reload()}
+                />
+              )}
               <section
                 hidden={
                   !["Overview", "My Facilities", "Service Health"].includes(

@@ -85,6 +85,8 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 - [ ] Mobile enrollment screen: 4-digit codes + new password rule (committed in `d032e66`, ships with next app build).
 - [ ] Review the ~100 uncommitted files in `C:\Projects\OPA` (`integration/institutional-security`); keep or discard deliberately.
 
+- [ ] **Release-process simplification review (after the bank demo; owner agreed 20 Oct)**: one pass over every production rule (signed environment policy, pinned secrets, DPAPI authority, database ownership model, runner modes). Keep what protects production, data and money; automate or drop what only adds steps. Include: a database rehearsal script that models the real production ownership (the 20 Oct FacilityType gap), and one-command database releases.
+
 ### Tuesday 20 Oct morning — pick up here (pinned)
 1. ~~Close the open test SOS~~ **done 19 Oct 22:17 CT.** Re-check before the database step: no other open SOS or active SafeWalk.
 2. Release Duty Reports + staff profiles, database 45 → 46: `docs/releases/2026-10-20-duty-reports.md`. Package `opa-release-db-duty.zip` in Downloads (SHA-256 `2e6636ff12fbb40dc5985ba311b6f8b7a00e54ae4e4378e75a627723257f72b5`).

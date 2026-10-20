@@ -85,6 +85,14 @@ Each failure gets: steps to reproduce, expected vs actual, severity, owner, evid
 - [ ] Mobile enrollment screen: 4-digit codes + new password rule (committed in `d032e66`, ships with next app build).
 - [ ] Review the ~100 uncommitted files in `C:\Projects\OPA` (`integration/institutional-security`); keep or discard deliberately.
 
+### Tuesday 20 Oct morning — pick up here (pinned)
+1. Close the open test SOS from the Quartz resident's phone (the database step refuses while any emergency is open).
+2. Release Duty Reports + staff profiles, database 45 → 46: `docs/releases/2026-10-20-duty-reports.md`. Package `opa-release-db-duty.zip` in Downloads (SHA-256 `2e6636ff12fbb40dc5985ba311b6f8b7a00e54ae4e4378e75a627723257f72b5`).
+3. Vercel: promote the newest Ready deployment (until step 2 is done, nothing newer than `91f4b1c`).
+4. Duty Reports E2E with Philips and Matt (runbook step 5).
+5. Play Store: upload AAB versionCode 24 (`https://expo.dev/artifacts/eas/nBCXVvGsoRDPWDfD5nwDVZDWlOYHhZhdG4jxI_o7JIQ.aab`) to the internal testing track, if not done tonight.
+6. Continue pilot E2E: silent SOS (foreground, lock screen, background) → airplane-mode buffering → AIR/Insight → bulk invitation → EstateFlow → SafeWalk → SSO → Head Office.
+
 ### Monday 19 Oct morning — pick up here
 Done overnight: SMS fixed (API `79b6120`), APK vc23 + iOS build 7 built, pilot facility **Quartz** (COMMISSIONING) with Technical Support **Alex Moore** active and assigned.
 1. [ ] **Build "Retire test account"** (Super Admin): deactivate an old test/demo account and release its phone + email, with reason, audited; refused for active staff and Super Admin. Then retire the demo accounts. *Blocks the pilot: every tested number is held by an old account.*

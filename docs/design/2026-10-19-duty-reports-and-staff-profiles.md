@@ -52,11 +52,13 @@ There is one engine. Each sector profile decides which sections appear and what 
 | Bank | customers / staff | Incidents, alarms (SOS), access exceptions, handover |
 | School | students / staff | Incidents, visitor appointments, pick-ups and early dismissals (when available), handover |
 | Organization (corporate) | staff | Incidents, visitor and contractor access, security observations, handover |
-| Oil and gas, aviation (later) | staff | Incidents, site access, safety/HSE observations, handover |
+| Oil and gas, aviation | staff | **Roadmap only, not built.** These arrive with the Insight industry modules (Insight Core → Insight Energy → Insight Aviation, backlog "OPA Insight industry modules"). Until then, these sites get the generic sections: incidents, handover and operator observations |
 
 Sections whose source data doesn't exist yet (patrols, attendance, alarms from external systems) are shown as **operator-entered observations** with a category. They are never shown as system-verified counts.
 
 `FacilityType` gains `ESTATE`, `SCHOOL`, `BANK` and `ORGANIZATION` (owner approved). Quartz moves from OTHER to ESTATE.
+
+**Relationship to Insight:** Duty Reports is not built on Insight and doesn't change it. Both read the same incident records with the same acknowledgement rule, so their numbers agree. The sector sections are the operator-shift view of the same industry roadmap: Insight Energy and Insight Aviation (permit-to-work, contractor competency, HSE, occurrence reporting, airside access) stay **planned, not built**, are presented on Wednesday as roadmap only, and OPA never claims certification or regulatory approval.
 
 ## 5. Staff profiles (shared institutional workspace)
 

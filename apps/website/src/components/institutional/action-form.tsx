@@ -1,4 +1,5 @@
 "use client";
+import { PlainDetails } from "./activity-log";
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { normalizeEnrollmentPhone } from "@/lib/enrollment-phone";
 import type { OperationStore } from "@/lib/canonical-operations";
@@ -166,11 +167,9 @@ export function ActionForm({
             </button>
           )}
           <details>
-            <summary>Operation details</summary>
-            <code>{operation.identity}</code>
-            {operation.result !== undefined && (
-              <pre>{JSON.stringify(operation.result, null, 2)}</pre>
-            )}
+            <summary>Details</summary>
+            {operation.result !== undefined && <PlainDetails value={operation.result} />}
+            <p className="ic-muted">Support reference: {String(operation.identity).slice(0, 8)}</p>
           </details>
         </div>
       )}

@@ -20,6 +20,7 @@ import { operationStore } from "@/lib/canonical-operations";
 import { ActionForm } from "@/components/institutional/action-form";
 import "@/components/institutional/console.css";
 import { DutyReportList } from "@/components/console/duty-reports";
+import { ActivityLog } from "@/components/institutional/activity-log";
 import { StaffPhotoReview, StaffProfile } from "@/components/console/staff-profile";
 type Row = Record<string, unknown>;
 function savedSelection(actor: string): {
@@ -1090,8 +1091,8 @@ function Console({
                 </div>
               </section>
               <section hidden={section !== "Audit"}>
-                <h3>Facility audit</h3>
-                <ReadRows rows={rows("audit")} />
+                <h3>Activity log</h3>
+                <ActivityLog rows={rows("audit")} supportView={role === "TECHNICAL_SUPPORT" || role === "ADMIN"} />
               </section>
               <section
                 hidden={

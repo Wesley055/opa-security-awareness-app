@@ -129,6 +129,7 @@ const fields = new Set([
   "attemptCount",
   "providerAcceptedAt",
   "actorUserId",
+  "actorRole",
   "action",
   "resourceId",
   "authorityKind",

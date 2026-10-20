@@ -1,3 +1,4 @@
+import { PlainDetails } from "./activity-log";
 type Row = Record<string, unknown>;
 const human = (value: unknown) =>
   String(value ?? "Unknown")
@@ -80,7 +81,7 @@ export function MemberOversight({
       {incidents.map((incident, index) => (
         <article key={String(incident.id)}>
           <h5>
-            Incident opened {String(incident.createdAt)} · Record {index + 1}
+            Incident opened {new Date(String(incident.createdAt)).toLocaleString()} · Record {index + 1}
           </h5>
           <p>
             {Array.isArray(incident.currentExceptions) &&
@@ -91,8 +92,8 @@ export function MemberOversight({
                 : "Exception assessment unavailable."}
           </p>
           <details>
-            <summary>Details / provenance</summary>
-            <pre>{JSON.stringify(incident, null, 2)}</pre>
+            <summary>Details</summary>
+            <PlainDetails value={incident} />
           </details>
         </article>
       ))}

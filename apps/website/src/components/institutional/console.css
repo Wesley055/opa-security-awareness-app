@@ -151,3 +151,25 @@
 .ic-console button.ic-signin:hover:not(:disabled) { background: #f2555a; }
 .ic-console button.ic-signin:focus-visible { outline: 3px solid #ffffff; outline-offset: 2px; }
 .ic-console button.ic-signin:disabled { opacity: 0.7; }
+
+/* Activity log: customer-facing audit trail */
+.ic-activity { display: grid; gap: 0.75rem; margin: 1rem 0; }
+.ic-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.ic-chip { min-height: 2.25rem; padding: 0.25rem 0.85rem; border: 1px solid var(--color-line); border-radius: 999px; background: transparent; color: var(--color-ink); font-size: 0.875rem; cursor: pointer; }
+.ic-chip:hover { background: var(--color-panel); }
+.ic-chip-on { background: var(--color-ink); color: var(--color-base); border-color: var(--color-ink); }
+.ic-table { width: 100%; border-collapse: collapse; font-size: 0.925rem; }
+.ic-table th { text-align: left; font-weight: 600; color: var(--color-muted, #94a3b8); padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--color-line); }
+.ic-table td { padding: 0.7rem 0.75rem; border-bottom: 1px solid var(--color-line); vertical-align: top; }
+.ic-table tr:hover td { background: var(--color-panel); }
+.ic-row-attention td:first-child { box-shadow: inset 3px 0 0 #e5484d; }
+.ic-flag { display: inline-block; margin-right: 0.5rem; padding: 0.05rem 0.5rem; border-radius: 999px; background: rgba(229, 72, 77, 0.15); color: #ff8589; font-size: 0.75rem; font-weight: 600; }
+.ic-link { background: none; border: 0; color: inherit; text-decoration: underline; cursor: pointer; font-size: 0.85rem; }
+.ic-details { display: grid; grid-template-columns: max-content 1fr; gap: 0.25rem 1rem; margin: 0.5rem 0; }
+.ic-details > div { display: contents; }
+.ic-details dt { color: var(--color-muted, #94a3b8); }
+@media (max-width: 640px) {
+  .ic-table thead { display: none; }
+  .ic-table tr { display: grid; padding: 0.5rem 0; border-bottom: 1px solid var(--color-line); }
+  .ic-table td { border: 0; padding: 0.15rem 0.5rem; }
+}

@@ -1,4 +1,5 @@
 "use client";
+import { label } from "@/lib/labels";
 import { useEffect, useRef, useState } from "react";
 import { viewerSessionFetch } from "@/lib/viewer-session-fetch";
 type Transport = (path: string, init?: RequestInit) => Promise<Response>;
@@ -243,7 +244,7 @@ export function InsightReports({
               }
             >
               Incident {item.incidentId} · {item.status} ·{" "}
-              {item.generationStatus.replaceAll("_", " ")}
+              {label(item.generationStatus)}
               {item.report ? ` · AIR v${item.report.version}` : ""}
             </button>
           </li>
@@ -288,8 +289,8 @@ export function InsightReports({
                 {assessment.findings.map((f) => (
                   <li className="my-3" key={f.control}>
                     <strong>
-                      {f.control.replaceAll("_", " ")}:{" "}
-                      {f.status.replaceAll("_", " ")}
+                      {label(f.control)}:{" "}
+                      {label(f.status)}
                     </strong>
                     <p>{f.explanation}</p>
                     <p>
@@ -585,7 +586,7 @@ export function InsightReports({
             <ul>
               {detail.governance.controls?.map((c) => (
                 <li key={c.control}>
-                  {c.control.replaceAll("_", " ")}: {c.status}
+                  {label(c.control)}: {label(c.status)}
                   <p>{c.explanation}</p>
                 </li>
               ))}

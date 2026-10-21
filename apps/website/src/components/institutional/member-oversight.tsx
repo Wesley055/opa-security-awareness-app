@@ -1,9 +1,7 @@
+import { label } from "@/lib/labels";
 import { PlainDetails } from "./activity-log";
 type Row = Record<string, unknown>;
-const human = (value: unknown) =>
-  String(value ?? "Unknown")
-    .toLowerCase()
-    .replaceAll("_", " ");
+const human = (value: unknown) => label(value ?? "Unknown") || "Unknown";
 export function MemberOversight({
   members,
   oversight,

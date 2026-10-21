@@ -1,4 +1,5 @@
 "use client";
+import { label } from "@/lib/labels";
 import { useCallback, useEffect, useState } from "react";
 import { viewerSessionFetch } from "@/lib/viewer-session-fetch";
 
@@ -36,7 +37,7 @@ const STATUS: Record<Row["status"], string> = {
   OPERATOR_REPORT_MISSING: "Operator report missing",
 };
 const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : "—");
-const enumText = (s: string) => s.replaceAll("_", " ").toLowerCase();
+const enumText = (s: string) => label(s);
 
 /**
  * Duty Reports list and detail, shared by the operator console (own reports)

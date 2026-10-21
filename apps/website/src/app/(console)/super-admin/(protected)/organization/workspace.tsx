@@ -1,4 +1,5 @@
 "use client";
+import { label } from "@/lib/labels";
 import { OrganizationHierarchy, FacilityHierarchyDetail, HeadOfficeAdministrators, type GovernanceFacility, type GovernanceOrganization } from "@/components/institutional/organization-hierarchy";
 import { AccountRecovery } from "@/components/institutional/account-recovery";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -610,7 +611,7 @@ export default function GovernanceWorkspace({
                       >
                         {supportCapabilities.map((c) => (
                           <option key={c} value={c}>
-                            {c.toLowerCase().replaceAll("_", " ")}
+                            {label(c)}
                           </option>
                         ))}
                       </select>
@@ -653,7 +654,7 @@ export default function GovernanceWorkspace({
                       key={g.id}
                       title={
                         "Revoke " +
-                        g.capability.toLowerCase().replaceAll("_", " ")
+                        label(g.capability).toLowerCase()
                       }
                       owner={g.id + ":revoke"}
                       path={"support/grants/" + g.id + "/revoke"}
@@ -765,7 +766,7 @@ export default function GovernanceWorkspace({
                     "STAFF_PROVISION",
                   ].map((c) => (
                     <option key={c} value={c}>
-                      {c.toLowerCase().replaceAll("_", " ")}
+                      {label(c)}
                     </option>
                   ))}
                 </select>
@@ -791,7 +792,7 @@ export default function GovernanceWorkspace({
                 onSuccess={refreshAfterMutation}
               >
                 <p>
-                  {e.capability.toLowerCase().replaceAll("_", " ")} · expires{" "}
+                  {label(e.capability)} · expires{" "}
                   {e.expiresAt}
                 </p>
               </ActionForm>
@@ -807,11 +808,11 @@ export default function GovernanceWorkspace({
             <h2>Delivery readiness</h2>
             <p>
               SMS / Africa&apos;s Talking:{" "}
-              {readiness.sms?.state.replaceAll("_", " ") ?? "UNKNOWN"}
+              {label(readiness.sms?.state) || "Unknown"}
             </p>
             <p>
               Email / Resend:{" "}
-              {readiness.email?.state.replaceAll("_", " ") ?? "UNKNOWN"}
+              {label(readiness.email?.state) || "Unknown"}
             </p>
             <p>
               Configured means settings are present; credentials and delivery

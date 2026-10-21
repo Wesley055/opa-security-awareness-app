@@ -1,4 +1,5 @@
 "use client";
+import { label } from "@/lib/labels";
 import { normalizeEnrollmentPhone } from "@/lib/enrollment-phone";
 import { useEffect, useRef, useState } from "react";
 import { superAdminFetch } from "@/lib/super-admin-fetch";
@@ -341,7 +342,7 @@ export default function Workspace() {
           <section className="sa-card">
             <h2>{facility.name}</h2>
             <p>
-              {facility.type.replaceAll("_", " ")} ·{" "}
+              {label(facility.type)} ·{" "}
               {facility.isActive ? "Active" : "Suspended"} ·{" "}
               {facility.isVerified ? "Verified" : "Unverified"}
             </p>
@@ -441,7 +442,7 @@ export default function Workspace() {
               );
               return (
                 <article className="sa-notice" key={m.id}>
-                  <h3>{m.role.replaceAll("_", " ")}</h3>
+                  <h3>{label(m.role)}</h3>
                   <code>{m.id}</code>
                   <p>
                     {m.membershipState} · Account: {m.accountStatus}
@@ -521,7 +522,7 @@ export default function Workspace() {
               return (
                 <article className="sa-notice" key={i.id}>
                   <h3>
-                    {i.requestedRole.replaceAll("_", " ")} · {i.status}
+                    {label(i.requestedRole)} · {label(i.status)}
                   </h3>
                   <code>{i.id}</code>
                   <p>Expires {new Date(i.expiresAt).toLocaleString()}</p>

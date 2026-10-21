@@ -132,7 +132,7 @@ it("unknown result retains identity until identical replay after reconciliation"
   submit("Invite Technical Support");
   await waitFor(() =>
     expect(
-      within(form("Invite Technical Support")).getByText("RESULT UNKNOWN"),
+      within(form("Invite Technical Support")).getByText("Result unknown"),
     ).toBeInTheDocument(),
   );
   const before = JSON.parse(String(writes()[0][1]?.body)).correlationId;
@@ -162,7 +162,7 @@ it.each([400, 409])(
     submit("Invite Technical Support");
     await waitFor(() =>
       expect(
-        within(form("Invite Technical Support")).getByText("SERVER FAILURE"),
+        within(form("Invite Technical Support")).getByText("Server failure"),
       ).toBeInTheDocument(),
     );
     expect(

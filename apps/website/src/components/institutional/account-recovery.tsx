@@ -1,4 +1,5 @@
 "use client";
+import { label } from "@/lib/labels";
 import { useEffect, useState } from "react";
 import { ActionForm } from "./action-form";
 import { operationStore } from "@/lib/canonical-operations";
@@ -97,7 +98,7 @@ export function AccountRecovery({
             ?.filter((a) =>
               [
                 a.displayIdentity,
-                a.role.replaceAll("_", " "),
+                label(a.role),
                 a.facility?.name,
                 a.accountStatus,
                 a.membershipState,
@@ -109,7 +110,7 @@ export function AccountRecovery({
             )
             .map((a) => (
               <option key={a.id} value={a.id}>
-                {a.displayIdentity} · {a.role.replaceAll("_", " ")} ·{" "}
+                {a.displayIdentity} · {label(a.role)} ·{" "}
                 {a.facility?.name ?? "OPA workforce / no facility"} ·{" "}
                 {a.accountStatus} ·{" "}
                 {a.supportEmployment?.state ?? a.membershipState}

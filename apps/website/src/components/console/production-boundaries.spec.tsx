@@ -1,3 +1,4 @@
+import { label } from "@/lib/labels";
 import { render, screen } from "@testing-library/react";
 import { expect, it } from "vitest";
 import { DeliveryConfirmation } from "./delivery-confirmation";
@@ -43,7 +44,7 @@ it("renders signed email mail-server delivery without exposing provider referenc
       })}
     />,
   );
-  expect(screen.getByText("Status: DELIVERED")).toBeVisible();
+  expect(screen.getByText("Status: Delivered")).toBeVisible();
   expect(screen.getByText(row.deliveredAt!)).toBeVisible();
   expect(screen.getByText(/reading is not established/)).toBeVisible();
   expect(screen.queryByText("Provider reference")).toBeNull();
@@ -69,7 +70,7 @@ it.each(["UNKNOWN", "ATTEMPTING", "PROVIDER_ACCEPTED"] as const)(
       />,
     );
     expect(
-      screen.getByText("Status: " + status.replaceAll("_", " ")),
+      screen.getByText("Status: " + label(status)),
     ).toBeVisible();
     expect(screen.getByText(/outcome is unconfirmed/)).toBeVisible();
     expect(screen.getByText(/evidence is incomplete/)).toBeVisible();

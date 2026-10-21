@@ -1,4 +1,5 @@
 "use client";
+import { label } from "@/lib/labels";
 import {
   ConsoleIdentity,
   ConsoleStatus,
@@ -629,12 +630,11 @@ function Console({
                     <h3>Delivery services</h3>
                     <p>
                       SMS:{" "}
-                      {readiness?.sms?.state?.replaceAll("_", " ") || "UNKNOWN"}
+                      {label(readiness?.sms?.state) || "Unknown"}
                     </p>
                     <p>
                       Email:{" "}
-                      {readiness?.email?.state?.replaceAll("_", " ") ||
-                        "UNKNOWN"}
+                      {label(readiness?.email?.state) || "Unknown"}
                     </p>
                     <p>
                       Configured means required settings are present. It does
@@ -838,7 +838,7 @@ function Console({
                         ...(commissioning?.trainingGates ?? []),
                       ].map((g) => (
                         <option key={g} value={g}>
-                          {g.replaceAll("_", " ")}
+                          {label(g)}
                         </option>
                       ))}
                     </select>
@@ -1152,7 +1152,7 @@ function Console({
                     .filter((e) => e.facilityId === facility.id)
                     .map((e) => ({
                       ...e,
-                      reference: e.capability.replaceAll("_", " "),
+                      reference: label(e.capability),
                       status: e.revokedAt
                         ? "REVOKED"
                         : "APPROVAL RECORDED — CHECK START AND EXPIRY",
@@ -1215,7 +1215,7 @@ const AUTHORITY_LABELS: Record<string, string> = {
   SESSION_SMS_EMAIL_CODES: "Signed-in session + phone and email codes",
   RESIDENT_ACTIVATION: "Resident activation",
 };
-const sentence = (v: string) => v.charAt(0) + v.slice(1).toLowerCase().replaceAll("_", " ");
+const sentence = (v: string) => label(v);
 export const auditLabel = (action: string) => AUDIT_LABELS[action] ?? sentence(action);
 const shortRef = (v: unknown) => (typeof v === "string" && v.length > 8 ? v.slice(0, 8) : String(v ?? ""));
 const when = (v: unknown) => {
@@ -1265,7 +1265,7 @@ function ReadRows({ rows }: { rows: Row[] }) {
                   r.action ??
                   r.channel ??
                   "Record",
-              ).replaceAll("_", " ")}
+              ).replace(/^[A-Z0-9_]+$/, (m) => label(m))}
             </p>
             {r.status ?? r.membershipState ?? r.deliveryStatus ? (
               <p>
@@ -1286,7 +1286,7 @@ function ReadRows({ rows }: { rows: Row[] }) {
                   .map(([k, v]) => (
                     <div key={k}>
                       <dt>{sentence(k.replace(/([a-z])([A-Z])/g, "$1_$2"))}</dt>
-                      <dd>{/^[0-9a-f-]{36}$/i.test(String(v)) ? shortRef(v) : /At$/.test(k) ? when(v) : String(v).replaceAll("_", " ")}</dd>
+                      <dd>{/^[0-9a-f-]{36}$/i.test(String(v)) ? shortRef(v) : /At$/.test(k) ? when(v) : label(String(v))}</dd>
                     </div>
                   ))}
               </dl>

@@ -151,5 +151,5 @@ export async function show(state: Fixture) {
 }
 export const submit = (title: string) => fireEvent.submit(form(title));
 export async function success(title: string) {
-  await waitFor(() => within(form(title)).getByText("SUCCESS"));
+  await waitFor(() => within(form(title)).getByText("Success"));
 }

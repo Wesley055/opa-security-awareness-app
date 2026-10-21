@@ -174,8 +174,8 @@ describe("human-safe workflow completion", () => {
     expect(
       screen.getByRole("heading", { name: account.displayIdentity }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/operator acknowledged/)).toBeInTheDocument();
-    expect(screen.getByText("dispatch overdue")).toBeInTheDocument();
+    expect(screen.getByText(/operator acknowledged/i)).toBeInTheDocument();
+    expect(screen.getByText(/dispatch overdue/i)).toBeInTheDocument();
     expect(
       screen.getByText(/not automatically attributed/),
     ).toBeInTheDocument();

@@ -64,7 +64,7 @@ it("shows unassociated facilities, exact parent and persisted type", () => {
   expect(
     screen.getByText("Parent organization: Organization B"),
   ).toBeInTheDocument();
-  expect(screen.getByText("Facility type: HOSPITAL")).toBeInTheDocument();
+  expect(screen.getByText("Facility type: Hospital")).toBeInTheDocument();
   expect(
     screen.getByText("Eligible facility — Unassociated"),
   ).toBeInTheDocument();
@@ -78,7 +78,7 @@ it("requires reason and reviewed confirmation for exact organization/facility, t
   fireEvent.change(screen.getByLabelText("Eligible unassociated facility"), {
     target: { value: f },
   });
-  expect(screen.getByText("Facility type: OTHER")).toBeInTheDocument();
+  expect(screen.getByText("Facility type: Other")).toBeInTheDocument();
   const button = screen.getByRole("button", { name: "Attach facility" });
   expect(button).toBeDisabled();
   fireEvent.change(screen.getByLabelText("Reason for this action"), {

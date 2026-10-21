@@ -257,7 +257,7 @@ it.each([
   state.postStatus = 409;
   submit(title);
   await waitFor(() =>
-    expect(within(form(title)).getByText("SERVER FAILURE")).toBeInTheDocument(),
+    expect(within(form(title)).getByText("Server failure")).toBeInTheDocument(),
   );
   expect(
     within(form(title)).getByRole("button", { name: title }),
@@ -307,7 +307,7 @@ it("hung mutation ends unknown and reconciles a committed receipt without anothe
   await vi.waitFor(() => expect(writes()).toHaveLength(1));
   await act(async () => vi.advanceTimersByTimeAsync(15001));
   expect(
-    within(form("Invite Technical Support")).getByText("RESULT UNKNOWN"),
+    within(form("Invite Technical Support")).getByText("Result unknown"),
   ).toBeInTheDocument();
   submit("Invite Technical Support");
   expect(writes()).toHaveLength(1);
@@ -319,7 +319,7 @@ it("hung mutation ends unknown and reconciles a committed receipt without anothe
   );
   await vi.waitFor(() =>
     expect(
-      within(form("Invite Technical Support")).getByText("SUCCESS"),
+      within(form("Invite Technical Support")).getByText("Success"),
     ).toBeInTheDocument(),
   );
   expect(writes()).toHaveLength(1);

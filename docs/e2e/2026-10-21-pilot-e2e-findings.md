@@ -67,7 +67,14 @@ An earlier source inspection was done on vc12 (`58b5172`). I re-checked the code
 |---|---|---|
 | 1 | Resident creates a visitor pass (Bryan, "Bk 30 shagarri estate", valid until 22 Oct 22:48 WAT) | PASS |
 | 2 | Gate: code 121833 checked → "Code accepted", visitor name, masked phone (•••• 9196), destination and validity shown | PASS |
-| 3–9 | Admit, exit, wrong codes, expired/revoked, manual entry, overstay, estate overview | pending |
+| 3 | Gate: **Admit** → "Visitor admitted"; Bryan shown under "Recorded inside", in 23:01, expected out 00:01 | PASS |
+| 5a | Wrong code recorded in "Today at the gate" (22:50 · Wrong code) | PASS (rate limit still to test) |
+| 4, 5b, 6–9 | Exit, repeated wrong codes, expired/revoked, manual entry, overstay, estate overview | pending |
+
+**Resident (mobile) EstateFlow findings**
+- **E3:** after the gate admits the visitor, the resident's pass still says **"Waiting at gate"** (status does not update) (FAIL)
+- **E4 (owner):** the resident has **no way to end a visit early** ("my visitor has left"). Cancel on an admitted visitor is refused with "Your visitor is inside. Security records their exit at the gate." Proposed: the resident can mark **"My visitor has left"**. The gate is notified and confirms the exit; it is shown as *reported by resident* until the gate records it, because the gate stays the authority on who is inside (FAIL)
+- **E5:** the stay-length button "Overnight" is cut off ("Overnigh") (FAIL)
 
 **Facility Admin findings**
 - **E1:** the Facility Administration dashboard has **no Visitors/Estate section**. Visitor activity is only in the operator console (`/operator/estate`, "Estate overview"), which an admin would not find from their dashboard (FAIL)

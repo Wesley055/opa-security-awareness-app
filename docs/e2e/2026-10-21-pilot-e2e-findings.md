@@ -78,7 +78,7 @@ An earlier source inspection was done on vc12 (`58b5172`). I re-checked the code
 - **E4: withdrawn (owner decision, 21 Oct).** Correct as built: **only the gate records exits**. Residents can **cancel before arrival only**; once the visitor is inside, Cancel is refused with a clear explanation. PASS, by design.
 - **E5:** the stay-length button "Overnight" is cut off ("Overnigh") (FAIL)
 - **E6 (owner):** stay length should be set with **hours and minutes** pickers. Proposed:
-  - hours 0–36, minutes in 5-minute steps;
+  - two drop-downs side by side, **Hours (0–36)** and **Minutes (0–59, every minute)** (owner clarification), for example 1 h + 45 min;
   - quick chips (1 h, 2 h, 4 h, Overnight) kept;
   - limited by the estate's maximum, which the admin sets (the database allows 15 min to 72 h);
   - the result shown as "until 02:30 tomorrow".

@@ -61,7 +61,7 @@ An earlier source inspection was done on vc12 (`58b5172`). I re-checked the code
 - **Rules for SMS:** a phone-originated SMS never becomes a trusted incident without verified ingestion (anti-spoofing and anti-replay). Automatic background SMS depends on Google Play SMS-permission policy, so it is not promised until feasibility is confirmed; a one-tap composer is the safe default.
 - **Approval:** this is a design before implementation and needs founder approval. No code, deployment or settings change until then.
 
-## EstateFlow E2E (in progress)
+## EstateFlow E2E (in progress): core visit lifecycle PASS, owner: "a milestone"
 
 | # | Step | Result |
 |---|---|---|
@@ -69,11 +69,13 @@ An earlier source inspection was done on vc12 (`58b5172`). I re-checked the code
 | 2 | Gate: code 121833 checked → "Code accepted", visitor name, masked phone (•••• 9196), destination and validity shown | PASS |
 | 3 | Gate: **Admit** → "Visitor admitted"; Bryan shown under "Recorded inside", in 23:01, expected out 00:01 | PASS |
 | 5a | Wrong code recorded in "Today at the gate" (22:50 · Wrong code) | PASS (rate limit still to test) |
-| 4, 5b, 6–9 | Exit, repeated wrong codes, expired/revoked, manual entry, overstay, estate overview | pending |
+| 4 | Gate: **Record exit** → "Exit recorded"; inside list empty; log shows 23:20 Left; resident pass shows **Left** | PASS |
+| 6 | Resident cancels a pass before arrival → shows **Cancelled**; the code at the gate is refused with a neutral "No valid visitor pass for this code at this estate" (reveals nothing); recorded as Wrong code | PASS |
+| 5b, 7–9 | Repeated wrong codes (limit), manual entry, overstay, estate overview | pending |
 
 **Resident (mobile) EstateFlow findings**
-- **E3:** after the gate admits the visitor, the resident's pass still says **"Waiting at gate"** (status does not update) (FAIL)
-- **E4 (owner):** the resident has **no way to end a visit early** ("my visitor has left"). Cancel on an admitted visitor is refused with "Your visitor is inside. Security records their exit at the gate." Proposed: the resident can mark **"My visitor has left"**. The gate is notified and confirms the exit; it is shown as *reported by resident* until the gate records it, because the gate stays the authority on who is inside (FAIL)
+- **E3:** while the visitor is inside, the resident's pass still said **"Waiting at gate"**; it showed **Left** after the exit. The status updates on reload, not live. Expected: "Inside since 23:01" (NEEDS IMPROVEMENT)
+- **E4: withdrawn (owner decision, 21 Oct).** Correct as built: **only the gate records exits**. Residents can **cancel before arrival only**; once the visitor is inside, Cancel is refused with a clear explanation. PASS, by design.
 - **E5:** the stay-length button "Overnight" is cut off ("Overnigh") (FAIL)
 
 **Facility Admin findings**

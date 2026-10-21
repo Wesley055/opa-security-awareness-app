@@ -38,7 +38,7 @@ describe("current reporting workspace", () => {
     render(<ReportingShell />);
     load();
     await screen.findByText("Report loaded.");
-    expect(screen.getByText("Accepted for delivery")).toBeTruthy();
+    expect(screen.getByText("PROVIDER ACCEPTED")).toBeTruthy();
     expect(screen.getByText("Unknown")).toBeTruthy();
   });
   it("shows empty report separately from degraded backend", async () => {

@@ -1,4 +1,3 @@
-import { label } from "@/lib/labels";
 export function roleLabel(role: string) {
   return (
     (
@@ -60,7 +59,7 @@ export function ConsoleStatus({ value }: { value: string }) {
         display: "inline-block",
       }}
     >
-      {label(value)}
+      {value.replaceAll("_", " ")}
     </span>
   );
 }

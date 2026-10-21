@@ -91,7 +91,7 @@ it("wires Organizations attachment and Facility parent/type through the existing
   fireEvent.change(screen.getByLabelText("Facility", { exact: true }), {
     target: { value: f },
   });
-  expect(screen.getAllByText("Facility type: Other").length).toBeGreaterThan(0);
+  expect(screen.getAllByText("Facility type: OTHER").length).toBeGreaterThan(0);
   expect(screen.queryByRole("button", { name: "Attach facility" })).toBeNull();
 });
 it("facility creation submits explicitly selected OTHER rather than the initial HOSPITAL default", async () => {

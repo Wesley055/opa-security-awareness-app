@@ -85,7 +85,7 @@ describe("institutional incident reports", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Incident incident/ }),
     );
-    await screen.findByText(/Acknowledgement: Indeterminate/);
+    await screen.findByText(/ACKNOWLEDGEMENT: INDETERMINATE/);
     expect(screen.getByText(/AI-assisted narrative: unavailable/)).toBeTruthy();
     expect(screen.getByText(/Source digest:/)).toBeTruthy();
     expect(

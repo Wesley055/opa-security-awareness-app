@@ -1,5 +1,4 @@
 "use client";
-import { label } from "@/lib/labels";
 import { PlainDetails } from "./activity-log";
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { normalizeEnrollmentPhone } from "@/lib/enrollment-phone";
@@ -155,7 +154,7 @@ export function ActionForm({
       {disabled && <p className="ic-muted">{disabled}</p>}
       {operation && (
         <div role="status">
-          <strong>{label(operation.state)}</strong>
+          <strong>{operation.state.replaceAll("_", " ")}</strong>
           <p>{operation.message}</p>
           {operation.state === "RESULT_UNKNOWN" && (
             <button type="button" onClick={() => void store.reconcile(owner)}>

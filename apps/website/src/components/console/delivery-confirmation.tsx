@@ -1,5 +1,4 @@
 "use client";
-import { label } from "@/lib/labels";
 import { useEffect, useState } from "react";
 import { viewerSessionFetch } from "@/lib/viewer-session-fetch";
 import {
@@ -112,7 +111,7 @@ export function DeliveryConfirmation({
                   Status:{" "}
                   {row.status === "DELIVERED" && !proven
                     ? "Delivery proof unavailable"
-                    : label(row.status)}
+                    : row.status.replaceAll("_", " ")}
                 </p>
                 {proven ? (
                   <p className="text-sm">

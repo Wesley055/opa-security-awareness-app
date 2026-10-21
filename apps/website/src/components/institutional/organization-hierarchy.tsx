@@ -1,5 +1,4 @@
 "use client";
-import { label } from "@/lib/labels";
 import { useState } from "react";
 import { ActionForm } from "./action-form";
 import type { OperationStore } from "@/lib/canonical-operations";
@@ -32,7 +31,7 @@ export function FacilityHierarchyDetail({
       <h3>{facility.name}</h3>
       <p>
         Facility type:{" "}
-        {(facility.type ? label(facility.type) : undefined) ??
+        {facility.type?.replaceAll("_", " ") ??
           "Unavailable — refresh current state."}
       </p>
       <p>

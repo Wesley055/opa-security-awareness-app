@@ -1,5 +1,4 @@
 "use client";
-import { label } from "@/lib/labels";
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { viewerSessionFetch } from "@/lib/viewer-session-fetch";
 import { validReportWindow } from "@/lib/insight-contract";
@@ -19,7 +18,7 @@ function Breakdown({
         <dl>
           {Object.entries(values).map(([key, value]) => (
             <div key={key} className="mt-2 flex justify-between gap-4">
-              <dt>{label(key)}</dt>
+              <dt>{key.replaceAll("_", " ")}</dt>
               <dd>{value}</dd>
             </div>
           ))}

@@ -72,7 +72,8 @@ An earlier source inspection was done on vc12 (`58b5172`). I re-checked the code
 | 4 | Gate: **Record exit** → "Exit recorded"; inside list empty; log shows 23:20 Left; resident pass shows **Left** | PASS |
 | 6 | Resident cancels a pass before arrival → shows **Cancelled**; the code at the gate is refused with a neutral "No valid visitor pass for this code at this estate" (reveals nothing); recorded as Wrong code | PASS |
 | 5b | 10 wrong codes in 10 minutes → "Too many incorrect codes. Wait 10 minutes, or call the resident to confirm the visitor." (limit 10 per guard and 50 per estate per 10 min) | PASS |
-| 7–9 | Manual entry, overstay, estate overview | pending |
+| 7 | Manual entry → "Manual entry recorded." | PASS (recording); see G4, G5 |
+| 8–9 | Overstay, estate overview | pending |
 
 **Resident (mobile) EstateFlow findings**
 - **E3:** while the visitor is inside, the resident's pass still said **"Waiting at gate"**; it showed **Left** after the exit. The status updates on reload, not live. Expected: "Inside since 23:01" (NEEDS IMPROVEMENT)
@@ -81,18 +82,23 @@ An earlier source inspection was done on vc12 (`58b5172`). I re-checked the code
 - **E6 (owner):** stay length should be set with **hours and minutes** pickers. Proposed:
   - two drop-downs side by side, **Hours (0–36)** and **Minutes (0–59, every minute)** (owner clarification), for example 1 h + 45 min;
   - quick chips (1 h, 2 h, 4 h, Overnight) kept;
-  - limited by the estate's maximum, which the admin sets (the database allows 15 min to 72 h);
+  - **estate-configurable maximum** (for example Kurudu might allow 12 h), with **36 h as the platform ceiling**. The minimum stays **15 minutes** (current database rule) unless changed deliberately;
+  - pass validity, approved stay and actual entry/exit stay **separate records**. A visitor past the approved stay is marked **overdue**, never checked out automatically;
   - the result shown as "until 02:30 tomorrow".
   (NEEDS IMPROVEMENT)
 
 **Gate findings**
 - **G1:** every wrong attempt logged with its time (PASS)
 - **G2:** repeated "Wrong code" lines flood the log and push real entries and exits out of view. Group them ("10 wrong codes, 23:56–23:58") and show a "Possible code guessing" warning (NEEDS IMPROVEMENT)
+- **G4:** a manual entry is not counted as inside ("Recorded inside (0)"), so there is no exit record and no overdue flag for exactly the visitors who were never verified (FAIL)
+- **G5:** the visitor-code field keeps the previous code after another action (NEEDS IMPROVEMENT)
 - **G3:** the lockout does not say when the gate works again. Show "Try again at 00:08" (NEEDS IMPROVEMENT)
 
 **Facility Admin findings**
 - **A1 (owner):** the Overview reads like a diagnostic screen: "Residents in loaded records", "Operators in loaded records", "Loaded records may be limited", raw "COMMISSIONING", "SMS: CONFIGURED" and "Configured… does not prove credentials". Proposed:
-  - true totals ("Residents 1 · Operators 1 · Pending invitations 0");
+  - true totals ("Residents 1 · Operators 1 · Pending invitations 0"). The API currently returns **up to 100 members**, so this needs an **authorised count endpoint**; a partial page must not be relabelled as a facility total;
+  - "Admitted" is used for **visitors only**; people are counted as Residents, Operators, Active accounts and Pending invitations;
+  - a new **Visitors** card: Inside now · Admitted today · Left · Overdue;
   - plain status ("Setting up" instead of COMMISSIONING; "SMS and email ready");
   - qualifications moved behind "About these figures".
   (NEEDS IMPROVEMENT)
@@ -100,6 +106,23 @@ An earlier source inspection was done on vc12 (`58b5172`). I re-checked the code
 - **E2:** facility type shows "Other" for an estate (backlog: facility type edit and sector types)
 - **I1:** Insight shows raw codes ("SOS BUTTON", "LOCK SCREEN", "PROVIDER ACCEPTED"); the label sweep was reverted with the website restore (NEEDS IMPROVEMENT)
 - **I2:** Insight figures match the tests exactly (6 incidents, 4 lock screen, 5 silent, 6 provider-accepted) (PASS)
+
+## EstateFlow finishing scope (owner, 21 Oct): before Kurudu Estate
+
+**Build:**
+- professional Facility Admin visitor oversight (E1, A1, with true counts);
+- configurable visit duration (E6);
+- overdue-visitor visibility;
+- manual entries tracked as inside (G4);
+- gate log grouping and lockout time (G2, G3);
+- E3, E5, G5;
+- the remaining negative and security E2E cases.
+
+**Preserve, already physically verified:**
+- six-digit verification and the wrong-code limit;
+- the operator alone admits and records exits;
+- residents cancel before arrival only;
+- immutable gate history.
 
 ## Proposed resilience package (owner plan, 21 Oct): design before building
 

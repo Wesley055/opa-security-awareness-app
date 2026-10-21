@@ -40,6 +40,41 @@ Physical testing on Android, build 24, against production `47e37bf`, with the we
 - **C1:** "Last fix 0s ago" shown next to "stale or current freshness unconfirmed" (NEEDS IMPROVEMENT)
 - Itemized walkthrough to follow.
 
+## Offline SOS audit: current release verified (v24 = `4155103`)
+
+An earlier source inspection was done on vc12 (`58b5172`). I re-checked the code that build 24 was made from:
+
+| Capability | v24 finding |
+|---|---|
+| Online SOS (screen, lock screen, background) | PASS, physically tested |
+| Server SMS to emergency contacts (Africa's Talking) | Implemented; PASS (provider accepted) |
+| SMS permission or SMS code on the phone | **None.** Android permissions are location, foreground service and microphone only |
+| On-screen SOS queued when offline | **No.** One HTTP attempt, then an error screen |
+| Lock-screen/notification trigger queue | Present (native store, up to 8, retried until acknowledged); physical test pending (B1b) |
+| Trigger ID or request key sent to the server | **No.** `/incident-orchestrator/activate` carries only trigger type, mode, source, confirmation and location. Duplicates are avoided only because the server reuses an open incident (re-trigger). |
+| Press time sent with the SOS | **No.** A retried trigger would be timed on arrival, not when it was pressed (B6) |
+| Location buffering during an active SOS | Implemented (SQLite queue and replay); physical replay not yet tested |
+| SMS/HTTP reconciliation, cross-channel ID | Not present (B5) |
+
+- **B6:** the SOS carries no press time, so a delayed or retried activation is timed on arrival (GAP)
+- **Direction:** one emergency delivery coordinator. A stable ID is created at the press and stored on the phone. States: *pending on the phone → acknowledged by the server → SMS submitted → reconciled → delivery uncertain*.
+- **Rules for SMS:** a phone-originated SMS never becomes a trusted incident without verified ingestion (anti-spoofing and anti-replay). Automatic background SMS depends on Google Play SMS-permission policy, so it is not promised until feasibility is confirmed; a one-tap composer is the safe default.
+- **Approval:** this is a design before implementation and needs founder approval. No code, deployment or settings change until then.
+
+## EstateFlow E2E (in progress)
+
+| # | Step | Result |
+|---|---|---|
+| 1 | Resident creates a visitor pass (Bryan, "Bk 30 shagarri estate", valid until 22 Oct 22:48 WAT) | PASS |
+| 2 | Gate: code 121833 checked → "Code accepted", visitor name, masked phone (•••• 9196), destination and validity shown | PASS |
+| 3–9 | Admit, exit, wrong codes, expired/revoked, manual entry, overstay, estate overview | pending |
+
+**Facility Admin findings**
+- **E1:** the Facility Administration dashboard has **no Visitors/Estate section**. Visitor activity is only in the operator console (`/operator/estate`, "Estate overview"), which an admin would not find from their dashboard (FAIL)
+- **E2:** facility type shows "Other" for an estate (backlog: facility type edit and sector types)
+- **I1:** Insight shows raw codes ("SOS BUTTON", "LOCK SCREEN", "PROVIDER ACCEPTED"); the label sweep was reverted with the website restore (NEEDS IMPROVEMENT)
+- **I2:** Insight figures match the tests exactly (6 incidents, 4 lock screen, 5 silent, 6 provider-accepted) (PASS)
+
 ## Proposed resilience package (owner plan, 21 Oct): design before building
 
 1. **Offline SOS queue** (B1, B2, B5): every SOS is saved on the phone with the true press time and location, then sent automatically when any connection returns. One emergency ID across every channel.

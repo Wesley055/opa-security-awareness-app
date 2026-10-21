@@ -17,7 +17,7 @@ Checked on the device against the code review. "Verified" = confirmed on the pho
 | 7 | Facility operators cannot see normal journeys | **PASS, by design** (verified) | Screen: "Facility operators cannot monitor normal journeys" |
 | 8 | Arrival needs a manual action | NEEDS IMPROVEMENT (code review) | |
 | 9 | Missed arrival kept separate from SOS (check at +5 min, guardians at +8 min) | PASS (code review) | `safewalk-policy.ts` |
-| 10 | SafeWalk switched off in production | BLOCKER (verified) | Start returns 503 (`SAFEWALK_ESCALATION_ENABLED` unset) |
+| 10 | SafeWalk switched off in production | BLOCKER (**cause confirmed 21 Oct 14:18**) | Production settings: `NODE_ENV=production`, no `SAFEWALK_ESCALATION_ENABLED`. The only SafeWalk 503 is that feature gate (`journey-ingestion.service.ts:162`). Not an outage, authorization or dependency failure. Stays off until the Nigeria-first release passes physical E2E. |
 | 11 | **Raw technical error shown to the user** | **FAIL** (verified, new) | "Request failed with status code 503" in orange |
 | 12 | **Bottom of the screen sits behind Android's navigation bar** | **FAIL** (verified, new) | "Refresh status" partly hidden; the screen does not use the safe-area layout |
 | 13 | **Long privacy paragraph in the middle of the form** | NEEDS IMPROVEMENT (verified, new) | Five-line technical text between the fields and the Start button |
@@ -67,6 +67,14 @@ Checked on the device against the code review. "Verified" = confirmed on the pho
 - The privacy explanation moves behind a short "How SafeWalk protects your privacy" link.
 
 **Weak internet.** The journey is preserved and location updates are queued where the phone supports it, as the SOS buffering already does.
+
+## B2. Added from the owner's review (21 Oct)
+- **Active-journey screen:** status, estimated arrival, location freshness ("updated 1 min ago"), a large **I'm safe** button and a discreet SOS.
+- **Saved places** (Home, Work and others), saved from the current GPS position with "I'm here, save this place".
+- **No duplicate journeys:** retrying after a network or API failure resumes the same journey (idempotent start).
+- **Guardian tools** move out of the main screen into Settings, with a short code or chosen contacts and no 64-character code.
+- **Permission guidance:** one short screen explaining background location before the system prompt.
+- **E2E adds:** low battery, offline recovery, and cross-tenant security (no journey visible outside its owner and chosen contacts).
 
 ## C. Release
 

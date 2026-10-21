@@ -37,10 +37,6 @@ type Audit = {
   reason?: string;
 };
 const types = [
-  "ESTATE",
-  "SCHOOL",
-  "BANK",
-  "ORGANIZATION",
   "HOSPITAL",
   "POLICE_STATION",
   "FIRE_STATION",

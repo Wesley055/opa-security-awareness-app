@@ -20,7 +20,6 @@ import { operationStore } from "@/lib/canonical-operations";
 import { ActionForm } from "@/components/institutional/action-form";
 import "@/components/institutional/console.css";
 import { DutyReportList } from "@/components/console/duty-reports";
-import { ActivityLog } from "@/components/institutional/activity-log";
 import { StaffPhotoReview, StaffProfile } from "@/components/console/staff-profile";
 type Row = Record<string, unknown>;
 function savedSelection(actor: string): {
@@ -556,6 +555,7 @@ function Console({
                     {role === "FACILITY_ADMIN" ? (
                       <section aria-label="Duty Reports">
                         <DutyReportList key={actor} source="admin" transport={transport} />
+                        <StaffPhotoReview transport={transport} />
                       </section>
                     ) : null}
                     <h3>OPA Insight</h3>
@@ -968,9 +968,6 @@ function Console({
                       </label>
                     </ActionForm>
                   )}
-                {role === "FACILITY_ADMIN" && section === "People" ? (
-                  <StaffPhotoReview key={actor} transport={transport} />
-                ) : null}
                 <div hidden={role === "FACILITY_ADMIN" && section !== "People"}>
                   <h3>Current institutional members</h3>
                   <p>
@@ -1091,8 +1088,8 @@ function Console({
                 </div>
               </section>
               <section hidden={section !== "Audit"}>
-                <h3>Activity log</h3>
-                <ActivityLog rows={rows("audit")} supportView={role === "TECHNICAL_SUPPORT" || role === "ADMIN"} />
+                <h3>Facility audit</h3>
+                <ReadRows rows={rows("audit")} />
               </section>
               <section
                 hidden={
@@ -1181,119 +1178,40 @@ function Console({
     </>
   );
 }
-const AUDIT_LABELS: Record<string, string> = {
-  STAFF_PHOTO_UPLOADED: "Profile photo uploaded",
-  STAFF_PHOTO_APPROVED: "Operator photo approved",
-  STAFF_PHOTO_REJECTED: "Operator photo rejected",
-  STAFF_PASSWORD_CHANGED: "Password changed",
-  STAFF_PASSWORD_RECOVERY_REQUESTED: "Password change code requested",
-  STAFF_PASSWORD_RECOVERED: "Password changed with a verification code",
-  STAFF_PASSWORD_RECOVERY_LOCKED: "Password change code locked after wrong attempts",
-  STAFF_SIGNED_OUT_EVERYWHERE: "Signed out on all devices",
-  LOCAL_PASSWORD_RESET: "Password reset by email link",
-  SESSIONS_REVOKED: "Sessions signed out",
-  DUTY_SHIFT_STARTED: "Duty shift started",
-  DUTY_REPORT_SUBMITTED: "Duty report submitted",
-  DUTY_REPORT_ACKNOWLEDGED: "Duty report acknowledged",
-  DUTY_REPORT_SYSTEM_GENERATED: "OPA backup duty summary generated",
-  INCIDENT_IDENTITY_VIEWED: "Resident name shown during an active incident",
-  PROTECTED_DELIVERY_PROVISIONED: "Emergency-contact delivery set up",
-  RESIDENT_ACTIVATED: "Resident account activated",
-  RESIDENT_INVITATION_QUEUED: "Resident invitation sent",
-  ENROLLMENT_REQUESTED: "Invitation created",
-  ENROLLMENT_ACCEPTED: "Invitation accepted",
-  INVITATION_RESENT: "Invitation re-sent",
-  INVITATION_REVOKED: "Invitation revoked",
-  FACILITY_CREATED: "Facility created",
-  FACILITY_RESPONSE_POLICY_CHANGED: "Response policy changed",
-  INCIDENT_RESOLVED: "Incident resolved",
-  SAFEWALK_EMERGENCY_READ: "SafeWalk emergency viewed",
-};
-const AUTHORITY_LABELS: Record<string, string> = {
-  SINGLE_USE_RECOVERY_TOKEN: "Single-use email link",
-  SESSION_SMS_CODE: "Signed-in session + phone code",
-  SESSION_SMS_EMAIL_CODES: "Signed-in session + phone and email codes",
-  RESIDENT_ACTIVATION: "Resident activation",
-};
-const sentence = (v: string) => v.charAt(0) + v.slice(1).toLowerCase().replaceAll("_", " ");
-export const auditLabel = (action: string) => AUDIT_LABELS[action] ?? sentence(action);
-const shortRef = (v: unknown) => (typeof v === "string" && v.length > 8 ? v.slice(0, 8) : String(v ?? ""));
-const when = (v: unknown) => {
-  const d = new Date(String(v));
-  return Number.isNaN(d.getTime()) ? "" : d.toLocaleString();
-};
-
-/** One audit event in plain language. Identifiers stay available, shortened, under Details. */
-function AuditCard({ r }: { r: Row }) {
-  const action = String(r.action);
-  const own = r.actorUserId && r.actorUserId === r.resourceId;
-  return (
-    <article className="ic-card">
-      <p><strong>{auditLabel(action)}</strong></p>
-      <p className="ic-muted">{when(r.createdAt)}</p>
-      <p>
-        {r.actorRole ? roleLabel(String(r.actorRole)) : own ? "By the account holder" : "Recorded by OPA"}
-        {r.authorityKind ? ` · ${AUTHORITY_LABELS[String(r.authorityKind)] ?? sentence(String(r.authorityKind))}` : ""}
-      </p>
-      <details>
-        <summary>Details</summary>
-        <dl>
-          <dt>Event</dt><dd>{action}</dd>
-          <dt>Reference</dt><dd>{shortRef(r.id)}</dd>
-          {r.actorUserId ? (<><dt>By account</dt><dd>{shortRef(r.actorUserId)}</dd></>) : null}
-          {r.resourceId && !own ? (<><dt>Applies to</dt><dd>{shortRef(r.resourceId)}</dd></>) : null}
-          {r.correlationId ? (<><dt>Correlation</dt><dd>{shortRef(r.correlationId)}</dd></>) : null}
-        </dl>
-      </details>
-    </article>
-  );
-}
-
 function ReadRows({ rows }: { rows: Row[] }) {
   return rows.length ? (
     <div className="ic-grid">
-      {rows.map((r, index) =>
-        r.action && r.createdAt ? (
-          <AuditCard key={String(r.id ?? index)} r={r} />
-        ) : (
-          <article className="ic-card" key={String(r.id ?? index)}>
+      {rows.map((r, index) => (
+        <article className="ic-card" key={String(r.id ?? index)}>
+          <p>
+            {String(
+              r.displayIdentity ??
+                r.reference ??
+                r.role ??
+                r.action ??
+                r.channel ??
+                "Record",
+            ).replaceAll("_", " ")}
+          </p>
+          <p>
+            <ConsoleStatus
+              value={String(
+                r.status ?? r.membershipState ?? r.deliveryStatus ?? "UNKNOWN",
+              )}
+            />
+          </p>
+          {Boolean(r.displayIdentity) && (
             <p>
-              {String(
-                r.displayIdentity ??
-                  r.reference ??
-                  r.role ??
-                  r.action ??
-                  r.channel ??
-                  "Record",
-              ).replaceAll("_", " ")}
+              {roleLabel(String(r.role))} · Account: {String(r.accountStatus)} ·{" "}
+              {r.isActive ? "Enabled" : "Suspended"}
             </p>
-            {r.status ?? r.membershipState ?? r.deliveryStatus ? (
-              <p>
-                <ConsoleStatus value={String(r.status ?? r.membershipState ?? r.deliveryStatus)} />
-              </p>
-            ) : null}
-            {Boolean(r.displayIdentity) && (
-              <p>
-                {roleLabel(String(r.role))} · Account: {String(r.accountStatus)} ·{" "}
-                {r.isActive ? "Enabled" : "Suspended"}
-              </p>
-            )}
-            <details>
-              <summary>Details and provenance</summary>
-              <dl>
-                {Object.entries(r)
-                  .filter(([, v]) => v !== null && v !== undefined && typeof v !== "object")
-                  .map(([k, v]) => (
-                    <div key={k}>
-                      <dt>{sentence(k.replace(/([a-z])([A-Z])/g, "$1_$2"))}</dt>
-                      <dd>{/^[0-9a-f-]{36}$/i.test(String(v)) ? shortRef(v) : /At$/.test(k) ? when(v) : String(v).replaceAll("_", " ")}</dd>
-                    </div>
-                  ))}
-              </dl>
-            </details>
-          </article>
-        ),
-      )}
+          )}
+          <details>
+            <summary>Details and provenance</summary>
+            <pre>{JSON.stringify(r, null, 2)}</pre>
+          </details>
+        </article>
+      ))}
     </div>
   ) : (
     <p className="ic-muted">

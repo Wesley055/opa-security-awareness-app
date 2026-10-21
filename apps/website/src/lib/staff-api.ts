@@ -66,12 +66,7 @@ export async function call(token: string, path: string, method: "GET" | "POST" =
     const data = await response.json().catch(() => null);
     if (response.ok) return respond(data, 200);
     const status = [400, 401, 403, 404, 409, 413, 429].includes(response.status) ? response.status : 503;
-    // A wrong current password comes back as a 401 with the API's own message. It is a
-    // form error, not an ended session: return 400 so the console does not sign the person out.
-    const own = message(data);
-    if (status === 401 && own && own !== "Unauthorized") return respond({ error: own, code: code(data) }, 400);
-    const text = status === 503 ? "The service is temporarily unavailable." : status === 401 ? "Your session ended. Sign in again." : own ?? "The request was refused.";
-    return respond({ error: text, code: code(data) }, status);
+    return respond({ error: status === 503 ? "The service is temporarily unavailable." : status === 401 ? "Your session ended. Sign in again." : message(data) ?? "The request was refused.", code: code(data) }, status);
   } catch {
     return respond({ error: "No connection to OPA. Check the network and refresh to see whether it was recorded.", offline: true }, 503);
   }

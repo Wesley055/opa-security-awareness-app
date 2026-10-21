@@ -77,8 +77,19 @@ An earlier source inspection was done on vc12 (`58b5172`). I re-checked the code
 - **E3:** while the visitor is inside, the resident's pass still said **"Waiting at gate"**; it showed **Left** after the exit. The status updates on reload, not live. Expected: "Inside since 23:01" (NEEDS IMPROVEMENT)
 - **E4: withdrawn (owner decision, 21 Oct).** Correct as built: **only the gate records exits**. Residents can **cancel before arrival only**; once the visitor is inside, Cancel is refused with a clear explanation. PASS, by design.
 - **E5:** the stay-length button "Overnight" is cut off ("Overnigh") (FAIL)
+- **E6 (owner):** stay length should be set with **hours and minutes** pickers. Proposed:
+  - hours 0–36, minutes in 5-minute steps;
+  - quick chips (1 h, 2 h, 4 h, Overnight) kept;
+  - limited by the estate's maximum, which the admin sets (the database allows 15 min to 72 h);
+  - the result shown as "until 02:30 tomorrow".
+  (NEEDS IMPROVEMENT)
 
 **Facility Admin findings**
+- **A1 (owner):** the Overview reads like a diagnostic screen: "Residents in loaded records", "Operators in loaded records", "Loaded records may be limited", raw "COMMISSIONING", "SMS: CONFIGURED" and "Configured… does not prove credentials". Proposed:
+  - true totals ("Residents 1 · Operators 1 · Pending invitations 0");
+  - plain status ("Setting up" instead of COMMISSIONING; "SMS and email ready");
+  - qualifications moved behind "About these figures".
+  (NEEDS IMPROVEMENT)
 - **E1:** the Facility Administration dashboard has **no Visitors/Estate section**. Visitor activity is only in the operator console (`/operator/estate`, "Estate overview"), which an admin would not find from their dashboard (FAIL)
 - **E2:** facility type shows "Other" for an estate (backlog: facility type edit and sector types)
 - **I1:** Insight shows raw codes ("SOS BUTTON", "LOCK SCREEN", "PROVIDER ACCEPTED"); the label sweep was reverted with the website restore (NEEDS IMPROVEMENT)

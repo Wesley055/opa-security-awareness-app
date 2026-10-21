@@ -71,7 +71,8 @@ An earlier source inspection was done on vc12 (`58b5172`). I re-checked the code
 | 5a | Wrong code recorded in "Today at the gate" (22:50 · Wrong code) | PASS (rate limit still to test) |
 | 4 | Gate: **Record exit** → "Exit recorded"; inside list empty; log shows 23:20 Left; resident pass shows **Left** | PASS |
 | 6 | Resident cancels a pass before arrival → shows **Cancelled**; the code at the gate is refused with a neutral "No valid visitor pass for this code at this estate" (reveals nothing); recorded as Wrong code | PASS |
-| 5b, 7–9 | Repeated wrong codes (limit), manual entry, overstay, estate overview | pending |
+| 5b | 10 wrong codes in 10 minutes → "Too many incorrect codes. Wait 10 minutes, or call the resident to confirm the visitor." (limit 10 per guard and 50 per estate per 10 min) | PASS |
+| 7–9 | Manual entry, overstay, estate overview | pending |
 
 **Resident (mobile) EstateFlow findings**
 - **E3:** while the visitor is inside, the resident's pass still said **"Waiting at gate"**; it showed **Left** after the exit. The status updates on reload, not live. Expected: "Inside since 23:01" (NEEDS IMPROVEMENT)
@@ -83,6 +84,11 @@ An earlier source inspection was done on vc12 (`58b5172`). I re-checked the code
   - limited by the estate's maximum, which the admin sets (the database allows 15 min to 72 h);
   - the result shown as "until 02:30 tomorrow".
   (NEEDS IMPROVEMENT)
+
+**Gate findings**
+- **G1:** every wrong attempt logged with its time (PASS)
+- **G2:** repeated "Wrong code" lines flood the log and push real entries and exits out of view. Group them ("10 wrong codes, 23:56–23:58") and show a "Possible code guessing" warning (NEEDS IMPROVEMENT)
+- **G3:** the lockout does not say when the gate works again. Show "Try again at 00:08" (NEEDS IMPROVEMENT)
 
 **Facility Admin findings**
 - **A1 (owner):** the Overview reads like a diagnostic screen: "Residents in loaded records", "Operators in loaded records", "Loaded records may be limited", raw "COMMISSIONING", "SMS: CONFIGURED" and "Configured… does not prove credentials". Proposed:

@@ -155,3 +155,4 @@ An earlier source inspection was done on vc12 (`58b5172`). I re-checked the code
 - **Suspected cause:** `app.json` has **no `NSMicrophoneUsageDescription`**, but the app records audio (voice protection: Picovoice, Android `RECORD_AUDIO`). Apple rejects binaries that use the microphone without that purpose string (ITMS-90683). Location strings are present through the expo-location plugin.
 - **Fix:** add the microphone purpose string, raise `buildNumber` to 8, rebuild with EAS and submit to TestFlight.
 - **Done 21 Oct:** `b6eeaf5`. iOS **1.0.0 (8)** built (EAS `2f34638e`) and **uploaded to App Store Connect** at 19:51 CT (submission `9e3a11c9`). Apple processing is pending; then add internal TestFlight testers.
+- **Submitted for App Store review 21 Oct, 20:34 CT:** iOS App 1.0, build 1.0.0 (8), status **Waiting for Review**. Keep the demo resident account active, with its password unchanged, until Apple decides.

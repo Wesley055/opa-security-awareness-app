@@ -1,6 +1,5 @@
 import { isForegroundExecutionAllowed } from './foreground-execution';
 import { PermissionsAndroid, Platform } from 'react-native';
-import { PicovoicePorcupineProvider } from './picovoice-porcupine-provider';
 import { activateFromVoiceTrigger } from './voice-activation-coordinator';
 import { getVoiceProtectionConfig, isVoiceProtectionReady } from './voice-protection-config';
 import type {
@@ -34,7 +33,13 @@ Promise<boolean> {
 function getOrCreateProvider(): VoiceTriggerProvider | null {
   const config = getVoiceProtectionConfig();
   if (!isVoiceProtectionReady(config) || config.accessKey === null || config.keywordPath === null) return null;
+  // Voice protection is Android-only. Load Picovoice lazily so the iPhone app
+  // never evaluates it (its native pods are excluded from iOS, see
+  // react-native.config.js).
+  if (Platform.OS !== 'android') return null;
   if (provider === null) {
+    const { PicovoicePorcupineProvider } =
+      require('./picovoice-porcupine-provider') as typeof import('./picovoice-porcupine-provider');
     provider = new PicovoicePorcupineProvider({
       accessKey: config.accessKey,
       keywordPath: config.keywordPath,

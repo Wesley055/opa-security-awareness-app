@@ -131,3 +131,26 @@ An earlier source inspection was done on vc12 (`58b5172`). I re-checked the code
 3. **USSD SOS:** dial `*code#` from any phone, including feature phones, to raise an SOS for a registered number. This needs a USSD service code from Africa's Talking (a shared code is quick; a dedicated code takes weeks), plus pricing.
 4. **Network failover:** retry across Wi-Fi, mobile data, SMS and USSD, with honest status shown to the user.
 5. **Operator without a computer:** the on-duty operator receives each incident by SMS and replies with short codes (for example `ACK 4821`, `DISP 4821`) to acknowledge and dispatch. This needs two-way SMS (an inbound number or short code). Later, a mobile Command Center.
+
+## Fix plan by priority (21 Oct): approve before building
+
+**P0: safety-critical, fix first**
+1. **Offline SOS lifecycle** (B1, B1b test, B2, B5, B6): save on the phone, stable emergency ID, true press time, automatic resend; error wording for someone in danger.
+2. **Location permission onboarding** (L1): a required first-run step for "Allow all the time", and a visible warning when location is off.
+3. **iOS release:** the TestFlight upload of 1.0.0 (7) failed on 19 Oct; fix it and resubmit (see iOS below).
+
+**P1: before the Kurudu pilot and the bank demo**
+4. **EstateFlow finishing scope:** E1, A1 (with true counts), E6, G4, overdue visibility (test 8), E3, E5, G2, G3, G5.
+5. **Command Center walkthrough** (Technical Support → Facility Admin → Operator), itemized; C1; I1 (plain labels, applied screen by screen).
+6. **Mobile screen defects:** S1–S6, B4.
+7. **Facility type and edit** (E2, release 48) plus sector types.
+
+**P2: next level (designed first, then one release each)**
+8. **SafeWalk Nigeria** (Issue #54), switched on only after physical E2E on Android and iOS.
+9. **Resilience package:** SMS fallback, USSD SOS, network failover, operator SMS dispatch (two-way SMS).
+10. **How OPA staff activity appears to Facility Admins** (decision pending), plus the release-process simplification review.
+
+## iOS
+- **I-OS1:** App Store Connect shows 1.0.0 (7) **Failed** (19 Oct 03:11). Reason to be read from App Store Connect.
+- **Suspected cause:** `app.json` has **no `NSMicrophoneUsageDescription`**, but the app records audio (voice protection: Picovoice, Android `RECORD_AUDIO`). Apple rejects binaries that use the microphone without that purpose string (ITMS-90683). Location strings are present through the expo-location plugin.
+- **Fix:** add the microphone purpose string, raise `buildNumber` to 8, rebuild with EAS and submit to TestFlight.

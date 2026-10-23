@@ -1,0 +1,1364 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  TECHNICAL_SUPPORT
+  USER
+  RESPONDER
+  ADMIN
+  FACILITY_ADMIN
+  FACILITY_OPERATOR
+}
+
+/// Activation lifecycle only. Administrative suspension is isActive, and
+/// deliberately does NOT appear here - two fields owning one concept is
+/// how a general column ends up named after one special case.
+enum AccountStatus {
+  ACTIVE
+  PENDING_ACTIVATION
+}
+
+enum IncidentStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  CANCELLED
+}
+
+enum IncidentTrigger {
+  SOS_BUTTON
+  VOICE_HELP_HELP
+  TRUSTED_CONTACT
+  SYSTEM_TEST
+}
+
+enum NotificationChannel {
+  PUSH
+  SMS
+  WHATSAPP
+  VOICE
+  EMAIL
+}
+
+enum NotificationStatus {
+  QUEUED
+  SENDING
+  SENT
+  DELIVERED
+  ACKNOWLEDGED
+  FAILED
+  CANCELLED
+}
+
+enum FacilityType {
+  HOSPITAL
+  POLICE_STATION
+  FIRE_STATION
+  SECURITY_PROVIDER
+  NGO
+  GOVERNMENT_AGENCY
+  OTHER
+}
+
+enum EvidenceType {
+  AUDIO
+  VIDEO
+  IMAGE
+  GPS_LOG
+  DOCUMENT
+}
+
+enum EvidenceStatus {
+  PENDING
+  UPLOADING
+  STORED
+  FAILED
+  DELETED
+}
+
+model User {
+  responsePolicies FacilityResponsePolicy[] @relation("ResponsePolicyAuthor")
+  organizationsCreated Organization[] @relation("OrganizationCreator")
+  facilitySupportAssignments FacilitySupportAssignment[] @relation("AssignedSupport")
+  facilitySupportApprovals FacilitySupportAssignment[] @relation("AssignmentApprover")
+  supportCasesReported SupportCase[] @relation("CaseReporter")
+  supportCasesAssigned SupportCase[] @relation("CaseAssignee")
+  temporaryElevations TemporaryElevation[] @relation("ElevationActor")
+  elevationApprovals TemporaryElevation[] @relation("ElevationApprover")
+  commissioningEvidence CommissioningEvidence[] @relation("CommissioningRecorder")
+  trainingEvidence CommissioningEvidence[] @relation("TrainingRecipient")
+  membershipState FacilityMembershipState @default(ACTIVE)
+  supportAppointments SupportEmployment[] @relation("SupportAppointer")
+  supportEmployment SupportEmployment?
+  supportGrants SupportCapabilityGrant[] @relation("SupportActor")
+  supportApprovals SupportCapabilityGrant[] @relation("SupportApprover")
+  onboardingGrants OnboardingAuthorityGrant[] @relation("OnboardingActor")
+  onboardingApprovals OnboardingAuthorityGrant[] @relation("OnboardingApprover")
+  ssoIdentities SsoExternalIdentity[]
+  identityGrants IdentityAccessGrant[] @relation("IdentityGrantActor")
+  protectedIdentifiers ProtectedIdentifier[] @relation("ProtectedIdentitySubject")
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  phoneNumber  String   @unique
+  // NULLABLE, deliberately. A seat provisioned by an administrator has
+  // never chosen a password, and inventing a placeholder credential would
+  // put a hashable value in the column that nothing can ever match but
+  // everything must reason about. login() narrows on this being non-null.
+  passwordHash String?
+  firstName    String
+  lastName     String
+  role         UserRole @default(USER)
+
+  // isActive        -> administrative suspension. May it be used now?
+  // accountStatus   -> activation lifecycle. Has the seat been claimed?
+  // Both are checked at login; neither subsumes the other.
+  isActive          Boolean       @default(true)
+  accountStatus     AccountStatus @default(ACTIVE)
+  credentialVersion Int           @default(0)
+
+  // Only the HASH is stored, as with IncidentAccessToken. The raw token
+  // exists once, in the activation URL handed to the operator, and is not
+  // recoverable from the database afterwards.
+  activationTokenHash String?   @unique
+  activationExpiresAt DateTime?
+  activatedAt         DateTime?
+
+  invitedByUserId String? @db.Uuid
+  invitedBy       User?   @relation("UserInvitations", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  invitedUsers    User[]  @relation("UserInvitations")
+
+  invitationDeliveriesReceived AccountInvitationDelivery[] @relation("InvitationDeliveryRecipient")
+  invitationDeliveriesSent     AccountInvitationDelivery[] @relation("InvitationDeliveryInviter")
+
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  incidents           Incident[]
+  emergencyContacts   EmergencyContact[]
+  journeySessions     JourneySession[]
+  passwordResetTokens PasswordResetToken[]
+  safeWalkGuardianCodes SafeWalkGuardianCode[]
+  safeWalkGuardianGrants SafeWalkGuardianGrant[]
+  safeWalkNotices SafeWalkNotice[]
+
+  facilityId String?   @db.Uuid
+  facility   Facility? @relation("FacilityStaff", fields: [facilityId], references: [id])
+
+  @@index([phoneNumber])
+  @@index([facilityId])
+  @@index([invitedByUserId])
+  @@index([accountStatus])
+}
+
+model PasswordResetToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique @db.VarChar(64)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId, consumedAt])
+  @@index([expiresAt])
+}
+
+model Incident {
+  safeWalkEmergencyJourneys JourneySession[] @relation("SafeWalkEmergencyIncident")
+  id              String          @id @default(uuid()) @db.Uuid
+  userId          String          @db.Uuid
+  user            User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  trigger         IncidentTrigger
+  status          IncidentStatus  @default(OPEN)
+  latitude        Decimal?        @db.Decimal(9, 6)
+  longitude       Decimal?        @db.Decimal(9, 6)
+  address         String?
+  voicePhrase     String?
+  trustedContact  Json?
+  metadata        Json?
+  lastTriggeredAt DateTime?
+  retriggerCount  Int             @default(0)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  resolvedAt      DateTime?
+
+  facilityId String?   @db.Uuid
+  facility   Facility? @relation(fields: [facilityId], references: [id])
+
+  journeySessionId String?         @db.Uuid
+  journeySession   JourneySession? @relation(fields: [journeySessionId], references: [id], onDelete: SetNull)
+
+  accessTokens   IncidentAccessToken[]
+  timelineEvents IncidentTimelineEvent[]
+  notifications  IncidentNotification[]
+  evidence       Evidence[]
+
+  @@index([userId, status, lastTriggeredAt])
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+  @@index([facilityId, status])
+  // The operator queue. [facilityId, status] alone cannot serve an
+  // ordered scan, so every page would sort in memory. The trailing id
+  // matches the cursor tiebreaker exactly - ordering is createdAt DESC,
+  // id DESC - which is what makes the compound seek deterministic when
+  // two incidents share a timestamp.
+  @@index([facilityId, status, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([journeySessionId])
+}
+
+model EmergencyContact {
+  id                   String   @id @default(uuid()) @db.Uuid
+  userId               String   @db.Uuid
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  firstName            String
+  lastName             String
+  relationship         String
+  phoneNumber          String
+  email                String?
+  isPrimary            Boolean  @default(false)
+  isActive             Boolean  @default(true)
+  receivesEmergencySms Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model IncidentTimelineEvent {
+  id         String   @id @default(uuid()) @db.Uuid
+  incidentId String   @db.Uuid
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  sequence      Int
+  type          String
+  payload       Json?
+  source        String
+  actorUserId   String? @db.Uuid
+  correlationId String?
+
+  occurredAt DateTime
+  recordedAt DateTime @default(now())
+
+  previousHash String?
+  hash         String
+
+  @@unique([incidentId, sequence])
+  @@index([incidentId, occurredAt])
+  @@index([incidentId, type, occurredAt])
+  @@index([correlationId])
+}
+
+model IncidentNotification {
+  protectedSnapshotId String? @db.Uuid
+  protectedSnapshot ProtectedIdentifier? @relation("IncidentProtectedSnapshot", fields: [protectedSnapshotId], references: [id], onDelete: Restrict)
+  id         String   @id @default(uuid()) @db.Uuid
+  incidentId String   @db.Uuid
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  contactId   String?             @db.Uuid
+  contactName String
+  contactType String
+  recipient   String
+  channel     NotificationChannel
+  status      NotificationStatus
+
+  provider          String?
+  providerMessageId String?
+  attemptCount      Int     @default(0)
+  lastError         String?
+  payload           Json?
+
+  queuedAt       DateTime  @default(now())
+  sentAt         DateTime?
+  deliveredAt    DateTime?
+  acknowledgedAt DateTime?
+  failedAt       DateTime?
+  cancelledAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([incidentId, queuedAt])
+  @@index([incidentId, id])
+  @@index([status, queuedAt])
+  @@index([providerMessageId])
+  deliveryStatus DeliveryStatus @default(QUEUED)
+  firstAttemptAt DateTime?
+  providerAcceptedAt DateTime?
+  confirmedDeliveredAt DateTime?
+  failureCategory DeliveryFailureCategory?
+  deliveryAttempts DeliveryAttempt[]
+  deliveryEvents DeliveryStatusEvent[]
+  nextAttemptAt DateTime @default(now())
+  lastAttemptAt DateTime?
+  @@index([status, nextAttemptAt, queuedAt])
+
+}
+
+/// Durable outbox for one attempt to deliver an account invitation.
+///
+/// WORKER-ONLY, AND THAT IS THE POINT. Provisioning commits the account and
+/// this row in one transaction and returns immediately, so a provider
+/// outage can never roll back or silently lose a resident seat.
+///
+/// NO PAYLOAD COLUMN. The activation credential lives in exactly one place -
+/// User.activationTokenHash - and the message is built in memory at send
+/// time and discarded. A retry cannot recover the plaintext, so the worker
+/// ISSUES A FRESH CODE when it claims a row, storing the new hash and
+/// expiry and holding the plaintext only for the immediate provider call.
+/// A confirmed retryable rejection permits another claim: the next claim
+/// mints another code and invalidates the one that never arrived. Expiry
+/// restarts with each issued code, so a resident whose first attempt failed
+/// still gets a full window from the message she actually receives.
+///
+/// Delivery truth is now in confirmedDeliveredAt and the delivery ledger.
+/// LEGACY TRANSPORT FIELDS: no deliveredAt. Africa's Talking returning success proves the provider
+/// accepted the message, nothing more. SENT is the strongest state OPA can
+/// honestly assert until a delivery-receipt webhook exists.
+model AccountInvitationDelivery {
+  protectedSnapshotId String? @db.Uuid
+  protectedSnapshot ProtectedIdentifier? @relation("InvitationProtectedSnapshot", fields: [protectedSnapshotId], references: [id], onDelete: Restrict)
+  id String @id @default(uuid()) @db.Uuid
+
+  /// The invited account. Restrict, not Cascade: this is an audit record of
+  /// what OPA sent on whose behalf, and it outlives convenience.
+  userId String? @db.Uuid
+  user   User?   @relation("InvitationDeliveryRecipient", fields: [userId], references: [id], onDelete: Restrict)
+
+  facilityId String?   @db.Uuid
+  facility   Facility? @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+
+  purpose String @default("LEGACY_INVITATION")
+  enrollmentId String? @db.Uuid
+  enrollment EnrollmentRequest? @relation(fields: [enrollmentId], references: [id], onDelete: Restrict)
+  requestCiphertext String?
+
+  /// NULLABLE, unlike the recipient. An administrator's own lifecycle must
+  /// not be blocked by the invitations they once sent, so the actor may
+  /// disappear while the record of what OPA sent survives.
+  invitedByUserId String? @db.Uuid
+  invitedBy       User?   @relation("InvitationDeliveryInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+
+  channel NotificationChannel
+  status  NotificationStatus
+
+  /// E.164 at the moment of provisioning, snapshotted deliberately. If the
+  /// resident later corrects her number, this still records where OPA
+  /// actually sent the invitation.
+  recipient String
+
+  provider          String?
+  providerMessageId String?
+  attemptCount      Int     @default(0)
+  lastError         String?
+
+  queuedAt      DateTime  @default(now())
+  nextAttemptAt DateTime  @default(now())
+  lastAttemptAt DateTime?
+  sentAt        DateTime?
+  failedAt      DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([facilityId, userId, queuedAt(sort: Desc)])
+  @@unique([enrollmentId, channel])
+  /// The worker's claim query: due QUEUED rows, oldest original queue time first.
+  @@index([status, nextAttemptAt, queuedAt])
+  deliveryStatus DeliveryStatus @default(QUEUED)
+  firstAttemptAt DateTime?
+  providerAcceptedAt DateTime?
+  confirmedDeliveredAt DateTime?
+  failureCategory DeliveryFailureCategory?
+  deliveryAttempts DeliveryAttempt[]
+  deliveryEvents DeliveryStatusEvent[]
+
+}
+
+model Facility {
+  responsePolicy FacilityResponsePolicy?
+  organizationId String? @db.Uuid
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  operationalState FacilityOperationalState @default(CREATED)
+  supportAssignments FacilitySupportAssignment[]
+  supportCases SupportCase[]
+  temporaryElevations TemporaryElevation[]
+  commissioningEvidence CommissioningEvidence[]
+  @@index([organizationId])
+  @@index([operationalState])
+  commissionedAt DateTime?
+  supportGrants SupportCapabilityGrant[]
+  onboardingGrants OnboardingAuthorityGrant[]
+  ssoConfigurations SsoConfiguration[]
+  identityGrants IdentityAccessGrant[]
+  protectedIdentifiers ProtectedIdentifier[]
+  id          String       @id @default(uuid()) @db.Uuid
+  name        String
+  type        FacilityType
+  address     String?
+  phoneNumber String?
+  latitude    Decimal?     @db.Decimal(9, 6)
+  longitude   Decimal?     @db.Decimal(9, 6)
+  isVerified  Boolean      @default(false)
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  staff     User[]     @relation("FacilityStaff")
+  incidents Incident[]
+
+  invitationDeliveries AccountInvitationDelivery[]
+
+  @@index([type, isActive])
+  @@index([latitude, longitude])
+}
+
+model Evidence {
+  id         String   @id @default(uuid()) @db.Uuid
+  incidentId String   @db.Uuid
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  type            EvidenceType
+  status          EvidenceStatus @default(PENDING)
+  storageKey      String?
+  mimeType        String?
+  sizeBytes       BigInt?
+  sha256          String?
+  encryptionKeyId String?
+
+  capturedAt DateTime?
+  uploadedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([incidentId, sha256])
+  @@index([incidentId, createdAt])
+  @@index([status, createdAt])
+}
+
+enum TrackingAccessScope {
+  FAMILY_BEARER
+  VERIFIED_CONTACT
+  AUTHORIZED_RESPONDER
+}
+
+/// Capability token granting read-only access to an incident tracking page.
+/// Only the SHA-256 hash is stored - the raw token exists solely in the
+/// message sent to the recipient. See docs/architecture/decision-log.md
+/// ADR-008.
+model IncidentAccessToken {
+  id             String              @id @default(uuid()) @db.Uuid
+  incidentId     String              @db.Uuid
+  incident       Incident            @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  /// SHA-256 hex digest, always 64 characters.
+  tokenHash      String              @unique @db.VarChar(64)
+  scope          TrackingAccessScope @default(FAMILY_BEARER)
+  /// Extended by the renewal job while the incident is OPEN. NEVER extended
+  /// by page visits - that would let a leaked link stay alive by viewing it.
+  expiresAt      DateTime
+  /// Hard ceiling from issuance. Never extended, for any reason.
+  absoluteExpiry DateTime
+  revokedAt      DateTime?
+  /// Access telemetry, so an unusually widely-viewed link can be spotted and
+  /// revoked. Deliberately no IP or user agent here - that belongs in a
+  /// separate append-only access log if it is ever needed.
+  lastAccessedAt DateTime?
+  accessCount    Int                 @default(0)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@index([incidentId, revokedAt])
+  @@index([expiresAt])
+}
+
+enum JourneyPurpose {
+  INCIDENT
+  SAFEWALK
+  GUARDIAN
+  MANUAL
+  SYSTEM_TEST
+}
+
+enum JourneySessionStatus {
+  /// Created, no fix accepted yet. The portal says "waiting for first
+  /// location" and must never render a position. See ADR-009.
+  STARTED
+  ACTIVE
+  ENDED
+}
+
+enum JourneySessionEndReason {
+  USER_ENDED
+  INCIDENT_RESOLVED
+  /// Ended by the reaper after prolonged silence. Distinct from USER_ENDED
+  /// and unreconstructable if not recorded here.
+  TIMED_OUT
+  SUPERSEDED
+  ADMIN_ENDED
+}
+
+enum JourneyRedactionReason {
+  RETENTION_POLICY
+  SUBJECT_REQUEST
+  LEGAL_HOLD_RELEASE
+}
+
+/// Continuous-location session. Deliberately not incident-scoped: SafeWalk is
+/// a session with no incident, and an incident can begin part-way through one.
+/// Sequencing, hashing, concurrency and redaction rules are in ADR-009.
+model JourneySession {
+  safeWalkCreateKey String? @db.Uuid
+  safeWalkEmergencyIncidentId String? @db.Uuid
+  safeWalkEmergencyIncident Incident? @relation("SafeWalkEmergencyIncident", fields: [safeWalkEmergencyIncidentId], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "safewalk_emergency_incident_fkey")
+  safeWalkEmergencyAt DateTime?
+
+  id     String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  /// Required, no default: every creation path must choose, or SafeWalk and
+  /// Guardian sessions silently accumulate as INCIDENT. Tag only. No logic
+  /// may branch on this in Sprint 10B.
+  purpose JourneyPurpose
+
+  status      JourneySessionStatus     @default(STARTED)
+  endedAt     DateTime?
+  endedReason JourneySessionEndReason?
+
+  /// Denormalised from the newest accepted fix, written in the same
+  /// advisory-locked transaction. The fix table stays authoritative. This
+  /// exists so the silence reaper is one indexed scan, not a subquery per
+  /// session.
+  lastFixReceivedAt DateTime?
+
+  // SafeWalk journey planning metadata.
+  // Nullable so existing INCIDENT/MANUAL/SYSTEM_TEST sessions remain valid.
+  destinationLabel      String?   @db.VarChar(256)
+  destinationLatitude   Decimal?  @db.Decimal(9, 6)
+  destinationLongitude  Decimal?  @db.Decimal(9, 6)
+  expectedArrivalAt     DateTime?
+  arrivalGraceMinutes   Int?
+  safetyConfirmedAt     DateTime?
+  arrivalConfirmedAt    DateTime?
+
+  /// Opaque device identifier. TODO: becomes a relation to a Device model
+  /// when one exists. Do not let this accrete unstructured meaning.
+  deviceId String? @db.VarChar(128)
+
+  redactedAt      DateTime?
+  redactionReason JourneyRedactionReason?
+
+  startedAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fixes                         JourneyLocationFix[]
+  incidents                     Incident[]
+  emergencyIntelligenceSnapshot EmergencyIntelligenceSnapshot?
+
+  guardianGrants SafeWalkGuardianGrant[]
+  safeWalkEscalation SafeWalkEscalation?
+  safeWalkNotices SafeWalkNotice[]
+  safeWalkAudits SafeWalkAudit[]
+  @@unique([id, userId])
+  @@unique([userId, safeWalkCreateKey])
+  @@index([userId, status, startedAt])
+  @@index([status, lastFixReceivedAt])
+}
+
+/// Append-only location stream. Never updated except to redact coordinates.
+/// Incident origin coordinates stay immutable per ADR-005. This is the trail
+/// ADR-005 defers to Sprint 10B.
+///
+/// The chain is built in RECEIPT order, not travel order: offline buffering
+/// means an earlier fix can arrive later. `sequence` proves arrival order and
+/// immutability only. Movement order is `recordedAt`. Canonical
+/// serialisation, hash inputs, nonce generation and verification are in
+/// ADR-009.
+///
+/// Restrict, not Cascade: sessions are ended or redacted, never deleted, so
+/// this costs nothing operationally and turns a silent chain-destroying
+/// delete into a loud failure. Deliberately stricter than
+/// IncidentTimelineEvent.
+model JourneyLocationFix {
+  id               String         @id @default(uuid()) @db.Uuid
+  journeySessionId String         @db.Uuid
+  journeySession   JourneySession @relation(fields: [journeySessionId], references: [id], onDelete: Restrict)
+
+  /// Server-allocated under pg_advisory_xact_lock(2, hashtext(sessionId)).
+  sequence Int
+
+  /// Client-generated, stable across retries. Bounded because it is half of a
+  /// unique index, and an unbounded client string in a btree is a cheap DoS.
+  idempotencyKey String @db.VarChar(128)
+
+  /// Nullable only so redaction can erase position while leaving chain
+  /// continuity verifiable. Never null on insert. Decimal, not Float: exact
+  /// string serialisation is required for a stable hash across languages.
+  latitude  Decimal? @db.Decimal(9, 6)
+  longitude Decimal? @db.Decimal(9, 6)
+  accuracy  Float?
+  speed     Float?
+  heading   Float?
+
+  /// Surfaced to FAMILY_BEARER holders per ADR-008.
+  batteryLevel Int?
+  isCharging   Boolean?
+
+  /// "foreground" | "background" | "manual" | "activation" | "retrigger".
+  /// String not enum, matching IncidentTimelineEvent.source.
+  source String @db.VarChar(32)
+
+  /// Device clock, validated but untrusted. Movement order and position age.
+  recordedAt DateTime
+  /// Server clock. Receipt order, communication silence and the chain.
+  receivedAt DateTime @default(now())
+
+  /// Per-row salt. Coordinates are low-entropy and a bare hash of them is
+  /// brute-forceable, so payloadHash covers nonce plus coordinates. Redaction
+  /// deletes nonce and coordinates: chain continuity survives, payload
+  /// integrity does not. That loss is the point.
+  nonce       String? @db.VarChar(64)
+  payloadHash String  @db.VarChar(64)
+
+  previousHash String? @db.VarChar(64)
+  hash         String  @db.VarChar(64)
+
+  /// Outside the hash inputs by design: setting this must not invalidate the
+  /// chain.
+  redactedAt                     DateTime?
+  emergencyIntelligenceSnapshots EmergencyIntelligenceSnapshot[]
+
+  @@unique([journeySessionId, sequence])
+  @@unique([journeySessionId, idempotencyKey])
+  @@index([journeySessionId, receivedAt(sort: Desc)])
+  @@index([journeySessionId, recordedAt])
+}
+
+/// Replaceable derived state built from one committed canonical location fix.
+///
+/// JourneyLocationFix remains the authoritative telemetry trail. This row is
+/// only the latest Emergency Intelligence projection for a session and may be
+/// rebuilt from source telemetry.
+///
+/// sourceFixSequence is first-class provenance rather than being hidden in the
+/// JSON payload. Snapshot writers must update monotonically so a slow provider
+/// response for an older fix cannot overwrite intelligence derived from a
+/// newer fix.
+///
+/// Redaction clears payload while preserving provenance. A future Journey
+/// redaction path must also prevent an in-flight refresh from recreating
+/// derived location data from a redacted source fix.
+model EmergencyIntelligenceSnapshot {
+  journeySessionId String         @id @db.Uuid
+  journeySession   JourneySession @relation(fields: [journeySessionId], references: [id], onDelete: Restrict)
+
+  sourceFixSequence   Int
+  sourceFixReceivedAt DateTime
+  generatedAt         DateTime
+  refreshedAt         DateTime  @default(now())
+  redactedAt          DateTime?
+
+  /// Provider-derived EmergencyIntelligenceService response. This is
+  /// replaceable derived state, not authoritative incident or location data.
+  /// Null after derived-location redaction; provenance columns remain.
+  payload Json?
+
+  sourceFix JourneyLocationFix @relation(fields: [journeySessionId, sourceFixSequence], references: [journeySessionId, sequence], onDelete: Restrict)
+
+  @@index([sourceFixReceivedAt])
+}
+
+/// Durable administrative provenance, retained independently of actor/resource deletion.
+model AdministrativeAuditEvent {
+  authorityKind String?
+  authorityGrantId String? @db.Uuid
+  caseReference String? @db.Uuid
+  correlationId String? @db.Uuid
+  id String @id @default(uuid()) @db.Uuid
+  actorUserId String @db.Uuid
+  actorRole String
+  action String
+  resourceId String @db.Uuid
+  facilityId String? @db.Uuid
+  previousFacilityId String? @db.Uuid
+  reason String? @db.VarChar(500)
+  beforeState Json?
+  afterState Json?
+  createdAt DateTime @default(now())
+
+  @@index([facilityId, createdAt])
+  @@index([actorUserId, createdAt])
+}
+
+/// Pending intent, not an account or membership. No global identifier uniqueness here.
+model EnrollmentRequest {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String? @db.Uuid
+  invitedByUserId String? @db.Uuid
+  requestedRole UserRole @default(USER)
+  revokedAt DateTime?
+  lastResentAt DateTime?
+  identityCiphertext String
+  idempotencyDigest String @unique @db.VarChar(64)
+  emailTokenHash String? @db.VarChar(64)
+  phoneTokenHash String? @db.VarChar(64)
+  acceptanceTokenHash String? @db.VarChar(64)
+  proofAttempts Int @default(0)
+  verifiedAt DateTime?
+  acceptedAt DateTime?
+  acceptedUserId String? @db.Uuid
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  deliveries AccountInvitationDelivery[]
+  @@index([facilityId, createdAt])
+  @@index([expiresAt])
+}
+
+// Tenant references use the authoritative Facility boundary; no parallel membership tables.
+enum IdentityPermission {
+  READ_MASKED
+  WRITE
+  LOOKUP
+  RESOLVE
+  DELIVERY
+}
+
+enum ProtectedIdentifierKind {
+  EMAIL
+  PHONE
+  NOTIFICATION_SNAPSHOT
+  INVITATION_SNAPSHOT
+}
+
+model IdentityAccessGrant {
+  id                  String                   @id @default(uuid()) @db.Uuid
+  tenantId            String                   @db.Uuid
+  actorUserId         String                   @db.Uuid
+  permission          IdentityPermission
+  expiresAt           DateTime
+  revokedAt           DateTime?
+  // Grant provenance is independent of ordinary User.role / ADMIN.
+  approvedByReference String                   @db.Uuid
+  createdAt           DateTime                 @default(now())
+  tenant Facility @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  actor User @relation("IdentityGrantActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, actorUserId, permission, expiresAt])
+}
+
+model ProtectedIdentifier {
+  incidentSnapshots IncidentNotification[] @relation("IncidentProtectedSnapshot")
+  invitationSnapshots AccountInvitationDelivery[] @relation("InvitationProtectedSnapshot")
+
+  id                   String                   @id @default(uuid()) @db.Uuid
+  tenantId             String                   @db.Uuid
+  subjectUserId        String                   @db.Uuid
+  sourceId             String                   @db.Uuid
+  kind                 ProtectedIdentifierKind
+  formatVersion        Int                      @default(1)
+  normalizationVersion Int                      @default(1)
+  encryptionKeyVersion String                   @db.VarChar(40)
+  ciphertext           String
+  nonce                String                   @db.VarChar(24)
+  tag                  String                   @db.VarChar(24)
+  lookupDigest         String?                  @db.VarChar(64)
+  lookupKeyVersion     String?                  @db.VarChar(40)
+  createdAt            DateTime                 @default(now())
+  tenant Facility @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  subject User @relation("ProtectedIdentitySubject", fields: [subjectUserId], references: [id], onDelete: Restrict)
+
+  // Immutable versioned source reference. A snapshot is not a live profile lookup.
+  @@unique([tenantId, subjectUserId, kind, sourceId])
+  @@index([tenantId, kind, normalizationVersion, lookupKeyVersion, lookupDigest])
+}
+
+// Append-only application audit. Intentionally retains opaque references after lifecycle changes.
+model IdentityResolutionAudit {
+  sourceType           String   @default("PROTECTED_IDENTIFIER") @db.VarChar(32)
+  id                   String   @id @default(uuid()) @db.Uuid
+  tenantId             String?  @db.Uuid
+  actorUserId          String?  @db.Uuid
+  identifierId         String   @db.Uuid
+  grantId              String?  @db.Uuid
+  purpose              String   @db.VarChar(32)
+  caseReference        String   @db.Uuid
+  encryptionKeyVersion String   @db.VarChar(40)
+  createdAt            DateTime @default(now())
+
+  @@index([tenantId, createdAt])
+  @@index([actorUserId, createdAt])
+}
+
+// Delivery truth is separate from the legacy scheduling enum.
+enum DeliveryStatus {
+  QUEUED
+  ATTEMPTING
+  PROVIDER_ACCEPTED
+  DELIVERED
+  FAILED
+  UNKNOWN
+}
+
+enum DeliveryFailureCategory {
+  AUTHENTICATION
+  INVALID_RECIPIENT
+  RATE_LIMITED
+  PROVIDER_UNAVAILABLE
+  NETWORK
+  TIMEOUT
+  REJECTED
+  EXPIRED
+  UNKNOWN_PROVIDER_ERROR
+  INTERNAL_ERROR
+}
+
+model DeliveryAttempt {
+  safeWalkNoticeId String? @db.Uuid
+  safeWalkNotice SafeWalkNotice? @relation(fields: [safeWalkNoticeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  id String @id @default(uuid()) @db.Uuid
+  incidentNotificationId String? @db.Uuid
+  incidentNotification IncidentNotification? @relation(fields: [incidentNotificationId], references: [id], onDelete: Restrict)
+  invitationDeliveryId String? @db.Uuid
+  invitationDelivery AccountInvitationDelivery? @relation(fields: [invitationDeliveryId], references: [id], onDelete: Restrict)
+  number Int
+  channel NotificationChannel
+  provider String @db.VarChar(32)
+  accountScope String @db.VarChar(128)
+  status DeliveryStatus
+  startedAt DateTime @default(now())
+  completedAt DateTime?
+  providerAcceptedAt DateTime?
+  deliveredAt DateTime?
+  failureCategory DeliveryFailureCategory?
+  retryable Boolean @default(false)
+  references ProviderReference[]
+  events DeliveryStatusEvent[]
+  @@unique([incidentNotificationId, number])
+  @@unique([invitationDeliveryId, number])
+  @@unique([safeWalkNoticeId, number])
+  @@index([status, startedAt])
+}
+
+model ProviderReference {
+  id String @id @default(uuid()) @db.Uuid
+  attemptId String @db.Uuid
+  attempt DeliveryAttempt @relation(fields: [attemptId], references: [id], onDelete: Restrict)
+  provider String @db.VarChar(32)
+  accountScope String @db.VarChar(128)
+  messageId String @db.VarChar(256)
+  createdAt DateTime @default(now())
+  @@unique([provider, accountScope, messageId])
+  @@index([attemptId])
+}
+
+model DeliveryStatusEvent {
+  safeWalkNoticeId String? @db.Uuid
+  safeWalkNotice SafeWalkNotice? @relation(fields: [safeWalkNoticeId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  id String @id @default(uuid()) @db.Uuid
+  incidentNotificationId String? @db.Uuid
+  incidentNotification IncidentNotification? @relation(fields: [incidentNotificationId], references: [id], onDelete: Restrict)
+  invitationDeliveryId String? @db.Uuid
+  invitationDelivery AccountInvitationDelivery? @relation(fields: [invitationDeliveryId], references: [id], onDelete: Restrict)
+  attemptId String? @db.Uuid
+  attempt DeliveryAttempt? @relation(fields: [attemptId], references: [id], onDelete: Restrict)
+  previousStatus DeliveryStatus?
+  newStatus DeliveryStatus
+  source String @db.VarChar(32)
+  provider String? @db.VarChar(32)
+  reason String @db.VarChar(64)
+  failureCategory DeliveryFailureCategory?
+  receiptId String? @unique @db.Uuid
+  receipt ProviderDeliveryReceipt? @relation(fields: [receiptId], references: [id], onDelete: Restrict)
+  occurredAt DateTime
+  recordedAt DateTime @default(now())
+  @@index([incidentNotificationId, recordedAt, id])
+  @@index([invitationDeliveryId, recordedAt, id])
+  @@index([safeWalkNoticeId, recordedAt, id])
+  @@index([attemptId, recordedAt])
+}
+
+// Authenticated, normalized evidence only: no raw body, recipient or headers.
+model ProviderDeliveryReceipt {
+  id String @id @default(uuid()) @db.Uuid
+  provider String @db.VarChar(32)
+  accountScope String @db.VarChar(128)
+  eventId String @db.VarChar(256)
+  messageId String @db.VarChar(256)
+  status DeliveryStatus
+  failureCategory DeliveryFailureCategory?
+  eventType String @db.VarChar(64)
+  occurredAt DateTime
+  receivedAt DateTime @default(now())
+  processedAt DateTime?
+  nextReconcileAt DateTime @default(now())
+  reconcileCount Int @default(0)
+  event DeliveryStatusEvent?
+  @@unique([provider, accountScope, eventId])
+  @@index([processedAt, nextReconcileAt])
+  @@index([provider, accountScope, messageId])
+}
+
+model SsoConfiguration {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String @db.Uuid
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  providerType String @db.VarChar(8)
+  issuer String @db.VarChar(2048)
+  audience String @db.VarChar(2048)
+  revision Int @default(1)
+  enabled Boolean @default(false)
+  trust Json
+  secret Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  identities SsoExternalIdentity[]
+  transactions SsoTransaction[]
+  @@unique([id, facilityId])
+  @@index([facilityId, enabled])
+}
+
+model SsoExternalIdentity {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String @db.Uuid
+  configurationId String @db.Uuid
+  configuration SsoConfiguration @relation(fields: [configurationId, facilityId], references: [id, facilityId], onDelete: Restrict)
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  identityDigest String @db.VarChar(64)
+  identityCiphertext Json
+  enabled Boolean @default(true)
+  linkedAt DateTime @default(now())
+  unlinkedAt DateTime?
+  @@unique([configurationId, identityDigest])
+  @@index([userId, enabled])
+}
+
+model SsoTransaction {
+  id String @id @default(uuid()) @db.Uuid
+  configurationId String @db.Uuid
+  facilityId String @db.Uuid
+  configuration SsoConfiguration @relation(fields: [configurationId, facilityId], references: [id, facilityId], onDelete: Restrict)
+  configurationRevision Int
+  purpose String @db.VarChar(8)
+  stateHash String @unique @db.VarChar(64)
+  browserBindingHash String @db.VarChar(64)
+  nonceHash String? @db.VarChar(64)
+  nonce Json?
+  pkceVerifier Json?
+  requestId String? @unique @db.VarChar(128)
+  targetUserId String? @db.Uuid
+  credentialVersion Int?
+  reauthenticatedAt DateTime?
+  linkSessionHash String? @db.VarChar(64)
+  verifiedProof Json?
+  verifiedAt DateTime?
+  consumedAt DateTime?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  @@index([expiresAt])
+}
+
+model SsoReplay {
+  // Protocol + exact issuer + identifier hashed by the adapter/completion service.
+  key String @id @db.VarChar(64)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  @@index([expiresAt])
+}
+
+model SsoAuditEvent {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String? @db.Uuid
+  configurationId String? @db.Uuid
+  actorUserId String? @db.Uuid
+  targetUserId String? @db.Uuid
+  mappingId String? @db.Uuid
+  transactionId String? @db.Uuid
+  action String @db.VarChar(64)
+  outcome String @db.VarChar(8)
+  configurationRevision Int?
+  createdAt DateTime @default(now())
+  @@index([facilityId, createdAt])
+}
+
+enum SafeWalkEscalationState {
+  SCHEDULED
+  CHECK_REQUIRED
+  ESCALATED
+  SATISFIED
+  CLOSED
+}
+
+enum SafeWalkNoticeKind {
+  OWNER_CHECK
+  GUARDIAN_OVERDUE
+}
+
+/// Authenticated recipient pairing; raw credentials are returned once only.
+model SafeWalkGuardianCode {
+  id                   String   @id @default(uuid()) @db.Uuid
+  userId               String   @db.Uuid
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  codeHash             String   @unique @db.VarChar(64)
+  createdAt            DateTime @default(now())
+  expiresAt            DateTime
+  consumedAt           DateTime?
+  consumedForSessionId String?  @db.Uuid
+  @@index([userId, expiresAt])
+}
+
+model SafeWalkGuardianGrant {
+  id              String @id @default(uuid()) @db.Uuid
+  sessionId       String @db.Uuid
+  ownerUserId     String @db.Uuid
+  session         JourneySession @relation(fields: [sessionId, ownerUserId], references: [id, userId], onDelete: Restrict)
+  guardianUserId  String @db.Uuid
+  guardian        User @relation(fields: [guardianUserId], references: [id], onDelete: Restrict)
+  /// Existing facility boundary snapshot, NOT a tenant identifier.
+  facilityScopeId String? @db.Uuid
+  policyVersion   String @default("safewalk-status-v1") @db.VarChar(64)
+  grantedAt       DateTime @default(now())
+  revokedAt       DateTime?
+  notices         SafeWalkNotice[]
+  @@unique([sessionId, guardianUserId])
+  @@index([guardianUserId, revokedAt])
+}
+
+model SafeWalkEscalation {
+  sessionId          String @id @db.Uuid
+  session            JourneySession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  state              SafeWalkEscalationState @default(SCHEDULED)
+  checkDueAt         DateTime
+  guardianDueAt      DateTime
+  checkRequiredAt    DateTime?
+  /// At least three minutes after actual durable prompt availability.
+  responseDueAt      DateTime?
+  escalatedAt DateTime?
+  settledAt          DateTime?
+  policyVersion      String @default("safewalk-eta-v1") @db.VarChar(64)
+  @@index([state, checkDueAt])
+  @@index([state, responseDueAt])
+}
+
+model SafeWalkNotice {
+  channel NotificationChannel @default(EMAIL)
+  status NotificationStatus @default(QUEUED)
+  deliveryStatus DeliveryStatus @default(QUEUED)
+  recipient String?
+  protectedSnapshotId String? @db.Uuid
+  attemptCount Int @default(0)
+  nextAttemptAt DateTime @default(now())
+  firstAttemptAt DateTime?
+  lastAttemptAt DateTime?
+  providerAcceptedAt DateTime?
+  confirmedDeliveredAt DateTime?
+  failureCategory DeliveryFailureCategory?
+  provider String?
+  providerMessageId String?
+  sentAt DateTime?
+  failedAt DateTime?
+  lastError String?
+  attempts DeliveryAttempt[]
+  deliveryEvents DeliveryStatusEvent[]
+
+  id              String @id @default(uuid()) @db.Uuid
+  sessionId       String @db.Uuid
+  session         JourneySession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  recipientUserId String @db.Uuid
+  recipientAccount User @relation(fields: [recipientUserId], references: [id], onDelete: Restrict)
+  grantId         String? @db.Uuid
+  grant           SafeWalkGuardianGrant? @relation(fields: [grantId], references: [id], onDelete: Restrict)
+  kind            SafeWalkNoticeKind
+  message         String @db.VarChar(512)
+  policyVersion   String @default("safewalk-eta-v1") @db.VarChar(64)
+  reasonCode      String @db.VarChar(64)
+  availableAt     DateTime @default(now())
+  acknowledgedAt  DateTime?
+  cancelledAt     DateTime?
+  /// One logical inbox notification per recipient per journey/check cycle.
+  @@unique([sessionId, recipientUserId, kind])
+  @@index([recipientUserId, availableAt])
+}
+
+model SafeWalkAudit {
+  id          String @id @default(uuid()) @db.Uuid
+  sessionId   String @db.Uuid
+  session     JourneySession @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  actorUserId String? @db.Uuid
+  grantId     String? @db.Uuid
+  eventKey    String @unique @db.VarChar(128)
+  kind        String @db.VarChar(64)
+  reasonCode  String @db.VarChar(64)
+  occurredAt  DateTime @default(now())
+  @@index([sessionId, occurredAt])
+}
+
+/// Durable shared staging test budgets. No recipient PII.
+model StagingNotificationBudget {
+  key String @id
+  count Int @default(0)
+}
+
+enum OnboardingPermission {
+  STAFF_ONBOARDING
+}
+model OnboardingAuthorityGrant {
+  id String @id @default(uuid()) @db.Uuid
+  actorUserId String @db.Uuid
+  facilityId String @db.Uuid
+  permission OnboardingPermission @default(STAFF_ONBOARDING)
+  approvedByUserId String @db.Uuid
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  actor User @relation("OnboardingActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  approver User @relation("OnboardingApprover", fields: [approvedByUserId], references: [id], onDelete: Restrict)
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  @@index([actorUserId, facilityId, permission, revokedAt, expiresAt], map: "onboarding_actor_scope_idx")
+  @@index([facilityId])
+  @@index([approvedByUserId])
+}
+
+enum FacilityMembershipState {
+  ACTIVE
+  SUSPENDED
+  REVOKED
+}
+enum SupportEmploymentState {
+  ACTIVE
+  SUSPENDED
+  ENDED
+}
+enum SupportCapability {
+  FACILITY_READ
+  STAFF_READ
+  STAFF_PROVISION
+  STAFF_SUSPEND
+  STAFF_RECOVER_ACCESS
+  OPERATOR_MANAGE
+  ENROLLMENT_DIAGNOSTICS
+  ENROLLMENT_RETRY
+  DELIVERY_DIAGNOSTICS
+  COMMAND_CENTER_DIAGNOSTICS
+  INCIDENT_SUPPORT_READ
+  INCIDENT_RESOLVE
+  AUDIT_READ
+  SERVICE_HEALTH_READ
+  PII_RESOLVE
+  RESIDENT_SUPPORT_OVERRIDE
+  FACILITY_ADMIN_DEPROVISION
+}
+model SupportEmployment {
+  userId String @id @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  state SupportEmploymentState @default(ACTIVE)
+  appointedByUserId String @db.Uuid
+  appointedBy User @relation("SupportAppointer", fields: [appointedByUserId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+model SupportCapabilityGrant {
+  id String @id @default(uuid()) @db.Uuid
+  actorUserId String @db.Uuid
+  actor User @relation("SupportActor", fields: [actorUserId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  approvedByUserId String @db.Uuid
+  approver User @relation("SupportApprover", fields: [approvedByUserId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  facilityId String? @db.Uuid
+  facility Facility? @relation(fields: [facilityId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  capability SupportCapability
+  expiresAt DateTime?
+  revokedAt DateTime?
+  reason String @db.VarChar(500)
+  createdAt DateTime @default(now())
+  @@index([actorUserId, capability, facilityId, revokedAt, expiresAt], map: "SupportCapabilityGrant_actorUserId_capability_facilityId_revok_")
+}
+
+/// Organizational ownership; existing facilities require deliberate association.
+model Organization {
+  id String @id @default(uuid()) @db.Uuid
+  name String @db.VarChar(160)
+  createdByUserId String @db.Uuid
+  createdBy User @relation("OrganizationCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+  facilities Facility[]
+}
+
+enum FacilityOperationalState {
+  CREATED
+  COMMISSIONING
+  OPERATIONAL
+  SUSPENDED
+  DECOMMISSIONED
+}
+
+/// Historical rows are retained. SQL enforces one unrevoked owner per facility.
+model FacilitySupportAssignment {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String @db.Uuid
+  actorUserId String @db.Uuid
+  assignedByUserId String @db.Uuid
+  reason String @db.VarChar(500)
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  actor User @relation("AssignedSupport", fields: [actorUserId], references: [id], onDelete: Restrict)
+  approver User @relation("AssignmentApprover", fields: [assignedByUserId], references: [id], onDelete: Restrict)
+  @@index([actorUserId, facilityId, revokedAt])
+}
+
+enum SupportCaseStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+  CLOSED
+}
+model SupportCase {
+  id String @id @default(uuid()) @db.Uuid
+  sequence Int @unique @default(autoincrement())
+  facilityId String @db.Uuid
+  reportedByUserId String @db.Uuid
+  assignedToUserId String @db.Uuid
+  category String @db.VarChar(80)
+  summary String @db.VarChar(500)
+  priority String @db.VarChar(16)
+  status SupportCaseStatus @default(OPEN)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  reporter User @relation("CaseReporter", fields: [reportedByUserId], references: [id], onDelete: Restrict)
+  assignee User @relation("CaseAssignee", fields: [assignedToUserId], references: [id], onDelete: Restrict)
+  elevations TemporaryElevation[]
+  evidence CommissioningEvidence[]
+  @@unique([id, facilityId])
+  @@index([facilityId, status, createdAt])
+  @@index([assignedToUserId, status])
+}
+model TemporaryElevation {
+  id String @id @default(uuid()) @db.Uuid
+  actorUserId String @db.Uuid
+  facilityId String @db.Uuid
+  supportCaseId String @db.Uuid
+  capability SupportCapability
+  approvedByUserId String @db.Uuid
+  reason String @db.VarChar(500)
+  startsAt DateTime @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  actor User @relation("ElevationActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  approver User @relation("ElevationApprover", fields: [approvedByUserId], references: [id], onDelete: Restrict)
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  supportCase SupportCase @relation(fields: [supportCaseId, facilityId], references: [id, facilityId], onDelete: Restrict)
+  @@index([actorUserId, facilityId, capability, revokedAt, expiresAt])
+  @@index([supportCaseId, facilityId])
+}
+/// Append-only evidence: a later record supersedes a gate without erasing history.
+model CommissioningEvidence {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String @db.Uuid
+  supportCaseId String @db.Uuid
+  recordedByUserId String @db.Uuid
+  facilityAdminUserId String? @db.Uuid
+  gate String @db.VarChar(80)
+  passed Boolean
+  evidence String @db.VarChar(1000)
+  createdAt DateTime @default(now())
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  supportCase SupportCase @relation(fields: [supportCaseId, facilityId], references: [id, facilityId], onDelete: Restrict)
+  recorder User @relation("CommissioningRecorder", fields: [recordedByUserId], references: [id], onDelete: Restrict)
+  facilityAdmin User? @relation("TrainingRecipient", fields: [facilityAdminUserId], references: [id], onDelete: Restrict)
+  @@index([facilityId, gate, createdAt])
+  @@index([supportCaseId, facilityId])
+}
+
+/// Explicit facility policy; no invented universal response SLA.
+model FacilityResponsePolicy {
+  facilityId String @id @db.Uuid
+  acknowledgementSeconds Int
+  dispatchSeconds Int
+  progressSeconds Int
+  unattendedSeconds Int
+  closureSeconds Int
+  version Int @default(1)
+  updatedByUserId String @db.Uuid
+  updatedAt DateTime @updatedAt
+  facility Facility @relation(fields: [facilityId], references: [id], onDelete: Restrict)
+  updatedBy User @relation("ResponsePolicyAuthor", fields: [updatedByUserId], references: [id], onDelete: Restrict)
+}
+
+/// Rebuildable allowlisted projection. Incident remains authoritative.
+model ReportingProjection {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String @db.Uuid
+  incidentId String @db.Uuid
+  sourceDigest String @db.VarChar(64)
+  generatorVersion String @db.VarChar(64)
+  sourceCutoff DateTime
+  document Json
+  updatedAt DateTime @updatedAt
+  @@unique([facilityId, incidentId])
+  @@index([facilityId, updatedAt])
+}
+
+/// Stored snapshots are never regenerated on read. Supersession is an appended version.
+model AfterIncidentReport {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String @db.Uuid
+  incidentId String @db.Uuid
+  version Int
+  requestKey String @db.Uuid
+  schemaVersion Int
+  generatorVersion String @db.VarChar(64)
+  generatedAt DateTime @default(now())
+  generatedBy String @db.Uuid
+  sourceCutoff DateTime
+  sourceDigest String @db.VarChar(64)
+  supersedesId String? @db.Uuid
+  correctiveActions CorrectiveAction[]
+  @@unique([id, facilityId, incidentId])
+  document Json
+  @@unique([facilityId, incidentId, version])
+  @@unique([facilityId, incidentId, requestKey])
+  @@index([facilityId, generatedAt])
+}
+
+enum CorrectiveActionStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  VERIFIED
+  CANCELLED
+}
+
+/// OVERDUE is derived, never a stored lifecycle transition.
+model CorrectiveAction {
+  id String @id @default(uuid()) @db.Uuid
+  facilityId String @db.Uuid
+  incidentId String @db.Uuid
+  airId String @db.Uuid
+  air AfterIncidentReport @relation(fields: [airId, facilityId, incidentId], references: [id, facilityId, incidentId], onDelete: Restrict)
+  requestKey String @db.Uuid
+  category String @db.VarChar(64)
+  title String @db.VarChar(160)
+  description String @db.VarChar(500)
+  ownerId String @db.Uuid
+  dueAt DateTime
+  priority String @db.VarChar(16)
+  status CorrectiveActionStatus @default(OPEN)
+  version Int @default(1)
+  createdBy String @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  completionEvidenceId String? @db.Uuid
+  completedAt DateTime?
+  verifiedBy String? @db.Uuid
+  verifiedAt DateTime?
+  @@unique([facilityId, requestKey])
+  @@index([facilityId, incidentId])
+  @@index([facilityId, status, dueAt])
+}

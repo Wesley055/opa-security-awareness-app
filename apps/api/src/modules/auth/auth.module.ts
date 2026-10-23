@@ -1,3 +1,5 @@
+import { AccountDeletionController } from './account-deletion.controller';
+import { AccountDeletionService } from './account-deletion.service';
 import { EnrollmentModule } from './enrollment.module';
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
@@ -20,8 +22,8 @@ import { PasswordResetService } from './password-reset.service';
     PassportModule,
     JwtModule.register({}),
   ],
-  controllers: [AuthController],
-  providers: [AuthService, ActivationService, PasswordResetService, JwtStrategy],
+  controllers: [AuthController, AccountDeletionController],
+  providers: [AccountDeletionService, AuthService, ActivationService, PasswordResetService, JwtStrategy],
   exports: [AuthService],
 })
 export class AuthModule {}

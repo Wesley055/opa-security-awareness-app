@@ -871,6 +871,11 @@ WHERE lease_key = 'journey-replay'
 
     return result.changes === 1;
   }
+  /** Account deletion: the server has refused deletion while tracking is live, so queued fixes are disposable. */
+  async clearForAccountDeletion(): Promise<void> {
+    await this.database.runAsync("DELETE FROM journey_queue", []);
+  }
+
   async count(): Promise<number> {
     const row = await this.database.getFirstAsync<CountRow>(
       'SELECT COUNT(*) AS count FROM journey_queue',

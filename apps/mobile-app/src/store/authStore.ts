@@ -39,6 +39,8 @@ interface AuthState {
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
   forceLogout: () => void;
+  isDeleting: boolean;
+  deleteAccount: () => Promise<void>;
 }
 
 async function persistSession(data: AuthSession): Promise<void> {
@@ -54,6 +56,7 @@ export const useAuthStore = create<AuthState>((set) => {
     user: null,
     isLoading: true,
     isAuthenticated: false,
+    isDeleting: false,
 
     login: async (email: string, password: string) => {
       const { data } = await api.post<AuthSession>('/auth/login', {
@@ -128,6 +131,31 @@ export const useAuthStore = create<AuthState>((set) => {
         // api.ts synchronizes definitive refresh failure through forceLogout.
         // Transient startup failures must still release the loading state.
         set({ isLoading: false });
+      }
+    },
+
+    // Restored from iOS build 5 (Apple 5.1.1(v)); server: DELETE /auth/account.
+    deleteAccount: async () => {
+      const state = useAuthStore.getState();
+      if (state.isDeleting) return;
+      if (!state.user || !state.isAuthenticated) throw new Error('Sign in to delete your account.');
+      const owner = state.user.id;
+      set({ isDeleting: true });
+      try {
+        const { data } = await api.delete<{ status: string }>('/auth/account');
+        if (data?.status !== 'DELETED') throw new Error('Deletion could not be confirmed.');
+        advanceAuthSessionEpoch();
+        await Promise.allSettled([
+          SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY),
+          SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY),
+        ]);
+        set({ user: null, isAuthenticated: false, isLoading: false });
+        // Lazy loading avoids a startup cycle through tracking and SafeWalk.
+        const { clearDeletedAccountState } =
+          require('../services/account-deletion-cleanup') as typeof import('../services/account-deletion-cleanup');
+        await clearDeletedAccountState(owner);
+      } finally {
+        set({ isDeleting: false });
       }
     },
 

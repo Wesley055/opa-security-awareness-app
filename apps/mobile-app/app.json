@@ -10,7 +10,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.opasafety.app",
-      "buildNumber": "10",
+      "buildNumber": "11",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSMicrophoneUsageDescription": "OPA uses the microphone only if you turn on voice protection, so it can hear your chosen safety phrase and start an emergency alert when you can't reach your phone. Audio is processed on your phone and is not recorded or sent."

@@ -1,0 +1,37 @@
+import { Controller, Get, HttpCode, HttpStatus, Res } from "@nestjs/common";
+import { ApiTags, ApiOperation } from "@nestjs/swagger";
+import type { Response } from "express";
+import { HealthService } from "./health.service";
+import { environmentDiagnostic } from "../../shared/config/environment";
+
+@ApiTags("health")
+@Controller("health")
+export class HealthController {
+  constructor(private readonly healthService: HealthService) {}
+
+  @Get("environment")
+  getEnvironment() {
+    return environmentDiagnostic();
+  }
+
+  @Get()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: "Liveness check - is the API process running?" })
+  getLiveness() {
+    return this.healthService.getLiveness();
+  }
+
+  @Get("ready")
+  @ApiOperation({
+    summary: "Readiness check - are required dependencies reachable?",
+    description:
+      "Optional dependencies are reported but do not fail the check.",
+  })
+  async getReadiness(@Res({ passthrough: true }) res: Response) {
+    const result = await this.healthService.getReadiness();
+    res.status(
+      result.status === "ok" ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE,
+    );
+    return result;
+  }
+}

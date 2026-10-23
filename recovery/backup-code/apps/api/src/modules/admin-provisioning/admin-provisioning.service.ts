@@ -1,0 +1,799 @@
+import { createHash } from "node:crypto";
+import { enrollmentAuthority } from "../onboarding/support-authority";
+import { platformAuthority } from "../onboarding/onboarding-authority";
+import { maskedPerson } from "../protected-identity/masked-person";
+import {
+  ConflictException,
+  HttpException,
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  GoneException,
+} from "@nestjs/common";
+import { AccountStatus, UserRole } from "@prisma/client";
+import { PrismaService } from "../../prisma/prisma.service";
+import { toE164 } from "../../shared/phone/normalize-phone-number";
+import type { FindResidentDto } from "./dto/find-resident.dto";
+import type { CreateFacilityDto } from "./dto/create-facility.dto";
+import type { CreateOperatorDto } from "./dto/create-operator.dto";
+import type { CreateResidentDto } from "./dto/create-resident.dto";
+
+type ProvisionedAccountDto = {
+  email: string;
+  phoneNumber: string;
+  firstName: string;
+  lastName: string;
+  facilityId: string;
+};
+
+@Injectable()
+export class AdminProvisioningService {
+  constructor(private readonly prisma: PrismaService) {}
+
+  async createFacility(dto: CreateFacilityDto, actorUserId: string) {
+    const phoneNumber = dto.phoneNumber ? toE164(dto.phoneNumber) : undefined;
+
+    return this.prisma.$transaction(async (tx) => {
+      await platformAuthority(tx, actorUserId);
+      const facility = await tx.facility.create({
+        data: {
+          name: dto.name.trim(),
+          type: dto.type,
+          address: dto.address?.trim(),
+          phoneNumber,
+          latitude: dto.latitude,
+          longitude: dto.longitude,
+        },
+      });
+      await tx.administrativeAuditEvent.create({
+        data: {
+          actorUserId,
+          actorRole: "ADMIN",
+          action: "FACILITY_CREATED",
+          resourceId: facility.id,
+          facilityId: facility.id,
+        },
+      });
+      return facility;
+    });
+  }
+
+  async createOperatorSeat(adminUserId: string, dto: CreateOperatorDto) {
+    return this.createProvisionedAccount(
+      adminUserId,
+      dto,
+      UserRole.FACILITY_OPERATOR,
+      "/operator/activate/",
+    );
+  }
+
+  async createFacilityAdminSeat(adminUserId: string, dto: CreateOperatorDto) {
+    return this.createProvisionedAccount(
+      adminUserId,
+      dto,
+      UserRole.FACILITY_ADMIN,
+      "/operator/activate/",
+    );
+  }
+
+  async createBulkResidentInvites(
+    adminUserId: string,
+    residents: CreateResidentDto[],
+    key?: string,
+  ) {
+    residents.forEach(row => toE164(row.phoneNumber));
+    const results: Array<
+      | {
+          index: number;
+          status: "QUEUED";
+          user: Awaited<
+            ReturnType<AdminProvisioningService["createResidentInvite"]>
+          >["user"];
+          delivery: Awaited<
+            ReturnType<AdminProvisioningService["createResidentInvite"]>
+          >["delivery"];
+        }
+      | {
+          index: number;
+          status: "FAILED";
+          error: {
+            statusCode: number;
+            message: string;
+          };
+        }
+    > = [];
+
+    for (const [index, dto] of residents.entries()) {
+      try {
+        const created = await this.createResidentInvite(adminUserId, dto, undefined, key ? `${key}:${index}` : undefined);
+        results.push({
+          index,
+          status: "QUEUED",
+          user: created.user,
+          delivery: created.delivery,
+        });
+      } catch (error: unknown) {
+        if (error instanceof HttpException) {
+          const response = error.getResponse();
+          const responseMessage =
+            typeof response === "string"
+              ? response
+              : Array.isArray((response as { message?: unknown })?.message)
+                ? (response as { message: unknown[] }).message.join("; ")
+                : typeof (response as { message?: unknown })?.message ===
+                    "string"
+                  ? (response as { message: string }).message
+                  : error.message;
+
+          results.push({
+            index,
+            status: "FAILED",
+            error: {
+              statusCode: error.getStatus(),
+              message: responseMessage,
+            },
+          });
+          continue;
+        }
+
+        // Do not leak unexpected internal/provider details through a bulk row.
+        results.push({
+          index,
+          status: "FAILED",
+          error: {
+            statusCode: 500,
+            message: "Resident provisioning failed.",
+          },
+        });
+      }
+    }
+
+    const queued = results.filter(
+      (result) => result.status === "QUEUED",
+    ).length;
+    const failed = results.length - queued;
+
+    return {
+      total: results.length,
+      queued,
+      failed,
+      results,
+    };
+  }
+  async createResidentInvite(adminUserId: string, dto: CreateResidentDto, context?: { reason: string; correlationId: string }, key?: string) {
+    return this.createResidentWithQueuedInvitation(adminUserId, dto, context, key);
+  }
+
+  /**
+   * Resident provisioning is durable and worker-delivered.
+   *
+   * No activation credential is minted here. The USER and its QUEUED SMS
+   * delivery commit atomically; the delivery worker mints a fresh code only
+   * after it owns the delivery attempt.
+   */
+  private async createResidentWithQueuedInvitation(
+    adminUserId: string,
+    dto: CreateResidentDto,
+    context?: { reason: string; correlationId: string },
+    key?: string,
+  ) {
+    const email = dto.email.trim().toLowerCase();
+    const phoneNumber = toE164(dto.phoneNumber);
+    const digest = key ? createHash("sha256").update(`${adminUserId}:${dto.facilityId}:${key}`).digest("hex") : null;
+    const correlationId = context?.correlationId ?? (digest ? `${digest.slice(0,8)}-${digest.slice(8,12)}-${digest.slice(12,16)}-${digest.slice(16,20)}-${digest.slice(20,32)}` : undefined);
+
+    return this.prisma.$transaction(async (tx) => {
+      const authority = await enrollmentAuthority(tx, adminUserId, dto.facilityId, "USER");
+      if (correlationId) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(17, hashtext(${correlationId}))`;
+        const previous = await tx.administrativeAuditEvent.findFirst({ where: { actorUserId: adminUserId, correlationId } });
+        if (previous) {
+          const user = await tx.user.findUnique({ where: { id: previous.resourceId } });
+          if (previous.action !== "RESIDENT_INVITATION_QUEUED" || previous.facilityId !== dto.facilityId || !user || user.email !== email || user.phoneNumber !== phoneNumber || user.firstName !== dto.firstName.trim() || user.lastName !== dto.lastName.trim() || user.role !== "USER" || user.facilityId !== dto.facilityId || previous.reason !== (context?.reason ?? null))
+            throw new ConflictException("Invitation reference already used for different input.");
+          const delivery = await tx.accountInvitationDelivery.findFirstOrThrow({ where: { userId: user.id, facilityId: dto.facilityId }, orderBy: { createdAt: "asc" }, select: { id: true, channel: true, status: true, queuedAt: true, nextAttemptAt: true } });
+          return { user: maskedPerson({ id: user.id, email: user.email, phoneNumber: user.phoneNumber, firstName: user.firstName, lastName: user.lastName, role: user.role, facilityId: user.facilityId, isActive: user.isActive, accountStatus: user.accountStatus, activationExpiresAt: user.activationExpiresAt, invitedByUserId: user.invitedByUserId }), delivery };
+        }
+      }
+      const facility = await tx.facility.findUnique({
+        where: { id: dto.facilityId },
+        select: { id: true, isActive: true },
+      });
+
+      if (!facility || !facility.isActive) {
+        throw new NotFoundException("Active facility not found.");
+      }
+
+      const existingEmail = await tx.user.findUnique({
+        where: { email },
+        select: { id: true },
+      });
+
+      const existingPhone = await tx.user.findUnique({
+        where: { phoneNumber },
+        select: { id: true },
+      });
+
+      if (existingEmail) {
+        throw new ConflictException(
+          "An account already exists for this email.",
+        );
+      }
+
+      if (existingPhone) {
+        throw new ConflictException(
+          "An account already exists for this phone number.",
+        );
+      }
+
+      const user = await tx.user.create({
+        data: {
+          email,
+          phoneNumber,
+          passwordHash: null,
+          firstName: dto.firstName.trim(),
+          lastName: dto.lastName.trim(),
+          role: UserRole.USER,
+          facilityId: dto.facilityId,
+          isActive: true,
+          accountStatus: AccountStatus.PENDING_ACTIVATION,
+          activationTokenHash: null,
+          activationExpiresAt: null,
+          activatedAt: null,
+          invitedByUserId: adminUserId,
+        },
+        select: {
+          id: true,
+          email: true,
+          phoneNumber: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          facilityId: true,
+          isActive: true,
+          accountStatus: true,
+          activationExpiresAt: true,
+          invitedByUserId: true,
+        },
+      });
+
+      const delivery = await tx.accountInvitationDelivery.create({
+        data: {
+          userId: user.id,
+          facilityId: dto.facilityId,
+          invitedByUserId: adminUserId,
+          channel: "SMS",
+          status: "QUEUED",
+          recipient: phoneNumber,
+        },
+        select: {
+          id: true,
+          channel: true,
+          status: true,
+          recipient: true,
+          queuedAt: true,
+          nextAttemptAt: true,
+        },
+      });
+
+      await tx.administrativeAuditEvent.create({ data: { actorUserId: adminUserId, actorRole: authority.actorRole, action: "RESIDENT_INVITATION_QUEUED", reason: context?.reason, correlationId, resourceId: user.id, facilityId: dto.facilityId, authorityKind: authority.authority, authorityGrantId: authority.grantId, afterState: { role: "USER", accountStatus: "PENDING_ACTIVATION" } } });
+      return {
+        user: maskedPerson(user),
+        delivery: { ...delivery, recipient: "[protected]" },
+      };
+    });
+  }
+
+  /**
+   * Shared provisioning boundary for institution-created accounts.
+   *
+   * Retired legacy entry point. Calls fail closed; platform routes use EnrollmentService.
+   * Historical implementation removed to prevent accidental token exposure.
+   * Previously:
+   * - active facility must already exist;
+   * - email and phone are canonicalised and globally unique;
+   * - only a SHA-256 token digest is stored;
+   * - a credential was returned once;
+   * - the account starts PENDING_ACTIVATION with no password.
+   *
+   * Keeping this in one path prevents resident and operator invitation
+   * security semantics from drifting apart.
+   */
+  private async createProvisionedAccount(
+    adminUserId: string,
+    dto: ProvisionedAccountDto,
+    role: UserRole,
+    activationPathPrefix: string,
+  ) {
+    void adminUserId;
+    void dto;
+    void role;
+    void activationPathPrefix;
+    throw new GoneException("Use durable platform enrollment invitations.");
+  }
+
+  /**
+   * Look one RESIDENT up by an exact unique identifier.
+   *
+   * EXACTLY ONE IDENTIFIER, ENFORCED HERE. class-validator has no XOR, so
+   * a DTO-level version would mean a custom ValidatorConstraint class -
+   * a new abstraction for one invariant, in a codebase with none. It also
+   * sits badly with RegisterDto's rule that the service is the single
+   * validation authority when it already owns the semantics, which here
+   * it does: normalisation and lookup both live below.
+   *
+   * BOTH NORMALISATIONS HAPPEN AT THIS BOUNDARY, exactly as auth.service
+   * does them. An admin typing 08024662124 must find the row registration
+   * stored as +2348024662124, and Ada@Example.com must find
+   * ada@example.com. UsersService.findByPhone deliberately refuses to
+   * normalise its own argument - see its contract - because a lookup that
+   * assumes a region disagrees with a write path that was told one.
+   *
+   * A NON-RESIDENT MATCH RETURNS NULL. The endpoint asks whether a
+   * RESIDENT exists for this identifier; an operator or admin is still
+   * no. Reporting the mismatch instead would disclose that some account
+   * exists - which the caller did not ask about and cannot act on here.
+   *
+   * findUnique is kept rather than findFirst with role in the where
+   * clause: the columns are unique, and findFirst would read as though
+   * the lookup might be ambiguous when it cannot be.
+   */
+  async findResident(query: FindResidentDto) {
+    const hasEmail = !!query.email;
+    const hasPhone = !!query.phoneNumber;
+
+    if (hasEmail === hasPhone) {
+      throw new BadRequestException(
+        "Provide exactly one of email or phoneNumber.",
+      );
+    }
+
+    const where = hasEmail
+      ? { email: (query.email as string).trim().toLowerCase() }
+      : { phoneNumber: toE164(query.phoneNumber as string) };
+
+    const user = await this.prisma.user.findUnique({
+      where,
+      select: {
+        id: true,
+        email: true,
+        phoneNumber: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        facilityId: true,
+        isActive: true,
+        accountStatus: true,
+        createdAt: true,
+      },
+    });
+
+    if (!user || user.role !== UserRole.USER) {
+      return null;
+    }
+
+    return maskedPerson(user);
+  }
+
+  /**
+   * Everyone attached to a facility, split by role.
+   *
+   * FACILITY.STAFF IS A MISLEADING NAME. The Prisma relation is called
+   * 'FacilityStaff', but User.facilityId is a single column carrying
+   * operators and residents alike, so it returns both. This reads the
+   * column once and partitions here rather than trusting the relation's
+   * name or issuing two queries for one index scan.
+   *
+   * Each role is read in bounded pages with a stable createdAt/id order.
+   * Counts describe current backend membership, never enrollment intake.
+   */
+  async listFacilityMembers(facilityId: string, page = 0) {
+    const facility = await this.prisma.facility.findUnique({
+      where: { id: facilityId },
+      select: { id: true, name: true, isActive: true },
+    });
+
+    if (!facility) {
+      throw new NotFoundException("Facility not found.");
+    }
+
+    const read = (role: UserRole) => this.prisma.user.findMany({
+      where: { facilityId, role },
+      select: {
+        id: true,
+        email: true,
+        phoneNumber: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        isActive: true,
+        accountStatus: true,
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 51,
+      skip: page * 50,
+    });
+    const [operators, residents, residentCount] = await Promise.all([
+      read(UserRole.FACILITY_OPERATOR), read(UserRole.USER),
+      this.prisma.user.count({ where: { facilityId, role: UserRole.USER } }),
+    ]);
+
+    return {
+      facility,
+      page, hasNext: residents.length > 50, residentCount,
+      operators: operators.slice(0, 50).filter(row => row.role === UserRole.FACILITY_OPERATOR).map(maskedPerson),
+      residents: residents.slice(0, 50).filter(row => row.role === UserRole.USER).map(maskedPerson),
+    };
+  }
+
+  async getResidentInvitation(userId: string, expectedFacilityId?: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+      const user = await tx.user.findUnique({
+        where: {
+          id: userId,
+          role: UserRole.USER,
+          ...(expectedFacilityId === undefined
+            ? {}
+            : { facilityId: expectedFacilityId }),
+        },
+        select: {
+          id: true,
+          role: true,
+          facilityId: true,
+          isActive: true,
+          accountStatus: true,
+          activatedAt: true,
+        },
+      });
+
+      if (!user || user.role !== UserRole.USER) {
+        throw new NotFoundException("Resident not found.");
+      }
+
+      if (expectedFacilityId && user.facilityId !== expectedFacilityId) {
+        throw new NotFoundException("Resident not found.");
+      }
+
+      const deliveries = await tx.accountInvitationDelivery.findMany({
+        where: {
+          userId,
+          ...(expectedFacilityId === undefined
+            ? {}
+            : { facilityId: expectedFacilityId }),
+        },
+        select: {
+          id: true,
+          channel: true,
+          status: true,
+          attemptCount: true,
+          lastError: true,
+          queuedAt: true,
+          nextAttemptAt: true,
+          lastAttemptAt: true,
+          sentAt: true,
+          failedAt: true,
+          createdAt: true,
+        },
+        orderBy: [{ queuedAt: "desc" }, { createdAt: "desc" }],
+        take: 20,
+      });
+
+      const history = deliveries.map((delivery) => ({
+        id: delivery.id,
+        channel: delivery.channel,
+        status: delivery.status,
+        attemptCount: delivery.attemptCount,
+        lastError: delivery.lastError ? "Delivery unavailable." : null,
+        queuedAt: delivery.queuedAt,
+        nextAttemptAt: delivery.nextAttemptAt,
+        lastAttemptAt: delivery.lastAttemptAt,
+        sentAt: delivery.sentAt,
+        failedAt: delivery.failedAt,
+        createdAt: delivery.createdAt,
+      }));
+      const latest = history[0] ?? null;
+
+      const inFlight = await tx.accountInvitationDelivery.findFirst({
+        where: {
+          userId,
+          ...(expectedFacilityId === undefined
+            ? {}
+            : { facilityId: expectedFacilityId }),
+          status: { in: ["QUEUED", "SENDING"] },
+        },
+        select: { id: true },
+      });
+      const hasInFlight = inFlight !== null;
+
+      const cooldownFrom = latest?.lastAttemptAt ?? latest?.queuedAt ?? null;
+      const cooldownUntil = cooldownFrom
+        ? new Date(cooldownFrom.getTime() + 5 * 60 * 1000)
+        : null;
+      const cooldownActive =
+        cooldownUntil !== null && cooldownUntil.getTime() > Date.now();
+
+      const eligibleAccount =
+        user.isActive &&
+        user.accountStatus === AccountStatus.PENDING_ACTIVATION;
+
+      const canResend =
+        user.facilityId !== null &&
+        eligibleAccount &&
+        !hasInFlight &&
+        !cooldownActive;
+
+      return {
+        resident: {
+          id: user.id,
+          facilityId: user.facilityId,
+          isActive: user.isActive,
+          accountStatus: user.accountStatus,
+          activatedAt: user.activatedAt,
+        },
+        latest,
+        history,
+        canResend,
+        resendAvailableAt: canResend
+          ? null
+          : cooldownActive
+            ? cooldownUntil
+            : null,
+      };
+    });
+  }
+
+  async resendResidentInvitation(
+    adminUserId: string,
+    userId: string,
+    expectedFacilityId?: string,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtext(${userId}))
+      `;
+
+      const user = await tx.user.findUnique({
+        where: {
+          id: userId,
+          role: UserRole.USER,
+          ...(expectedFacilityId === undefined
+            ? {}
+            : { facilityId: expectedFacilityId }),
+        },
+        select: {
+          id: true,
+          role: true,
+          facilityId: true,
+          phoneNumber: true,
+          isActive: true,
+          accountStatus: true,
+        },
+      });
+
+      if (!user || user.role !== UserRole.USER || !user.facilityId) {
+        throw new NotFoundException("Resident not found.");
+      }
+
+      if (expectedFacilityId && user.facilityId !== expectedFacilityId) {
+        throw new NotFoundException("Resident not found.");
+      }
+
+      if (
+        !user.isActive ||
+        user.accountStatus !== AccountStatus.PENDING_ACTIVATION
+      ) {
+        throw new ConflictException("Resident is not eligible for activation.");
+      }
+
+      if (!user.phoneNumber) {
+        throw new ConflictException(
+          "Resident has no SMS-capable phone number.",
+        );
+      }
+
+      const inFlight = await tx.accountInvitationDelivery.findFirst({
+        where: {
+          userId,
+          ...(expectedFacilityId === undefined
+            ? {}
+            : { facilityId: expectedFacilityId }),
+          status: { in: ["QUEUED", "SENDING"] },
+        },
+        select: { id: true, status: true },
+      });
+
+      if (inFlight) {
+        throw new ConflictException(
+          "An invitation delivery is already queued or sending.",
+        );
+      }
+
+      const latest = await tx.accountInvitationDelivery.findFirst({
+        where: {
+          userId,
+          ...(expectedFacilityId === undefined
+            ? {}
+            : { facilityId: expectedFacilityId }),
+        },
+        select: {
+          lastAttemptAt: true,
+          queuedAt: true,
+          createdAt: true,
+        },
+        orderBy: [{ queuedAt: "desc" }, { createdAt: "desc" }],
+      });
+
+      const cooldownFrom = latest?.lastAttemptAt ?? latest?.queuedAt;
+      if (cooldownFrom && Date.now() - cooldownFrom.getTime() < 5 * 60 * 1000) {
+        throw new ConflictException(
+          "Please wait five minutes before resending this invitation.",
+        );
+      }
+
+      const delivery = await tx.accountInvitationDelivery.create({
+        data: {
+          userId,
+          facilityId: user.facilityId,
+          invitedByUserId: adminUserId,
+          channel: "SMS",
+          status: "QUEUED",
+          recipient: user.phoneNumber,
+        },
+        select: {
+          id: true,
+          channel: true,
+          status: true,
+          queuedAt: true,
+          nextAttemptAt: true,
+        },
+      });
+
+      return { delivery };
+    });
+  }
+  async assignResidentToFacility(
+    userId: string,
+    facilityId: string,
+    actorUserId: string,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      // Same user serialization domain used by incident routing. A facility
+      // reassignment therefore cannot race the facility snapshot taken when
+      // an SOS incident is created.
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtext(${userId}))
+      `;
+
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true, role: true, facilityId: true },
+      });
+
+      if (!user) {
+        throw new NotFoundException("Resident not found.");
+      }
+
+      if (user.role !== UserRole.USER) {
+        throw new BadRequestException(
+          "Only USER accounts may be assigned as residents.",
+        );
+      }
+
+      const facility = await tx.facility.findUnique({
+        where: { id: facilityId },
+        select: { id: true, isActive: true },
+      });
+
+      if (!facility || !facility.isActive) {
+        throw new NotFoundException("Active facility not found.");
+      }
+
+      await tx.accountInvitationDelivery.updateMany({
+        // Only unclaimed deliveries can be cancelled. A provider request may
+        // already be in flight for SENDING; its outcome must stay truthful.
+        where: { userId, facilityId: { not: facilityId }, status: "QUEUED" },
+        data: { status: "CANCELLED" },
+      });
+      const updated = await tx.user.update({
+        where: { id: userId },
+        data: { facilityId },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          facilityId: true,
+        },
+      });
+      await tx.administrativeAuditEvent.create({
+        data: {
+          actorUserId,
+          actorRole: "ADMIN",
+          action:
+            updated.facilityId === null
+              ? "RESIDENT_REMOVED"
+              : "RESIDENT_ASSIGNED",
+          resourceId: userId,
+          facilityId: updated.facilityId,
+          previousFacilityId: user.facilityId,
+        },
+      });
+      return maskedPerson(updated);
+    });
+  }
+
+  /**
+   * Remove a resident from a SPECIFIC facility.
+   *
+   * expectedFacilityId is the membership the caller believes exists. It is
+   * compared under the advisory lock, so a concurrent reassignment cannot
+   * slip between the read and the update.
+   */
+  async removeResidentFromFacility(
+    userId: string,
+    expectedFacilityId: string,
+    actorUserId: string,
+  ) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtext(${userId}))
+      `;
+
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true, role: true, facilityId: true },
+      });
+
+      if (!user) {
+        throw new NotFoundException("Resident not found.");
+      }
+
+      if (user.role !== UserRole.USER) {
+        throw new BadRequestException(
+          "Only USER accounts may be assigned as residents.",
+        );
+      }
+
+      // LOAD-BEARING. Without it, a stale admin screen removes a resident
+      // from facility B while believing it is removing them from A.
+      //
+      // It also catches an already-unassigned resident, which the previous
+      // version wrote null over null for and reported as a successful
+      // removal - so an admin could not tell a removal from a no-op.
+      if (user.facilityId !== expectedFacilityId) {
+        throw new ConflictException(
+          "Resident facility membership has changed.",
+        );
+      }
+
+      await tx.accountInvitationDelivery.updateMany({
+        where: { userId, facilityId: expectedFacilityId, status: "QUEUED" },
+        data: { status: "CANCELLED" },
+      });
+      const updated = await tx.user.update({
+        where: { id: userId },
+        data: { facilityId: null },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          facilityId: true,
+        },
+      });
+      await tx.administrativeAuditEvent.create({
+        data: {
+          actorUserId,
+          actorRole: "ADMIN",
+          action:
+            updated.facilityId === null
+              ? "RESIDENT_REMOVED"
+              : "RESIDENT_ASSIGNED",
+          resourceId: userId,
+          facilityId: updated.facilityId,
+          previousFacilityId: user.facilityId,
+        },
+      });
+      return maskedPerson(updated);
+    });
+  }
+}

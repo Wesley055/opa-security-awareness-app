@@ -1,0 +1,180 @@
+import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import {
+  BlobSASPermissions,
+  BlobServiceClient,
+  BlockBlobClient,
+} from '@azure/storage-blob';
+import { EvidenceType } from '@prisma/client';
+import { createHash } from 'crypto';
+import { PrismaService } from '../../prisma/prisma.service';
+import { IncidentTimelineService } from '../incident-timeline/incident-timeline.service';
+
+@Injectable()
+export class EvidenceService {
+  private readonly logger = new Logger(EvidenceService.name);
+  private readonly blobServiceClient: BlobServiceClient;
+  private readonly containerName: string;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly timelineService: IncidentTimelineService,
+    config: ConfigService,
+  ) {
+    this.blobServiceClient = BlobServiceClient.fromConnectionString(
+      config.getOrThrow<string>('AZURE_STORAGE_CONNECTION_STRING'),
+    );
+    this.containerName = config.getOrThrow<string>('AZURE_STORAGE_CONTAINER');
+  }
+
+  /**
+   * Uploads one evidence file for an incident. Hashes the buffer before
+   * upload, so the sha256 reflects exactly what was captured — not
+   * something recomputed after the fact from whatever ended up in
+   * storage. If an identical file (same incidentId + sha256) was
+   * already uploaded, returns the existing record instead of creating
+   * a duplicate — the schema's unique constraint enforces this at the
+   * database level too, this just makes it a graceful no-op rather
+   * than an error for the caller.
+   */
+  async uploadEvidence(params: {
+    incidentId: string;
+    type: EvidenceType;
+    buffer: Buffer;
+    mimeType: string;
+    capturedAt?: Date;
+    actorUserId: string;
+  }) {
+    const sha256 = createHash('sha256').update(params.buffer).digest('hex');
+
+    // The unique incident/hash key makes concurrent retries converge. Preserve
+    // the first capture metadata; retries never rewrite its provenance.
+    const record = await this.prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(3, hashtext(${params.incidentId}))`;
+      return tx.evidence.upsert({
+      where: {
+        incidentId_sha256: {
+          incidentId: params.incidentId,
+          sha256,
+        },
+      },
+      update: {},
+      create: {
+        incidentId: params.incidentId,
+        type: params.type,
+        status: 'PENDING',
+        mimeType: params.mimeType,
+        sizeBytes: BigInt(params.buffer.length),
+        sha256,
+        capturedAt: params.capturedAt,
+      },
+      });
+    });
+
+    if (record.status === 'STORED') return record;
+    if (record.status === 'DELETED') throw new ConflictException('Deleted evidence cannot be uploaded again.');
+
+    const storageKey = `incidents/${params.incidentId}/evidence/${record.id}`;
+
+    try {
+      const containerClient = this.blobServiceClient.getContainerClient(
+        this.containerName,
+      );
+      const blockBlobClient = containerClient.getBlockBlobClient(storageKey);
+
+      await blockBlobClient.uploadData(params.buffer, {
+        blobHTTPHeaders: { blobContentType: record.mimeType ?? params.mimeType },
+      });
+
+      // Blob I/O is outside the database transaction. Publication and its
+      // chronology are atomic, serialized with closure and other evidence.
+      return await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(3, hashtext(${params.incidentId}))`;
+        const current = await tx.evidence.findUniqueOrThrow({ where: { id: record.id } });
+        if (current.status === 'STORED') return current;
+        if (current.status === 'DELETED') throw new ConflictException('Deleted evidence cannot be uploaded again.');
+        const updated = await tx.evidence.update({
+        where: { id: record.id },
+        data: {
+          status: 'STORED',
+          storageKey,
+          uploadedAt: new Date(),
+        },
+      });
+
+      await this.timelineService.recordEvent({
+        incidentId: params.incidentId,
+        type: 'EVIDENCE_ADDED',
+        source: 'EVIDENCE_SERVICE',
+        actorUserId: params.actorUserId,
+        payload: {
+          evidenceId: record.id,
+          evidenceType: record.type,
+          sha256,
+          sizeBytes: params.buffer.length,
+        },
+      }, tx);
+
+        return updated;
+      });
+    } catch (error) {
+      this.logger.error(
+        `Evidence upload failed for incident ${params.incidentId}`,
+      );
+
+      // Never undo a successful concurrent retry. A failed publication can
+      // be retried using the same row/blob; no success is returned until audited.
+      await this.prisma.evidence.updateMany({
+        where: { id: record.id, status: { in: ['PENDING', 'UPLOADING', 'FAILED'] } },
+        data: { status: 'FAILED' },
+      });
+
+      throw error;
+    }
+  }
+
+  listForIncident(incidentId: string) {
+    return this.prisma.evidence.findMany({
+      where: { incidentId },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /**
+   * Evidence is never served from a permanent public URL — every
+   * download goes through a short-lived SAS token, generated on
+   * demand, so access is tied to this specific authorized request
+   * rather than a link that could be copied and reused indefinitely.
+   */
+  async getDownloadUrl(
+    incidentId: string,
+    evidenceId: string,
+  ): Promise<string> {
+    const evidence = await this.prisma.evidence.findFirst({
+      where: {
+        id: evidenceId,
+        incidentId,
+      },
+    });
+
+    if (!evidence) {
+      throw new NotFoundException('Evidence not found.');
+    }
+
+    if (evidence.status !== 'STORED' || !evidence.storageKey) {
+      throw new NotFoundException('Evidence file is not available.');
+    }
+
+    const containerClient = this.blobServiceClient.getContainerClient(
+      this.containerName,
+    );
+    const blockBlobClient: BlockBlobClient = containerClient.getBlockBlobClient(
+      evidence.storageKey,
+    );
+
+    return blockBlobClient.generateSasUrl({
+      permissions: BlobSASPermissions.parse('r'),
+      expiresOn: new Date(Date.now() + 5 * 60 * 1000), // 5 minutes
+    });
+  }
+}

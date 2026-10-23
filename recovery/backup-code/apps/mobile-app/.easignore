@@ -1,0 +1,13 @@
+node_modules
+.git
+.expo
+android
+ios
+dist
+build
+coverage
+
+soak-*.txt
+GAP-01A-*-DEVICE-EVIDENCE*.txt
+GAP-01B-*-EVIDENCE*.txt
+*.bak-*

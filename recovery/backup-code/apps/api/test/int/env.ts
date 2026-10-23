@@ -1,0 +1,80 @@
+import { createRequire } from "node:module";
+const loadNodeModule = createRequire(__filename);
+import * as fs from "fs";
+import * as path from "path";
+import * as dotenv from "dotenv";
+
+export const API_ROOT = path.resolve(__dirname, "..", "..");
+
+export interface TestDbInfo {
+  url: string;
+  dbName: string;
+}
+
+/**
+ * Resolves the integration-test database URL.
+ *
+ * Uses dotenv.parse, not dotenv.config: nothing already in process.env can
+ * win, and behaviour does not depend on the `override` option, which older
+ * dotenv versions lack.
+ *
+ * Refuses any database whose name does not end in _test. The harness
+ * truncates every table it can see; the dev database holds Sprint 9 and 10A
+ * data.
+ */
+export function loadTestEnv(): TestDbInfo {
+  if (process.env.OPA_STAGING_GATE) {
+    const gates = loadNodeModule("../../scripts/staging-gates.cjs");
+    const context = gates.environment(process.env);
+    const url = process.env.DATABASE_URL;
+    loadNodeModule(
+      "../../scripts/destructive-test-target.cjs",
+    ).assertNotPhysical(url);
+    gates.databaseUrl(url, context);
+    if (process.env.NODE_ENV !== "test")
+      throw new Error("GATE_TEST_ENVIRONMENT");
+    return { url: url as string, dbName: gates.database(context) };
+  }
+  const envPath = path.join(API_ROOT, ".env.test.local");
+
+  if (!fs.existsSync(envPath)) {
+    throw new Error(
+      "Missing apps/api/.env.test.local. From apps/api, run: " +
+        "node .\\scripts\\create-test-db.cjs",
+    );
+  }
+
+  const parsedEnv = dotenv.parse(fs.readFileSync(envPath, "utf8"));
+  const url =
+    process.env.OPA_INTEGRATION_DATABASE_URL || parsedEnv.DATABASE_URL;
+
+  if (!url) {
+    throw new Error(".env.test.local does not define DATABASE_URL.");
+  }
+
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    throw new Error("DATABASE_URL in .env.test.local is not a parseable URL.");
+  }
+
+  const dbName = decodeURIComponent(parsedUrl.pathname.replace(/^\//, ""));
+  loadNodeModule(
+    "../../scripts/destructive-test-target.cjs",
+  ).assertDisposableTestUrl(url, process.env.OPA_DESTRUCTIVE_TEST_DATABASE);
+
+  if (!dbName.endsWith("_test")) {
+    throw new Error(
+      'REFUSING TO RUN INTEGRATION TESTS: resolved database is "' +
+        dbName +
+        '", which does not end in _test. The harness truncates every table ' +
+        "it finds.",
+    );
+  }
+
+  process.env.DATABASE_URL = url;
+  process.env.NODE_ENV = parsedEnv.NODE_ENV || "test";
+
+  return { url, dbName };
+}

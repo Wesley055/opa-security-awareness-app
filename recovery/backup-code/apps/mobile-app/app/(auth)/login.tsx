@@ -1,0 +1,254 @@
+import { PasswordInput } from "../../src/components/PasswordInput";
+import { useRef, useState } from "react";
+import {
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+} from "react-native";
+import { router } from "expo-router";
+import { useAuthStore } from "../../src/store/authStore";
+
+export default function LoginScreen() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitting = useRef(false);
+  const login = useAuthStore((state) => state.login);
+
+  const handleLogin = async (): Promise<void> => {
+    if (submitting.current) return;
+    setError(null);
+    if (!email.trim() || !password) {
+      setError("Enter your email and password.");
+      return;
+    }
+    submitting.current = true;
+    setIsSubmitting(true);
+    try {
+      await login(email.trim().toLowerCase(), password);
+      router.replace("/");
+    } catch (error: unknown) {
+      const status = (error as { response?: { status?: number } })?.response
+        ?.status;
+      setError(
+        !status
+          ? "Could not connect to OPA. Check your connection and try again."
+          : status >= 500
+            ? "OPA is temporarily unavailable. Please try again."
+            : status === 429
+              ? "Too many sign-in attempts. Please wait and try again."
+              : "Unable to sign in. Check your email and password, or contact your administrator if access is unavailable.",
+      );
+    } finally {
+      submitting.current = false;
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <Text style={styles.logo}>OPA</Text>
+      <Text style={styles.subtitle}>Sign in to continue</Text>
+      {error ? <Text style={styles.error}>{error}</Text> : null}
+
+      <TextInput
+        style={styles.input}
+        placeholder="Email"
+        placeholderTextColor="#8B949E"
+        value={email}
+        onChangeText={setEmail}
+        autoCapitalize="none"
+        autoCorrect={false}
+        keyboardType="email-address"
+        textContentType="emailAddress"
+        editable={!isSubmitting}
+      />
+
+      <PasswordInput
+        style={styles.passwordInput}
+        placeholder="Password"
+        placeholderTextColor="#8B949E"
+        value={password}
+        onChangeText={setPassword}
+        textContentType="password"
+        editable={!isSubmitting}
+        returnKeyType="done"
+        onSubmitEditing={handleLogin}
+      />
+
+      <TouchableOpacity
+        onPress={() => router.push("/(auth)/forgot-password")}
+        disabled={isSubmitting}
+      >
+        <Text style={styles.forgotLink}>Forgot password?</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.button, isSubmitting && styles.buttonDisabled]}
+        onPress={handleLogin}
+        disabled={isSubmitting}
+        activeOpacity={0.85}
+      >
+        {isSubmitting ? (
+          <ActivityIndicator color="#08111A" />
+        ) : (
+          <Text style={styles.buttonText}>Sign In</Text>
+        )}
+      </TouchableOpacity>
+
+      <Text style={styles.orText}>OR</Text>
+
+      <Text style={styles.invitationText}>
+        Have an invitation from your estate or organization?
+      </Text>
+
+      <TouchableOpacity
+        style={styles.secondaryButton}
+        onPress={() => router.push("/(auth)/enroll")}
+        disabled={isSubmitting}
+        activeOpacity={0.85}
+      >
+        <Text style={styles.secondaryButtonText}>
+          Accept an institutional invitation
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        onPress={() => router.push("/(auth)/register")}
+        disabled={isSubmitting}
+        activeOpacity={0.85}
+      >
+        <Text style={[styles.link, isSubmitting && styles.linkDisabled]}>
+          Don't have an account? Create one
+        </Text>
+      </TouchableOpacity>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#08111A",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+  },
+  logo: {
+    fontSize: 48,
+    fontWeight: "900",
+    color: "#17C964",
+    textAlign: "center",
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontSize: 15,
+    color: "#8B949E",
+    textAlign: "center",
+    marginBottom: 32,
+  },
+  error: {
+    color: "#FF5A36",
+    textAlign: "center",
+    marginBottom: 16,
+    fontSize: 13,
+  },
+  input: {
+    backgroundColor: "#151D24",
+    borderWidth: 1,
+    borderColor: "#232E36",
+    borderRadius: 8,
+    padding: 14,
+    color: "#FFFFFF",
+    marginBottom: 12,
+    fontSize: 15,
+  },
+  passwordWrapper: {
+    position: "relative",
+    justifyContent: "center",
+    marginBottom: 8,
+  },
+  passwordInput: {
+    backgroundColor: "#151D24",
+    borderWidth: 1,
+    borderColor: "#232E36",
+    borderRadius: 8,
+    padding: 14,
+    paddingRight: 60,
+    color: "#FFFFFF",
+    fontSize: 15,
+  },
+  showToggle: {
+    position: "absolute",
+    right: 14,
+  },
+  showToggleText: {
+    color: "#17C964",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  forgotLink: {
+    color: "#8B949E",
+    textAlign: "right",
+    marginBottom: 8,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  button: {
+    backgroundColor: "#17C964",
+    borderRadius: 8,
+    padding: 16,
+    alignItems: "center",
+    marginTop: 8,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  buttonText: {
+    color: "#08111A",
+    fontWeight: "700",
+    fontSize: 16,
+  },
+  orText: {
+    color: "#8B949E",
+    textAlign: "center",
+    marginTop: 18,
+    marginBottom: 12,
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  invitationText: {
+    color: "#8B949E",
+    textAlign: "center",
+    fontSize: 13,
+    marginBottom: 10,
+  },
+  secondaryButton: {
+    borderWidth: 1,
+    borderColor: "#17C964",
+    borderRadius: 8,
+    padding: 14,
+    alignItems: "center",
+  },
+  secondaryButtonText: {
+    color: "#17C964",
+    fontWeight: "700",
+    fontSize: 14,
+  },
+  link: {
+    color: "#17C964",
+    textAlign: "center",
+    marginTop: 16,
+    fontSize: 14,
+  },
+  linkDisabled: {
+    opacity: 0.5,
+  },
+});

@@ -1,5 +1,6 @@
 import 'server-only';
 import { apiUrl, getAccessToken } from '@/lib/operator-session';
+import type { DeliverySummary } from '@/lib/delivery-labels';
 
 /**
  * The operator's live incident queue. 14A-6.
@@ -49,6 +50,8 @@ export type QueueIncident = {
   retriggerCount: number;
   resolvedAt: string | null;
   user: { firstName: string; lastName: string } | null;
+  /** Release 48: how the alert arrived. Absent from older API builds. */
+  delivery?: DeliverySummary;
 };
 
 export type QueueResult =

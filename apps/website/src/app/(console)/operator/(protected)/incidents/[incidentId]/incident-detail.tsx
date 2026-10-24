@@ -1,4 +1,5 @@
 "use client";
+import { channelLabel, locationReportLine, verificationNote, type DeliveryDetail } from "@/lib/delivery-labels";
 import { IncidentVisitors } from "@/components/console/incident-visitors";
 import { IncidentMap } from "@/components/console/incident-map";
 
@@ -737,6 +738,8 @@ export function IncidentDetailView({
         ) : null}
       </section>
 
+      {incident.delivery ? <DeliveryPanel delivery={incident.delivery} /> : null}
+
       <section className="rounded-xl border border-line bg-panel p-4 text-ink">
         <h2 className="text-xl font-bold">Operational state</h2>
         <p>
@@ -771,5 +774,41 @@ export function IncidentDetailView({
         stale={timelineStale}
       />
     </div>
+  );
+}
+
+/** Release 48: how the alert reached OPA, how far to trust the sender, and what the person said on USSD. */
+function DeliveryPanel({ delivery }: { delivery: DeliveryDetail }) {
+  const locations = delivery.locations ?? [];
+  return (
+    <section aria-labelledby="delivery-heading" className="rounded-xl border border-line bg-panel p-4 text-ink sm:p-6">
+      {delivery.canCall === false ? (
+        <p role="alert" className="mb-4 rounded-lg border border-emergency/40 bg-emergency/10 px-4 py-3 font-semibold text-emergency">
+          Can&apos;t talk: do not call. Send an SMS instead.
+        </p>
+      ) : null}
+      <h2 id="delivery-heading" className="text-xl font-bold">How this alert arrived</h2>
+      <p className="mt-2">
+        {channelLabel(delivery.channel)}
+        {delivery.channels.length > 1 ? ` (also received by ${delivery.channels.filter((c) => c !== delivery.channel).map(channelLabel).join(", ")})` : ""}
+      </p>
+      <p className="mt-1 text-sm text-muted">{verificationNote(delivery.verification)}</p>
+      {delivery.pressedAt ? (
+        <p className="mt-1 text-sm text-muted">
+          Pressed on the phone: <time suppressHydrationWarning dateTime={delivery.pressedAt}>{formatLocalDateTime(delivery.pressedAt)}</time>
+        </p>
+      ) : null}
+      {delivery.canCall === true ? <p className="mt-1 text-sm">The person said security may call them.</p> : null}
+      {locations.length ? (
+        <>
+          <h3 className="mt-4 font-semibold">Where they said they are</h3>
+          <ul className="mt-1 grid gap-1 text-sm">
+            {locations.map((l, i) => (
+              <li key={i}>{locationReportLine(l)}</li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+    </section>
   );
 }

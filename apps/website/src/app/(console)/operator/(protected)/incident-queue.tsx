@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { QueueIncident } from '@/lib/operator-queue';
 import { OpenInMapsLink } from '@/components/console/incident-map';
 import { viewerSessionFetch } from '@/lib/viewer-session-fetch';
+import { channelLabel } from '@/lib/delivery-labels';
 
 /**
  * The live incident queue. 14A-6.
@@ -390,6 +391,16 @@ export function IncidentQueue({
                     ? ` \u00b7 re-triggered ${incident.retriggerCount}\u00d7`
                     : ''}
                 </p>
+                {incident.delivery && incident.delivery.channel !== 'APP' ? (
+                  <p className="mt-2">
+                    <span className="inline-flex rounded-full border border-line bg-panel-2 px-2.5 py-1 font-mono text-xs uppercase tracking-widest text-ink">
+                      Via {channelLabel(incident.delivery.channel)}
+                    </span>
+                    {incident.delivery.verification !== 'SMS_SIGNED' ? (
+                      <span className="ml-2 text-xs text-muted">Sender not verified</span>
+                    ) : null}
+                  </p>
+                ) : null}
 
                 {where ? (
                   <p className="mt-3 break-all rounded-md border border-line bg-panel-2/50 px-3 py-2 font-mono text-xs text-muted">{where}</p>

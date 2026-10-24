@@ -15,7 +15,7 @@ import { IncidentDetailService } from './incident-detail.service';
  */
 describe('IncidentDetailService.getDetail', () => {
   function makePrisma(row: unknown) {
-    return { incident: { findUnique: jest.fn().mockResolvedValue(row) } };
+    return { incident: { findUnique: jest.fn().mockResolvedValue(row) }, incidentTimelineEvent: { findMany: jest.fn().mockResolvedValue([]) } };
   }
 
   function selectArg(prisma: ReturnType<typeof makePrisma>) {
@@ -33,7 +33,7 @@ describe('IncidentDetailService.getDetail', () => {
     expect(prisma.incident.findUnique.mock.calls[0][0].where).toEqual({
       id: 'incident-1',
     });
-    expect(result).toEqual({ ...ROW, user: { firstName: '[protected]', lastName: '[protected]' } });
+    expect(result).toEqual({ ...ROW, delivery: { channel: 'APP', channels: ['APP'], verification: 'APP_SIGNED_IN', pressedAt: null, locations: [], canCall: null }, user: { firstName: '[protected]', lastName: '[protected]' } });
     expect(ROW.user.firstName).toBe('Private');
   });
 
@@ -69,6 +69,8 @@ describe('IncidentDetailService.getDetail', () => {
       journeySessionId: true,
       journeySession: {select:{purpose:true,safeWalkEmergencyIncidentId:true,safeWalkEmergencyAt:true}},
       user: { select: { firstName: true, lastName: true } },
+      // Release 48: a typed record of how the alert arrived, never metadata.
+      activations: { orderBy: { receivedAt: 'asc' }, take: 1, select: { firstChannel: true, channels: true, verification: true, pressedAt: true, receivedAt: true } },
     });
   });
 
@@ -93,5 +95,28 @@ describe('IncidentDetailService.getDetail', () => {
       firstName: true,
       lastName: true,
     });
+  });
+});
+describe('IncidentDetailService delivery summary (release 48)', () => {
+  it('shows how the alert arrived and what the person answered on USSD', async () => {
+    const prisma = {
+      incident: { findUnique: jest.fn().mockResolvedValue({ id: 'i-1', status: 'OPEN', user: { firstName: 'A', lastName: 'B' }, activations: [{ firstChannel: 'USSD', channels: ['USSD'], verification: 'USSD_NUMBER', pressedAt: new Date('2026-10-24T03:00:00Z'), receivedAt: new Date() }] }) },
+      incidentTimelineEvent: {
+        findMany: jest.fn().mockResolvedValue([
+          { type: 'USSD_LOCATION', payload: { source: 'SAVED_PLACE', label: 'Home', description: 'Bk 30', latitude: null, longitude: null, verified: false }, occurredAt: new Date('2026-10-24T03:00:10Z') },
+          { type: 'USSD_LOCATION', payload: { source: 'TYPED_LANDMARK', landmark: 'near the mosque', verified: false }, occurredAt: new Date('2026-10-24T03:00:30Z') },
+          { type: 'USSD_CALLBACK_PREFERENCE', payload: { canCall: false }, occurredAt: new Date('2026-10-24T03:00:40Z') },
+        ]),
+      },
+    };
+    const result = await new IncidentDetailService(prisma as never).getDetail('i-1');
+    expect(result.delivery).toEqual({
+      channel: 'USSD', channels: ['USSD'], verification: 'USSD_NUMBER', pressedAt: '2026-10-24T03:00:00.000Z', canCall: false,
+      locations: [
+        { source: 'SAVED_PLACE', label: 'Home', description: 'Bk 30', latitude: null, longitude: null, reportedAt: '2026-10-24T03:00:10.000Z' },
+        { source: 'TYPED_LANDMARK', landmark: 'near the mosque', reportedAt: '2026-10-24T03:00:30.000Z' },
+      ],
+    });
+    expect(result).not.toHaveProperty('activations');
   });
 });

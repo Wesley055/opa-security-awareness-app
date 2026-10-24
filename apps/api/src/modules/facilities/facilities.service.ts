@@ -48,6 +48,7 @@ const LIVE_STATUSES: IncidentStatus[] = [
  *
  * createdAt and id are both required by the cursor, not merely displayed.
  */
+import { ACTIVATION_SELECT, deliveryView } from "../emergency-delivery/delivery-view";
 const QUEUE_SELECT = {
   id: true,
   status: true,
@@ -62,6 +63,7 @@ const QUEUE_SELECT = {
   user: {
     select: { firstName: true, lastName: true },
   },
+  activations: ACTIVATION_SELECT,
 } satisfies Prisma.IncidentSelect;
 
 type QueueCursor = { createdAt: Date; id: string };
@@ -193,7 +195,7 @@ export class FacilitiesService {
     await recordIdentityViews(this.prisma, responder, incidents.filter(i => RESPONDER_VISIBLE_STATUSES.includes(i.status)).map(i => i.id));
 
     return {
-      incidents: incidents.map(incident => ({ ...incident, user: responderPerson(incident.user, incident.status, responder) })),
+      incidents: incidents.map(({ activations, ...incident }) => ({ ...incident, delivery: deliveryView(activations), user: responderPerson(incident.user, incident.status, responder) })),
       // Null means the end of the queue, not an error.
       nextCursor: hasMore && last ? encodeCursor(last) : null,
       hasMore,

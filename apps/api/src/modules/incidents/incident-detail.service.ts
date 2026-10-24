@@ -1,6 +1,7 @@
 import { safeWalkEmergencyProvenance } from "./safewalk-emergency-read";
 import { facilityResponder, recordIdentityViews, responderPerson, RESPONDER_VISIBLE_STATUSES } from './responder-identity';
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { ACTIVATION_SELECT, deliveryContext, deliveryView } from '../emergency-delivery/delivery-view';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -74,6 +75,8 @@ const DETAIL_SELECT = {
   user: {
     select: { firstName: true, lastName: true },
   },
+  // Emergency delivery (release 48): typed, not the metadata blob.
+  activations: ACTIVATION_SELECT,
 } satisfies Prisma.IncidentSelect;
 
 @Injectable()
@@ -97,7 +100,7 @@ export class IncidentDetailService {
     const scope = await this.prisma.incident.findUnique({ where: { id: incidentId }, select: { facilityId: true } });
     const responder = await facilityResponder(this.prisma, viewerId, scope?.facilityId);
     if (RESPONDER_VISIBLE_STATUSES.includes(incident.status)) await recordIdentityViews(this.prisma, responder, [incidentId]);
-    const { journeySession, ...detail } = incident;
+    const { journeySession, activations, ...detail } = incident;
     const safeWalkEmergency = safeWalkEmergencyProvenance(
       incident.id,
       journeySession,
@@ -105,6 +108,7 @@ export class IncidentDetailService {
     return {
       ...detail,
       ...(safeWalkEmergency ? { safeWalkEmergency } : {}),
+      delivery: { ...deliveryView(activations), ...(await deliveryContext(this.prisma, incidentId)) },
       user: responderPerson(incident.user, incident.status, responder),
     };
   }

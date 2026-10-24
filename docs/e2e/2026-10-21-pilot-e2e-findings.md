@@ -9,7 +9,7 @@ Physical testing on Android, build 24, against production `47e37bf`, with the we
 | SOS with map, foreground | PASS |
 | Silent SOS: foreground, lock screen (no PIN to raise it, unlock needed to end it), background | PASS. Location attached at the press, SMS within 1–3 s, Command Center LIVE in about 20–35 s |
 | SMS to emergency contacts (Africa's Talking) | PASS (provider accepted; delivery receipt not available) |
-| Location buffering during an active SOS | Not yet tested |
+| Location buffering during an active SOS | PASS (24 Oct, see below) |
 | SOS started offline | FAIL (B1–B5) |
 | SafeWalk | Blocked: switched off on purpose; Nigeria-first rebuild (Issue #54) |
 | EstateFlow | Next |
@@ -36,7 +36,15 @@ Physical testing on Android, build 24, against production `47e37bf`, with the we
 
 **SafeWalk:** see Issue #54, items 1–13.
 
+**Location buffering test (24 Oct, Quartz, resident account, Silent SOS):**
+- **Steps:** SOS raised 16:23:12 CDT; last fix before airplane mode at 16:24:35 (sequence 9). Offline about 11 minutes; the Command Center showed "Location stream is silent" and stale freshness (correct).
+- **Result:** after reconnecting, sequence 211 with the latest fix captured 16:36:08 and received 16:36:11. The offline fixes were replayed, not lost (PASS).
+- **To check (L2):** about 200 fixes in 11.5 minutes is one every 3–4 s, not the expected 15 s. Confirm the rate from timestamps only; a higher rate costs battery and data.
+
 **Command Center**
+- **C2:** the "Live" badge stays on while the location stream is silent (NEEDS IMPROVEMENT)
+- **C3:** accuracy shown as "8.737000465393066 metres"; should be "about 9 m" (FAIL, cosmetic)
+- **C4:** "Severity: Not provided by the service" means nothing to an operator (NEEDS IMPROVEMENT)
 - **C1:** "Last fix 0s ago" shown next to "stale or current freshness unconfirmed" (NEEDS IMPROVEMENT)
 - Itemized walkthrough to follow.
 

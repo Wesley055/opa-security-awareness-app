@@ -31,6 +31,7 @@ import { RedisModule } from './redis/redis.module';
 import { validateEnv } from './shared/config/env.validation';
 import { CorrelationIdMiddleware } from './shared/middleware/correlation-id.middleware';
 import { RequestLoggingMiddleware } from './shared/middleware/request-logging.middleware';
+import { EmergencyDeliveryModule } from "./modules/emergency-delivery/emergency-delivery.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -66,6 +67,7 @@ import { RequestLoggingMiddleware } from './shared/middleware/request-logging.mi
     EstateModule,
     DutyModule,
     StaffProfileModule,
+    EmergencyDeliveryModule,
   ],
 })
 export class AppModule implements NestModule {

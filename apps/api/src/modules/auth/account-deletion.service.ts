@@ -164,6 +164,9 @@ export class AccountDeletionService {
             where: { hostUserId: userId, status: "ISSUED" },
             data: { status: "REVOKED", closedAt: now },
           });
+          // Emergency delivery (release 48): saved places are personal; SMS keys stop verifying.
+          await tx.savedPlace.deleteMany({ where: { userId } });
+          await tx.deviceSmsKey.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now } });
           await tx.passwordResetToken.deleteMany({ where: { userId } });
           await tx.emergencyContact.deleteMany({ where: { userId } });
           const tombstone = randomUUID();
@@ -182,6 +185,7 @@ export class AccountDeletionService {
               lastName: "Account",
               facilityId: null,
               invitedByUserId: null,
+              preferredLanguage: null,
             },
           });
           await tx.administrativeAuditEvent.create({

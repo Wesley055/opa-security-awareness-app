@@ -43,6 +43,8 @@ function fixture() {
     ssoTransaction: { updateMany: jest.fn() },
     enrollmentRequest: { updateMany: jest.fn() },
     visitorPass: { updateMany: jest.fn() },
+    savedPlace: { deleteMany: jest.fn() },
+    deviceSmsKey: { updateMany: jest.fn() },
     passwordResetToken: { deleteMany: jest.fn() },
     emergencyContact: { deleteMany: jest.fn() },
   };

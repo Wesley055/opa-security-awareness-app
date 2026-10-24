@@ -128,6 +128,11 @@ model User {
   photoReviewedAt DateTime?
   dutyShifts      DutyShift[] @relation("DutyOperator")
   recoveryCodes   StaffRecoveryCode[]
+  /// Emergency delivery (release 48): language for USSD/SMS, saved places, SMS keys.
+  preferredLanguage String?  @db.VarChar(8)
+  savedPlaces       SavedPlace[]
+  smsKeys           DeviceSmsKey[]
+  emergencyActivations EmergencyActivation[]
   firstName    String
   lastName     String
   role         UserRole @default(USER)
@@ -215,6 +220,7 @@ model Incident {
   timelineEvents IncidentTimelineEvent[]
   notifications  IncidentNotification[]
   evidence       Evidence[]
+  activations    EmergencyActivation[]
 
   @@index([userId, status, lastTriggeredAt])
   @@index([userId, createdAt])
@@ -1538,4 +1544,98 @@ model StaffRecoveryCode {
   createdAt     DateTime  @default(now())
 
   @@index([userId, createdAt(sort: Desc)])
+}
+
+/// Emergency delivery (release 48). How an activation reached OPA.
+enum IncidentChannel {
+  APP
+  SMS
+  USSD
+}
+
+/// How sure OPA is that an activation came from the account holder.
+enum DeliveryVerification {
+  APP_SIGNED_IN
+  SMS_SIGNED
+  SMS_NUMBER_ONLY
+  USSD_NUMBER
+}
+
+/// One record per press, reconciling every route (app internet, SMS, USSD).
+model EmergencyActivation {
+  id           String               @id @default(uuid()) @db.Uuid
+  activationId String               @unique @db.Uuid
+  userId       String               @db.Uuid
+  user         User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  incidentId   String               @db.Uuid
+  incident     Incident             @relation(fields: [incidentId], references: [id], onDelete: Restrict)
+  firstChannel IncidentChannel
+  channels     IncidentChannel[]
+  verification DeliveryVerification
+  /// Phone time of the press, bounded server-side; null when out of bounds or unknown.
+  pressedAt    DateTime?
+  receivedAt   DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
+
+  @@index([incidentId])
+  @@index([userId, receivedAt(sort: Desc)])
+}
+
+/// Places a person can choose on USSD ("1 Home"). Pin optional; never treated as verified GPS.
+model SavedPlace {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label       String   @db.VarChar(24)
+  description String?  @db.VarChar(160)
+  latitude    Decimal? @db.Decimal(9, 6)
+  longitude   Decimal? @db.Decimal(9, 6)
+  position    Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, position])
+}
+
+/// Reference to a per-device SMS signing key. The key itself is derived from a server secret; never stored.
+model DeviceSmsKey {
+  id        String    @id @default(uuid()) @db.Uuid
+  keyId     String    @unique @db.VarChar(12)
+  userId    String    @db.Uuid
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  @@index([userId])
+}
+
+/// Inbound SMS idempotency and audit. Number stored only as a PII_LOOKUP_KEY hash.
+model InboundMessage {
+  id                String   @id @default(uuid()) @db.Uuid
+  provider          String   @db.VarChar(24)
+  providerMessageId String   @db.VarChar(120)
+  msisdnHash        String   @db.Char(64)
+  outcome           String   @db.VarChar(40)
+  userId            String?  @db.Uuid
+  incidentId        String?  @db.Uuid
+  receivedAt        DateTime @default(now())
+
+  @@unique([provider, providerMessageId])
+  @@index([msisdnHash, receivedAt(sort: Desc)])
+}
+
+/// USSD session state, idempotency, rate limits and audit. Number stored only as a hash.
+model UssdSession {
+  id         String   @id @default(uuid()) @db.Uuid
+  sessionId  String   @unique @db.VarChar(120)
+  msisdnHash String   @db.Char(64)
+  userId     String?  @db.Uuid
+  incidentId String?  @db.Uuid
+  step       String   @db.VarChar(24)
+  language   String?  @db.VarChar(8)
+  outcome    String?  @db.VarChar(40)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([msisdnHash, createdAt(sort: Desc)])
 }

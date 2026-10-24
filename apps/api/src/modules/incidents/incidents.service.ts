@@ -59,7 +59,7 @@ export class IncidentsService {
     userId: string,
     dto: CreateIncidentDto,
     tx?: Prisma.TransactionClient,
-    provenance?: { activationMode: string; activationSource: string },
+    provenance?: { activationMode: string; activationSource: string; [key: string]: unknown },
   ) {
     if (
       dto.trigger === IncidentTrigger.VOICE_HELP_HELP &&

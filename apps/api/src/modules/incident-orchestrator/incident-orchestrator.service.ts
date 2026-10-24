@@ -24,6 +24,7 @@ import { PrismaService } from "../../prisma/prisma.service";
 import { IncidentAccessTokenService } from "../incident-access/incident-access-token.service";
 import { JourneySessionService } from "../journey/journey-session.service";
 import type { CreateIncidentRequestDto } from "./dto/create-incident-request.dto";
+import { APP_DELIVERY, boundPressedAt, type ActivationDelivery } from "../emergency-delivery/activation-policy";
 
 export interface NotificationTaskResult {
   contactId: string;
@@ -55,6 +56,8 @@ export class IncidentOrchestratorService {
   async createCoordinatedIncident(
     userId: string,
     dto: CreateIncidentRequestDto,
+    // Set by the server (SMS/USSD ingestion), never by the client body.
+    delivery: ActivationDelivery = APP_DELIVERY,
   ) {
     const detection = this.emergencyDetectionService.evaluate({
       triggerType: dto.triggerType,
@@ -84,9 +87,21 @@ export class IncidentOrchestratorService {
       };
     }
 
+    const press = boundPressedAt(dto.pressedAt, new Date());
     const provenance = {
       activationMode: dto.activationMode ?? (detection.outcome.isSilent ? 'SILENT' : 'STANDARD'),
       activationSource: dto.activationSource ?? (dto.safeWalkSessionId ? 'SAFEWALK_EXPLICIT' : dto.triggerType === EmergencyTriggerType.VOICE ? 'VOICE' : 'LEGACY_CLIENT'),
+      // Emergency delivery (release 48): shown to operators, never used for
+      // authorization. Absent for older apps, whose activations stay unchanged.
+      ...(dto.activationId || delivery !== APP_DELIVERY
+        ? {
+            deliveryChannel: delivery.channel,
+            deliveryVerification: delivery.verification,
+            ...(dto.activationId ? { activationId: dto.activationId } : {}),
+            pressedAt: press.pressedAt ? press.pressedAt.toISOString() : null,
+            pressedAtStatus: press.pressedAtStatus,
+          }
+        : {}),
     };
 
     const user = await this.usersService.findById(userId);
@@ -195,6 +210,38 @@ export class IncidentOrchestratorService {
       // Serialise activations for THIS user only. Different users never
       // block each other.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+
+      // One press, many routes: the same activationId arriving again (internet
+      // retry, SMS copy) reconciles onto the incident it already created and
+      // never notifies anyone twice.
+      if (dto.activationId) {
+        const seen = await tx.emergencyActivation.findUnique({
+          where: { activationId: dto.activationId },
+          include: { incident: true },
+        });
+        if (seen) {
+          if (seen.userId !== userId) throw new ConflictException('Activation unavailable.');
+          const isNewRoute = !seen.channels.includes(delivery.channel);
+          if (isNewRoute)
+            await tx.emergencyActivation.update({ where: { id: seen.id }, data: { channels: { push: delivery.channel } } });
+          await this.timelineService.recordEvent({ incidentId: seen.incidentId, type: 'ACTIVATION_RECONCILED', source: 'INCIDENT_ORCHESTRATOR', actorUserId: userId, payload: { activationId: dto.activationId, channel: delivery.channel, verification: delivery.verification, newRoute: isNewRoute } }, tx);
+          return { reconciled: true as const, incident: seen.incident, deduplicated: true as const, retriggeredAt: null, trackingUrl: null, notificationsQueued: 0, facilityReconciled: false };
+        }
+      }
+      const recordActivation = async (incidentId: string) => {
+        if (!dto.activationId) return;
+        await tx.emergencyActivation.create({
+          data: {
+            activationId: dto.activationId,
+            userId,
+            incidentId,
+            firstChannel: delivery.channel,
+            channels: [delivery.channel],
+            verification: delivery.verification,
+            pressedAt: press.pressedAt,
+          },
+        });
+      };
 
       const safeWalk = await tx.journeySession.findFirst({ where: { ...(dto.safeWalkSessionId ? { id: dto.safeWalkSessionId } : { status: { in: ['STARTED', 'ACTIVE'] } }), userId, purpose: 'SAFEWALK', redactedAt: null } });
       if (dto.safeWalkSessionId && !safeWalk) throw new NotFoundException('Journey session not found.');
@@ -350,6 +397,7 @@ export class IncidentOrchestratorService {
           await tx.incident.update({ where: { id: updated.id }, data: { journeySessionId: session.id } });
         }
         await linkSafeWalk(updated.id);
+        await recordActivation(updated.id);
         await this.timelineService.recordEvent({ incidentId: updated.id, type: 'ACTIVATION_RECORDED', source: 'INCIDENT_ORCHESTRATOR', actorUserId: userId, payload: { ...provenance, retrigger: true } }, tx);
         return {
           incident: {
@@ -412,6 +460,7 @@ export class IncidentOrchestratorService {
       }
 
       await linkSafeWalk(created.id);
+      await recordActivation(created.id);
       await this.timelineService.recordEvent({ incidentId: created.id, type: 'ACTIVATION_RECORDED', source: 'INCIDENT_ORCHESTRATOR', actorUserId: userId, payload: { ...provenance, retrigger: false } }, tx);
 
       // The tracking URL needs the new incident id, so it is built here.
@@ -457,6 +506,24 @@ export class IncidentOrchestratorService {
     });
 
     const incident = activation.incident;
+    if ("reconciled" in activation)
+      return {
+        status: "INCIDENT_RETRIGGERED",
+        incident,
+        detection,
+        intelligence,
+        deduplicated: true,
+        reconciled: true,
+        retriggerCount: incident.retriggerCount,
+        notifications: { queued: 0, dispatched: false },
+        coordination: {
+          trackingUrl: null,
+          silentMode: detection.outcome.isSilent,
+          confidenceScore: detection.outcome.confidenceScore,
+          confidenceLevel: detection.outcome.confidenceLevel,
+          generatedAt: new Date().toISOString(),
+        },
+      };
     if ("safeWalkReplay" in activation) return { status: "INCIDENT_LINKED", incident, deduplicated: true, notifications: { queued: 0, dispatched: false } };
 
     if (activation.deduplicated) {

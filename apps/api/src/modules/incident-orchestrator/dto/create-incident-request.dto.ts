@@ -1,5 +1,6 @@
 import {
   IsUUID,
+  IsISO8601,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -32,6 +33,20 @@ export class CreateIncidentRequestDto {
   @IsOptional()
   @IsUUID('4')
   safeWalkSessionId?: string;
+
+  /*
+   * Emergency delivery (release 48). Created on the phone at the press and
+   * reused by every route (internet retries, SMS), so one press is one
+   * activation. Optional: older apps keep working unchanged.
+   */
+  @IsOptional()
+  @IsUUID('4')
+  activationId?: string;
+
+  /** Phone time of the press. Advisory: bounded server-side, never trusted for ordering. */
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  pressedAt?: string;
 
   /*
    * Emergency detection

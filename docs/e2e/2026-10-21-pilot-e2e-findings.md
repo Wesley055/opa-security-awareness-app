@@ -39,7 +39,10 @@ Physical testing on Android, build 24, against production `47e37bf`, with the we
 **Location buffering test (24 Oct, Quartz, resident account, Silent SOS):**
 - **Steps:** SOS raised 16:23:12 CDT; last fix before airplane mode at 16:24:35 (sequence 9). Offline about 11 minutes; the Command Center showed "Location stream is silent" and stale freshness (correct).
 - **Result:** after reconnecting, sequence 211 with the latest fix captured 16:36:08 and received 16:36:11. The offline fixes were replayed, not lost (PASS).
-- **To check (L2):** about 200 fixes in 11.5 minutes is one every 3–4 s, not the expected 15 s. Confirm the rate from timestamps only; a higher rate costs battery and data.
+- **L2 (NEEDS IMPROVEMENT):** fixes arrive about every 1.6 s even online (sequence 211 → 267 in 92 s), not every 15 s. Costs battery and data during a long SOS.
+- **Resolve:** tracking ended at the moment of resolution (16:37:40) (PASS).
+
+**Offline SOS retest on build 24 (24 Oct, 16:45):** airplane mode on, SOS pressed, 5-second countdown, then "Something went wrong". After reconnecting, nothing arrived: the press was lost. **B1 reproduced** (FAIL, as recorded 21 Oct). Fixed in the unreleased Android 25 / iOS 12 (saved first, Send by SMS, retried). The lock-screen notification path (B1b) still needs its own test.
 
 **Command Center**
 - **C2:** the "Live" badge stays on while the location stream is silent (NEEDS IMPROVEMENT)

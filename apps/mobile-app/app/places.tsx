@@ -102,7 +102,7 @@ export default function PlacesScreen() {
           <Text style={styles.label}>Name</Text>
           <TextInput style={styles.input} value={p.label} maxLength={24} placeholder="e.g. Home" placeholderTextColor="#64748B" onChangeText={(label) => update(i, { label })} />
           <Text style={styles.label}>How to find it</Text>
-          <TextInput style={styles.input} value={p.description} maxLength={160} placeholder="e.g. Bk 30, behind the central mosque" placeholderTextColor="#64748B" onChangeText={(description) => update(i, { description })} />
+          <TextInput style={styles.input} value={p.description} maxLength={160} placeholder="e.g. Bk 30, by the mosque" placeholderTextColor="#64748B" onChangeText={(description) => update(i, { description })} />
           <TouchableOpacity accessibilityRole="button" style={styles.secondary} onPress={() => pinHere(i)} disabled={locating !== null}>
             <Text style={styles.secondaryText}>
               {locating === i ? 'Getting location...' : p.latitude !== null ? 'Pinned. Update to where I am now' : "I'm here, pin this place"}

@@ -1,8 +1,8 @@
 'use strict';
-// OPA production database release runner. This release: schema 46 -> 47 (staff password recovery codes).
+// OPA production database release runner. This release: schema 47 -> 48 (emergency delivery: SMS fallback, USSD).
 // Pinned per release: SQL hashes, new migration hashes, schema hash and counts.
 // Runs inside the production App Service container with /usr/local/bin/node.
-// Modes, run separately and by hand: check | activate | migrate | cleanup | verify
+// Modes, run separately and by hand: check | prepare | activate | resolve | migrate | cleanup | verify
 // Credentials come from Key Vault through the app's managed identity, stay in
 // memory and in child-process environments only, and are never printed.
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
@@ -20,16 +20,20 @@ const VAULT = 'https://opa-kv-production.vault.azure.net';
 const SECRETS = { admin: 'opa-production-postgresql-admin-password', migrator: 'opa-production-database-migration-password' };
 const SQL_HASH = {
   activate: 'a88b43b93c4f75db182ee01b522758b324f9a32cb4cbdc4eed81de436674d566',
-  // Release 46 cleanup plus StaffRecoveryCode.
-  cleanup: '1391ebf902bffe83945c4c8584ecf6811b96156d50d71ddfca1015f58d840164',
+  // REFERENCES on "Incident" for the release owner; refuses unless "User" is release-owner owned.
+  prepare: 'ee6b3e24e4e6fe200ec31b15cc55f74ffdadbec00138f1771d4729d3d6cb70f1',
+  // Release 47 cleanup plus the five emergency delivery tables and two enums.
+  cleanup: 'd6402ab1525d9b839e9d97338fd9df1d60e8e0f91148c6c269a371448a2f212e',
 };
 const NEW_MIGRATIONS = {
-  '20261020220000_staff_recovery_codes': 'b7198b356ed223b91932b1ea1c27dff7bef37ed9ec734232eda0005fc39611da',
+  '20261024010000_emergency_delivery': '1797d64afed997b3d0538dc2d85d7c01993a610d777834b6249031a5a5bc5d1b',
 };
-const SCHEMA_HASH = '32f01e484d4c0f8b1415b76f709b095518ce5eb1c9fc1300cc30dbdf370e6905';
-const BEFORE = 46, AFTER = 47;
+const SCHEMA_HASH = '4fd1c636fc30cc2b77c2b0407ea6b978d506c4d01909b30e02bd6da9a2bb6a33';
+const BEFORE = 47, AFTER = 48;
 // If this release's migration ever fails, `resolve` marks that one attempt rolled back.
-const FAILED = '20261020220000_staff_recovery_codes';
+const FAILED = '20261024010000_emergency_delivery';
+const DELIVERY_TABLES = ['EmergencyActivation', 'SavedPlace', 'DeviceSmsKey', 'InboundMessage', 'UssdSession'];
+const inList = names => names.map(x => `'${x}'`).join(',');
 
 const sha = b => crypto.createHash('sha256').update(b).digest('hex');
 const fail = code => { throw Object.assign(new Error(code), { code }); };
@@ -77,8 +81,8 @@ async function client(who) {
 
 const n = v => Number(v);
 // Recovery is only allowed while none of migration 46's objects exist.
-const untouched = s => !s.recoveryTableExists;
-// Ledger is at 45 with, at most, the one known failed attempt pending recovery.
+const untouched = s => !s.deliveryTablesExist && !s.preferredLanguageColumn;
+// Ledger is at BEFORE with, at most, the one known failed attempt pending recovery.
 const ledgerOk = s => s.ledgerApplied === BEFORE && !s.otherIncomplete && s.ledgerIncomplete === s.failedAttempt;
 async function state(c) {
   const q = async s => (await c.$queryRawUnsafe(s))[0];
@@ -109,6 +113,13 @@ async function state(c) {
     recoveryTableExists: n((await q(`SELECT count(*) AS v FROM pg_class WHERE relname='StaffRecoveryCode' AND relnamespace='public'::regnamespace`)).v),
     recoveryTableOwnedByReleaseOwner: n((await q(`SELECT count(*) AS v FROM pg_class WHERE relname='StaffRecoveryCode' AND relnamespace='public'::regnamespace AND relowner=(SELECT oid FROM pg_roles WHERE rolname='${OWNER}')`)).v),
     dutyImmutableTrigger: n((await q(`SELECT count(*) AS v FROM pg_trigger WHERE tgname='duty_report_immutable' AND NOT tgisinternal`)).v),
+    // Release 48.
+    userTableOwner: (await q(`SELECT relowner::regrole::text AS v FROM pg_class WHERE oid=to_regclass('public."User"')`)).v,
+    incidentReferenceableByOwner: (await q(`SELECT has_table_privilege('${OWNER}','public."Incident"','REFERENCES') AS v`)).v,
+    deliveryTablesExist: n((await q(`SELECT count(*) AS v FROM pg_class WHERE relnamespace='public'::regnamespace AND relname IN (${inList(DELIVERY_TABLES)})`)).v),
+    deliveryTablesOwnedByReleaseOwner: n((await q(`SELECT count(*) AS v FROM pg_class WHERE relnamespace='public'::regnamespace AND relname IN (${inList(DELIVERY_TABLES)}) AND relowner=(SELECT oid FROM pg_roles WHERE rolname='${OWNER}')`)).v),
+    deliveryTypesOwnedByReleaseOwner: n((await q(`SELECT count(*) AS v FROM pg_type WHERE typname IN ('IncidentChannel','DeliveryVerification') AND typowner=(SELECT oid FROM pg_roles WHERE rolname='${OWNER}')`)).v),
+    preferredLanguageColumn: n((await q(`SELECT count(*) AS v FROM information_schema.columns WHERE table_schema='public' AND table_name='User' AND column_name='preferredLanguage'`)).v),
   };
 }
 
@@ -129,7 +140,7 @@ function reviewedSql(mode) {
   return text.slice(prefix.length);
 }
 
-// Prisma schema directory for migrate deploy: the 42 migrations exactly as the
+// Prisma schema directory for migrate deploy: the BEFORE migrations exactly as the
 // running API ships them, plus the two new, hash-pinned migrations.
 function stageMigrations() {
   const dir = path.join(HERE, 'deploy-prisma'), mig = path.join(dir, 'migrations');
@@ -153,7 +164,7 @@ function stageMigrations() {
 
 async function main() {
   const mode = process.argv[2];
-  if (!['check', 'activate', 'resolve', 'migrate', 'cleanup', 'verify'].includes(mode)) fail('USAGE: check|activate|resolve|migrate|cleanup|verify');
+  if (!['check', 'prepare', 'activate', 'resolve', 'migrate', 'cleanup', 'verify'].includes(mode)) fail('USAGE: check|prepare|activate|resolve|migrate|cleanup|verify');
   if (process.versions.node.split('.')[0] !== '22' || process.platform !== 'linux') fail('EXECUTION_CONTEXT');
   log('MODE', mode); log('UTC', new Date().toISOString()); log('API_BUILD', process.env.OPA_BUILD_SHA || 'unknown');
 
@@ -188,13 +199,17 @@ async function main() {
   const admin = await client('admin');
   log('ADMIN_LOGIN', 'verified (private ' + PRIVATE_IP + ', PostgreSQL 14)');
   try {
-    if (mode === 'activate' || mode === 'cleanup') {
+    if (mode === 'prepare' || mode === 'activate' || mode === 'cleanup') {
       const sql = reviewedSql(mode);
       log('SQL_SHA256', SQL_HASH[mode]);
+      if (mode === 'prepare' || mode === 'activate') {
+        const s = await state(admin);
+        if (!ledgerOk(s) || !untouched(s)) fail('LEDGER_NOT_AT_' + BEFORE);
+      }
       if (mode === 'activate') {
         const s = await state(admin);
         if (s.openIncidents || s.activeJourneys) fail('EMERGENCY_IN_PROGRESS_' + s.openIncidents + '_' + s.activeJourneys);
-        if (!ledgerOk(s) || !untouched(s)) fail('LEDGER_NOT_AT_' + BEFORE);
+        if (!s.incidentReferenceableByOwner || s.userTableOwner !== OWNER) fail('RUN_PREPARE_FIRST');
       }
       await admin.$disconnect();
       // prisma db execute sends the reviewed script unchanged in one simple
@@ -203,7 +218,7 @@ async function main() {
       fs.writeFileSync(path.join(HERE, 'exec.prisma'), 'datasource db {\n  provider = "postgresql"\n  url = env("DATABASE_URL")\n}\n');
       const ok = prisma(['db', 'execute', '--schema', path.join(HERE, 'exec.prisma'), '--stdin'], await urlFor('admin'), sql);
       log('SQL_EXIT', ok ? 0 : 1);
-      if (!ok) { process.exitCode = 1; console.log(mode === 'activate' ? 'ACTIVATE FAILED OR UNCERTAIN: run cleanup, do not retry activate.' : 'CLEANUP FAILED: send me this output; do not run anything else.'); }
+      if (!ok) { process.exitCode = 1; console.log(mode === 'activate' ? 'ACTIVATE FAILED OR UNCERTAIN: run cleanup, do not retry activate.' : mode === 'prepare' ? 'PREPARE FAILED: nothing else has run. Send me this output.' : 'CLEANUP FAILED: send me this output; do not run anything else.'); }
       const after = await client('admin'); log('STATE', await state(after)); await after.$disconnect();
       return;
     }
@@ -212,14 +227,17 @@ async function main() {
     if (mode === 'check') {
       const ready = !s.openIncidents && !s.activeJourneys && ledgerOk(s) && untouched(s) && !s.migratorSessions
         && !s.migratorIsOwnerMember && !s.migratorCanCreateInPublic;
+      const prepared = s.incidentReferenceableByOwner && s.userTableOwner === OWNER;
       log('READY', ready);
-      log('NEXT', !ready ? 'stop: send this output' : s.failedAttempt ? 'activate, then resolve' : 'activate');
+      log('NEXT', !ready ? 'stop: send this output' : !prepared ? 'prepare, then activate' + (s.failedAttempt ? ', then resolve' : '') : s.failedAttempt ? 'activate, then resolve' : 'activate');
     } else {
       const pass = s.ledgerApplied === AFTER && !s.ledgerIncomplete && !s.migratorSessions && !s.migratorIsOwnerMember
         && !s.migratorCanCreateInPublic && !s.migratorCanWriteLedger && !s.migratorOwnedObjects && !s.runtimeUnreadableTables
         && !s.runtimeCanCreateInPublic && s.dutyTablesOwnedByReleaseOwner === 2 && s.staffPhotoColumns === 5
         && s.sectorFacilityTypes === 4 && s.dutyImmutableTrigger === 1 && s.facilityTypeOwner === OWNER && !s.failedAttempt
-        && s.recoveryTableOwnedByReleaseOwner === 1;
+        && s.recoveryTableOwnedByReleaseOwner === 1
+        && s.deliveryTablesOwnedByReleaseOwner === DELIVERY_TABLES.length && s.deliveryTypesOwnedByReleaseOwner === 2
+        && s.preferredLanguageColumn === 1;
       log('VERIFY', pass ? 'PASS' : 'FAIL');
       if (!pass) process.exitCode = 1;
     }

@@ -1,0 +1,119 @@
+# Release 48: emergency delivery (offline SOS, SMS fallback, USSD) — database 47 → 48
+
+Design: `docs/design/2026-10-23-emergency-delivery-sms-ussd.md` (approved by the founder 23 Oct, including the section 10 recommendations).
+
+**What ships, all switched off.** SMS fallback and USSD do nothing until `SMS_FALLBACK_ENABLED=true` / `USSD_ENABLED=true` are set in a later, separate step. This release needs **no production setting or secret changes**.
+
+| Part | Commit |
+|---|---|
+| Migration 48 and one-press-many-routes activation | `4b4e523` |
+| SMS fallback and USSD (server) | `9b16338` |
+| App: delivery coordinator, offline queue, Send by SMS | `572c68f` |
+| App: Saved places screen | `7b16592`, `a4aa3d3` |
+| Command Center delivery summary (API) | `665402d` |
+| Command Center delivery summary (website) | `3bed662` |
+
+Live immediately after this release, even with both switches off:
+- an SOS from the **new app** (Android 25 / iOS 12) carries its activation id and press time, is saved on the phone first, and is retried until OPA confirms it, without ever creating a second alert (fixes B1, B5, B6);
+- residents can save up to four places;
+- the Command Center shows how an alert arrived.
+
+Older apps work exactly as before.
+
+## Database package
+
+`opa-release-db-48.zip`, SHA-256 `9899d59bfc9e050d5d8aedc5d40c3da42dab5d294bb59cdc4e133cc874e5d90b`.
+
+| File | SHA-256 |
+|---|---|
+| `activate.sql` | `a88b43b9…` (unchanged since 46) |
+| `prepare.sql` | `ee6b3e24…` (**new**) |
+| `cleanup.sql` | `d6402ab1…` (47 cleanup plus 5 tables and 2 enums) |
+| migration `20261024010000_emergency_delivery` | `1797d64a…` |
+| `schema.prisma` | `4fd1c636…` |
+
+The migration is additive: five new tables, two enums and `User.preferredLanguage`. It deliberately **does not alter `Incident`**, which is administrator-owned in production.
+
+**Why prepare is back.** `EmergencyActivation` has a foreign key to `Incident`, and a foreign key needs the REFERENCES privilege. The rehearsal, using the production ownership layout with `Incident` owned by the administrator, reproduced the failure without prepare: `permission denied for table Incident`. Nothing was left behind. `prepare.sql`:
+- grants REFERENCES on `Incident` to the scoped NOLOGIN release owner (idempotent; a no-op if the release owner already owns it);
+- **refuses** unless `User` is already owned by the release owner (release 46 added columns to it).
+
+**Rehearsal** (local PostgreSQL 16, production role layout and ownership contract): migration fails without prepare, as expected, leaving 0 tables. Then prepare (run twice, idempotent) → activate → migrate as `opa_production_migrations` → cleanup:
+- migrator-owned objects 0;
+- delivery tables owned by the release owner: 5/5;
+- enums owned by the release owner: 2/2;
+- `preferredLanguage` column: 1;
+- the migrator is no longer an owner member and cannot create objects in `public`;
+- tables the runtime cannot read: 0;
+- the runtime can insert and update every new table, and the language check constraint rejects `fr`.
+
+`check` reports `NEXT prepare, then activate`. `activate` refuses (`RUN_PREPARE_FIRST`) until prepare has run. `verify` adds `deliveryTablesOwnedByReleaseOwner 5`, `deliveryTypesOwnedByReleaseOwner 2` and `preferredLanguageColumn 1` to every release-47 condition.
+
+## Steps
+
+0. **No emergency in progress.** `check` refuses while any incident is OPEN or ACKNOWLEDGED, or any journey is active. Save `opa-release-db-48.zip` to Downloads.
+1. **Window 1:**
+   ```powershell
+   cd C:\Projects\OPA-release-simplification
+   git pull --rebase --autostash
+   powershell -ExecutionPolicy Bypass -File .\ops\production-release\release-api.ps1 -PreviousPolicy ".\artifacts\release-c889a81\api-release-c889a81.signed.json" -DbPackage "$env:USERPROFILE\Downloads\opa-release-db-48.zip" -DbPackageSha 9899d59bfc9e050d5d8aedc5d40c3da42dab5d294bb59cdc4e133cc874e5d90b
+   ```
+   Expect `MIGRATIONS=48`. It pauses at 4b/7.
+2. **Window 2:** `az webapp ssh -g opa-production -n opa-api-production`, then:
+   ```bash
+   cd /home/opa-release-duty && /usr/local/bin/node opa-release-db.cjs check
+   ```
+   Expect `READY true` and `NEXT prepare, then activate`. Then paste:
+   ```bash
+   cd /home/opa-release-duty; echo "RESTORE_POINT_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+   /usr/local/bin/node opa-release-db.cjs prepare && /usr/local/bin/node opa-release-db.cjs activate && /usr/local/bin/node opa-release-db.cjs migrate; /usr/local/bin/node opa-release-db.cjs cleanup; /usr/local/bin/node opa-release-db.cjs verify
+   ```
+   Expect `VERIFY PASS` with `ledgerApplied: 48`. If any line says FAILED or STOPPED, don't retry; paste the output. Production keeps serving.
+3. **Window 1:** type `VERIFY PASS`. Expect `FAILS=0`.
+4. **Vercel:** promote the newest Ready deployment (Command Center delivery summary).
+5. **Apps:** Android versionCode 25 (Play) and iOS build 12 (TestFlight first; 1.0.0 (11) is in App Review).
+
+## Switching on (later, separate approval)
+
+Prerequisites, from Africa's Talking on the **live** account:
+- a two-way shared short code with a keyword;
+- a shared USSD code;
+- callback source IPs.
+
+Settings to add to the signed environment policy:
+
+| Setting | Value |
+|---|---|
+| `SMS_SIGNING_SECRET` | 32 random bytes, base64, Key Vault |
+| `AFRICASTALKING_CALLBACK_TOKEN` | 40+ random characters, Key Vault |
+| `AFRICASTALKING_SHORTCODE` | the short code |
+| `AFRICASTALKING_SMS_KEYWORD` | the keyword |
+| `AFRICASTALKING_CALLBACK_IPS` | the source IPs |
+| `USSD_LANGUAGES` | `en` (add `ha` only after a native speaker approves the Hausa text in `ussd-text.ts`) |
+| `SMS_FALLBACK_ENABLED` | `true` |
+| `USSD_ENABLED` | `true` |
+
+Callback URLs to give Africa's Talking:
+- SMS: `https://<api>/integrations/africastalking/sms/<token>`
+- USSD: `https://<api>/integrations/africastalking/ussd/<token>`
+
+Test against the Africa's Talking sandbox simulator first.
+
+## Physical E2E before switch-on
+
+Design section 9:
+1. Airplane mode on-screen SOS → saved → Send by SMS → incident with exact GPS and "Via SMS" → reply SMS → internet back → one incident.
+2. Lock-screen SOS offline (B1b).
+3. SMS from an unregistered phone → nothing created.
+4. Same SMS twice → one incident.
+5. USSD on a feature phone on MTN, Airtel, Glo and 9mobile → incident at "Yes, send".
+6. Dropped USSD session after "Yes, send" → incident exists.
+7. Saved place, landmark and "Can't talk" banner shown to the duty officer.
+8. Hausa approved by a native speaker.
+9. Old app version still works.
+
+## Not in this release (follow-ups)
+
+- **Facility Admin registering feature-phone residents** (name, phone, language, saved places) with an SMS code confirmed over USSD. Until then, USSD works for residents who enrolled through the app.
+- **Lock-screen (native) trigger:** still uses its own durable native queue; it does not yet carry an activation id or offer Send by SMS.
+- **Location permission onboarding (L1):** an SOS with no GPS fix at all still stops with an error on the screen.

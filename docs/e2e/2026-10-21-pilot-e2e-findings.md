@@ -168,3 +168,7 @@ An earlier source inspection was done on vc12 (`58b5172`). I re-checked the code
   - Confirmed: `wesleycharles055@gmail.com` is **not** a Super Admin (website: "Forbidden. Active platform ADMIN access is required"). The only Super Admin is `charles@opasafety.com` ("Charles Son"), which had been signed in on a test phone.
   - **Re-test PASS 24 Oct 02:39 UTC:** a fresh Quartz resident ("emma felix") raised an SOS, which appeared in Philips's Quartz queue within 32 s with location. **S7 is a test-account configuration issue, not a routing defect.** Nothing was filtered as a duplicate.
   - Remaining product work (P1): (a) warn or block when an account with no security team raises SOS (Super Admin, OPA staff, unlinked residents); (b) show "Protected by <estate>" in the app; (c) S8, contact SMS fails for OPA Demo Estate residents; (d) invitation SMS to +234808… on 22 Oct shows Failed at Africa's Talking. Owner is pulling 8 from review and considering resubmitting build 5, which must open and sign in on the iPhone first.
+
+
+## Emergency delivery built (23–24 Oct, founder-approved design)
+Offline SOS queue, internet failover, SMS fallback and USSD, all switched off until physical E2E passes. Release 48 runbook: `docs/releases/2026-10-24-emergency-delivery.md` (package `9899d59b…`, rehearsed). Closes B1, B5 and B6 once the new apps ship (Android 25 / iOS 12). Open follow-ups: feature-phone resident registration by the Facility Admin, lock-screen trigger activation id, L1.

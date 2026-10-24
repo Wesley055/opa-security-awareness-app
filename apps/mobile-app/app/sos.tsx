@@ -26,12 +26,22 @@ import {
 import { getSosActivationMessage } from '../src/services/sos-activation-message';
 import { useActiveIncidentStore } from '../src/store/activeIncidentStore';
 import { sosInitialMode } from '../src/services/active-incident-ui-policy';
+import {
+  composeSms,
+  createActivation,
+  savePending,
+  sendOnce,
+  smsFallbackAvailable,
+  UNCERTAIN_AFTER_MS,
+  type ActivationResponse,
+  type PendingActivation,
+} from '../src/services/emergency-delivery';
 
 const COUNTDOWN_SECONDS = 5;
 const LOCATION_TIMEOUT_MS = 15000;
 const MAX_LOCATION_AGE_MS = 60000;
 
-type ScreenState = 'countdown' | 'activating' | 'activated' | 'error';
+type ScreenState = 'countdown' | 'activating' | 'activated' | 'error' | 'offline';
 
 interface ActivationResult {
   status: string;
@@ -75,6 +85,12 @@ export default function SosScreen() {
   const [closing, setClosing] = useState(false);
   const [closeError, setCloseError] = useState<string | null>(null);
   const locationRef = useRef<FixedLocation | null>(null);
+  // Emergency delivery: the activation saved on the phone at the press.
+  const pendingRef = useRef<PendingActivation | null>(null);
+  const [smsAvailable, setSmsAvailable] = useState(false);
+  const [smsState, setSmsState] = useState<'idle' | 'sending' | 'sent' | 'cancelled' | 'unavailable'>('idle');
+  const [offlineSince, setOfflineSince] = useState<number | null>(null);
+  const [offlineNow, setOfflineNow] = useState(Date.now());
   const cancelledRef = useRef(false);
   const activatingRef = useRef(false);
   const locationPromiseRef = useRef<Promise<void> | null>(null);
@@ -160,6 +176,19 @@ export default function SosScreen() {
     return () => handler.remove();
   }, [screenState]);
 
+  const acknowledged = useCallback((data: ActivationResponse) => {
+    if (!data.incident?.id) return;
+    pendingRef.current = null;
+    // Preserve success even if the user left while the network request completed.
+    setActiveIncident({ id: data.incident.id, status: 'OPEN', activationMode: incidentPresentationMode(data.incident, activationMode), notifications: data.notifications });
+    void startTracking().catch(() => console.log('[sos] tracking bootstrap unavailable'));
+    if (!mountedRef.current) return;
+    setResult(data);
+    setOfflineSince(null);
+    setScreenState('activated');
+    if (silent) router.replace('/');
+  }, [activationMode, silent, setActiveIncident]);
+
   const activate = useCallback(async () => {
     // Guard against a cancel that raced the countdown, and against
     // double-firing if activate is somehow invoked more than once.
@@ -208,43 +237,64 @@ export default function SosScreen() {
     }
 
     try {
-      const { data } = await api.post('/incident-orchestrator/activate', {
-        triggerType: 'SOS_BUTTON',
-        mode: 'CONFIRMATION',
-        activationMode,
-        activationSource: 'MANUAL',
-        userConfirmed: true,
-        latitude: locationRef.current.latitude,
-        longitude: locationRef.current.longitude,
-        accuracy: cleanNonNegative(locationRef.current.accuracy),
-      });
-      if (!['INCIDENT_ACTIVATED', 'INCIDENT_RETRIGGERED'].includes(data?.status) || !data?.incident?.id) {
-        throw new Error('Emergency activation was not confirmed.');
+      // THE PRESS IS THE EMERGENCY: saved on the phone with its own id and
+      // press time before any network call (emergency delivery, release 48).
+      const activation =
+        pendingRef.current ??
+        createActivation({
+          activationMode,
+          activationSource: 'MANUAL',
+          latitude: locationRef.current.latitude,
+          longitude: locationRef.current.longitude,
+          accuracy: cleanNonNegative(locationRef.current.accuracy) ?? null,
+        });
+      pendingRef.current = activation;
+      await savePending(activation);
+      // One attempt here; if OPA does not answer, the offline screen offers
+      // SMS straight away and keeps retrying every 10 seconds.
+      const outcome = await sendOnce(activation);
+      if (outcome.kind === 'ACKNOWLEDGED') {
+        acknowledged(outcome.data);
+        return;
       }
-      // Preserve success even if the user left while the network request completed.
-      setActiveIncident({ id: data.incident.id, status: 'OPEN', activationMode: incidentPresentationMode(data.incident, activationMode), notifications: data.notifications });
-      void startTracking().catch(() => console.log('[sos] tracking bootstrap unavailable'));
       if (!mountedRef.current) return;
-      setResult(data);
-      setScreenState('activated');
-      if (silent) router.replace('/');
-    } catch (err: unknown) {
-      if (!mountedRef.current) return;
-      const responseMessage =
-        typeof err === 'object' && err !== null && 'response' in err
-          ? (err as { response?: { data?: { message?: string | string[] } } }).response?.data
-              ?.message
-          : undefined;
-      setErrorMessage(
-        Array.isArray(responseMessage)
-          ? responseMessage.join('\n')
-          : responseMessage ?? 'Could not activate SOS. Check your connection and try again.',
-      );
-      setScreenState('error');
+      if (outcome.kind === 'REJECTED') {
+        pendingRef.current = null;
+        setErrorMessage(outcome.message);
+        setScreenState('error');
+        return;
+      }
+      // No answer from OPA: keep the alert, keep retrying, offer SMS.
+      setOfflineSince((since) => since ?? Date.now());
+      setScreenState('offline');
+      void smsFallbackAvailable().then((ok) => mountedRef.current && setSmsAvailable(ok));
     } finally {
       activatingRef.current = false;
     }
-  }, [activationMode, silent, acquireLocation, setActiveIncident]);
+  }, [activationMode, acquireLocation, acknowledged]);
+
+  // While offline: retry every 10 seconds and keep the clock for the
+  // "couldn't confirm" message. The saved copy is also retried app-wide.
+  useEffect(() => {
+    if (screenState !== 'offline') return;
+    const timer = setInterval(async () => {
+      setOfflineNow(Date.now());
+      const activation = pendingRef.current;
+      if (!activation) return;
+      const outcome = await sendOnce(activation);
+      if (outcome.kind === 'ACKNOWLEDGED') acknowledged(outcome.data);
+    }, 10000);
+    return () => clearInterval(timer);
+  }, [screenState, acknowledged]);
+
+  const sendBySms = useCallback(async () => {
+    const activation = pendingRef.current;
+    if (!activation || smsState === 'sending') return;
+    setSmsState('sending');
+    const sent = await composeSms(activation).catch(() => 'UNAVAILABLE' as const);
+    if (!mountedRef.current) return;
+    setSmsState(sent === 'SENT' ? 'sent' : sent === 'CANCELLED' ? 'cancelled' : 'unavailable');
+  }, [smsState]);
 
   useEffect(() => {
     if (screenState !== 'countdown') return;
@@ -385,6 +435,36 @@ export default function SosScreen() {
       <View style={styles.container}>
         <ActivityIndicator size="large" color="#FF5A36" />
         <Text style={styles.statusText}>Activating...</Text>
+      </View>
+    );
+  }
+
+  if (screenState === 'offline') {
+    const waited = offlineSince ? offlineNow - offlineSince : 0;
+    return (
+      <View style={styles.container}>
+        <Text style={styles.errorTitle}>{silent ? 'Not sent yet' : 'No internet connection'}</Text>
+        <Text style={styles.errorMessage}>
+          Your alert is saved on this phone. OPA keeps trying to send it.
+        </Text>
+        {smsAvailable && smsState !== 'sent' ? (
+          <TouchableOpacity touchSoundDisabled={silent} style={styles.retryButton} onPress={sendBySms} disabled={smsState === 'sending'} accessibilityRole="button">
+            <Text style={styles.retryButtonText}>{smsState === 'sending' ? 'Opening messages...' : 'Send by SMS'}</Text>
+          </TouchableOpacity>
+        ) : null}
+        {smsState === 'sent' ? (
+          <Text style={styles.errorMessage}>SMS ready. Once OPA receives it you will get a reply text.</Text>
+        ) : null}
+        {smsState === 'cancelled' ? <Text style={styles.errorMessage}>The SMS was not sent. Tap Send by SMS to try again.</Text> : null}
+        {smsState === 'unavailable' ? <Text style={styles.errorMessage}>SMS is not available on this phone.</Text> : null}
+        {waited >= UNCERTAIN_AFTER_MS ? (
+          <Text style={styles.errorMessage}>
+            We could not confirm your alert. If you can, call someone you trust or the emergency number 112.
+          </Text>
+        ) : null}
+        <TouchableOpacity touchSoundDisabled={silent} onPress={() => router.back()}>
+          <Text style={styles.backLink}>Back (OPA keeps trying)</Text>
+        </TouchableOpacity>
       </View>
     );
   }

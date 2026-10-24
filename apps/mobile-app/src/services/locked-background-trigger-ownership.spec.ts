@@ -1,3 +1,5 @@
+jest.mock('./emergency-delivery', () => ({ retryPending: jest.fn(async () => null) }));
+jest.mock('./sms-key-store', () => ({ refreshSmsFallbackConfig: jest.fn(async () => undefined) }));
 jest.mock('./emergency-tracking', () => ({ rememberEmergencyTracking: jest.fn(), reconcileEmergencyTracking: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('./safewalk', () => ({ startSafeWalkReconciliation: jest.fn(() => jest.fn()), useSafeWalk: (select: (state: { journey: null }) => unknown) => select({ journey: null }) }));
 /** Set OPA_TEST_FROZEN_VC19=1 to execute the shipped vc19 modules from Git in memory.

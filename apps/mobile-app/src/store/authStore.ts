@@ -105,6 +105,9 @@ export const useAuthStore = create<AuthState>((set) => {
       advanceAuthSessionEpoch();
       await SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY);
       await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+      // The offline SMS key belongs to this account. A pending SOS is kept:
+      // it is an emergency already pressed, and it is retried after sign-in.
+      try { await SecureStore.deleteItemAsync('opa.sms-fallback'); } catch { /* nothing stored */ }
       set({ user: null, isAuthenticated: false });
     },
 

@@ -108,6 +108,14 @@ describe("offline SOS by SMS", () => {
     expect(orchestrator.createCoordinatedIncident.mock.calls[0]![1]).not.toHaveProperty("latitude");
   });
 
+  it("strips the shared short-code keyword before reading the message", async () => {
+    process.env.AFRICASTALKING_SMS_KEYWORD = "OPA";
+    const { service } = setup();
+    await expect(service.handle({ id: "m1", from: PHONE, text: "OPA " + signed() }, NOW)).resolves.toBe("SMS_SIGNED");
+    await expect(setup().service.handle({ id: "m2", from: PHONE, text: "opa sos" }, NOW)).resolves.toBe("SMS_NUMBER_ONLY");
+    delete process.env.AFRICASTALKING_SMS_KEYWORD;
+  });
+
   it("ignores ordinary text", async () => {
     const { service, orchestrator } = setup();
     await expect(service.handle({ id: "m1", from: PHONE, text: "hello there" }, NOW)).resolves.toBe("UNRECOGNISED");

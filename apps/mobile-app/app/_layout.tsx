@@ -31,6 +31,7 @@ import {
 import { runHeadlessProtectionWorker } from '../src/services/headless-sos-worker';
 import { isForegroundExecutionAllowed } from '../src/services/foreground-execution';
 import { useActiveIncidentStore } from '../src/store/activeIncidentStore';
+import { incidentPresentationMode } from '../src/services/silent-sos';
 
 export default function RootLayout() {
   const { isAuthenticated, isLoading, checkAuth } = useAuthStore();
@@ -59,6 +60,37 @@ export default function RootLayout() {
   }, [isAuthenticated, appState, safeWalkJourney?.id, safeWalkJourney?.safeWalkEscalation?.state, router]);
 
   useEffect(() => startActiveIncidentReconciliation(), []);
+
+  /*
+   * Emergency delivery (release 48). While signed in and in the foreground:
+   * keep the offline SMS key fresh, and deliver any SOS that was saved on
+   * the phone while there was no internet. retryPending() uses the same
+   * activation id, so the server never creates a second alert.
+   */
+  useEffect(() => {
+    if (!isAuthenticated || appState !== 'active') return;
+    // Loaded lazily: keeps native storage/SMS modules off the startup path.
+    const { retryPending } = require('../src/services/emergency-delivery') as typeof import('../src/services/emergency-delivery');
+    const { refreshSmsFallbackConfig } = require('../src/services/sms-key-store') as typeof import('../src/services/sms-key-store');
+    void refreshSmsFallbackConfig();
+    let alive = true;
+    const attempt = async () => {
+      const outcome = await retryPending().catch(() => null);
+      if (!alive || outcome?.kind !== 'ACKNOWLEDGED' || !outcome.data.incident?.id) return;
+      useActiveIncidentStore.getState().setActiveIncident({
+        id: outcome.data.incident.id,
+        status: 'OPEN',
+        activationMode: incidentPresentationMode(outcome.data.incident as never, 'STANDARD'),
+        notifications: outcome.data.notifications,
+      });
+    };
+    void attempt();
+    const timer = setInterval(() => void attempt(), 30000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [isAuthenticated, appState]);
   useEffect(() => startSafeWalkReconciliation(), []);
 
   useEffect(() => {

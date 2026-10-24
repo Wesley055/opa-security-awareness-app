@@ -14,6 +14,8 @@ export async function clearDeletedAccountState(owner: string): Promise<void> {
     SecureStore.deleteItemAsync(BACKGROUND_SESSION_KEY),
     SecureStore.deleteItemAsync("opa.safewalk.session." + owner),
     SecureStore.deleteItemAsync("opa.safewalk.create." + owner),
+    SecureStore.deleteItemAsync("opa.sms-fallback"),
+    SecureStore.deleteItemAsync("opa.pending-activation"),
   ]);
   await (await bootstrapJourneyQueueStore()).clearForAccountDeletion();
 }

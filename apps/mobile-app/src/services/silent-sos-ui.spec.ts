@@ -17,6 +17,15 @@ const { create, act } = jest.requireActual('react-test-renderer') as {
 jest.mock('expo-router', () => ({ router: { replace: jest.fn(), back: jest.fn() } }));
 jest.mock('./api', () => ({ api: { post: jest.fn(), patch: jest.fn() }, backgroundApi: { get: jest.fn() } }));
 jest.mock('./foreground-execution', () => ({ isForegroundExecutionAllowed: () => true }));
+const mockSecureStore = new Map<string, string>();
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(async (k: string) => mockSecureStore.get(k) ?? null),
+  setItemAsync: jest.fn(async (k: string, v: string) => { mockSecureStore.set(k, v); }),
+  deleteItemAsync: jest.fn(async (k: string) => { mockSecureStore.delete(k); }),
+}));
+let mockUuidCounter = 0;
+jest.mock('expo-crypto', () => ({ randomUUID: () => `7a0f9a54-3b8e-4c47-9a39-2f8a6f1c2d${String(10 + (mockUuidCounter++ % 80)).padStart(2, '0')}` }));
+jest.mock('expo-sms', () => ({ isAvailableAsync: jest.fn(async () => true), sendSMSAsync: jest.fn(async () => ({ result: 'sent' })) }));
 jest.mock('./journey-tracker', () => ({ startTracking: jest.fn(async () => undefined), stopTracking: jest.fn(async () => undefined) }));
 jest.mock('./silent-sos', () => ({ ...jest.requireActual('./silent-sos'), getSosActivationMode: jest.fn(() => 'SILENT') }));
 jest.mock('expo-location', () => ({ Accuracy: { High: 4 }, requestForegroundPermissionsAsync: jest.fn(async () => ({ status: 'granted', canAskAgain: true })), getCurrentPositionAsync: jest.fn(async () => ({ coords: { latitude: 10, longitude: 20, accuracy: 5 } })) }));
@@ -33,7 +42,8 @@ it.each(['STANDARD', 'SILENT'] as const)('manual screen uses %s and creates the 
   const countdown = JSON.stringify(view.toJSON());
   expect(countdown.includes('"fontSize":96')).toBe(mode === 'STANDARD');
   for (let second = 0; second < 5; second++) await act(async () => { jest.advanceTimersByTime(1000); });
-  expect(api.post).toHaveBeenCalledWith('/incident-orchestrator/activate', expect.objectContaining({ triggerType: 'SOS_BUTTON', activationMode: mode, activationSource: 'MANUAL', latitude: 10, longitude: 20 }));
+  expect(api.post).toHaveBeenCalledWith('/incident-orchestrator/activate', expect.objectContaining({ triggerType: 'SOS_BUTTON', activationMode: mode, activationSource: 'MANUAL', latitude: 10, longitude: 20, activationId: expect.stringMatching(/^[0-9a-f-]{36}$/), pressedAt: expect.any(String) }), expect.anything());
+  expect(mockSecureStore.has('opa.pending-activation')).toBe(false);
   expect(useActiveIncidentStore.getState().activeIncident).toMatchObject({ id: 'open-1', activationMode: mode });
   expect(startTracking).toHaveBeenCalledTimes(1);
   if (mode === 'SILENT') expect(router.replace).toHaveBeenCalledWith('/');
@@ -61,5 +71,33 @@ it('resumes silent safety controls and only stops tracking after confirmed resol
   expect(api.patch).toHaveBeenLastCalledWith('/incidents/open-1/resolve', { reason: 'USER_SAFE' });
   expect(stopTracking).toHaveBeenCalledTimes(1);
   expect(useActiveIncidentStore.getState().activeIncident).toBeNull();
+  await act(async () => view.unmount());
+});
+it('with no internet keeps the alert, offers Send by SMS, and confirms once OPA is reachable', async () => {
+  (getSosActivationMode as jest.Mock).mockReturnValue('STANDARD');
+  mockSecureStore.clear();
+  mockSecureStore.set('opa.sms-fallback', JSON.stringify({ keyId: 'ABCDEFGH', key: 'AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=', shortCode: '12345', keyword: 'OPA' }));
+  (api.post as jest.Mock).mockRejectedValue(Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' }));
+  let view!: ReturnType<typeof create>;
+  await act(async () => { view = create(React.createElement(SosScreen)); });
+  for (let second = 0; second < 5; second++) await act(async () => { jest.advanceTimersByTime(1000); });
+  const screen = () => JSON.stringify(view.toJSON());
+  expect(screen()).toContain('No internet connection');
+  expect(screen()).toContain('Your alert is saved on this phone');
+  const saved = JSON.parse(mockSecureStore.get('opa.pending-activation')!);
+  expect(saved).toMatchObject({ latitude: 10, longitude: 20, activationMode: 'STANDARD' });
+
+  const sms = view.root.findAllByType(TouchableOpacity).find(b => b.findAllByType(Text).some(t => t.props.children === 'Send by SMS'))!;
+  await act(async () => sms.props.onPress());
+  const SMS = jest.requireMock('expo-sms') as { sendSMSAsync: jest.Mock };
+  expect(SMS.sendSMSAsync).toHaveBeenCalledWith(['12345'], expect.stringMatching(/^OPA OPA1 /));
+  expect(screen()).toContain('SMS ready');
+
+  (api.post as jest.Mock).mockResolvedValue({ data: { status: 'INCIDENT_RETRIGGERED', incident: { id: 'open-1' }, notifications: { queued: 0, dispatched: false } } });
+  await act(async () => { jest.advanceTimersByTime(10000); });
+  const calls = (api.post as jest.Mock).mock.calls.map(c => c[1].activationId);
+  expect(new Set(calls).size).toBe(1);
+  expect(useActiveIncidentStore.getState().activeIncident).toMatchObject({ id: 'open-1' });
+  expect(mockSecureStore.has('opa.pending-activation')).toBe(false);
   await act(async () => view.unmount());
 });

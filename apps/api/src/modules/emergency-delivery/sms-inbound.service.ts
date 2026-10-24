@@ -84,7 +84,12 @@ export class SmsInboundService {
     if (!user || !user.isActive || user.accountStatus !== "ACTIVE" || user.role !== "USER")
       return finish("UNKNOWN_SENDER");
 
-    const decoded = decodeSms(sms.text);
+    // A shared short code routes by keyword ("OPA ..."); the keyword is not part of the message.
+    const keyword = (process.env.AFRICASTALKING_SMS_KEYWORD ?? "").trim();
+    const body = keyword && sms.text.trim().toLowerCase().startsWith(keyword.toLowerCase() + " ")
+      ? sms.text.trim().slice(keyword.length + 1)
+      : sms.text;
+    const decoded = decodeSms(body);
     if (decoded.kind === "UNRECOGNISED") return finish("UNRECOGNISED", { userId: user.id });
 
     let verification: DeliveryVerification = "SMS_NUMBER_ONLY";

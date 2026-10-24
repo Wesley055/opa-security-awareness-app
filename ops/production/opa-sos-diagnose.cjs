@@ -4,7 +4,7 @@
 // METADATA ONLY: short IDs, states, times and counts. No names, emails,
 // phone numbers, locations, message text or incident content are read or printed,
 // so this does not bypass Temporary Access.
-// Run inside the production container:  /usr/local/bin/node opa-sos-diagnose.cjs [hours]
+// Run inside the production container:  /usr/local/bin/node opa-sos-diagnose.cjs [hours] [accounts]
 const WWW = '/home/site/wwwroot';
 const VAULT = 'https://opa-kv-production.vault.azure.net';
 const HOURS = Math.min(Math.max(Number(process.argv[2]) || 48, 1), 168);
@@ -60,6 +60,30 @@ async function runtimeUrl() {
         console.log(`   notifications: ${notes.length ? notes.map((n) => `${n.ch}/${n.st}=${n.n}`).join(' ') : 'none'}`);
       }
       if (!incidents.length) console.log('none');
+
+      if (process.argv.includes('accounts')) {
+        // Email DOMAIN only; names never printed. sameNameAs flags an account whose
+        // first+last name equals a staff seat's, without revealing the name.
+        console.log('\n== PRIVILEGED ACCOUNTS (email domain only) ==');
+        for (const u of await q(`SELECT id, role::text AS role, split_part(email,'@',2) AS domain, "isActive" AS active, "facilityId" AS fac,
+              "createdAt" AS created, "activatedAt" AS activated, "credentialVersion" AS cv, "invitedByUserId" AS inv
+            FROM "User" WHERE role::text IN ('ADMIN','TECHNICAL_SUPPORT','ORGANIZATION_ADMIN','RESPONDER') ORDER BY role, "createdAt"`))
+          console.log(`account=${s8(u.id)} role=${u.role} domain=${u.domain} active=${u.active} facility=${s8(u.fac)} created=${t(u.created)} activated=${t(u.activated)} credentialVersion=${u.cv} invitedBy=${s8(u.inv)}`);
+
+        console.log('\n== AUDIT EVENTS ABOUT PRIVILEGED ACCOUNTS (latest 40) ==');
+        for (const a of await q(`SELECT e."createdAt" AS at, e.action, e."actorUserId" AS actor, e."actorRole" AS ar, e."resourceId" AS res
+            FROM "AdministrativeAuditEvent" e JOIN "User" u ON u.id = e."resourceId"
+            WHERE u.role::text IN ('ADMIN','TECHNICAL_SUPPORT','ORGANIZATION_ADMIN') ORDER BY e."createdAt" DESC LIMIT 40`))
+          console.log(`${t(a.at)} ${a.action} resource=${s8(a.res)} actor=${s8(a.actor)} actorRole=${a.ar}`);
+
+        console.log('\n== RESIDENTS AND STAFF BY FACILITY (no names) ==');
+        for (const u of await q(`SELECT u.id, u.role::text AS role, u."facilityId" AS fac, split_part(u.email,'@',2) AS domain, u."isActive" AS active,
+              u."membershipState"::text AS ms, u."createdAt" AS created, u."invitedByUserId" AS inv,
+              (SELECT s.id FROM "User" s WHERE s.id <> u.id AND s.role::text IN ('FACILITY_OPERATOR','FACILITY_ADMIN','ADMIN','TECHNICAL_SUPPORT')
+                 AND lower(s."firstName") = lower(u."firstName") AND lower(s."lastName") = lower(u."lastName") LIMIT 1) AS same
+            FROM "User" u WHERE u.role::text IN ('USER','FACILITY_OPERATOR','FACILITY_ADMIN') ORDER BY u."facilityId", u.role, u."createdAt"`))
+          console.log(`user=${s8(u.id)} role=${u.role} facility=${s8(u.fac)} domain=${u.domain} active=${u.active} membership=${u.ms} created=${t(u.created)} invitedBy=${s8(u.inv)}${u.same ? ' SAME-NAME-AS=' + s8(u.same) : ''}`);
+      }
 
       console.log('\n== OPEN OR ACKNOWLEDGED NOW (any age) ==');
       for (const o of await q(`SELECT i.id, i."createdAt" AS created, i.status::text AS status, i."facilityId" AS fac, i."userId" AS uid

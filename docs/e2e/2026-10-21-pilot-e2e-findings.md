@@ -11,7 +11,7 @@ Physical testing on Android, build 24, against production `47e37bf`, with the we
 | SMS to emergency contacts (Africa's Talking) | PASS (provider accepted; delivery receipt not available) |
 | Location buffering during an active SOS | PASS (24 Oct, see below) |
 | SOS started offline | FAIL (B1–B5) |
-| SafeWalk | Blocked: switched off on purpose; Nigeria-first rebuild (Issue #54) |
+| SafeWalk | Nigeria-first rebuild built 24 Oct (`ae5853b`, `936c05a`), switched off; physical E2E after release 48 and app 25 / 12 |
 | EstateFlow | Next |
 | Command Center (Technical Support → Facility Admin → Operator) | Itemized walkthrough pending; large |
 

@@ -13,6 +13,7 @@ Design: `docs/design/2026-10-23-emergency-delivery-sms-ussd.md` (approved by the
 | Command Center delivery summary (API) | `665402d` |
 | Command Center delivery summary (website) | `3bed662` |
 | SafeWalk Nigeria-first (server) | `ae5853b` |
+| SafeWalk Nigeria-first (app) | `936c05a` |
 
 Live immediately after this release, even with both switches off:
 - an SOS from the **new app** (Android 25 / iOS 12) carries its activation id and press time, is saved on the phone first, and is retried until OPA confirms it, without ever creating a second alert (fixes B1, B5, B6);
@@ -100,6 +101,19 @@ Callback URLs to give Africa's Talking:
 
 Test against the Africa's Talking sandbox simulator first.
 
+## SafeWalk switch-on (later, separate approval)
+
+Needs the same two-way short code (contacts reply YES / STOP to it) and:
+
+| Setting | Value |
+|---|---|
+| `GOOGLE_MAPS_API_KEY` | existing server key, if production has one; it must have **Places API (New)** enabled and be restricted to the API server. Without it, search says so and people use saved places or a description |
+| `SAFEWALK_ESCALATION_ENABLED` | `true` |
+
+Rules built (owner, 24 Oct): arrival is detected (inside about 100 m, accuracy 50 m or better, for about a minute) and only **asks**; contacts are never told "arrived"; the check stays at +5 min and contacts at +8 min after the expected time; a contact is texted only after replying YES from that number, at most once per journey, and never after "I'm safe", cancel or SOS.
+
+SafeWalk physical E2E (Android and iOS): place search, saved place, description; start; locked phone; arrival prompt and I'm safe from the notification (iPhone asks to unlock); no answer → prompt at +5, contact text at +8 with last location; contact YES and STOP; SOS during a walk stops the contact text; phone off; weak signal; old app still works.
+
 ## Physical E2E before switch-on
 
 Design section 9:
@@ -114,6 +128,8 @@ Design section 9:
 9. Old app version still works.
 
 ## Not in this release (follow-ups)
+
+- **SafeWalk map pin:** dropping a pin on a map needs a native map library and a mobile Maps key; for now: search, saved places or a description.
 
 - **Facility Admin registering feature-phone residents** (name, phone, language, saved places) with an SMS code confirmed over USSD. Until then, USSD works for residents who enrolled through the app.
 - **Lock-screen (native) trigger:** still uses its own durable native queue; it does not yet carry an activation id or offer Send by SMS.

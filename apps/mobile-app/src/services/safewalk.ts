@@ -7,6 +7,7 @@ import { useAuthStore } from '../store/authStore';
 import { useActiveIncidentStore } from '../store/activeIncidentStore';
 import { startTracking, stopTracking, trackerDebugState } from './journey-tracker';
 import { BACKGROUND_SESSION_KEY } from './journey-background-task';
+import { forgetArrivalTarget, rememberArrivalTarget } from './safewalk-arrival';
 
 export interface SafeWalkStatus {
   id: string; status: 'STARTED' | 'ACTIVE' | 'ENDED'; destinationLabel: string;
@@ -16,8 +17,22 @@ export interface SafeWalkStatus {
   safetyChecksEnabled: boolean;
   safeWalkNotices: { id: string; kind: string; deliveryStatus: string; cancelledAt: string | null }[];
   guardianGrants: { id: string; revokedAt: string | null }[];
+  destinationLatitude?: string | number | null; destinationLongitude?: string | number | null;
+  /** Present for journeys started by this app version. */
+  plan?: { destinationKind: DestinationKind; destinationDescription: string | null; arrivalRadiusMeters: number; arrivalDetectedAt: string | null; contacts: number; contactsTexted: number } | null;
 }
-export interface SafeWalkPlan { destinationLabel: string; destinationLatitude: number; destinationLongitude: number; expectedArrivalAt: string; guardianCodes: string[]; }
+export type DestinationKind = 'PLACE' | 'SAVED_PLACE' | 'CURRENT_LOCATION' | 'DESCRIPTION';
+export interface SafeWalkPlan {
+  destinationLabel: string;
+  destinationLatitude?: number;
+  destinationLongitude?: number;
+  expectedArrivalAt: string;
+  guardianCodes: string[];
+  destinationKind?: DestinationKind;
+  placeId?: string;
+  destinationDescription?: string;
+  contactIds?: string[];
+}
 export const useSafeWalk = create<{ journey: SafeWalkStatus | null; error: string | null; refreshedAt: number | null }>(() => ({ journey: null, error: null, refreshedAt: null }));
 const currentUser = () => useAuthStore.getState().user?.id;
 
@@ -43,6 +58,7 @@ export async function refreshSafeWalk(isCurrent = () => true) {
       const backgroundId = await SecureStore.getItemAsync(BACKGROUND_SESSION_KEY);
       if (!isCurrent() || owner !== currentUser()) return;
       if (trackerDebugState().sessionId === remembered || backgroundId === remembered) await stopTracking(remembered);
+      await forgetArrivalTarget(remembered).catch(() => undefined);
       await SecureStore.deleteItemAsync(storageKey);
     }
   } catch {
@@ -65,6 +81,16 @@ export async function createSafeWalk(plan: SafeWalkPlan) {
   if (owner !== currentUser()) return;
   if (data.purpose !== 'SAFEWALK') throw new Error('An emergency is already active. Open SOS to manage it.');
   if (data.status === 'ENDED') { await SecureStore.deleteItemAsync(storageKey); throw new Error('The previous request already completed. Start a new journey.'); }
+  if (destination.destinationLatitude !== undefined && destination.destinationLongitude !== undefined) {
+    await rememberArrivalTarget({
+      sessionId: data.sessionId,
+      latitude: destination.destinationLatitude,
+      longitude: destination.destinationLongitude,
+      radiusMeters: 100,
+      label: destination.destinationLabel,
+      expectedArrivalAt: destination.expectedArrivalAt,
+    }).catch(() => undefined);
+  }
   await refreshSafeWalk();
   for (const code of guardianCodes) {
     if (owner !== currentUser()) return;
@@ -78,6 +104,7 @@ export async function confirmSafeWalk(action: 'confirm-arrival' | 'confirm-safet
   const session = useSafeWalk.getState().journey;
   if (!session) return;
   await api.post('/journey/sessions/' + session.id + '/' + action);
+  if (action !== 'confirm-safety') await forgetArrivalTarget(session.id).catch(() => undefined);
   if (action !== 'confirm-safety' && trackerDebugState().sessionId === session.id && !useActiveIncidentStore.getState().activeIncident) await stopTracking(session.id);
   await refreshSafeWalk();
 }
@@ -90,6 +117,7 @@ export async function escalateSafeWalk() {
   const { data } = await api.post('/incident-orchestrator/activate', { triggerType: 'SOS_BUTTON', mode: 'CONFIRMATION', activationMode: getSosActivationMode(), activationSource: 'SAFEWALK_EXPLICIT', userConfirmed: true, safeWalkSessionId: journey.id });
   if (owner !== currentUser()) throw new Error('Your account changed. Sign in to the original account to verify emergency status.');
   if (!data?.incident?.id) throw new Error('Emergency activation was not confirmed. Retry or use SOS.');
+  await forgetArrivalTarget(journey.id).catch(() => undefined);
   if (['OPEN', 'ACKNOWLEDGED'].includes(data.incident.status)) useActiveIncidentStore.getState().setActiveIncident({ id: data.incident.id, status: 'OPEN', activationMode: incidentPresentationMode(data.incident), notifications: data.notifications });
   await refreshSafeWalk();
   return data.incident.id as string;
@@ -114,4 +142,17 @@ export function startSafeWalkReconciliation() {
   const timer = setInterval(refresh, 15_000);
   authChanged();
   return () => { alive = false; revision++; clearInterval(timer); unsubscribe(); subscription.remove(); };
+}
+
+/** "I'm safe" from the notification, after the app opened and auth is restored. */
+export async function confirmSafeFromNotification(sessionId: string): Promise<boolean> {
+  try {
+    await api.post('/journey/sessions/' + sessionId + '/confirm-arrival');
+    await forgetArrivalTarget(sessionId).catch(() => undefined);
+    if (trackerDebugState().sessionId === sessionId && !useActiveIncidentStore.getState().activeIncident) await stopTracking(sessionId);
+    await refreshSafeWalk();
+    return true;
+  } catch {
+    return false;
+  }
 }

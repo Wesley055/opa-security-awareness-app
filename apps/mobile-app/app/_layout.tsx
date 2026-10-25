@@ -50,6 +50,9 @@ export default function RootLayout() {
    * allowed only after the authenticated state is known.
    */
   const pendingLockScreenSosRef = useRef(false);
+  // SafeWalk prompt actions ("I'm safe" / "SOS"), handled after auth like the SOS action.
+  const pendingSafeWalkRef = useRef<{ action: 'SAFE' | 'SOS' | 'OPEN'; sessionId: string } | null>(null);
+  const [safeWalkSignal, setSafeWalkSignal] = useState(0);
   const safeWalkJourney = useSafeWalk(state => state.journey);
   const lastSafeWalkPrompt = useRef<string | null>(null);
   useEffect(() => {
@@ -119,6 +122,14 @@ export default function RootLayout() {
       ) {
         pendingLockScreenSosRef.current = true;
       }
+      if (alive && response !== null) {
+        const { isSafeWalkResponse } = require('../src/services/safewalk-arrival') as typeof import('../src/services/safewalk-arrival');
+        const safeWalk = isSafeWalkResponse(response);
+        if (safeWalk) {
+          pendingSafeWalkRef.current = safeWalk;
+          setSafeWalkSignal((n) => n + 1);
+        }
+      }
     };
 
     const subscription =
@@ -166,7 +177,23 @@ export default function RootLayout() {
         router.push('/sos');
       }
     }
-  }, [isAuthenticated, isLoading, router, segments, appState]);
+
+    const safeWalk = pendingSafeWalkRef.current;
+    if (safeWalk) {
+      pendingSafeWalkRef.current = null;
+      if (safeWalk.action === 'SOS') {
+        if (segments[0] !== 'sos') router.push('/sos');
+      } else if (safeWalk.action === 'SAFE') {
+        const { confirmSafeFromNotification } = require('../src/services/safewalk') as typeof import('../src/services/safewalk');
+        void confirmSafeFromNotification(safeWalk.sessionId).then((ok) => {
+          if (ok) Alert.alert('SafeWalk finished', "Glad you're safe. Your journey has ended.");
+          else router.push('/safewalk');
+        });
+      } else if (segments[0] !== 'safewalk') {
+        router.push('/safewalk');
+      }
+    }
+  }, [isAuthenticated, isLoading, router, segments, appState, safeWalkSignal]);
 
   useEffect(() => {
     if (isLoading) return;

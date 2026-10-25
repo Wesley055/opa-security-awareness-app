@@ -223,7 +223,8 @@ describe('captureBackgroundFix', () => {
     await captureBackgroundBatch([position, secondPosition]);
 
     expect(mockedOpenStore).toHaveBeenCalledTimes(1);
-    expect(mockedSecureStore.getItemAsync).toHaveBeenCalledTimes(1);
+    // Session ownership is read once per delivery. (SafeWalk arrival reads its own key.)
+    expect(mockedSecureStore.getItemAsync.mock.calls.filter((c) => c[0] === 'opa-background-session-id')).toHaveLength(1);
 
     // This is the GAP-01A invariant: one native TaskManager delivery causes
     // ONE store batch operation, not one exclusive transaction per fix.

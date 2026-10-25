@@ -162,6 +162,23 @@ export async function captureBackgroundBatch(
       },
     );
     log('[OPA-TRACKING] LOCATION_BATCH_DURABLE count=' + String(locations.length));
+    // SafeWalk arrival is detected only AFTER the fixes are durable, and can
+    // never affect capture or replay. It is a no-op outside a SafeWalk.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { checkSafeWalkArrival } = require('./safewalk-arrival') as typeof import('./safewalk-arrival');
+      await checkSafeWalkArrival(
+        sessionId,
+        locations.map((p) => ({
+          latitude: p.coords.latitude,
+          longitude: p.coords.longitude,
+          accuracy: typeof p.coords.accuracy === 'number' ? p.coords.accuracy : null,
+          timestamp: typeof p.timestamp === 'number' && Number.isFinite(p.timestamp) ? p.timestamp : Date.now(),
+        })),
+      );
+    } catch {
+      // Arrival prompts are a convenience; the server-side check still runs.
+    }
     if (result.dropped > 0) {
       log(
         'background queue overflow - dropped ' + String(result.dropped) +

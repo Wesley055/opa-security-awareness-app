@@ -57,7 +57,7 @@ The migration is additive: eight new tables (five delivery, three SafeWalk: `Saf
    ```powershell
    cd C:\Projects\OPA-release-simplification
    git pull --rebase --autostash
-   powershell -ExecutionPolicy Bypass -File .\ops\production-release\release-api.ps1 -PreviousPolicy ".\artifacts\release-c889a81\api-release-c889a81.signed.json" -DbPackage "$env:USERPROFILE\Downloads\opa-release-db-48.zip" -DbPackageSha 9899d59bfc9e050d5d8aedc5d40c3da42dab5d294bb59cdc4e133cc874e5d90b
+   powershell -ExecutionPolicy Bypass -File .\ops\production-release\release-api.ps1 -PreviousPolicy ".\artifacts\release-c889a81\api-release-c889a81.signed.json" -DbPackage "$env:USERPROFILE\Downloads\opa-release-db-48.zip" -DbPackageSha 5029d887e86ecafbca9942279722a83db75b921f5ad1e3c88ce9a365fd9866aa
    ```
    Expect `MIGRATIONS=48` (one new migration). It pauses at 4b/7.
 2. **Window 2:** `az webapp ssh -g opa-production -n opa-api-production`, then:

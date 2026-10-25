@@ -1,5 +1,5 @@
 \set ON_ERROR_STOP on
--- Administrator only. Release 48: release 47 cleanup plus the emergency delivery tables and types. Explicit production approval required before running.
+-- Administrator only. Release 48: release 47 cleanup plus the emergency delivery and SafeWalk tables and types. Explicit production approval required before running.
 -- No credentials in this script. Use an approved TLS psql service/credential provider.
 DO $$ BEGIN
  IF current_database() <> 'opa-api-production-database' OR (SELECT count(*) FROM opa_deployment.environment_identity) <> 1
@@ -189,6 +189,24 @@ DO $$ BEGIN IF to_regclass('public."UssdSession"') IS NOT NULL THEN
  GRANT SELECT, INSERT, UPDATE, DELETE ON public."UssdSession" TO "opa_production_runtime";
  GRANT REFERENCES ON public."UssdSession" TO "opa_production_migrations";
 END IF; END $$;
+DO $$ BEGIN IF to_regclass('public."SafeWalkPlan"') IS NOT NULL THEN
+ IF (SELECT relowner FROM pg_class WHERE oid=to_regclass('public."SafeWalkPlan"')) NOT IN (SELECT oid FROM pg_roles WHERE rolname IN ('opa_production_migrations','opa_production_release_owner')) THEN RAISE EXCEPTION 'NEW_OBJECT_OWNER'; END IF;
+ ALTER TABLE public."SafeWalkPlan" OWNER TO "opa_production_release_owner";
+ GRANT SELECT, INSERT, UPDATE, DELETE ON public."SafeWalkPlan" TO "opa_production_runtime";
+ GRANT REFERENCES ON public."SafeWalkPlan" TO "opa_production_migrations";
+END IF; END $$;
+DO $$ BEGIN IF to_regclass('public."SafeWalkContactConsent"') IS NOT NULL THEN
+ IF (SELECT relowner FROM pg_class WHERE oid=to_regclass('public."SafeWalkContactConsent"')) NOT IN (SELECT oid FROM pg_roles WHERE rolname IN ('opa_production_migrations','opa_production_release_owner')) THEN RAISE EXCEPTION 'NEW_OBJECT_OWNER'; END IF;
+ ALTER TABLE public."SafeWalkContactConsent" OWNER TO "opa_production_release_owner";
+ GRANT SELECT, INSERT, UPDATE, DELETE ON public."SafeWalkContactConsent" TO "opa_production_runtime";
+ GRANT REFERENCES ON public."SafeWalkContactConsent" TO "opa_production_migrations";
+END IF; END $$;
+DO $$ BEGIN IF to_regclass('public."SafeWalkContactNotice"') IS NOT NULL THEN
+ IF (SELECT relowner FROM pg_class WHERE oid=to_regclass('public."SafeWalkContactNotice"')) NOT IN (SELECT oid FROM pg_roles WHERE rolname IN ('opa_production_migrations','opa_production_release_owner')) THEN RAISE EXCEPTION 'NEW_OBJECT_OWNER'; END IF;
+ ALTER TABLE public."SafeWalkContactNotice" OWNER TO "opa_production_release_owner";
+ GRANT SELECT, INSERT, UPDATE, DELETE ON public."SafeWalkContactNotice" TO "opa_production_runtime";
+ GRANT REFERENCES ON public."SafeWalkContactNotice" TO "opa_production_migrations";
+END IF; END $$;
 DO $$ BEGIN IF to_regclass('public."SupportCase_sequence_seq"') IS NOT NULL THEN ALTER SEQUENCE public."SupportCase_sequence_seq" OWNER TO "opa_production_release_owner"; GRANT USAGE, SELECT ON SEQUENCE public."SupportCase_sequence_seq" TO "opa_production_runtime"; END IF; END $$;
 DO $$ BEGIN IF to_regtype('public."OnboardingPermission"') IS NOT NULL THEN ALTER TYPE public."OnboardingPermission" OWNER TO "opa_production_release_owner"; GRANT USAGE ON TYPE public."OnboardingPermission" TO "opa_production_runtime"; END IF; END $$;
 DO $$ BEGIN IF to_regtype('public."FacilityMembershipState"') IS NOT NULL THEN ALTER TYPE public."FacilityMembershipState" OWNER TO "opa_production_release_owner"; GRANT USAGE ON TYPE public."FacilityMembershipState" TO "opa_production_runtime"; END IF; END $$;
@@ -204,6 +222,8 @@ DO $$ BEGIN IF to_regtype('public."DutyShiftEnd"') IS NOT NULL THEN ALTER TYPE p
 DO $$ BEGIN IF to_regtype('public."DutyReportOrigin"') IS NOT NULL THEN ALTER TYPE public."DutyReportOrigin" OWNER TO "opa_production_release_owner"; GRANT USAGE ON TYPE public."DutyReportOrigin" TO "opa_production_runtime"; END IF; END $$;
 DO $$ BEGIN IF to_regtype('public."IncidentChannel"') IS NOT NULL THEN ALTER TYPE public."IncidentChannel" OWNER TO "opa_production_release_owner"; GRANT USAGE ON TYPE public."IncidentChannel" TO "opa_production_runtime"; END IF; END $$;
 DO $$ BEGIN IF to_regtype('public."DeliveryVerification"') IS NOT NULL THEN ALTER TYPE public."DeliveryVerification" OWNER TO "opa_production_release_owner"; GRANT USAGE ON TYPE public."DeliveryVerification" TO "opa_production_runtime"; END IF; END $$;
+DO $$ BEGIN IF to_regtype('public."SafeWalkDestinationKind"') IS NOT NULL THEN ALTER TYPE public."SafeWalkDestinationKind" OWNER TO "opa_production_release_owner"; GRANT USAGE ON TYPE public."SafeWalkDestinationKind" TO "opa_production_runtime"; END IF; END $$;
+DO $$ BEGIN IF to_regtype('public."SafeWalkContactConsentStatus"') IS NOT NULL THEN ALTER TYPE public."SafeWalkContactConsentStatus" OWNER TO "opa_production_release_owner"; GRANT USAGE ON TYPE public."SafeWalkContactConsentStatus" TO "opa_production_runtime"; END IF; END $$;
 DO $$ BEGIN IF to_regprocedure('public."duty_report_immutable"()') IS NOT NULL THEN ALTER FUNCTION public."duty_report_immutable"() OWNER TO "opa_production_release_owner"; REVOKE ALL ON FUNCTION public."duty_report_immutable"() FROM PUBLIC, "opa_production_migrations"; GRANT EXECUTE ON FUNCTION public."duty_report_immutable"() TO "opa_production_runtime"; END IF; END $$;
 DO $$ BEGIN IF to_regprocedure('public."protect_last_facility_admin"()') IS NOT NULL THEN ALTER FUNCTION public."protect_last_facility_admin"() OWNER TO "opa_production_release_owner"; REVOKE ALL ON FUNCTION public."protect_last_facility_admin"() FROM PUBLIC, "opa_production_migrations"; GRANT EXECUTE ON FUNCTION public."protect_last_facility_admin"() TO "opa_production_runtime"; END IF; END $$;
 DO $$ BEGIN IF to_regprocedure('public."commission_facility_admin"()') IS NOT NULL THEN ALTER FUNCTION public."commission_facility_admin"() OWNER TO "opa_production_release_owner"; REVOKE ALL ON FUNCTION public."commission_facility_admin"() FROM PUBLIC, "opa_production_migrations"; GRANT EXECUTE ON FUNCTION public."commission_facility_admin"() TO "opa_production_runtime"; END IF; END $$;

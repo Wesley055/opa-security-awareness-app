@@ -1,8 +1,8 @@
-# Release 48: emergency delivery (offline SOS, SMS fallback, USSD) — database 47 → 48
+# Release 48: emergency delivery (offline SOS, SMS fallback, USSD) and SafeWalk Nigeria-first — database 47 → 48
 
 Design: `docs/design/2026-10-23-emergency-delivery-sms-ussd.md` (approved by the founder 23 Oct, including the section 10 recommendations).
 
-**What ships, all switched off.** SMS fallback and USSD do nothing until `SMS_FALLBACK_ENABLED=true` / `USSD_ENABLED=true` are set in a later, separate step. This release needs **no production setting or secret changes**.
+**What ships, all switched off.** SMS fallback, USSD and SafeWalk do nothing until `SMS_FALLBACK_ENABLED=true` / `USSD_ENABLED=true` / `SAFEWALK_ESCALATION_ENABLED=true` are set in later, separate steps. SafeWalk (Issue #54, approved 24 Oct with the arrival rules) is in the same single migration. This release needs **no production setting or secret changes**.
 
 | Part | Commit |
 |---|---|
@@ -12,6 +12,7 @@ Design: `docs/design/2026-10-23-emergency-delivery-sms-ussd.md` (approved by the
 | App: Saved places screen | `7b16592`, `a4aa3d3` |
 | Command Center delivery summary (API) | `665402d` |
 | Command Center delivery summary (website) | `3bed662` |
+| SafeWalk Nigeria-first (server) | `ae5853b` |
 
 Live immediately after this release, even with both switches off:
 - an SOS from the **new app** (Android 25 / iOS 12) carries its activation id and press time, is saved on the phone first, and is retried until OPA confirms it, without ever creating a second alert (fixes B1, B5, B6);
@@ -22,32 +23,32 @@ Older apps work exactly as before.
 
 ## Database package
 
-`opa-release-db-48.zip`, SHA-256 `9899d59bfc9e050d5d8aedc5d40c3da42dab5d294bb59cdc4e133cc874e5d90b`.
+`opa-release-db-48.zip`, SHA-256 `5029d887e86ecafbca9942279722a83db75b921f5ad1e3c88ce9a365fd9866aa`. **This replaces the earlier 48 package (`9899d59b…`), which must not be used.**
 
 | File | SHA-256 |
 |---|---|
 | `activate.sql` | `a88b43b9…` (unchanged since 46) |
-| `prepare.sql` | `ee6b3e24…` (**new**) |
-| `cleanup.sql` | `d6402ab1…` (47 cleanup plus 5 tables and 2 enums) |
-| migration `20261024010000_emergency_delivery` | `1797d64a…` |
-| `schema.prisma` | `4fd1c636…` |
+| `prepare.sql` | `f187bb2a…` (**new**) |
+| `cleanup.sql` | `ea906124…` (47 cleanup plus 8 tables and 4 enums) |
+| migration `20261024010000_emergency_delivery` | `3a6b58cb…` (delivery and SafeWalk in one transaction) |
+| `schema.prisma` | `7d1f214f…` |
 
-The migration is additive: five new tables, two enums and `User.preferredLanguage`. It deliberately **does not alter `Incident`**, which is administrator-owned in production.
+The migration is additive: eight new tables (five delivery, three SafeWalk: `SafeWalkPlan`, `SafeWalkContactConsent`, `SafeWalkContactNotice`), four enums and `User.preferredLanguage`. It deliberately **does not alter `Incident`, `JourneySession`, `EmergencyContact` or the existing SafeWalk tables**, which may be administrator-owned in production.
 
-**Why prepare is back.** `EmergencyActivation` has a foreign key to `Incident`, and a foreign key needs the REFERENCES privilege. The rehearsal, using the production ownership layout with `Incident` owned by the administrator, reproduced the failure without prepare: `permission denied for table Incident`. Nothing was left behind. `prepare.sql`:
-- grants REFERENCES on `Incident` to the scoped NOLOGIN release owner (idempotent; a no-op if the release owner already owns it);
+**Why prepare is back.** The new tables have foreign keys to `Incident`, `JourneySession` and `EmergencyContact`, and a foreign key needs the REFERENCES privilege. The rehearsal, using the production ownership layout with `Incident` owned by the administrator, reproduced the failure without prepare: `permission denied for table Incident`. Nothing was left behind. `prepare.sql`:
+- grants REFERENCES on `Incident`, `JourneySession` and `EmergencyContact` to the scoped NOLOGIN release owner (idempotent; a no-op where the release owner already owns the table); refuses if any of them has an unexpected owner;
 - **refuses** unless `User` is already owned by the release owner (release 46 added columns to it).
 
-**Rehearsal** (local PostgreSQL 16, production role layout and ownership contract): migration fails without prepare, as expected, leaving 0 tables. Then prepare (run twice, idempotent) → activate → migrate as `opa_production_migrations` → cleanup:
+**Rehearsal** (local PostgreSQL 16, production role layout and ownership contract, with `Incident`, `JourneySession` and `EmergencyContact` administrator-owned as the worst case): migration fails without prepare, as expected, leaving 0 tables. Then prepare (run twice, idempotent) → activate → migrate as `opa_production_migrations` → cleanup:
 - migrator-owned objects 0;
-- delivery tables owned by the release owner: 5/5;
-- enums owned by the release owner: 2/2;
+- new tables owned by the release owner: 8/8;
+- enums owned by the release owner: 4/4;
 - `preferredLanguage` column: 1;
 - the migrator is no longer an owner member and cannot create objects in `public`;
 - tables the runtime cannot read: 0;
-- the runtime can insert and update every new table, and the language check constraint rejects `fr`.
+- the runtime can insert and update every new table; the language check rejects `fr` and the notice-status check rejects unknown states.
 
-`check` reports `NEXT prepare, then activate`. `activate` refuses (`RUN_PREPARE_FIRST`) until prepare has run. `verify` adds `deliveryTablesOwnedByReleaseOwner 5`, `deliveryTypesOwnedByReleaseOwner 2` and `preferredLanguageColumn 1` to every release-47 condition.
+`check` reports `NEXT prepare, then activate`. `activate` refuses (`RUN_PREPARE_FIRST`) until prepare has run. `verify` adds `deliveryTablesOwnedByReleaseOwner 8`, `deliveryTypesOwnedByReleaseOwner 4` and `preferredLanguageColumn 1` to every release-47 condition.
 
 ## Steps
 
@@ -58,7 +59,7 @@ The migration is additive: five new tables, two enums and `User.preferredLanguag
    git pull --rebase --autostash
    powershell -ExecutionPolicy Bypass -File .\ops\production-release\release-api.ps1 -PreviousPolicy ".\artifacts\release-c889a81\api-release-c889a81.signed.json" -DbPackage "$env:USERPROFILE\Downloads\opa-release-db-48.zip" -DbPackageSha 9899d59bfc9e050d5d8aedc5d40c3da42dab5d294bb59cdc4e133cc874e5d90b
    ```
-   Expect `MIGRATIONS=48`. It pauses at 4b/7.
+   Expect `MIGRATIONS=48` (one new migration). It pauses at 4b/7.
 2. **Window 2:** `az webapp ssh -g opa-production -n opa-api-production`, then:
    ```bash
    cd /home/opa-release-duty && /usr/local/bin/node opa-release-db.cjs check

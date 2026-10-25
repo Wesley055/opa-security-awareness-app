@@ -1,5 +1,5 @@
 'use strict';
-// OPA production database release runner. This release: schema 47 -> 48 (emergency delivery: SMS fallback, USSD).
+// OPA production database release runner. This release: schema 47 -> 48 (emergency delivery: SMS fallback, USSD; SafeWalk Nigeria-first).
 // Pinned per release: SQL hashes, new migration hashes, schema hash and counts.
 // Runs inside the production App Service container with /usr/local/bin/node.
 // Modes, run separately and by hand: check | prepare | activate | resolve | migrate | cleanup | verify
@@ -20,19 +20,21 @@ const VAULT = 'https://opa-kv-production.vault.azure.net';
 const SECRETS = { admin: 'opa-production-postgresql-admin-password', migrator: 'opa-production-database-migration-password' };
 const SQL_HASH = {
   activate: 'a88b43b93c4f75db182ee01b522758b324f9a32cb4cbdc4eed81de436674d566',
-  // REFERENCES on "Incident" for the release owner; refuses unless "User" is release-owner owned.
-  prepare: 'ee6b3e24e4e6fe200ec31b15cc55f74ffdadbec00138f1771d4729d3d6cb70f1',
-  // Release 47 cleanup plus the five emergency delivery tables and two enums.
-  cleanup: 'd6402ab1525d9b839e9d97338fd9df1d60e8e0f91148c6c269a371448a2f212e',
+  // REFERENCES on "Incident", "JourneySession" and "EmergencyContact" for the release owner; refuses unless "User" is release-owner owned.
+  prepare: 'f187bb2a32df4689d91e7769475bf04ae79588b458916a91e1af39528bd80732',
+  // Release 47 cleanup plus eight new tables (five delivery, three SafeWalk) and four enums.
+  cleanup: 'ea906124bc924b62e81bc5cf775e1d3f10014f56afe41180fa87f7817c16af13',
 };
 const NEW_MIGRATIONS = {
-  '20261024010000_emergency_delivery': '1797d64afed997b3d0538dc2d85d7c01993a610d777834b6249031a5a5bc5d1b',
+  '20261024010000_emergency_delivery': '3a6b58cb198c4f12dfc6832fa4d6607b6b68d4c47eb18ce4129173b7e610537b',
 };
-const SCHEMA_HASH = '4fd1c636fc30cc2b77c2b0407ea6b978d506c4d01909b30e02bd6da9a2bb6a33';
+const SCHEMA_HASH = '7d1f214f389cfac8f66602515dfe73656b3738af246868d0cd5ee03d9c0e5391';
 const BEFORE = 47, AFTER = 48;
 // If this release's migration ever fails, `resolve` marks that one attempt rolled back.
 const FAILED = '20261024010000_emergency_delivery';
-const DELIVERY_TABLES = ['EmergencyActivation', 'SavedPlace', 'DeviceSmsKey', 'InboundMessage', 'UssdSession'];
+const DELIVERY_TABLES = ['EmergencyActivation', 'SavedPlace', 'DeviceSmsKey', 'InboundMessage', 'UssdSession', 'SafeWalkPlan', 'SafeWalkContactConsent', 'SafeWalkContactNotice'];
+const DELIVERY_TYPES = ['IncidentChannel', 'DeliveryVerification', 'SafeWalkDestinationKind', 'SafeWalkContactConsentStatus'];
+const REFERENCED = ['Incident', 'JourneySession', 'EmergencyContact'];
 const inList = names => names.map(x => `'${x}'`).join(',');
 
 const sha = b => crypto.createHash('sha256').update(b).digest('hex');
@@ -115,10 +117,10 @@ async function state(c) {
     dutyImmutableTrigger: n((await q(`SELECT count(*) AS v FROM pg_trigger WHERE tgname='duty_report_immutable' AND NOT tgisinternal`)).v),
     // Release 48.
     userTableOwner: (await q(`SELECT relowner::regrole::text AS v FROM pg_class WHERE oid=to_regclass('public."User"')`)).v,
-    incidentReferenceableByOwner: (await q(`SELECT has_table_privilege('${OWNER}','public."Incident"','REFERENCES') AS v`)).v,
+    incidentReferenceableByOwner: n((await q(`SELECT count(*) AS v FROM unnest(ARRAY[${inList(REFERENCED)}]) t WHERE has_table_privilege('${OWNER}', format('public.%I', t), 'REFERENCES')`)).v) === REFERENCED.length,
     deliveryTablesExist: n((await q(`SELECT count(*) AS v FROM pg_class WHERE relnamespace='public'::regnamespace AND relname IN (${inList(DELIVERY_TABLES)})`)).v),
     deliveryTablesOwnedByReleaseOwner: n((await q(`SELECT count(*) AS v FROM pg_class WHERE relnamespace='public'::regnamespace AND relname IN (${inList(DELIVERY_TABLES)}) AND relowner=(SELECT oid FROM pg_roles WHERE rolname='${OWNER}')`)).v),
-    deliveryTypesOwnedByReleaseOwner: n((await q(`SELECT count(*) AS v FROM pg_type WHERE typname IN ('IncidentChannel','DeliveryVerification') AND typowner=(SELECT oid FROM pg_roles WHERE rolname='${OWNER}')`)).v),
+    deliveryTypesOwnedByReleaseOwner: n((await q(`SELECT count(*) AS v FROM pg_type WHERE typname IN (${inList(DELIVERY_TYPES)}) AND typowner=(SELECT oid FROM pg_roles WHERE rolname='${OWNER}')`)).v),
     preferredLanguageColumn: n((await q(`SELECT count(*) AS v FROM information_schema.columns WHERE table_schema='public' AND table_name='User' AND column_name='preferredLanguage'`)).v),
   };
 }
@@ -236,7 +238,7 @@ async function main() {
         && !s.runtimeCanCreateInPublic && s.dutyTablesOwnedByReleaseOwner === 2 && s.staffPhotoColumns === 5
         && s.sectorFacilityTypes === 4 && s.dutyImmutableTrigger === 1 && s.facilityTypeOwner === OWNER && !s.failedAttempt
         && s.recoveryTableOwnedByReleaseOwner === 1
-        && s.deliveryTablesOwnedByReleaseOwner === DELIVERY_TABLES.length && s.deliveryTypesOwnedByReleaseOwner === 2
+        && s.deliveryTablesOwnedByReleaseOwner === DELIVERY_TABLES.length && s.deliveryTypesOwnedByReleaseOwner === DELIVERY_TYPES.length
         && s.preferredLanguageColumn === 1;
       log('VERIFY', pass ? 'PASS' : 'FAIL');
       if (!pass) process.exitCode = 1;

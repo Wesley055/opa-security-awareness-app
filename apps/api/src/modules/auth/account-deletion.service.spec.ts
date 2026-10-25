@@ -44,6 +44,7 @@ function fixture() {
     enrollmentRequest: { updateMany: jest.fn() },
     visitorPass: { updateMany: jest.fn() },
     savedPlace: { deleteMany: jest.fn() },
+    safeWalkPlan: { updateMany: jest.fn() },
     deviceSmsKey: { updateMany: jest.fn() },
     passwordResetToken: { deleteMany: jest.fn() },
     emergencyContact: { deleteMany: jest.fn() },

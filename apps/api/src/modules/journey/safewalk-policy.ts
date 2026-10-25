@@ -98,6 +98,11 @@ export async function settleSafeWalk(
     where: { sessionId, cancelledAt: null },
     data: { cancelledAt: now },
   });
+  // Contacts chosen for this journey are never texted once it has settled.
+  await tx.safeWalkContactNotice.updateMany({
+    where: { sessionId, status: { in: ["SELECTED", "QUEUED"] } },
+    data: { status: "CANCELLED", cancelledAt: now },
+  });
   if (changed.count) {
     await tx.safeWalkAudit.create({
       data: {

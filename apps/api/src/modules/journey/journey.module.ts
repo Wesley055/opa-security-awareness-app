@@ -9,6 +9,10 @@ import { SafeWalkService } from './safewalk.service';
 import { SafeWalkGuardianService } from './safewalk-guardian.service';
 import { SafeWalkGuardianController } from './safewalk-guardian.controller';
 import { SafeWalkEscalationService } from './safewalk-escalation.service';
+import { SafeWalkContactsService } from './safewalk-contacts.service';
+import { SafeWalkPlacesService } from './safewalk-places.service';
+import { SafeWalkNigeriaController } from './safewalk-nigeria.controller';
+import { SafeWalkContactNoticeWorker } from './safewalk-contact-notice.worker';
 import { EmergencyIntelligenceModule } from '../emergency-intelligence/emergency-intelligence.module';
 
 // JourneySessionService still receives its transaction client explicitly.
@@ -16,8 +20,8 @@ import { EmergencyIntelligenceModule } from '../emergency-intelligence/emergency
 // JourneyIngestionService after a successful committed ingestion.
 @Module({
   imports: [EmergencyIntelligenceModule, NotificationModule, ProtectedIdentityModule],
-  controllers: [JourneyController, SafeWalkGuardianController],
-  providers: [JourneySessionService, JourneyIngestionService, SafeWalkService, SafeWalkGuardianService, SafeWalkEscalationService, SafeWalkNotificationWorker],
+  controllers: [JourneyController, SafeWalkGuardianController, SafeWalkNigeriaController],
+  providers: [JourneySessionService, JourneyIngestionService, SafeWalkService, SafeWalkGuardianService, SafeWalkEscalationService, SafeWalkNotificationWorker, SafeWalkContactsService, SafeWalkPlacesService, SafeWalkContactNoticeWorker],
   exports: [JourneySessionService],
 })
 export class JourneyModule {}

@@ -182,6 +182,23 @@ export class SafeWalkEscalationService {
           },
         });
       }
+      // Contacts who replied YES get one non-emergency text. Eligibility is
+      // checked again at send time, under the same journey lock.
+      const queued = await tx.safeWalkContactNotice.updateMany({
+        where: { sessionId, status: "SELECTED" },
+        data: { status: "QUEUED", queuedAt: now, nextAttemptAt: now },
+      });
+      if (queued.count) {
+        await tx.safeWalkAudit.create({
+          data: {
+            sessionId,
+            eventKey: sessionId + ":contacts-queued",
+            kind: "CONTACT_NOTICES_QUEUED",
+            reasonCode: "SAFETY_CHECK_UNANSWERED",
+            occurredAt: now,
+          },
+        });
+      }
       await tx.safeWalkEscalation.update({
         where: { sessionId },
         data: { state: "ESCALATED", escalatedAt: now },

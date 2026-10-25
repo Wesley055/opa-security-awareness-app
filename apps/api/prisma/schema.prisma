@@ -131,6 +131,8 @@ model User {
   /// Emergency delivery (release 48): language for USSD/SMS, saved places, SMS keys.
   preferredLanguage String?  @db.VarChar(8)
   savedPlaces       SavedPlace[]
+  safeWalkPlans     SafeWalkPlan[]
+  safeWalkContactConsents SafeWalkContactConsent[]
   smsKeys           DeviceSmsKey[]
   emergencyActivations EmergencyActivation[]
   firstName    String
@@ -247,6 +249,7 @@ model EmergencyContact {
   isPrimary            Boolean  @default(false)
   isActive             Boolean  @default(true)
   receivesEmergencySms Boolean  @default(true)
+  safeWalkConsent      SafeWalkContactConsent?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
@@ -598,6 +601,7 @@ model JourneySession {
   safeWalkEscalation SafeWalkEscalation?
   safeWalkNotices SafeWalkNotice[]
   safeWalkAudits SafeWalkAudit[]
+  safeWalkPlan   SafeWalkPlan?
   @@unique([id, userId])
   @@unique([userId, safeWalkCreateKey])
   @@index([userId, status, startedAt])
@@ -1638,4 +1642,79 @@ model UssdSession {
   updatedAt  DateTime @updatedAt
 
   @@index([msisdnHash, createdAt(sort: Desc)])
+}
+
+enum SafeWalkDestinationKind {
+  PLACE
+  SAVED_PLACE
+  CURRENT_LOCATION
+  DESCRIPTION
+}
+
+enum SafeWalkContactConsentStatus {
+  PENDING
+  CONSENTED
+  DECLINED
+  REVOKED
+}
+
+/// SafeWalk Nigeria-first detail for one journey (release 48). Kept apart from
+/// JourneySession, which may be administrator-owned in production.
+model SafeWalkPlan {
+  sessionId              String                  @id @db.Uuid
+  session                JourneySession          @relation(fields: [sessionId], references: [id], onDelete: Restrict)
+  userId                 String                  @db.Uuid
+  user                   User                    @relation(fields: [userId], references: [id], onDelete: Restrict)
+  destinationKind        SafeWalkDestinationKind
+  placeId                String?                 @db.VarChar(256)
+  /// Typed by the person; never treated as a verified location.
+  destinationDescription String?                 @db.VarChar(160)
+  arrivalRadiusMeters    Int                     @default(100)
+  /// Detected by the phone. NOT a safety confirmation and never shared.
+  arrivalDetectedAt      DateTime?
+  createdAt              DateTime                @default(now())
+  contactNotices         SafeWalkContactNotice[]
+
+  @@index([userId])
+}
+
+/// A contact's own YES, from the invited number. A changed number voids it.
+model SafeWalkContactConsent {
+  id                 String                       @id @default(uuid()) @db.Uuid
+  userId             String                       @db.Uuid
+  user               User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emergencyContactId String                       @unique @db.Uuid
+  emergencyContact   EmergencyContact             @relation(fields: [emergencyContactId], references: [id], onDelete: Cascade)
+  phoneHash          String                       @db.Char(64)
+  status             SafeWalkContactConsentStatus @default(PENDING)
+  invitedAt          DateTime                     @default(now())
+  inviteCount        Int                          @default(1)
+  respondedAt        DateTime?
+  updatedAt          DateTime                     @updatedAt
+  notices            SafeWalkContactNotice[]
+
+  @@index([phoneHash, status])
+  @@index([userId])
+}
+
+/// A contact chosen for one journey, and the one overdue text they may get.
+model SafeWalkContactNotice {
+  id                String                 @id @default(uuid()) @db.Uuid
+  sessionId         String                 @db.Uuid
+  plan              SafeWalkPlan           @relation(fields: [sessionId], references: [sessionId], onDelete: Restrict)
+  consentId         String                 @db.Uuid
+  consent           SafeWalkContactConsent @relation(fields: [consentId], references: [id], onDelete: Cascade)
+  /// SELECTED | QUEUED | SENT | FAILED | CANCELLED
+  status            String                 @default("SELECTED") @db.VarChar(16)
+  attemptCount      Int                    @default(0)
+  nextAttemptAt     DateTime?
+  queuedAt          DateTime?
+  sentAt            DateTime?
+  cancelledAt       DateTime?
+  providerMessageId String?                @db.VarChar(120)
+  failureCategory   String?                @db.VarChar(40)
+  createdAt         DateTime               @default(now())
+
+  @@unique([sessionId, consentId])
+  @@index([status, nextAttemptAt])
 }

@@ -1,5 +1,7 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomInt, randomUUID } from "node:crypto";
 import {
+  HttpException,
+  HttpStatus,
   Injectable,
   NotFoundException,
   ConflictException,
@@ -16,6 +18,26 @@ import {
 
 const missing = () => new NotFoundException("SafeWalk resource not found.");
 const hash = (code: string) => createHash("sha256").update(code).digest("hex");
+
+/** No I, L, O, U, 0 or 1: easy to read out over the phone. */
+export const SHORT_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTVWXYZ23456789";
+export const SHORT_CODE_LENGTH = 8;
+/** Wrong codes allowed per journey in 10 minutes before pairing pauses. */
+export const MAX_REJECTED_CODES = 5;
+
+export function generateShortCode(pick: (n: number) => number = randomInt): string {
+  let out = "";
+  for (let i = 0; i < SHORT_CODE_LENGTH; i++) out += SHORT_CODE_ALPHABET[pick(SHORT_CODE_ALPHABET.length)];
+  return out;
+}
+
+/** Accepts "abcd efgh", "ABCD-EFGH" and the old 64-character codes. */
+export function normalizeGuardianCode(input: string): string | null {
+  const trimmed = input.trim();
+  if (/^[a-f0-9]{64}$/.test(trimmed)) return trimmed;
+  const short = trimmed.toUpperCase().replace(/[\s-]/g, "");
+  return short.length === SHORT_CODE_LENGTH && [...short].every((c) => SHORT_CODE_ALPHABET.includes(c)) ? short : null;
+}
 
 @Injectable()
 export class SafeWalkGuardianService {
@@ -35,7 +57,7 @@ export class SafeWalkGuardianService {
       });
       if (pending >= 5)
         throw new ConflictException("Too many pending SafeWalk pairing codes.");
-      const code = randomBytes(32).toString("hex");
+      const code = generateShortCode();
       const expiresAt = new Date(now.getTime() + 10 * 60_000);
       await tx.safeWalkGuardianCode.create({
         data: { userId: guardianId, codeHash: hash(code), expiresAt },
@@ -44,8 +66,30 @@ export class SafeWalkGuardianService {
     });
   }
 
-  async authorize(ownerId: string, sessionId: string, code: string) {
-    if (!/^[a-f0-9]{64}$/.test(code)) throw missing();
+  async authorize(ownerId: string, sessionId: string, input: string) {
+    const code = normalizeGuardianCode(input);
+    if (!code) throw missing();
+    // Short codes are guessable in bulk, so wrong guesses are limited per journey.
+    const rejected = await this.prisma.safeWalkAudit.count({
+      where: { sessionId, kind: "GUARDIAN_CODE_REJECTED", occurredAt: { gt: new Date(Date.now() - 10 * 60_000) } },
+    });
+    if (rejected >= MAX_REJECTED_CODES)
+      throw new HttpException("Too many wrong codes. Wait 10 minutes and try again.", HttpStatus.TOO_MANY_REQUESTS);
+    try {
+      return await this.authorizeCode(ownerId, sessionId, code);
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        const own = await this.prisma.journeySession.findFirst({ where: { id: sessionId, userId: ownerId }, select: { id: true } });
+        if (own)
+          await this.prisma.safeWalkAudit
+            .create({ data: { sessionId, actorUserId: ownerId, eventKey: sessionId + ":code-rejected:" + randomUUID(), kind: "GUARDIAN_CODE_REJECTED", reasonCode: "CODE_NOT_ACCEPTED" } })
+            .catch(() => undefined);
+      }
+      throw error;
+    }
+  }
+
+  private async authorizeCode(ownerId: string, sessionId: string, code: string) {
     return this.prisma.$transaction(async (tx) => {
       await lockJourney(tx, ownerId, sessionId);
       const session = await tx.journeySession.findFirst({

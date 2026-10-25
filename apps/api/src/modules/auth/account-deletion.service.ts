@@ -166,6 +166,7 @@ export class AccountDeletionService {
           });
           // Emergency delivery (release 48): saved places are personal; SMS keys stop verifying.
           await tx.savedPlace.deleteMany({ where: { userId } });
+          await tx.safeWalkPlan.updateMany({ where: { userId }, data: { destinationDescription: null, placeId: null } });
           await tx.deviceSmsKey.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: now } });
           await tx.passwordResetToken.deleteMany({ where: { userId } });
           await tx.emergencyContact.deleteMany({ where: { userId } });

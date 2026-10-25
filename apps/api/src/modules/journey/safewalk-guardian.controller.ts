@@ -16,7 +16,8 @@ import { SafeWalkGuardianService } from "./safewalk-guardian.service";
 
 class AuthorizeGuardianDto {
   @IsString()
-  @Matches(/^[a-f0-9]{64}$/)
+  // 8-character short code (spaces or a dash allowed) or the old 64-character code.
+  @Matches(/^(?:[a-f0-9]{64}|[A-Za-z0-9][A-Za-z0-9 -]{6,10}[A-Za-z0-9])$/)
   code!: string;
 }
 type AuthRequest = Request & { user: JwtPayload };

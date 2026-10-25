@@ -14,7 +14,8 @@ import type { CreateIncidentRequestDto } from "../incident-orchestrator/dto/crea
 import { decodeSms, deriveDeviceKey, macMatches } from "./sms-codec";
 import { msisdnHash, smsFallbackEnabled } from "./delivery-identity";
 import { signingSecret } from "./sms-keys.service";
-import { sendReceipt } from "./sms-reply";
+import { sendFromShortcode, sendReceipt } from "./sms-reply";
+import { applyConsentReply, consentReplyText, consentWord } from "../journey/safewalk-consent";
 
 export interface InboundSms {
   id?: string;
@@ -44,7 +45,10 @@ export class SmsInboundService {
   ) {}
 
   async handle(sms: InboundSms, now = new Date()): Promise<string> {
-    if (!smsFallbackEnabled()) return "DISABLED";
+    const sosEnabled = smsFallbackEnabled();
+    // SafeWalk contacts answer their invitation (YES / STOP) on the same short code.
+    const consentEnabled = process.env.SAFEWALK_ESCALATION_ENABLED === "true";
+    if (!sosEnabled && !consentEnabled) return "DISABLED";
     const messageId = (sms.id ?? "").slice(0, 120);
     if (!messageId || !sms.from || typeof sms.text !== "string" || sms.text.length > 480) return "BAD_REQUEST";
     let e164: string;
@@ -76,6 +80,24 @@ export class SmsInboundService {
     });
     if (recent > MAX_PER_TEN_MINUTES) return finish("RATE_LIMITED");
 
+    // A shared short code routes by keyword ("OPA ..."); the keyword is not part of the message.
+    const keyword = (process.env.AFRICASTALKING_SMS_KEYWORD ?? "").trim();
+    const body = keyword && sms.text.trim().toLowerCase().startsWith(keyword.toLowerCase() + " ")
+      ? sms.text.trim().slice(keyword.length + 1)
+      : sms.text;
+
+    // YES / STOP is never an emergency. It only answers a SafeWalk invitation
+    // sent to this number; with no invitation it falls through unchanged.
+    const word = consentEnabled ? consentWord(body) : null;
+    if (word) {
+      const applied = await applyConsentReply(this.prisma, hash, word, now);
+      if (applied) {
+        await sendFromShortcode(e164, consentReplyText(word), sms.linkId);
+        return finish("SAFEWALK_" + applied);
+      }
+    }
+    if (!sosEnabled) return finish("DISABLED");
+
     const user = await this.prisma.user.findUnique({
       where: { phoneNumber: e164 },
       select: { id: true, role: true, isActive: true, accountStatus: true, credentialVersion: true },
@@ -84,11 +106,6 @@ export class SmsInboundService {
     if (!user || !user.isActive || user.accountStatus !== "ACTIVE" || user.role !== "USER")
       return finish("UNKNOWN_SENDER");
 
-    // A shared short code routes by keyword ("OPA ..."); the keyword is not part of the message.
-    const keyword = (process.env.AFRICASTALKING_SMS_KEYWORD ?? "").trim();
-    const body = keyword && sms.text.trim().toLowerCase().startsWith(keyword.toLowerCase() + " ")
-      ? sms.text.trim().slice(keyword.length + 1)
-      : sms.text;
     const decoded = decodeSms(body);
     if (decoded.kind === "UNRECOGNISED") return finish("UNRECOGNISED", { userId: user.id });
 

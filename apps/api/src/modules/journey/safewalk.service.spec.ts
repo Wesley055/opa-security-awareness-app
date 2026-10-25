@@ -14,6 +14,7 @@ describe('SafeWalk owner confirmations', () => {
       incident: { findFirst: jest.fn().mockResolvedValue(null) },
       safeWalkEscalation: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
       safeWalkNotice: { updateMany: jest.fn() },
+      safeWalkContactNotice: { updateMany: jest.fn() },
       safeWalkAudit: { create: jest.fn() },
     };
   }

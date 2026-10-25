@@ -1,4 +1,7 @@
 import {
+  ArrayMaxSize,
+  IsArray,
+  IsInt,
   IsIn,
   IsUUID,
   IsISO8601,
@@ -24,6 +27,8 @@ export const CLIENT_PURPOSES = [
   JourneyPurpose.SAFEWALK,
   JourneyPurpose.SYSTEM_TEST,
 ] as const;
+
+export const SAFEWALK_DESTINATION_KINDS = ['PLACE', 'SAVED_PLACE', 'CURRENT_LOCATION', 'DESCRIPTION'] as const;
 
 export class StartSessionDto {
   @IsOptional()
@@ -54,6 +59,35 @@ export class StartSessionDto {
   @IsOptional()
   @IsISO8601()
   expectedArrivalAt?: string;
+
+  /** New app only. Absent = the old app; no SafeWalkPlan is written. */
+  @IsOptional()
+  @IsIn(SAFEWALK_DESTINATION_KINDS)
+  destinationKind?: (typeof SAFEWALK_DESTINATION_KINDS)[number];
+
+  @IsOptional()
+  @IsString()
+  @Length(1, 256)
+  placeId?: string;
+
+  /** Typed by the person. Never treated as a verified location. */
+  @IsOptional()
+  @IsString()
+  @Length(2, 160)
+  destinationDescription?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(30)
+  @Max(500)
+  arrivalRadiusMeters?: number;
+
+  /** Emergency contacts who replied YES. Others are ignored, never texted. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(5)
+  @IsUUID('4', { each: true })
+  contactIds?: string[];
 }
 
 /**

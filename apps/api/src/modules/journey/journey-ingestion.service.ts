@@ -12,6 +12,7 @@ import { JourneyPurpose, JourneySessionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JourneySessionService } from './journey-session.service';
 import { deadlines, dbTime } from './safewalk-policy';
+import { createSafeWalkPlan } from './safewalk-plan';
 import { EmergencyIntelligenceSnapshotService } from '../emergency-intelligence/emergency-intelligence-snapshot.service';
 import type {
   InsertFixesResult,
@@ -203,7 +204,19 @@ export class JourneyIngestionService {
           );
         }
       } else if (purpose === JourneyPurpose.SAFEWALK) {
-        if (
+        // A described destination ("my aunt's house behind the market") has no
+        // coordinates and is never treated as a verified location.
+        const described = dto.destinationKind === 'DESCRIPTION';
+        if (described) {
+          const text = (dto.destinationDescription ?? dto.destinationLabel ?? '').trim();
+          if (text.length < 2 || dto.expectedArrivalAt == null) {
+            throw new BadRequestException('Describe where you are going and choose how long the journey takes.');
+          }
+          dto.destinationLabel = text.slice(0, 160);
+          dto.destinationDescription = text.slice(0, 160);
+          dto.destinationLatitude = undefined;
+          dto.destinationLongitude = undefined;
+        } else if (
           dto.destinationLabel == null ||
           dto.destinationLatitude == null ||
           dto.destinationLongitude == null ||
@@ -218,10 +231,11 @@ export class JourneyIngestionService {
           typeof dto.destinationLabel !== 'string' ||
           dto.destinationLabel.trim().length === 0 ||
           dto.destinationLabel.length > 256 ||
-          !Number.isFinite(dto.destinationLatitude) ||
-          Math.abs(dto.destinationLatitude) > 90 ||
-          !Number.isFinite(dto.destinationLongitude) ||
-          Math.abs(dto.destinationLongitude) > 180
+          (!described &&
+            (!Number.isFinite(dto.destinationLatitude) ||
+              Math.abs(dto.destinationLatitude!) > 90 ||
+              !Number.isFinite(dto.destinationLongitude) ||
+              Math.abs(dto.destinationLongitude!) > 180))
         ) {
           throw new BadRequestException('SafeWalk destination is invalid.');
         }
@@ -255,6 +269,7 @@ export class JourneyIngestionService {
             safeWalkEscalation: { create: deadlines(expectedArrivalAt) },
           },
         });
+        if (dto.destinationKind) await createSafeWalkPlan(tx, userId, session.id, dto);
       } else {
         session = await this.journeySessionService.resolveForActivation(
           tx,

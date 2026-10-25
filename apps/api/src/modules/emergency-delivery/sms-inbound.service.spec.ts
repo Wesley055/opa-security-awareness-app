@@ -2,8 +2,8 @@ import { Prisma } from "@prisma/client";
 import { SmsInboundService } from "./sms-inbound.service";
 import { deriveDeviceKey, encodeOfflineSos } from "./sms-codec";
 
-jest.mock("./sms-reply", () => ({ sendReceipt: jest.fn(async () => "SENT") }));
-import { sendReceipt } from "./sms-reply";
+jest.mock("./sms-reply", () => ({ sendReceipt: jest.fn(async () => "SENT"), sendFromShortcode: jest.fn(async () => "SENT") }));
+import { sendFromShortcode, sendReceipt } from "./sms-reply";
 
 const SECRET = Buffer.alloc(32, 9);
 const USER = { id: "11111111-1111-4111-8111-111111111111", role: "USER", isActive: true, accountStatus: "ACTIVE", credentialVersion: 3 };
@@ -120,5 +120,38 @@ describe("offline SOS by SMS", () => {
     const { service, orchestrator } = setup();
     await expect(service.handle({ id: "m1", from: PHONE, text: "hello there" }, NOW)).resolves.toBe("UNRECOGNISED");
     expect(orchestrator.createCoordinatedIncident).not.toHaveBeenCalled();
+  });
+});
+
+describe("SafeWalk contact replies on the same short code", () => {
+  afterEach(() => delete process.env.SAFEWALK_ESCALATION_ENABLED);
+  const withConsent = (count: number) => {
+    const ctx = setup(null);
+    (ctx.prisma as Record<string, unknown>).safeWalkContactConsent = { updateMany: jest.fn(async () => ({ count })), findMany: jest.fn(async () => []) };
+    (ctx.prisma as Record<string, unknown>).safeWalkContactNotice = { updateMany: jest.fn() };
+    return ctx;
+  };
+
+  it("YES from an invited contact records consent, replies, and never creates an alert", async () => {
+    process.env.SAFEWALK_ESCALATION_ENABLED = "true";
+    const { service, orchestrator } = withConsent(1);
+    await expect(service.handle({ id: "m9", from: PHONE, text: "yes" }, NOW)).resolves.toBe("SAFEWALK_CONSENTED");
+    expect(orchestrator.createCoordinatedIncident).not.toHaveBeenCalled();
+    expect(sendFromShortcode).toHaveBeenCalledWith(PHONE, expect.stringContaining("thank you"), undefined);
+  });
+
+  it("works while SMS SOS is still off, and does nothing else", async () => {
+    process.env.SAFEWALK_ESCALATION_ENABLED = "true";
+    delete process.env.SMS_FALLBACK_ENABLED;
+    const { service } = withConsent(0);
+    await expect(service.handle({ id: "m9", from: PHONE, text: "SOS" }, NOW)).resolves.toBe("DISABLED");
+  });
+
+  it("an SOS from a resident is never mistaken for a consent reply", async () => {
+    process.env.SAFEWALK_ESCALATION_ENABLED = "true";
+    const ctx = withConsent(1);
+    ctx.prisma.user.findUnique.mockResolvedValue(USER as never);
+    await expect(ctx.service.handle({ id: "m9", from: PHONE, text: signed() }, NOW)).resolves.toBe("SMS_SIGNED");
+    expect((ctx.prisma as unknown as { safeWalkContactConsent: { updateMany: jest.Mock } }).safeWalkContactConsent.updateMany).not.toHaveBeenCalled();
   });
 });

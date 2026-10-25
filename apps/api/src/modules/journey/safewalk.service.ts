@@ -2,7 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { JourneyPurpose, JourneySessionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { JourneySessionService } from './journey-session.service';
-import { settleSafeWalk, lockJourney } from './safewalk-policy';
+import { dbTime, settleSafeWalk, lockJourney } from './safewalk-policy';
 
 @Injectable()
 export class SafeWalkService {
@@ -40,10 +40,46 @@ export class SafeWalkService {
         safeWalkEscalation: { select: { state: true, checkDueAt: true, responseDueAt: true } },
         safeWalkNotices: { select: { id: true, kind: true, deliveryStatus: true, cancelledAt: true, providerAcceptedAt: true, confirmedDeliveredAt: true } },
         guardianGrants: { select: { id: true, grantedAt: true, revokedAt: true, policyVersion: true } },
+        safeWalkPlan: { select: { destinationKind: true, destinationDescription: true, arrivalRadiusMeters: true, arrivalDetectedAt: true, contactNotices: { select: { id: true, status: true, sentAt: true } } } },
       },
     });
     if (!session) throw new NotFoundException('Journey session not found.');
-    return { ...session, safetyChecksEnabled: process.env.SAFEWALK_ESCALATION_ENABLED === 'true', visibility: session.safeWalkEmergencyIncidentId ? 'EMERGENCY_ONLY' : 'PRIVATE', serverTime: new Date().toISOString(), locationStatus: !session.lastFixReceivedAt ? 'UNAVAILABLE' : Date.now() - session.lastFixReceivedAt.getTime() > 60_000 ? 'STALE' : 'RECENT_RECEIPT' };
+    const { safeWalkPlan, ...rest } = session;
+    // Contacts are counted, never named here: this view is the owner's own.
+    const plan = safeWalkPlan
+      ? {
+          destinationKind: safeWalkPlan.destinationKind,
+          destinationDescription: safeWalkPlan.destinationDescription,
+          arrivalRadiusMeters: safeWalkPlan.arrivalRadiusMeters,
+          arrivalDetectedAt: safeWalkPlan.arrivalDetectedAt,
+          contacts: safeWalkPlan.contactNotices.filter((n) => n.status !== 'CANCELLED' || n.sentAt).length,
+          contactsTexted: safeWalkPlan.contactNotices.filter((n) => n.status === 'SENT').length,
+        }
+      : null;
+    return { ...rest, plan, safetyChecksEnabled: process.env.SAFEWALK_ESCALATION_ENABLED === 'true', visibility: session.safeWalkEmergencyIncidentId ? 'EMERGENCY_ONLY' : 'PRIVATE', serverTime: new Date().toISOString(), locationStatus: !session.lastFixReceivedAt ? 'UNAVAILABLE' : Date.now() - session.lastFixReceivedAt.getTime() > 60_000 ? 'STALE' : 'RECENT_RECEIPT' };
+  }
+
+  /**
+   * The phone saw the person stay inside the destination area. Recorded once,
+   * for the owner only. It is NOT a safety confirmation: nobody is told, and
+   * the missed-arrival times are unchanged.
+   */
+  async arrivalDetected(userId: string, sessionId: string, at: { latitude: number; longitude: number; accuracy?: number }) {
+    return this.prisma.$transaction(async (tx) => {
+      await lockJourney(tx, userId, sessionId);
+      const session = await tx.journeySession.findFirst({
+        where: { id: sessionId, userId, purpose: JourneyPurpose.SAFEWALK, redactedAt: null },
+        select: { status: true, safeWalkPlan: { select: { arrivalDetectedAt: true } } },
+      });
+      if (!session || !session.safeWalkPlan) throw new NotFoundException('Journey session not found.');
+      if (session.safeWalkPlan.arrivalDetectedAt) return { sessionId, arrivalDetectedAt: session.safeWalkPlan.arrivalDetectedAt, alreadyDetected: true };
+      if (session.status === JourneySessionStatus.ENDED) throw new ConflictException('Journey session has ended.');
+      void at; // coordinates stay on the location trail; the plan only records the moment
+      const now = await dbTime(tx);
+      await tx.safeWalkPlan.update({ where: { sessionId }, data: { arrivalDetectedAt: now } });
+      await tx.safeWalkAudit.create({ data: { sessionId, actorUserId: userId, eventKey: sessionId + ':arrival-detected', kind: 'ARRIVAL_DETECTED', reasonCode: 'DEVICE_GEOFENCE_DWELL', occurredAt: now } });
+      return { sessionId, arrivalDetectedAt: now, alreadyDetected: false };
+    });
   }
 
   async confirm(userId: string, sessionId: string, kind: 'SAFETY' | 'ARRIVAL') {

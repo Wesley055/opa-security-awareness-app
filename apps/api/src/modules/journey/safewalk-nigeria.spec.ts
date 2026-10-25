@@ -211,3 +211,14 @@ describe("contact notice worker", () => {
     expect(tx.safeWalkContactNotice.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ status: "CANCELLED" }) }));
   });
 });
+
+describe("a missed arrival is never an emergency", () => {
+  const { readFileSync } = jest.requireActual("node:fs") as typeof import("node:fs");
+  it.each(["safewalk-escalation.service.ts", "safewalk-contact-notice.worker.ts", "safewalk-notification.worker.ts", "safewalk-consent.ts", "safewalk-contacts.service.ts", "safewalk-plan.ts"])(
+    "%s never creates an incident or reaches facility operators",
+    (file) => {
+      const source = readFileSync(__dirname + "/" + file, "utf8");
+      expect(source).not.toMatch(/incident\.(create|upsert)|IncidentOrchestrator|createCoordinatedIncident|facilityId:\s*\{|FACILITY_OPERATOR/);
+    },
+  );
+});

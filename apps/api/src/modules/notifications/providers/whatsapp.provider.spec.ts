@@ -12,6 +12,12 @@ import { WhatsAppProvider } from './whatsapp.provider';
  * These tests exist so the honest failure cannot regress silently.
  */
 describe('WhatsAppProvider', () => {
+  // The transport-boundary environment policy denies everything in an
+  // unclassified test process before the provider is reached. Run as a
+  // development process so these tests check the provider itself.
+  const previous = process.env.OPA_ENVIRONMENT;
+  beforeAll(() => { process.env.OPA_ENVIRONMENT = 'development'; });
+  afterAll(() => { if (previous === undefined) delete process.env.OPA_ENVIRONMENT; else process.env.OPA_ENVIRONMENT = previous; });
   const provider = new WhatsAppProvider();
   const request = {
     recipient: 'recipient-under-test',

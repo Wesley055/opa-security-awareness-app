@@ -33,6 +33,7 @@ describe('FacilityAdminGuard', () => {
     prisma.user.findUnique.mockResolvedValue({
       role: 'FACILITY_ADMIN',
       facilityId: 'facility-1',
+      membershipState: 'ACTIVE',
       isActive: true,
       accountStatus: 'ACTIVE',
     });

@@ -2,6 +2,7 @@ import { safeWalkEmergencyProvenance } from "./safewalk-emergency-read";
 import { facilityResponder, recordIdentityViews, responderPerson, RESPONDER_VISIBLE_STATUSES } from './responder-identity';
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ACTIVATION_SELECT, deliveryContext, deliveryView } from '../emergency-delivery/delivery-view';
+import { assuranceView } from '../emergency-assurance/assurance-view';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -105,9 +106,11 @@ export class IncidentDetailService {
       incident.id,
       journeySession,
     );
+    const assurance = await assuranceView(this.prisma, incidentId).catch(() => null);
     return {
       ...detail,
       ...(safeWalkEmergency ? { safeWalkEmergency } : {}),
+      ...(assurance ? { assurance } : {}),
       delivery: { ...deliveryView(activations), ...(await deliveryContext(this.prisma, incidentId)) },
       user: responderPerson(incident.user, incident.status, responder),
     };

@@ -3,6 +3,8 @@ import type { Request } from "express";
 import { callbackSourceAllowed, callbackTokenMatches } from "./delivery-identity";
 import { SmsInboundService, type InboundSms } from "./sms-inbound.service";
 import { UssdService, type UssdRequest } from "./ussd.service";
+import { PrismaService } from "../../prisma/prisma.service";
+import { voiceResponse, type VoiceCallback } from "../emergency-assurance/voice-callback";
 
 /**
  * Africa's Talking callbacks. Public (no JWT): protected by a long secret
@@ -14,6 +16,7 @@ export class AfricasTalkingCallbacksController {
   constructor(
     private readonly sms: SmsInboundService,
     private readonly ussd: UssdService,
+    private readonly prisma: PrismaService,
   ) {}
 
   private guard(token: string, request: Request) {
@@ -34,5 +37,14 @@ export class AfricasTalkingCallbacksController {
   async session(@Param("token") token: string, @Req() request: Request, @Body() body: UssdRequest): Promise<string> {
     this.guard(token, request);
     return this.ussd.handle(body ?? {});
+  }
+
+  /** Emergency assurance calls: the spoken alert, and "press 1" as confirmation. */
+  @Post("voice/:token")
+  @HttpCode(200)
+  @Header("Content-Type", "application/xml")
+  async voice(@Param("token") token: string, @Req() request: Request, @Body() body: VoiceCallback): Promise<string> {
+    this.guard(token, request);
+    return voiceResponse(this.prisma, body ?? {});
   }
 }

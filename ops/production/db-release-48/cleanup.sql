@@ -1,5 +1,5 @@
 \set ON_ERROR_STOP on
--- Administrator only. Release 48: release 47 cleanup plus the emergency delivery and SafeWalk tables and types. Explicit production approval required before running.
+-- Administrator only. Release 48: release 47 cleanup plus the emergency delivery, SafeWalk and emergency assurance tables and types. Explicit production approval required before running.
 -- No credentials in this script. Use an approved TLS psql service/credential provider.
 DO $$ BEGIN
  IF current_database() <> 'opa-api-production-database' OR (SELECT count(*) FROM opa_deployment.environment_identity) <> 1
@@ -206,6 +206,18 @@ DO $$ BEGIN IF to_regclass('public."SafeWalkContactNotice"') IS NOT NULL THEN
  ALTER TABLE public."SafeWalkContactNotice" OWNER TO "opa_production_release_owner";
  GRANT SELECT, INSERT, UPDATE, DELETE ON public."SafeWalkContactNotice" TO "opa_production_runtime";
  GRANT REFERENCES ON public."SafeWalkContactNotice" TO "opa_production_migrations";
+END IF; END $$;
+DO $$ BEGIN IF to_regclass('public."IncidentContactAssurance"') IS NOT NULL THEN
+ IF (SELECT relowner FROM pg_class WHERE oid=to_regclass('public."IncidentContactAssurance"')) NOT IN (SELECT oid FROM pg_roles WHERE rolname IN ('opa_production_migrations','opa_production_release_owner')) THEN RAISE EXCEPTION 'NEW_OBJECT_OWNER'; END IF;
+ ALTER TABLE public."IncidentContactAssurance" OWNER TO "opa_production_release_owner";
+ GRANT SELECT, INSERT, UPDATE, DELETE ON public."IncidentContactAssurance" TO "opa_production_runtime";
+ GRANT REFERENCES ON public."IncidentContactAssurance" TO "opa_production_migrations";
+END IF; END $$;
+DO $$ BEGIN IF to_regclass('public."IncidentSecurityEscalation"') IS NOT NULL THEN
+ IF (SELECT relowner FROM pg_class WHERE oid=to_regclass('public."IncidentSecurityEscalation"')) NOT IN (SELECT oid FROM pg_roles WHERE rolname IN ('opa_production_migrations','opa_production_release_owner')) THEN RAISE EXCEPTION 'NEW_OBJECT_OWNER'; END IF;
+ ALTER TABLE public."IncidentSecurityEscalation" OWNER TO "opa_production_release_owner";
+ GRANT SELECT, INSERT, UPDATE, DELETE ON public."IncidentSecurityEscalation" TO "opa_production_runtime";
+ GRANT REFERENCES ON public."IncidentSecurityEscalation" TO "opa_production_migrations";
 END IF; END $$;
 DO $$ BEGIN IF to_regclass('public."SupportCase_sequence_seq"') IS NOT NULL THEN ALTER SEQUENCE public."SupportCase_sequence_seq" OWNER TO "opa_production_release_owner"; GRANT USAGE, SELECT ON SEQUENCE public."SupportCase_sequence_seq" TO "opa_production_runtime"; END IF; END $$;
 DO $$ BEGIN IF to_regtype('public."OnboardingPermission"') IS NOT NULL THEN ALTER TYPE public."OnboardingPermission" OWNER TO "opa_production_release_owner"; GRANT USAGE ON TYPE public."OnboardingPermission" TO "opa_production_runtime"; END IF; END $$;

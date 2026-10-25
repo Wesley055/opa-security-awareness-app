@@ -223,6 +223,8 @@ model Incident {
   notifications  IncidentNotification[]
   evidence       Evidence[]
   activations    EmergencyActivation[]
+  contactAssurances IncidentContactAssurance[]
+  securityEscalation IncidentSecurityEscalation?
 
   @@index([userId, status, lastTriggeredAt])
   @@index([userId, createdAt])
@@ -250,6 +252,7 @@ model EmergencyContact {
   isActive             Boolean  @default(true)
   receivesEmergencySms Boolean  @default(true)
   safeWalkConsent      SafeWalkContactConsent?
+  incidentAssurances   IncidentContactAssurance[]
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
@@ -1717,4 +1720,40 @@ model SafeWalkContactNotice {
 
   @@unique([sessionId, consentId])
   @@index([status, nextAttemptAt])
+}
+
+/// Emergency assurance (release 48): whether each emergency contact confirmed
+/// seeing an SOS, and the reminders or calls made when nobody had.
+model IncidentContactAssurance {
+  id                 String            @id @default(uuid()) @db.Uuid
+  incidentId         String            @db.Uuid
+  incident           Incident          @relation(fields: [incidentId], references: [id], onDelete: Restrict)
+  emergencyContactId String?           @db.Uuid
+  emergencyContact   EmergencyContact? @relation(fields: [emergencyContactId], references: [id], onDelete: SetNull)
+  phoneHash          String            @db.Char(64)
+  /// "Sister": shown to the duty officer instead of a name or number.
+  relationship       String            @db.VarChar(40)
+  askSentAt          DateTime?
+  confirmedAt        DateTime?
+  /// SMS_REPLY | VOICE_KEYPRESS
+  confirmedVia       String?           @db.VarChar(16)
+  reminderSentAt     DateTime?
+  voiceCallAt        DateTime?
+  voiceOutcome       String?           @db.VarChar(40)
+  closedAt           DateTime?
+  createdAt          DateTime          @default(now())
+
+  @@unique([incidentId, emergencyContactId])
+  @@index([phoneHash, createdAt(sort: Desc)])
+  @@index([closedAt, createdAt])
+}
+
+/// Facility Admins were alerted because security had not acknowledged in time.
+model IncidentSecurityEscalation {
+  incidentId String   @id @db.Uuid
+  incident   Incident @relation(fields: [incidentId], references: [id], onDelete: Restrict)
+  facilityId String   @db.Uuid
+  notifiedAt DateTime @default(now())
+  recipients Int
+  sent       Int      @default(0)
 }

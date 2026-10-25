@@ -1,5 +1,5 @@
 'use strict';
-// OPA production database release runner. This release: schema 47 -> 48 (emergency delivery: SMS fallback, USSD; SafeWalk Nigeria-first).
+// OPA production database release runner. This release: schema 47 -> 48 (emergency delivery: SMS fallback, USSD; SafeWalk Nigeria-first; emergency assurance).
 // Pinned per release: SQL hashes, new migration hashes, schema hash and counts.
 // Runs inside the production App Service container with /usr/local/bin/node.
 // Modes, run separately and by hand: check | prepare | activate | resolve | migrate | cleanup | verify
@@ -22,17 +22,17 @@ const SQL_HASH = {
   activate: 'a88b43b93c4f75db182ee01b522758b324f9a32cb4cbdc4eed81de436674d566',
   // REFERENCES on "Incident", "JourneySession" and "EmergencyContact" for the release owner; refuses unless "User" is release-owner owned.
   prepare: 'f187bb2a32df4689d91e7769475bf04ae79588b458916a91e1af39528bd80732',
-  // Release 47 cleanup plus eight new tables (five delivery, three SafeWalk) and four enums.
-  cleanup: 'ea906124bc924b62e81bc5cf775e1d3f10014f56afe41180fa87f7817c16af13',
+  // Release 47 cleanup plus ten new tables (five delivery, three SafeWalk, two assurance) and four enums.
+  cleanup: '92131c9989bce176d15cc478ac339cfe97e7cb098a4eb181db24c661c78c4f73',
 };
 const NEW_MIGRATIONS = {
-  '20261024010000_emergency_delivery': '3a6b58cb198c4f12dfc6832fa4d6607b6b68d4c47eb18ce4129173b7e610537b',
+  '20261024010000_emergency_delivery': '66bac9471cc029672705118cdd6b326999c48c3378b0c6ef2fa90ba9b455562a',
 };
-const SCHEMA_HASH = '7d1f214f389cfac8f66602515dfe73656b3738af246868d0cd5ee03d9c0e5391';
+const SCHEMA_HASH = 'c5059c06978a2f4c58ac24980016d522e5b611021a077b66665d88befaf1b913';
 const BEFORE = 47, AFTER = 48;
 // If this release's migration ever fails, `resolve` marks that one attempt rolled back.
 const FAILED = '20261024010000_emergency_delivery';
-const DELIVERY_TABLES = ['EmergencyActivation', 'SavedPlace', 'DeviceSmsKey', 'InboundMessage', 'UssdSession', 'SafeWalkPlan', 'SafeWalkContactConsent', 'SafeWalkContactNotice'];
+const DELIVERY_TABLES = ['EmergencyActivation', 'SavedPlace', 'DeviceSmsKey', 'InboundMessage', 'UssdSession', 'SafeWalkPlan', 'SafeWalkContactConsent', 'SafeWalkContactNotice', 'IncidentContactAssurance', 'IncidentSecurityEscalation'];
 const DELIVERY_TYPES = ['IncidentChannel', 'DeliveryVerification', 'SafeWalkDestinationKind', 'SafeWalkContactConsentStatus'];
 const REFERENCED = ['Incident', 'JourneySession', 'EmergencyContact'];
 const inList = names => names.map(x => `'${x}'`).join(',');

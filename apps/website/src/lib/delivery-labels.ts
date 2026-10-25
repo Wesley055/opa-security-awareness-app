@@ -50,3 +50,23 @@ export function locationReportLine(r: LocationReport): string {
     return `Last app position${typeof r.ageMinutes === 'number' ? `, ${r.ageMinutes} min old` : ''}: ${r.latitude}, ${r.longitude}`;
   return 'Location reported';
 }
+
+/** Emergency assurance: who among the alerted contacts confirmed, by relationship only. */
+export interface AssuranceDetail {
+  contactsAlerted: number;
+  contactsConfirmed: { relationship: string; at: string; via: string }[];
+  remindersSent: number;
+  callsPlaced: number;
+  securityEscalatedAt: string | null;
+  facilityAdminsAlerted: number;
+}
+
+export function assuranceSummary(a: AssuranceDetail): string {
+  if (!a.contactsAlerted) return "No emergency contacts were texted.";
+  const n = a.contactsConfirmed.length;
+  if (n === 0) {
+    const steps = [a.remindersSent ? "reminder sent" : "", a.callsPlaced ? `${a.callsPlaced} call${a.callsPlaced === 1 ? "" : "s"} placed` : ""].filter(Boolean).join(", ");
+    return `No contact has confirmed seeing the alert yet (${a.contactsAlerted} texted${steps ? `; ${steps}` : ""}).`;
+  }
+  return `${n} of ${a.contactsAlerted} contacts confirmed seeing the alert.`;
+}

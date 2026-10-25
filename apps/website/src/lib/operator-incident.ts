@@ -18,7 +18,7 @@ import { apiUrl, getAccessToken } from '@/lib/operator-session';
  * staleness must never be computed against the browser's.
  */
 
-import type { DeliveryDetail } from '@/lib/delivery-labels';
+import type { DeliveryDetail, AssuranceDetail } from '@/lib/delivery-labels';
 
 export type IncidentDetail = {
   safeWalkEmergency?: {source:"SAFEWALK_EXPLICIT";emergencyStartedAt:string};
@@ -55,6 +55,8 @@ export type IncidentDetail = {
   user: { firstName: string; lastName: string } | null;
   /** Release 48: how the alert arrived and USSD answers. Absent from older API builds. */
   delivery?: DeliveryDetail;
+  /** Emergency assurance (release 48). Absent until contacts are asked or security is escalated. */
+  assurance?: AssuranceDetail;
 };
 
 export type IncidentDetailResult =

@@ -1,4 +1,4 @@
-# Release 48: emergency delivery (offline SOS, SMS fallback, USSD) and SafeWalk Nigeria-first — database 47 → 48
+# Release 48: emergency delivery (offline SOS, SMS fallback, USSD), SafeWalk Nigeria-first and emergency assurance — database 47 → 48
 
 Design: `docs/design/2026-10-23-emergency-delivery-sms-ussd.md` (approved by the founder 23 Oct, including the section 10 recommendations).
 
@@ -24,17 +24,17 @@ Older apps work exactly as before.
 
 ## Database package
 
-`opa-release-db-48.zip`, SHA-256 `5029d887e86ecafbca9942279722a83db75b921f5ad1e3c88ce9a365fd9866aa`. **This replaces the earlier 48 package (`9899d59b…`), which must not be used.**
+`opa-release-db-48.zip`, SHA-256 `85ae6c9a4c47be9763c9dcf5030b282cf719538647e4794ee24f2787f9362f55`. **This supersedes the earlier 48 packages (`9899d59b…`, `5029d887…`): keep them, labelled superseded, and do not run them.**
 
 | File | SHA-256 |
 |---|---|
 | `activate.sql` | `a88b43b9…` (unchanged since 46) |
 | `prepare.sql` | `f187bb2a…` (**new**) |
-| `cleanup.sql` | `ea906124…` (47 cleanup plus 8 tables and 4 enums) |
-| migration `20261024010000_emergency_delivery` | `3a6b58cb…` (delivery and SafeWalk in one transaction) |
-| `schema.prisma` | `7d1f214f…` |
+| `cleanup.sql` | `92131c99…` (47 cleanup plus 10 tables and 4 enums) |
+| migration `20261024010000_emergency_delivery` | `66bac947…` (delivery, SafeWalk and assurance in one transaction) |
+| `schema.prisma` | `c5059c06…` |
 
-The migration is additive: eight new tables (five delivery, three SafeWalk: `SafeWalkPlan`, `SafeWalkContactConsent`, `SafeWalkContactNotice`), four enums and `User.preferredLanguage`. It deliberately **does not alter `Incident`, `JourneySession`, `EmergencyContact` or the existing SafeWalk tables**, which may be administrator-owned in production.
+The migration is additive: ten new tables (five delivery; three SafeWalk: `SafeWalkPlan`, `SafeWalkContactConsent`, `SafeWalkContactNotice`; two assurance: `IncidentContactAssurance`, `IncidentSecurityEscalation`), four enums and `User.preferredLanguage`. It deliberately **does not alter `Incident`, `JourneySession`, `EmergencyContact` or the existing SafeWalk tables**, which may be administrator-owned in production.
 
 **Why prepare is back.** The new tables have foreign keys to `Incident`, `JourneySession` and `EmergencyContact`, and a foreign key needs the REFERENCES privilege. The rehearsal, using the production ownership layout with `Incident` owned by the administrator, reproduced the failure without prepare: `permission denied for table Incident`. Nothing was left behind. `prepare.sql`:
 - grants REFERENCES on `Incident`, `JourneySession` and `EmergencyContact` to the scoped NOLOGIN release owner (idempotent; a no-op where the release owner already owns the table); refuses if any of them has an unexpected owner;
@@ -42,14 +42,14 @@ The migration is additive: eight new tables (five delivery, three SafeWalk: `Saf
 
 **Rehearsal** (local PostgreSQL 16, production role layout and ownership contract, with `Incident`, `JourneySession` and `EmergencyContact` administrator-owned as the worst case): migration fails without prepare, as expected, leaving 0 tables. Then prepare (run twice, idempotent) → activate → migrate as `opa_production_migrations` → cleanup:
 - migrator-owned objects 0;
-- new tables owned by the release owner: 8/8;
+- new tables owned by the release owner: 10/10;
 - enums owned by the release owner: 4/4;
 - `preferredLanguage` column: 1;
 - the migrator is no longer an owner member and cannot create objects in `public`;
 - tables the runtime cannot read: 0;
 - the runtime can insert and update every new table; the language check rejects `fr` and the notice-status check rejects unknown states.
 
-`check` reports `NEXT prepare, then activate`. `activate` refuses (`RUN_PREPARE_FIRST`) until prepare has run. `verify` adds `deliveryTablesOwnedByReleaseOwner 8`, `deliveryTypesOwnedByReleaseOwner 4` and `preferredLanguageColumn 1` to every release-47 condition.
+`check` reports `NEXT prepare, then activate`. `activate` refuses (`RUN_PREPARE_FIRST`) until prepare has run. `verify` adds `deliveryTablesOwnedByReleaseOwner 10`, `deliveryTypesOwnedByReleaseOwner 4` and `preferredLanguageColumn 1` to every release-47 condition.
 
 ## Steps
 
@@ -58,7 +58,7 @@ The migration is additive: eight new tables (five delivery, three SafeWalk: `Saf
    ```powershell
    cd C:\Projects\OPA-release-simplification
    git pull --rebase --autostash
-   powershell -ExecutionPolicy Bypass -File .\ops\production-release\release-api.ps1 -PreviousPolicy ".\artifacts\release-c889a81\api-release-c889a81.signed.json" -DbPackage "$env:USERPROFILE\Downloads\opa-release-db-48.zip" -DbPackageSha 5029d887e86ecafbca9942279722a83db75b921f5ad1e3c88ce9a365fd9866aa
+   powershell -ExecutionPolicy Bypass -File .\ops\production-release\release-api.ps1 -PreviousPolicy ".\artifacts\release-c889a81\api-release-c889a81.signed.json" -DbPackage "$env:USERPROFILE\Downloads\opa-release-db-48.zip" -DbPackageSha 85ae6c9a4c47be9763c9dcf5030b282cf719538647e4794ee24f2787f9362f55
    ```
    Expect `MIGRATIONS=48` (one new migration). It pauses at 4b/7.
 2. **Window 2:** `az webapp ssh -g opa-production -n opa-api-production`, then:
@@ -100,6 +100,25 @@ Callback URLs to give Africa's Talking:
 - USSD: `https://<api>/integrations/africastalking/ussd/<token>`
 
 Test against the Africa's Talking sandbox simulator first.
+
+## Emergency assurance switch-on (later, separate approval)
+
+Answers Providus Bank's question "what happens when an emergency contact misses the alert?". The SOS itself is never delayed or changed; everything here happens after it has gone out.
+
+- **Contact confirmation:** right after the SOS, each texted contact gets "Reply OK when you have seen it" from the short code. OK (or "press 1" on a call) is recorded. The duty officer sees "Sister confirmed by text at 14:03": relationship only, never a name or number.
+- **When nobody has confirmed:** at +3 min every contact gets a reminder with the live link; at +5 min an automated voice call, only once a voice number is configured. Steps stop as soon as anyone confirms, and when the incident ends. Each step is claimed before it is sent, so a restart or a second server never sends twice.
+- **Security path, independent:** if no duty officer has acknowledged an SOS within 2 min, the facility's Facility Admins get one SMS ("an SOS at Quartz has not been acknowledged for 2 minutes"). A contact confirming never stops this, and an officer acknowledging never stops the contact steps.
+
+| Setting | Value |
+|---|---|
+| `EMERGENCY_ASSURANCE_ENABLED` | `true` (needs the two-way short code) |
+| `SECURITY_ESCALATION_ENABLED` | `true` (needs only normal SMS) |
+| `ASSURANCE_REMINDER_MINUTES` / `ASSURANCE_VOICE_MINUTES` / `SECURITY_ACK_ESCALATION_MINUTES` | optional; defaults 3 / 5 / 2 |
+| `ASSURANCE_VOICE_ENABLED`, `AFRICASTALKING_VOICE_NUMBER`, `AFRICASTALKING_VOICE_CALLBACK_URL` | only after an Africa's Talking voice number is bought; callback `https://<api>/integrations/africastalking/voice/<token>` |
+
+Not yet: per-organization times (one global setting for now); a named backup duty officer (Facility Admins are the escalation target).
+
+Assurance physical E2E: SOS → contact gets the alert and the OK request → reply OK → Command Center shows the confirmation; no reply → reminder at +3; nobody acknowledges as operator → Facility Admin SMS at +2; resolve → nothing more is sent; reply OK after resolve → "this alert has already ended".
 
 ## SafeWalk switch-on (later, separate approval)
 

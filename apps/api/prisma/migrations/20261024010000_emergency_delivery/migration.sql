@@ -161,4 +161,43 @@ CREATE UNIQUE INDEX "SafeWalkContactNotice_sessionId_consentId_key" ON "SafeWalk
 CREATE INDEX "SafeWalkContactNotice_status_nextAttemptAt_idx" ON "SafeWalkContactNotice"("status", "nextAttemptAt");
 ALTER TABLE "SafeWalkContactNotice" ADD CONSTRAINT "SafeWalkContactNotice_sessionId_fkey" FOREIGN KEY ("sessionId") REFERENCES "SafeWalkPlan"("sessionId") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "SafeWalkContactNotice" ADD CONSTRAINT "SafeWalkContactNotice_consentId_fkey" FOREIGN KEY ("consentId") REFERENCES "SafeWalkContactConsent"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Part 3: emergency assurance. Who among the emergency contacts confirmed seeing
+-- an SOS, reminders and calls when nobody has, and the separate escalation to
+-- Facility Admins when security has not acknowledged. Never delays the alert.
+CREATE TABLE "IncidentContactAssurance" (
+  "id" UUID NOT NULL,
+  "incidentId" UUID NOT NULL,
+  -- Set null if the contact is later deleted; the evidence stays.
+  "emergencyContactId" UUID,
+  "phoneHash" CHAR(64) NOT NULL,
+  -- Snapshot for the duty officer ("Sister"); never the contact's name or number.
+  "relationship" VARCHAR(40) NOT NULL,
+  "askSentAt" TIMESTAMP(3),
+  "confirmedAt" TIMESTAMP(3),
+  "confirmedVia" VARCHAR(16),
+  "reminderSentAt" TIMESTAMP(3),
+  "voiceCallAt" TIMESTAMP(3),
+  "voiceOutcome" VARCHAR(40),
+  "closedAt" TIMESTAMP(3),
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "IncidentContactAssurance_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT incident_contact_assurance_hash CHECK ("phoneHash" ~ '^[0-9a-f]{64}$'),
+  CONSTRAINT incident_contact_assurance_via CHECK ("confirmedVia" IS NULL OR "confirmedVia" IN ('SMS_REPLY','VOICE_KEYPRESS'))
+);
+CREATE UNIQUE INDEX "IncidentContactAssurance_incidentId_emergencyContactId_key" ON "IncidentContactAssurance"("incidentId", "emergencyContactId");
+CREATE INDEX "IncidentContactAssurance_phoneHash_createdAt_idx" ON "IncidentContactAssurance"("phoneHash", "createdAt" DESC);
+CREATE INDEX "IncidentContactAssurance_closedAt_createdAt_idx" ON "IncidentContactAssurance"("closedAt", "createdAt");
+ALTER TABLE "IncidentContactAssurance" ADD CONSTRAINT "IncidentContactAssurance_incidentId_fkey" FOREIGN KEY ("incidentId") REFERENCES "Incident"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "IncidentContactAssurance" ADD CONSTRAINT "IncidentContactAssurance_emergencyContactId_fkey" FOREIGN KEY ("emergencyContactId") REFERENCES "EmergencyContact"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+CREATE TABLE "IncidentSecurityEscalation" (
+  "incidentId" UUID NOT NULL,
+  "facilityId" UUID NOT NULL,
+  "notifiedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "recipients" INTEGER NOT NULL,
+  "sent" INTEGER NOT NULL DEFAULT 0,
+  CONSTRAINT "IncidentSecurityEscalation_pkey" PRIMARY KEY ("incidentId")
+);
+ALTER TABLE "IncidentSecurityEscalation" ADD CONSTRAINT "IncidentSecurityEscalation_incidentId_fkey" FOREIGN KEY ("incidentId") REFERENCES "Incident"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 COMMIT;

@@ -21,7 +21,7 @@ export function contactPhoneHash(phoneNumber: string): string | null {
 }
 
 /** "OPA YES" on a shared short code; the keyword is configured, not assumed. */
-export function replyHint(word: "YES" | "STOP"): string {
+export function replyHint(word: string): string {
   const keyword = (process.env.AFRICASTALKING_SMS_KEYWORD ?? "").trim().toUpperCase();
   return keyword ? `${keyword} ${word}` : word;
 }

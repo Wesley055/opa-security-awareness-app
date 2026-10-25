@@ -1,5 +1,5 @@
 "use client";
-import { channelLabel, locationReportLine, verificationNote, type DeliveryDetail } from "@/lib/delivery-labels";
+import { assuranceSummary, channelLabel, locationReportLine, verificationNote, type AssuranceDetail, type DeliveryDetail } from "@/lib/delivery-labels";
 import { IncidentVisitors } from "@/components/console/incident-visitors";
 import { IncidentMap } from "@/components/console/incident-map";
 
@@ -739,6 +739,7 @@ export function IncidentDetailView({
       </section>
 
       {incident.delivery ? <DeliveryPanel delivery={incident.delivery} /> : null}
+      {incident.assurance ? <AssurancePanel assurance={incident.assurance} /> : null}
 
       <section className="rounded-xl border border-line bg-panel p-4 text-ink">
         <h2 className="text-xl font-bold">Operational state</h2>
@@ -774,6 +775,33 @@ export function IncidentDetailView({
         stale={timelineStale}
       />
     </div>
+  );
+}
+
+/** Emergency assurance: contacts who confirmed (relationship only) and any escalation to Facility Admins. */
+function AssurancePanel({ assurance }: { assurance: AssuranceDetail }) {
+  return (
+    <section aria-labelledby="assurance-heading" className="rounded-xl border border-line bg-panel p-4 text-ink sm:p-6">
+      <h2 id="assurance-heading" className="text-xl font-bold">Emergency contacts</h2>
+      <p className="mt-2">{assuranceSummary(assurance)}</p>
+      {assurance.contactsConfirmed.length ? (
+        <ul className="mt-1 grid gap-1 text-sm">
+          {assurance.contactsConfirmed.map((c, i) => (
+            <li key={i}>
+              {c.relationship} confirmed{c.via === "VOICE_KEYPRESS" ? " by phone call" : " by text"} at{" "}
+              <time suppressHydrationWarning dateTime={c.at}>{formatLocalDateTime(c.at)}</time>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <p className="mt-2 text-sm text-muted">A contact confirming does not replace your response.</p>
+      {assurance.securityEscalatedAt ? (
+        <p role="status" className="mt-3 font-semibold text-emergency">
+          Not acknowledged in time: {assurance.facilityAdminsAlerted} Facility Admin{assurance.facilityAdminsAlerted === 1 ? " was" : "s were"} alerted at{" "}
+          <time suppressHydrationWarning dateTime={assurance.securityEscalatedAt}>{formatLocalDateTime(assurance.securityEscalatedAt)}</time>.
+        </p>
+      ) : null}
+    </section>
   );
 }
 

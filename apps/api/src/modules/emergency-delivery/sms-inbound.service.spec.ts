@@ -155,3 +155,15 @@ describe("SafeWalk contact replies on the same short code", () => {
     expect((ctx.prisma as unknown as { safeWalkContactConsent: { updateMany: jest.Mock } }).safeWalkContactConsent.updateMany).not.toHaveBeenCalled();
   });
 });
+
+describe("emergency contacts reply OK", () => {
+  afterEach(() => delete process.env.EMERGENCY_ASSURANCE_ENABLED);
+  it("records the confirmation and never creates an alert", async () => {
+    process.env.EMERGENCY_ASSURANCE_ENABLED = "true";
+    const ctx = setup(null);
+    (ctx.prisma as Record<string, unknown>).incidentContactAssurance = { findMany: jest.fn(async () => [{ id: "a", confirmedAt: null, closedAt: null }]), updateMany: jest.fn() };
+    await expect(ctx.service.handle({ id: "m10", from: PHONE, text: "OK" }, NOW)).resolves.toBe("ASSURANCE_CONFIRMED");
+    expect(ctx.orchestrator.createCoordinatedIncident).not.toHaveBeenCalled();
+    expect(sendFromShortcode).toHaveBeenCalledWith(PHONE, "OPA: thank you. Your confirmation has been recorded.", undefined);
+  });
+});

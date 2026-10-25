@@ -32,6 +32,7 @@ import { validateEnv } from './shared/config/env.validation';
 import { CorrelationIdMiddleware } from './shared/middleware/correlation-id.middleware';
 import { RequestLoggingMiddleware } from './shared/middleware/request-logging.middleware';
 import { EmergencyDeliveryModule } from "./modules/emergency-delivery/emergency-delivery.module";
+import { EmergencyAssuranceModule } from "./modules/emergency-assurance/emergency-assurance.module";
 @Module({
   imports: [
     ConfigModule.forRoot({
@@ -68,6 +69,7 @@ import { EmergencyDeliveryModule } from "./modules/emergency-delivery/emergency-
     DutyModule,
     StaffProfileModule,
     EmergencyDeliveryModule,
+    EmergencyAssuranceModule,
   ],
 })
 export class AppModule implements NestModule {

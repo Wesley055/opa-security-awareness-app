@@ -16,6 +16,7 @@ import { msisdnHash, smsFallbackEnabled } from "./delivery-identity";
 import { signingSecret } from "./sms-keys.service";
 import { sendFromShortcode, sendReceipt } from "./sms-reply";
 import { applyConsentReply, consentReplyText, consentWord } from "../journey/safewalk-consent";
+import { ackWord, applyAssuranceReply, confirmedText, contactAssuranceEnabled } from "../emergency-assurance/assurance-policy";
 
 export interface InboundSms {
   id?: string;
@@ -48,7 +49,8 @@ export class SmsInboundService {
     const sosEnabled = smsFallbackEnabled();
     // SafeWalk contacts answer their invitation (YES / STOP) on the same short code.
     const consentEnabled = process.env.SAFEWALK_ESCALATION_ENABLED === "true";
-    if (!sosEnabled && !consentEnabled) return "DISABLED";
+    const assuranceEnabled = contactAssuranceEnabled();
+    if (!sosEnabled && !consentEnabled && !assuranceEnabled) return "DISABLED";
     const messageId = (sms.id ?? "").slice(0, 120);
     if (!messageId || !sms.from || typeof sms.text !== "string" || sms.text.length > 480) return "BAD_REQUEST";
     let e164: string;
@@ -94,6 +96,14 @@ export class SmsInboundService {
       if (applied) {
         await sendFromShortcode(e164, consentReplyText(word), sms.linkId);
         return finish("SAFEWALK_" + applied);
+      }
+    }
+    // "OK" from an alerted emergency contact: they have seen the alert.
+    if (assuranceEnabled && ackWord(body)) {
+      const ack = await applyAssuranceReply(this.prisma, hash, now);
+      if (ack) {
+        await sendFromShortcode(e164, confirmedText(ack.active), sms.linkId);
+        return finish("ASSURANCE_CONFIRMED");
       }
     }
     if (!sosEnabled) return finish("DISABLED");
